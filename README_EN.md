@@ -1,5 +1,7 @@
-# LizzieYzy - GUI for Game of Go
+# LizzieYzy Next-FoxUID - GUI for Game of Go
 ![screenshot_en](/screenshot_en.png?raw=true)
+
+LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy. This branch fixes Fox kifu sync and now supports UID-only query mode (username lookup removed).
 
 LizzieYzy is a graphical interface modified from [Lizzie](https://github.com/featurecat/lizzie), allows loading various engines like: [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) or other GTP engines.
 

@@ -1,5 +1,7 @@
-# LizzieYzy - 围棋引擎界面(中文,[English](#en),[日本語](https://github-com.translate.goog/yzyray/lizzieyzy/blob/main/README_EN.md?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_pto=wapp),[한국어](#ko))
+# LizzieYzy Next-FoxUID - 围棋引擎界面(中文,[English](#en),[日本語](https://github-com.translate.goog/yzyray/lizzieyzy/blob/main/README_EN.md?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_pto=wapp),[한국어](#ko))
 ![screenshot](/screenshot.png?raw=true)
+
+LizzieYzy Next-FoxUID 是 LizzieYzy 的维护分支，专注修复与持续更新。当前分支已修复腾讯野狐棋谱同步，并调整为仅支持 UID 查询（不再支持用户名检索）。
 
 LizzieYzy 是一个引擎界面,修改自[Lizzie](https://github.com/featurecat/lizzie),可加载围棋引擎:[Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi)以及其他标准GTP引擎。
 
@@ -32,8 +34,10 @@ LizzieYzy 是一个引擎界面,修改自[Lizzie](https://github.com/featurecat/
 
 #
 <span id="en"></span>
-# LizzieYzy - GUI for Game of Go
+# LizzieYzy Next-FoxUID - GUI for Game of Go
 ![screenshot_en](/screenshot_en.png?raw=true)
+
+LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy. This branch fixes Fox kifu sync and now supports UID-only query mode (username lookup removed).
 
 LizzieYzy is a graphical interface modified from [Lizzie](https://github.com/featurecat/lizzie), allows loading various engines like: [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) or other GTP engines.
 
@@ -67,7 +71,7 @@ We have added some new features on Lizzie's basis: **Hawk Eye, Flash Analyze, Ba
 
 #
 <span id="ko"></span>
-# LizzieYzy - 바둑 엔진용 GUI
+# LizzieYzy Next-FoxUID - 바둑 엔진용 GUI
 ![screenshot_ko](/screenshot_ko.png?raw=true)
 
 LizzieYzy는 [Lizzie](https://github.com/featurecat/lizzie)를 기반으로 [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) 등의 다른 GTP engine들을 로드할 수 있도록 수정된 그래픽 인터페이스입니다.
