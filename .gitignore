@@ -1,3 +1,6 @@
 .tools/
 target/
 dist/
+config.txt
+persist
+save/
