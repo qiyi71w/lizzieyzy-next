@@ -1,4 +1,12 @@
 # LizzieYzy Next-FoxUID - GUI for Game of Go
+## Maintenance Highlights (Read First)
+**This is the actively maintained LizzieYzy fork. Core updates in this maintenance release:**
+
+* **Fox kifu sync fixed**: switched to direct Fox H5 API fetch flow.
+* **UID-only search mode**: username lookup removed by design.
+* **Multi-platform release packages restored**: Windows32/Windows64/Mac+Linux/Other `without.engine` bundles.
+* **Mac dual-chip startup clarified**: includes `start-mac-arm64.sh`, `start-mac-amd64.sh`, plus auto-detect launcher.
+
 ![screenshot_en](/screenshot_en.png?raw=true)
 
 LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy. This branch fixes Fox kifu sync and now supports UID-only query mode (username lookup removed).

@@ -1,4 +1,12 @@
 # LizzieYzy Next-FoxUID - 围棋引擎界面(中文,[English](#en),[日本語](https://github-com.translate.goog/yzyray/lizzieyzy/blob/main/README_EN.md?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_pto=wapp),[한국어](#ko))
+## 维护版重点更新（先看这里）
+**这是 LizzieYzy 的持续维护分支，下面是本次维护新增/修复的核心功能：**
+
+* **野狐棋谱同步已修复**：改为直连 Fox H5 API 抓取棋谱，不再依赖旧外部 jar 流程。
+* **只支持 UID 查询**：明确移除“用户名检索”，输入 UID 即可同步最新可见棋谱。
+* **多平台发布包已恢复**：提供 Windows32/Windows64/Mac+Linux/Other 四类 `without.engine` 包。
+* **Mac 双芯片启动已标注**：发布包内新增 `start-mac-arm64.sh`、`start-mac-amd64.sh` 和自动识别启动脚本。
+
 ![screenshot](/screenshot.png?raw=true)
 
 LizzieYzy Next-FoxUID 是 LizzieYzy 的维护分支，专注修复与持续更新。当前分支已修复腾讯野狐棋谱同步，并调整为仅支持 UID 查询（不再支持用户名检索）。
@@ -35,6 +43,14 @@ LizzieYzy 是一个引擎界面,修改自[Lizzie](https://github.com/featurecat/
 #
 <span id="en"></span>
 # LizzieYzy Next-FoxUID - GUI for Game of Go
+## Maintenance Highlights (Read First)
+**This is the actively maintained LizzieYzy fork. Core updates in this maintenance release:**
+
+* **Fox kifu sync fixed**: switched to direct Fox H5 API fetch flow.
+* **UID-only search mode**: username lookup removed by design.
+* **Multi-platform release packages restored**: Windows32/Windows64/Mac+Linux/Other `without.engine` bundles.
+* **Mac dual-chip startup clarified**: includes `start-mac-arm64.sh`, `start-mac-amd64.sh`, plus auto-detect launcher.
+
 ![screenshot_en](/screenshot_en.png?raw=true)
 
 LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy. This branch fixes Fox kifu sync and now supports UID-only query mode (username lookup removed).
