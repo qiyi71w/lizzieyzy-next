@@ -1,15 +1,18 @@
 # LizzieYzy Next-FoxUID - 围棋引擎界面(中文,[English](#en),[日本語](https://github-com.translate.goog/yzyray/lizzieyzy/blob/main/README_EN.md?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_pto=wapp),[한국어](#ko))
-## 维护版重点更新（先看这里）
-**这是 LizzieYzy 的持续维护分支，下面是本次维护新增/修复的核心功能：**
+## 先看这一句
+**原来的 LizzieYzy 里，“同步腾讯野狐棋谱”这个功能已经不好用了。这个维护版把它补回来了，现在可以直接输入野狐ID，获取最新公开棋谱。**
 
-* **野狐棋谱同步已修复**：改为直连 Fox H5 API 抓取棋谱，不再依赖旧外部 jar 流程。
-* **只支持 UID 查询**：明确移除“用户名检索”，输入 UID 即可同步最新可见棋谱。
+## 维护版重点更新
+**这个项目会继续维护，当前最重要的改动如下：**
+
+* **野狐棋谱同步已修复**：原项目这块已经失效，现在改为直连 Fox H5 API 抓取棋谱。
+* **改成输入野狐ID获取**：不再走用户名检索，直接输入野狐ID即可同步最新可见棋谱。
 * **多平台发布包已恢复**：提供 Windows32/Windows64/Mac+Linux/Other 四类 `without.engine` 包。
 * **Mac 双芯片启动已标注**：发布包内新增 `start-mac-arm64.sh`、`start-mac-amd64.sh` 和自动识别启动脚本。
 
 ![screenshot](/screenshot.png?raw=true)
 
-LizzieYzy Next-FoxUID 是 LizzieYzy 的维护分支，专注修复与持续更新。当前分支已修复腾讯野狐棋谱同步，并调整为仅支持 UID 查询（不再支持用户名检索）。
+LizzieYzy Next-FoxUID 是 LizzieYzy 的维护分支，专门接手原项目里已经失效或没人继续维护的功能。当前已经修复腾讯野狐棋谱同步，并改成更直接的“输入野狐ID获取”。
 
 LizzieYzy 是一个引擎界面,修改自[Lizzie](https://github.com/featurecat/lizzie),可加载围棋引擎:[Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi)以及其他标准GTP引擎。
 
@@ -43,17 +46,20 @@ LizzieYzy 是一个引擎界面,修改自[Lizzie](https://github.com/featurecat/
 #
 <span id="en"></span>
 # LizzieYzy Next-FoxUID - GUI for Game of Go
-## Maintenance Highlights (Read First)
-**This is the actively maintained LizzieYzy fork. Core updates in this maintenance release:**
+## Read This First
+**In the original LizzieYzy, Fox kifu sync no longer worked reliably. This maintained fork restores that feature, and now lets you fetch the latest public Fox games by entering a Fox ID directly.**
 
-* **Fox kifu sync fixed**: switched to direct Fox H5 API fetch flow.
-* **UID-only search mode**: username lookup removed by design.
+## Maintenance Highlights
+**This is the actively maintained LizzieYzy fork. The most important updates are:**
+
+* **Fox kifu sync fixed**: the original flow was broken, so this fork switched to direct Fox H5 API fetching.
+* **Fetch by Fox ID**: username lookup was removed on purpose. Enter a Fox ID to get the latest public games.
 * **Multi-platform release packages restored**: Windows32/Windows64/Mac+Linux/Other `without.engine` bundles.
 * **Mac dual-chip startup clarified**: includes `start-mac-arm64.sh`, `start-mac-amd64.sh`, plus auto-detect launcher.
 
 ![screenshot_en](/screenshot_en.png?raw=true)
 
-LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy. This branch fixes Fox kifu sync and now supports UID-only query mode (username lookup removed).
+LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy focused on reviving broken features and keeping the project usable. This branch restores Fox kifu sync and changes it to a simpler Fox ID based flow.
 
 LizzieYzy is a graphical interface modified from [Lizzie](https://github.com/featurecat/lizzie), allows loading various engines like: [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) or other GTP engines.
 

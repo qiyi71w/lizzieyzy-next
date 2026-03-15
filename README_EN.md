@@ -1,15 +1,18 @@
 # LizzieYzy Next-FoxUID - GUI for Game of Go
-## Maintenance Highlights (Read First)
-**This is the actively maintained LizzieYzy fork. Core updates in this maintenance release:**
+## Read This First
+**In the original LizzieYzy, Fox kifu sync no longer worked reliably. This maintained fork restores that feature, and now lets you fetch the latest public Fox games by entering a Fox ID directly.**
 
-* **Fox kifu sync fixed**: switched to direct Fox H5 API fetch flow.
-* **UID-only search mode**: username lookup removed by design.
+## Maintenance Highlights
+**This is the actively maintained LizzieYzy fork. The most important updates are:**
+
+* **Fox kifu sync fixed**: the original flow was broken, so this fork switched to direct Fox H5 API fetching.
+* **Fetch by Fox ID**: username lookup was removed on purpose. Enter a Fox ID to get the latest public games.
 * **Multi-platform release packages restored**: Windows32/Windows64/Mac+Linux/Other `without.engine` bundles.
 * **Mac dual-chip startup clarified**: includes `start-mac-arm64.sh`, `start-mac-amd64.sh`, plus auto-detect launcher.
 
 ![screenshot_en](/screenshot_en.png?raw=true)
 
-LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy. This branch fixes Fox kifu sync and now supports UID-only query mode (username lookup removed).
+LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy focused on reviving broken features and keeping the project usable. This branch restores Fox kifu sync and changes it to a simpler Fox ID based flow.
 
 LizzieYzy is a graphical interface modified from [Lizzie](https://github.com/featurecat/lizzie), allows loading various engines like: [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) or other GTP engines.
 
