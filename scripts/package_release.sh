@@ -125,7 +125,7 @@ make_bundle() {
 
   mkdir -p "$app"
   cp "$JAR_PATH" "$app/"
-  cp LICENSE.txt README.md README_EN.md README_KO.md readme_cn.pdf readme_en.pdf "$app/"
+  cp LICENSE.txt README.md README_EN.md README_JA.md README_KO.md readme_cn.pdf readme_en.pdf "$app/"
   copy_bundle_engine_assets "$app" "$engine_platforms"
   copy_bundle_runtime_assets "$app" "$runtime_platform"
 
