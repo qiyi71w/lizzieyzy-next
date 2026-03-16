@@ -105,17 +105,11 @@ jpackage \
   --mac-package-identifier "$IDENTIFIER" \
   --java-options "-Xmx4096m"
 
-APP_BUNDLE="$APP_IMAGE_DIR/$APP_NAME.app"
-APP_ZIP="$ROOT_DIR/dist/release/${DATE_TAG}-${ARCH_TAG}.${PACKAGE_FLAVOR}.app.zip"
 DMG_FILE="$(ls "$DMG_DIR"/*.dmg | head -n 1)"
 FINAL_DMG="$ROOT_DIR/dist/release/${DATE_TAG}-${ARCH_TAG}.${PACKAGE_FLAVOR}.dmg"
 
 mkdir -p "$ROOT_DIR/dist/release"
 cp "$DMG_FILE" "$FINAL_DMG"
-(
-  cd "$APP_IMAGE_DIR"
-  ditto -c -k --sequesterRsrc --keepParent "$APP_NAME.app" "$APP_ZIP"
-)
 
 cat >"$ROOT_DIR/dist/release/${DATE_TAG}-${ARCH_TAG}.${PACKAGE_FLAVOR}-install.txt" <<EOF
 Package type: unsigned macOS app + dmg

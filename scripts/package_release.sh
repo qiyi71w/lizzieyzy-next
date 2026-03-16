@@ -227,6 +227,19 @@ if exist \"Lizzieyzy\\runtime\\windows-x64\\bin\\java.exe\" set \"JAVA_CMD=Lizzi
   "windows-x64"
 
 make_bundle \
+  "$DATE_TAG-windows64.without.engine" \
+  "start-windows64.bat" \
+  "@echo off
+setlocal
+cd /d %~dp0
+set \"JAVA_CMD=java\"
+if exist \"Lizzieyzy\\runtime\\windows-x64\\bin\\java.exe\" set \"JAVA_CMD=Lizzieyzy\\runtime\\windows-x64\\bin\\java.exe\"
+\"%JAVA_CMD%\" -jar \"Lizzieyzy\\lizzie-yzy2.5.3-shaded.jar\"" \
+  "No bundled KataGo in this package. Bundled Java runtime included for Windows x64 if present." \
+  "" \
+  "windows-x64"
+
+make_bundle \
   "$DATE_TAG-windows32.$WINDOWS32_FLAVOR" \
   "start-windows32.bat" \
   "@echo off
@@ -296,16 +309,6 @@ Mac chip support:
 
 If old native dependencies are incompatible in your environment, install a matching JDK and try Rosetta for x86_64 mode.
 EOF
-
-make_bundle \
-  "$DATE_TAG-other-systems.without.engine" \
-  "start.sh" \
-  "#!/usr/bin/env bash
-set -e
-cd \"\$(dirname \"\$0\")\"
-java -jar \"Lizzieyzy/lizzie-yzy2.5.3-shaded.jar\"" \
-  "No bundled KataGo in this package." \
-  ""
 
 for d in "$STAGE_DIR"/*; do
   (
