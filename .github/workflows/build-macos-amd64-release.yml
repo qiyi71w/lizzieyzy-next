@@ -41,10 +41,7 @@ jobs:
         env:
           HTTPS_PROXY: ""
           HTTP_PROXY: ""
-          https_proxy: ""
-          http_proxy: ""
           ALL_PROXY: ""
-          all_proxy: ""
         run: ./scripts/prepare_bundled_katago.sh
 
       - name: Build macOS amd64 package
