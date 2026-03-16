@@ -81,6 +81,13 @@ copy_matching_files() {
 }
 
 find_model_source() {
+  local katago_prefix
+  local katago_share_dir=""
+  katago_prefix="$(brew_prefix_for katago)"
+  if [[ -n "$katago_prefix" ]]; then
+    katago_share_dir="$katago_prefix/share/katago"
+  fi
+
   if [[ -n "$MODEL_SOURCE" ]]; then
     if [[ -f "$MODEL_SOURCE" ]]; then
       printf '%s\n' "$MODEL_SOURCE"
@@ -91,17 +98,39 @@ find_model_source() {
   fi
 
   local candidates=(
+    "${katago_share_dir:+$katago_share_dir/$PREFERRED_MODEL_NAME}"
+    "${katago_share_dir:+$katago_share_dir/g170-b40c256x2-s5095420928-d1229425124.bin.gz}"
+    "${katago_share_dir:+$katago_share_dir/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz}"
+    "/usr/local/opt/katago/share/katago/$PREFERRED_MODEL_NAME"
+    "/usr/local/opt/katago/share/katago/g170-b40c256x2-s5095420928-d1229425124.bin.gz"
+    "/usr/local/opt/katago/share/katago/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz"
     "/opt/homebrew/opt/katago/share/katago/$PREFERRED_MODEL_NAME"
     "/opt/homebrew/opt/katago/share/katago/g170-b40c256x2-s5095420928-d1229425124.bin.gz"
     "/opt/homebrew/opt/katago/share/katago/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz"
   )
   local candidate
   for candidate in "${candidates[@]}"; do
-    if [[ -f "$candidate" ]]; then
+    if [[ -n "$candidate" ]] && [[ -f "$candidate" ]]; then
       printf '%s\n' "$candidate"
       return 0
     fi
   done
+
+  if [[ -n "$katago_share_dir" ]] && [[ -d "$katago_share_dir" ]]; then
+    candidate="$(find "$katago_share_dir" -maxdepth 1 -type f -name '*.bin.gz' | head -n 1)"
+    if [[ -n "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  if [[ -d /usr/local/opt/katago/share/katago ]]; then
+    candidate="$(find /usr/local/opt/katago/share/katago -maxdepth 1 -type f -name '*.bin.gz' | head -n 1)"
+    if [[ -n "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
 
   if [[ -d /opt/homebrew/opt/katago/share/katago ]]; then
     candidate="$(find /opt/homebrew/opt/katago/share/katago -maxdepth 1 -type f -name '*.bin.gz' | head -n 1)"
