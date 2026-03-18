@@ -1,0 +1,83 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="60" x2="1200" y2="680" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4E2B8"/>
+      <stop offset="1" stop-color="#E7C98D"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFF8E7" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#FFF1D0" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#5C4525" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" rx="32" fill="url(#bg)"/>
+
+  <g opacity="0.28">
+    <rect x="68" y="74" width="470" height="470" rx="18" fill="#D5A85A"/>
+    <g stroke="#7F5A24" stroke-width="2.4">
+      <path d="M120 120H486"/>
+      <path d="M120 168H486"/>
+      <path d="M120 216H486"/>
+      <path d="M120 264H486"/>
+      <path d="M120 312H486"/>
+      <path d="M120 360H486"/>
+      <path d="M120 408H486"/>
+      <path d="M120 456H486"/>
+      <path d="M120 504H486"/>
+      <path d="M120 552H486"/>
+      <path d="M120 120V552"/>
+      <path d="M168 120V552"/>
+      <path d="M216 120V552"/>
+      <path d="M264 120V552"/>
+      <path d="M312 120V552"/>
+      <path d="M360 120V552"/>
+      <path d="M408 120V552"/>
+      <path d="M456 120V552"/>
+      <path d="M504 120V552"/>
+    </g>
+    <g fill="#7F5A24">
+      <circle cx="216" cy="216" r="6"/>
+      <circle cx="216" cy="456" r="6"/>
+      <circle cx="360" cy="360" r="6"/>
+      <circle cx="504" cy="216" r="6"/>
+      <circle cx="504" cy="456" r="6"/>
+    </g>
+    <g filter="url(#shadow)">
+      <circle cx="216" cy="264" r="24" fill="#202020"/>
+      <circle cx="264" cy="312" r="24" fill="#F8F5EE" stroke="#CCB792" stroke-width="3"/>
+      <circle cx="312" cy="264" r="24" fill="#202020"/>
+      <circle cx="408" cy="360" r="24" fill="#F8F5EE" stroke="#CCB792" stroke-width="3"/>
+      <circle cx="360" cy="408" r="24" fill="#202020"/>
+      <circle cx="456" cy="264" r="24" fill="#F8F5EE" stroke="#CCB792" stroke-width="3"/>
+    </g>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="468" y="92" width="748" height="536" rx="28" fill="url(#panel)"/>
+  </g>
+
+  <rect x="516" y="146" width="156" height="40" rx="20" fill="#173C34"/>
+  <text x="594" y="172" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#F9F2E1">ACTIVE FORK</text>
+
+  <text x="516" y="250" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="66" font-weight="800" fill="#1A1A1A">LizzieYzy</text>
+  <text x="516" y="324" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="66" font-weight="800" fill="#1A1A1A">Next-FoxUID</text>
+
+  <text x="516" y="390" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" fill="#6B5631">Fix Fox Weiqi sync. Ship practical KataGo-ready releases.</text>
+  <text x="516" y="432" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="24" font-weight="500" fill="#7A6640">Windows, macOS, Linux • Fox ID fetch • Maintained fork</text>
+
+  <g>
+    <rect x="516" y="494" width="146" height="48" rx="24" fill="#1B4D3E"/>
+    <text x="589" y="524" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" fill="#F6F0E1">Fox ID Sync</text>
+
+    <rect x="678" y="494" width="182" height="48" rx="24" fill="#7F4F24"/>
+    <text x="769" y="524" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" fill="#FFF7E8">Built-in KataGo</text>
+
+    <rect x="876" y="494" width="240" height="48" rx="24" fill="#2F4858"/>
+    <text x="996" y="524" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" fill="#F5F7FA">Windows / macOS / Linux</text>
+  </g>
+
+  <text x="516" y="588" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#6B5631">From a broken legacy fork to a polished, maintained project page.</text>
+</svg>

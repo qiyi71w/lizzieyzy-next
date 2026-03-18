@@ -1,0 +1,77 @@
+name: Bug Report
+description: Report a reproducible problem in the app, packaging, or Fox sync flow.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈问题。请尽量填写完整，这会显著提升修复速度。
+
+        Thanks for reporting. The more concrete your report is, the faster we can reproduce and fix it.
+  - type: input
+    id: package_name
+    attributes:
+      label: Package Name
+      description: 你下载的安装包文件名 / Which release asset did you use?
+      placeholder: 2026-03-16-windows64.with-katago.zip
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows x64
+        - Windows x86
+        - macOS Apple Silicon
+        - macOS Intel
+        - Linux x64
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: fox_sync
+    attributes:
+      label: Is this related to Fox sync?
+      options:
+        - Yes
+        - No
+    validations:
+      required: true
+  - type: input
+    id: fox_id
+    attributes:
+      label: Fox ID
+      description: 如果和野狐抓谱有关，请填写野狐ID；不要填写用户名。
+      placeholder: Optional
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps To Reproduce
+      description: 请写清楚复现步骤。
+      placeholder: |
+        1. Open the app
+        2. Click ...
+        3. Enter ...
+        4. See error ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Error Message / Screenshot / Extra Context
+      description: 粘贴报错、截图链接或其他你觉得有帮助的信息。

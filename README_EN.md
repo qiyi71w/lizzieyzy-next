@@ -1,55 +1,113 @@
-# LizzieYzy Next-FoxUID - GUI for Game of Go
-## Read This First
-**In the original LizzieYzy, Fox kifu sync no longer worked reliably. This maintained fork restores that feature, and now lets you fetch the latest public Fox games by entering a Fox ID directly.**
+<p align="center">
+  <img src="assets/hero.svg" alt="LizzieYzy Next-FoxUID" width="100%" />
+</p>
 
-## Maintenance Highlights
-**This is the actively maintained LizzieYzy fork. The most important updates are:**
+<p align="center">
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=1B4D3E" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=7F4F24" alt="Stars"></a>
+  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/License-GPL%20v3-E7A23B" alt="License"></a>
+</p>
 
-* **Fox kifu sync fixed**: the original flow was broken, so this fork switched to direct Fox H5 API fetching.
-* **Fetch by Fox ID**: username lookup was removed on purpose. Enter a Fox ID to get the latest public games.
-* **Multi-platform release packages restored**: Windows32/Windows64/Mac+Linux/Other `without.engine` bundles.
-* **Mac dual-chip startup clarified**: includes `start-mac-arm64.sh`, `start-mac-amd64.sh`, plus auto-detect launcher.
+<p align="center">
+  <a href="README.md">中文</a> · English · <a href="README_JA.md">日本語</a> · <a href="README_KO.md">한국어</a>
+</p>
 
-## Quick Start In 3 Steps
-1. Download the package for your system from [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases).
-2. `with-katago` bundles can run right after unzip or install. `without.engine` bundles need your own engine setup.
-3. Open the app and use the Fox sync entry to fetch the latest public game by Fox ID.
+# LizzieYzy Next-FoxUID
 
-## Where Is The Bundled Weight File?
-- Windows / Linux bundles: `Lizzieyzy/weights/default.bin.gz`
-- macOS bundles: inside the `.app` package at `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- If Finder only shows one `.app` file, that is expected. Use “Show Package Contents” to inspect it.
+**An actively maintained LizzieYzy fork that restores broken Fox Weiqi sync and ships practical KataGo-ready releases for Windows, macOS, and Linux.**
 
-![screenshot_en](/screenshot_en.png?raw=true)
+> [!IMPORTANT]
+> The original Fox sync flow in LizzieYzy no longer worked reliably. This fork restores it and standardizes the UI around Fox ID input.
 
-LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy focused on reviving broken features and keeping the project usable. This branch restores Fox kifu sync and changes it to a simpler Fox ID based flow.
+## Why This Fork Exists
 
-LizzieYzy is a graphical interface modified from [Lizzie](https://github.com/featurecat/lizzie), allows loading various engines like: [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) or other GTP engines.
+The original LizzieYzy is still useful, but one of its most important flows no longer worked reliably: syncing Fox kifu. This fork focuses on making the project usable again, not just preserving history.
 
-We have added some new features on Lizzie's basis: **Hawk Eye, Flash Analyze, Batch Analyze, Estimate, Board Synchronization(only windows), Engine Game, Tsumego Frame, Double Engine Mode, Visualized KataGo Distributed Training** and adjusted some details, supported retina monitor, avoided getting fuzzy by scaled.
-#
-* New features
+What changed:
 
-  * **Hawk Eye**: Get accuracy, winrate difference, score difference and blunder moves based on the differences between engine candidates and actual moves and display in chart.
+- **Fox sync fixed** with a newer Fox H5 API based flow
+- **Fox ID only** so users no longer need to guess whether to use a name or an internal UID
+- **Cleaner releases** so people can quickly choose the right package
+- **Ongoing maintenance** instead of a one-off patch
 
-  * **Flash Analyze**: Depend on Katago's analysis mode, analyze all kifus in parallel and get winrate graph candidates rapidly, support batch analyze.
+## Screenshot
 
-  * **Batch Analyze**: Support batch analyze kifus by GTP engine or Katago's analysis mode.
+![LizzieYzy Next-FoxUID Screenshot](screenshot_en.png)
 
-  * **Estimate**: Use Katago(default)'s command:`kata-raw-nn` or ZenGTP's command `territory` to get raw territory, support automatically estimate after each move.
+## Download Guide
 
-  * **Board Synchronization(C#)**: [Repository](https://github.com/yzyray/readboard) Two mode: foreground(board can't be moved or covered)/backgorund. Special optimizations have been made for FoxWQ、TYGEM、SINA platforms, allowing one-click synchronization, while synchronizing from other platforms or from a picture or gif you need to select the region of the board. Support automatically carrying moves for both sides(developed by C#, only support Windows).
+| Platform | Recommended package | Bundled Java | Bundled KataGo |
+| --- | --- | --- | --- |
+| Windows x64 | `windows64.with-katago.zip` | Yes | Yes |
+| Windows x64 | `windows64.without.engine.zip` | Yes | No |
+| Windows x86 | `windows32.without.engine.zip` | No | No |
+| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | App runtime | Yes |
+| macOS Intel | `mac-amd64.with-katago.dmg` | App runtime | Yes |
+| Linux x64 | `linux64.with-katago.zip` | Yes | Yes |
+| Advanced users | `Macosx.amd64.Linux.amd64.without.engine.zip` | No | No |
 
-  * **Board Synchronization(Java)**: [Repository](https://github.com/yzyray/readboard_Boofcv) Foreground only, need to select the region contains the board. Support automatically carrying moves for both sides.
+Releases: <https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
 
-  * **Engine Game**: Allow a game or multiple games bettween two engines. Support loading some SGF files as opening books. Support various commands:`lz-analyze`, `kata-analyze`, `genmove` to get moves. For multiple games it will automatically calculate some statistics: elo, stdev interval and etc.
+## Quick Start
 
-  * **Tsumego Analysis**: Support capture tsumego in part of goban, and automatically generate other part of stones help engine analyze in right area, refer to [Analyze]-[Tsumego frame] or [Capture tsumego] or [Tsumego] button in toolbar.
+1. Download the package for your system from the [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) page.
+2. If you want the easiest setup, choose a `with-katago` package.
+3. Launch the app and use the Fox sync entry.
+4. Enter a **Fox ID** to fetch the latest public Fox games.
 
-  * **Double Engine Mode**: Support loading two engines and analyze synchronously, which is convenient for comparison.
+## What Makes This Fork Different
 
-  * **Visualized KataGo Distributed Training**: Visualized official KataGo training, all games(playing or completed) can be watched.
+| Topic | Original project | Next-FoxUID |
+| --- | --- | --- |
+| Fox sync | Broken for many users | Restored |
+| Input mode | Old flow, confusing for users | Fox ID only |
+| Release layout | Harder to pick the right file | Clearer per-system packages |
+| Maintenance | Mostly inactive | Actively maintained |
 
-#
- * Instruction for use: https://github.com/yzyray/lizzieyzy/blob/main/readme_en.pdf (If you are reading under translate to Japanese or Korean, please go to original link, translated link will not work)
- * Other jar source code links: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
+## Bundled Engine Details
+
+- Bundled KataGo version: `v1.16.4`
+- Default bundled weight: `g170e-b20c256x2-s5303129600-d1228401921.bin.gz`
+- Windows / Linux weight path: `Lizzieyzy/weights/default.bin.gz`
+- macOS weight path: `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+
+## Feature Highlights
+
+- Fox kifu sync by Fox ID
+- Hawk Eye analysis
+- Flash analysis with KataGo analysis mode
+- Batch analysis
+- Dual-engine comparison
+- Tsumego analysis helpers
+- Engine-vs-engine matches
+- Board sync options retained from the original project
+
+## FAQ
+
+<details>
+<summary><strong>Why remove username lookup?</strong></summary>
+
+Because it caused confusion and was less reliable for maintenance. Fox ID is clearer for both users and debugging.
+</details>
+
+<details>
+<summary><strong>Why keep dmg files but remove macOS app.zip from releases?</strong></summary>
+
+Because most users want a direct installer workflow, not two macOS package formats that look similar.
+</details>
+
+## Contributing
+
+If you want to help this fork grow into a stronger long-term project, contributions are welcome.
+
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code Of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+- [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
+- [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)
+
+## Credits
+
+- Original project: [yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
+- Upstream GUI base: [featurecat/lizzie](https://github.com/featurecat/lizzie)
+- Engine: [lightvector/KataGo](https://github.com/lightvector/KataGo)

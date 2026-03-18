@@ -1,227 +1,185 @@
-# LizzieYzy Next-FoxUID - 围棋引擎界面(中文,[English](#en),[日本語](#ja),[한국어](#ko))
-## 先看这一句
-**原来的 LizzieYzy 里，“同步腾讯野狐棋谱”这个功能已经不好用了。这个维护版把它补回来了，现在可以直接输入野狐ID，获取最新公开棋谱。**
+<p align="center">
+  <img src="assets/hero.svg" alt="LizzieYzy Next-FoxUID" width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=1B4D3E" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=7F4F24" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=2F4858" alt="Downloads"></a>
+  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/License-GPL%20v3-E7A23B" alt="License"></a>
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-4A5D23" alt="Platforms">
+</p>
+
+<p align="center">
+  中文 · <a href="README_EN.md">English</a> · <a href="README_JA.md">日本語</a> · <a href="README_KO.md">한국어</a>
+</p>
+
+<p align="center">
+  <strong>把原版已经失效的野狐棋谱同步功能，真正修回来了。</strong><br/>
+  这是一个持续维护的 LizzieYzy 分支，支持输入野狐ID获取最新公开棋谱，并提供更实用的 KataGo 多平台发布包。
+</p>
+
+<p align="center">
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases">下载发布包</a>
+  ·
+  <a href="#快速开始">快速开始</a>
+  ·
+  <a href="#下载哪个包">下载建议</a>
+  ·
+  <a href="#参与维护">参与维护</a>
+</p>
+
+> [!IMPORTANT]
+> 原版 LizzieYzy 的野狐棋谱同步流程已经失效。本维护版已修复该功能，界面入口统一为“野狐棋谱（输入野狐ID获取）”。
+
+## 这个项目为什么值得关注
+
+| 你关心的事 | 这个维护版给你的结果 |
+| --- | --- |
+| 原版野狐棋谱同步已经失效 | 改成直连 Fox H5 API，重新可用 |
+| 用户不知道什么是 UID | 界面和文档统一改成“野狐ID” |
+| 发布包不好选 | 现在按系统整理，下载决策更清楚 |
+| 新手装引擎太麻烦 | Windows / macOS / Linux 都有可直接上手的整合包 |
+| 项目没人维护 | 这个分支就是为继续维护而建的 |
+
+## 第一眼先看这些亮点
+
+- **野狐棋谱同步已修复**：原项目失效的同步流程已经替换成新的可用实现。
+- **输入野狐ID即可获取**：不再走容易混淆的用户名检索逻辑。
+- **整合包更实用**：Windows 64 和 Linux 64 提供内置 Java + KataGo 的版本，Mac 提供 `.dmg` 安装包。
+- **保留 LizzieYzy 的强项**：鹰眼分析、闪电分析、批量分析、棋盘同步、双引擎模式、死活题分析等功能继续保留。
+- **继续维护，不只修一次**：这个仓库的目标不是“补个洞就走”，而是把它做成真正可长期使用的分支。
+
+## 项目截图
+
+![LizzieYzy Next-FoxUID Screenshot](screenshot.png)
+
+## 下载哪个包
+
+| 系统 | 推荐包 | 是否内置 Java | 是否内置 KataGo | 适合谁 |
+| --- | --- | --- | --- | --- |
+| Windows 64 位 | `windows64.with-katago.zip` | 是 | 是 | 想下载后直接用 |
+| Windows 64 位 | `windows64.without.engine.zip` | 是 | 否 | 想自己换引擎或轻量使用 |
+| Windows 32 位 | `windows32.without.engine.zip` | 否 | 否 | 老机器或兼容场景 |
+| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | App 自带运行时 | 是 | M 系列 Mac 用户 |
+| macOS Intel | `mac-amd64.with-katago.dmg` | App 自带运行时 | 是 | Intel Mac 用户 |
+| Linux 64 位 | `linux64.with-katago.zip` | 是 | 是 | Linux 桌面用户 |
+| Linux / Intel Mac 进阶用户 | `Macosx.amd64.Linux.amd64.without.engine.zip` | 否 | 否 | 想自己配引擎 |
+
+发布页：<https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
+
+## 快速开始
+
+1. 进入 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 下载适合你系统的包。
+2. 如果你想最省事，优先选 `with-katago` 整合包。
+3. 启动程序后，使用“野狐棋谱（输入野狐ID获取）”功能。
+4. 输入野狐ID，即可抓取最新公开棋谱。
+
+## 和原版相比，变化在哪里
+
+| 项目 | 原 LizzieYzy | LizzieYzy Next-FoxUID |
+| --- | --- | --- |
+| 野狐棋谱同步 | 已不好用 | 已修复 |
+| 获取方式 | 旧流程、容易混淆 | 直接输入野狐ID |
+| 发布包策略 | 不够清晰 | 按系统整理，下载更直观 |
+| Windows 64 | 有时还要自己补环境 | 提供内置 Java + KataGo 的整合包 |
+| macOS | 安装体验不统一 | 直接提供 `.dmg` 安装包 |
+| 维护状态 | 基本停更 | 持续维护 |
+
+## 适合谁
+
+- 想继续使用 LizzieYzy，但被原版野狐同步问题卡住的人
+- 想拿到一个“下载就能复盘”的 KataGo 图形界面的人
+- 教练、家长、棋社管理者，需要更稳定地抓取野狐公开棋谱的人
+- 熟悉引擎配置，想自己换 KataGo 权重或其他 GTP 引擎的人
+
+## 功能亮点
+
+| 模块 | 说明 |
+| --- | --- |
+| 野狐棋谱同步 | 通过野狐ID获取最新公开棋谱 |
+| 鹰眼分析 | 图表化展示吻合度、胜率波动、目差波动、失误手 |
+| 闪电分析 | 使用 KataGo analysis 模式并行分析整盘棋谱 |
+| 批量分析 | 支持多份棋谱批量处理 |
+| 形势判断 | 支持基于 KataGo 的粗略领地 / 局势判断 |
+| 棋盘同步 | 保留原项目 Windows / Java 同步方案 |
+| 双引擎模式 | 同时加载两个引擎做对比分析 |
+| 死活题分析 | 支持局部抓题和辅助框架生成 |
+| 引擎对局 | 支持引擎间单盘或多盘对局 |
 
-## 维护版重点更新
-**这个项目会继续维护，当前最重要的改动如下：**
+## 权重和引擎文件在哪里
 
-* **野狐棋谱同步已修复**：原项目这块已经失效，现在改为直连 Fox H5 API 抓取棋谱。
-* **改成输入野狐ID获取**：不再走用户名检索，直接输入野狐ID即可同步最新可见棋谱。
-* **多平台发布包已恢复**：提供 Windows32/Windows64/Mac+Linux/Other 四类 `without.engine` 包。
-* **Mac 双芯片启动已标注**：发布包内新增 `start-mac-arm64.sh`、`start-mac-amd64.sh` 和自动识别启动脚本。
+- Windows / Linux 整合包：`Lizzieyzy/weights/default.bin.gz`
+- macOS 整合包：`LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+- macOS 如果 Finder 里只看到一个 `.app`，这是正常的。右键应用，选择“显示包内容”即可查看。
+- 当前整合版内置的 KataGo 程序版本是 `v1.16.4`
+- 当前默认内置权重是 `g170e-b20c256x2-s5303129600-d1228401921.bin.gz`
 
-## 3步快速开始
-1. 到 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 下载适合自己系统的包。
-2. `with-katago` 整合包下载后直接解压或安装即可用；`without.engine` 版本需要自己配置引擎。
-3. 打开程序后，使用“野狐棋谱（输入野狐ID获取）”功能同步最新公开棋谱。
+## 常见问题
 
-## 整合版里权重文件在哪
-- Windows / Linux 整合包：权重文件就在 `Lizzieyzy/weights/default.bin.gz`。
-- macOS 整合包：权重文件在 `.app` 程序包内部，路径是 `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`。
-- 如果你在 Finder 里只看到一个 `.app`，这是正常的；右键应用，选择“显示包内容”就能看到。
+<details>
+<summary><strong>为什么不再支持用户名搜索？</strong></summary>
 
-![screenshot](/screenshot.png?raw=true)
+因为“用户名”对普通用户来说既不稳定也不直观，而且原来的同步流程已经失效。现在统一改成输入野狐ID，减少误解，也更方便定位问题。
+</details>
 
-LizzieYzy Next-FoxUID 是 LizzieYzy 的维护分支，专门接手原项目里已经失效或没人继续维护的功能。当前已经修复腾讯野狐棋谱同步，并改成更直接的“输入野狐ID获取”。
+<details>
+<summary><strong>macOS 为什么只提供 dmg，不再提供 app.zip？</strong></summary>
 
-LizzieYzy 是一个引擎界面,修改自[Lizzie](https://github.com/featurecat/lizzie),可加载围棋引擎:[Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi)以及其他标准GTP引擎。
+因为大多数用户真正需要的是“能双击安装”的包，而不是再多下载一个压缩版。现在发布页优先保留更直观的 `.dmg`。
+</details>
 
-在Lizzie的基础上增加了一些新功能:**鹰眼分析,闪电分析,批量分析,形势判断,棋盘同步,引擎对局,死活题分析,双引擎模式,可视化KataGo分布式训练**,以及一些细节修改,可完美支持高分辨率,不会因为系统缩放而显示模糊
-#
-* 新功能
+<details>
+<summary><strong>Windows 64 为什么同时有 with-katago 和 without.engine？</strong></summary>
 
-  * **鹰眼分析**: 根据AI的选点胜率、计算量、目差,与棋谱中实际落子做比较,得出吻合度,胜率波动,目差波动,失误手等信息并以图表化的形式展示
+因为两类用户需求完全不同：一类想开箱即用，一类想自己管理引擎。现在这两个需求都明确分开提供。
+</details>
 
-  * **闪电分析**: 使用Katago的analysis模式,并行分析整个棋谱,快速得出胜率图,选点等信息,支持批量分析
+<details>
+<summary><strong>这个项目和原作者是什么关系？</strong></summary>
 
-  * **批量分析**: 支持打包棋谱按顺序使用GTP引擎分析,或使用Katago的analysis模式分析
+这是基于原项目继续维护的分支，保留原项目的大量能力，同时专门修复已失效的功能，并整理更适合现在用户的发布方式。
+</details>
 
-  * **形式判断**: 使用Katago(默认)的`kata-raw-nn`命令或ZenGTP的`territory`命令获取粗略的领地判断,支持每一步自动形势判断
+## 路线图
 
-  * **棋盘同步(C#)**: [相关仓库](https://github.com/yzyray/readboard)前台(不可移动,遮挡)/后台(不占用鼠标,可遮挡)两种模式,特别优化了野狐、弈城、新浪平台可一键同步,其他平台或图片动画等需框选棋盘(将棋盘选在内即可,比棋盘大很多也没关系),支持双向同步、自动落子(溜狗),采用C#语言,因此只支持Windows
+- [x] 修复野狐棋谱同步
+- [x] 改成野狐ID获取
+- [x] 恢复多平台发布包
+- [x] 补齐 Intel Mac 打包流程
+- [x] 梳理 Windows / macOS / Linux 下载策略
+- [ ] 增加更多实机安装验收记录
+- [ ] 继续优化首页视觉、截图与演示素材
+- [ ] 收集真实用户反馈，持续压缩新手上手成本
 
-  * **棋盘同步(Java)**: [相关仓库](https://github.com/yzyray/readboard_Boofcv)仅前台,需框选棋盘(选择比棋盘大一些的区域),支持双向同步、自动落子(溜狗)
+## 参与维护
 
-  * **引擎对局**: 两个引擎之间的单盘/多盘对局,可加载多个SGF作为开局,支持使用不同命令获取引擎选点:`lz-analyze`、`kata-analyze`、`genmove`,多盘对局将会自动计算elo、标准差区间等信息
+如果你愿意一起把它做成一个更稳、更好用、也更值得收藏的项目，欢迎：
 
-  * **死活题分析**: 支持抓取局部棋盘上的死活题,并自动生成死活题框架以便AI在正确的范围内思考,详见[菜单]-[分析]-[死活题]以及[抓取死活题],或工具栏的最右侧[死活]按钮
+- 提交 bug 反馈
+- 提交功能建议
+- 帮忙补实机测试结果
+- 帮忙优化文档和翻译
+- 提交代码修复或小改进
 
-  * **双引擎模式**: 支持同时加载两个引擎并同步分析对比
+入口：
 
-  * **可视化KataGo分布式训练**: 将KataGo官方的分布式训练可视化,可以看到每一局正在进行和已经训练完成的对局
-#
- * [使用简介](https://github.com/yzyray/lizzieyzy/blob/main/readme_cn.pdf)
- * 其他用到的jar代码链接: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
+- [贡献指南](CONTRIBUTING.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全说明](SECURITY.md)
+- [问题反馈](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
+- [讨论区](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)
 
-#
-<span id="en"></span>
-# LizzieYzy Next-FoxUID - GUI for Game of Go
-## Read This First
-**In the original LizzieYzy, Fox kifu sync no longer worked reliably. This maintained fork restores that feature, and now lets you fetch the latest public Fox games by entering a Fox ID directly.**
+## 致谢
 
-## Maintenance Highlights
-**This is the actively maintained LizzieYzy fork. The most important updates are:**
+- 原项目：[yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
+- 上游基础：[featurecat/lizzie](https://github.com/featurecat/lizzie)
+- KataGo：[lightvector/KataGo](https://github.com/lightvector/KataGo)
+- 相关 jar 仓库：
+  - [yzyray/FoxRequest](https://github.com/yzyray/FoxRequest)
+  - [yzyray/testbuffer](https://github.com/yzyray/testbuffer)
+  - [yzyray/captureTsumeGo](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
 
-* **Fox kifu sync fixed**: the original flow was broken, so this fork switched to direct Fox H5 API fetching.
-* **Fetch by Fox ID**: username lookup was removed on purpose. Enter a Fox ID to get the latest public games.
-* **Multi-platform release packages restored**: Windows32/Windows64/Mac+Linux/Other `without.engine` bundles.
-* **Mac dual-chip startup clarified**: includes `start-mac-arm64.sh`, `start-mac-amd64.sh`, plus auto-detect launcher.
+## 许可证
 
-## Quick Start In 3 Steps
-1. Download the package for your system from [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases).
-2. `with-katago` bundles can run right after unzip or install. `without.engine` bundles need your own engine setup.
-3. Open the app and use the Fox sync entry to fetch the latest public game by Fox ID.
-
-## Where Is The Bundled Weight File?
-- Windows / Linux bundles: `Lizzieyzy/weights/default.bin.gz`
-- macOS bundles: inside the `.app` package at `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- If Finder only shows one `.app` file, that is expected. Use “Show Package Contents” to inspect it.
-
-![screenshot_en](/screenshot_en.png?raw=true)
-
-LizzieYzy Next-FoxUID is a maintained fork of LizzieYzy focused on reviving broken features and keeping the project usable. This branch restores Fox kifu sync and changes it to a simpler Fox ID based flow.
-
-LizzieYzy is a graphical interface modified from [Lizzie](https://github.com/featurecat/lizzie), allows loading various engines like: [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) or other GTP engines.
-
-We have added some new features on Lizzie's basis: **Hawk Eye, Flash Analyze, Batch Analyze, Estimate, Board Synchronization(only windows), Engine Game, Tsumego Frame, Double Engine Mode, Visualized KataGo Distributed Training** and adjusted some details, supported retina monitor, avoided getting fuzzy by scaled.
-#
-* New features
-
-  * **Hawk Eye**: Get accuracy, winrate difference, score difference and blunder moves based on the differences between engine candidates and actual moves and display in chart.
-
-  * **Flash Analyze**: Depend on Katago's analysis mode, analyze all kifus in parallel and get winrate graph candidates rapidly, support batch analyze.
-
-  * **Batch Analyze**: Support batch analyze kifus by GTP engine or Katago's analysis mode.
-
-  * **Estimate**: Use Katago(default)'s command:`kata-raw-nn` or ZenGTP's command `territory` to get raw territory, support automatically estimate after each move.
-
-  * **Board Synchronization(C#)**: [Repository](https://github.com/yzyray/readboard) Two mode: foreground(board can't be moved or covered)/backgorund. Special optimizations have been made for FoxWQ、TYGEM、SINA platforms, allowing one-click synchronization, while synchronizing from other platforms or from a picture or gif you need to select the region of the board. Support automatically carrying moves for both sides(developed by C#, only support Windows).
-
-  * **Board Synchronization(Java)**: [Repository](https://github.com/yzyray/readboard_Boofcv) Foreground only, need to select the region contains the board. Support automatically carrying moves for both sides.
-
-  * **Engine Game**: Allow a game or multiple games bettween two engines. Support loading some SGF files as opening books. Support various commands:`lz-analyze`, `kata-analyze`, `genmove` to get moves. For multiple games it will automatically calculate some statistics: elo, stdev interval and etc.
-
-  * **Tsumego Analysis**: Support capture tsumego in part of goban, and automatically generate other part of stones help engine analyze in right area, refer to [Analyze]-[Tsumego frame] or [Capture tsumego] or [Tsumego] button in toolbar.
-
-  * **Double Engine Mode**: Support loading two engines and analyze synchronously, which is convenient for comparison.
-
-  * **Visualized KataGo Distributed Training**: Visualized official KataGo training, all games(playing or completed) can be watched.
-
-#
- * Instruction for use: https://github.com/yzyray/lizzieyzy/blob/main/readme_en.pdf (If you are reading under translate to Japanese or Korean, please go to original link, translated link will not work)
- * Other jar source code links: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
-
-#
-<span id="ja"></span>
-# LizzieYzy Next-FoxUID - 囲碁エンジンGUI
-## まず最初に
-**元の LizzieYzy では、野狐棋譜の同期機能がすでに正常に使えなくなっていました。このメンテナンス版ではその機能を復旧し、野狐IDを入力するだけで最新の公開棋譜を取得できます。**
-
-## このメンテ版の重要ポイント
-**現在も継続してメンテされているフォークで、特に大きい変更は次のとおりです。**
-
-* **野狐棋譜同期を修復**: 壊れていた元の流れをやめ、Fox H5 API へ直接アクセスする方式に変更しました。
-* **野狐IDで取得**: ユーザー名検索は廃止し、野狐IDを入力して最新の公開棋譜を取得する形にしました。
-* **マルチプラットフォーム配布を再整備**: Windows / macOS / Linux 向けの配布パッケージを整理しました。
-* **Mac の両CPU対応を明確化**: `start-mac-arm64.sh`、`start-mac-amd64.sh`、自動判定起動スクリプトを含めています。
-
-## 3ステップですぐ使えます
-1. [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) から自分の環境に合うパッケージをダウンロードします。
-2. `with-katago` パッケージは解凍またはインストール後すぐ使えます。`without.engine` は別途エンジン設定が必要です。
-3. アプリを開き、野狐IDを入力して最新の公開棋譜を取得します。
-
-## 内蔵重みファイルの場所
-- Windows / Linux パッケージ: `Lizzieyzy/weights/default.bin.gz`
-- macOS パッケージ: `.app` 内部の `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- Finder で `.app` しか見えなくても正常です。右クリックして「パッケージの内容を表示」を選ぶと確認できます。
-
-![screenshot_ja](/screenshot_en.png?raw=true)
-
-LizzieYzy Next-FoxUID は、元の LizzieYzy で壊れてしまった機能を復旧し、今後も使える状態を保つためのメンテナンスフォークです。現在は野狐棋譜同期を修復し、より分かりやすい「野狐ID入力」方式に変更しています。
-
-LizzieYzy は [Lizzie](https://github.com/featurecat/lizzie) をベースにした囲碁エンジンGUIで、[Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) などの標準 GTP エンジンを読み込めます。
-
-Lizzie をもとに、**Hawk Eye、Flash Analyze、Batch Analyze、Estimate、Board Synchronization、Engine Game、Tsumego Analysis、Double Engine Mode、Visualized KataGo Distributed Training** などの機能を追加し、高解像度環境でもぼやけにくいよう細部も調整しています。
-#
-* 主な機能
-
-  * **Hawk Eye**: AI の候補手と実戦の着手を比較し、一致度、勝率変動、目差変動、悪手などをグラフで表示します。
-
-  * **Flash Analyze**: KataGo の analysis モードを使い、棋譜全体を並列解析して勝率グラフや候補手をすばやく得られます。まとめて解析することもできます。
-
-  * **Batch Analyze**: GTP エンジン、または KataGo の analysis モードを使った複数棋譜の一括解析に対応しています。
-
-  * **Estimate**: KataGo の `kata-raw-nn` または ZenGTP の `territory` コマンドを使って大まかな地合い判断を行い、各手ごとの自動形勢判断にも対応します。
-
-  * **Board Synchronization(C#)**: [関連リポジトリ](https://github.com/yzyray/readboard) 前景 / 背景の2モードに対応。野狐、弈城、新浪向けの最適化があり、ワンクリック同期が可能です。その他のサイトや画像 / GIF では盤面を含む範囲を選択します。双方向同期と自動着手に対応します。C# 実装のため Windows 専用です。
-
-  * **Board Synchronization(Java)**: [関連リポジトリ](https://github.com/yzyray/readboard_Boofcv) 前景モードのみ。盤面を含む範囲を選択して、双方向同期と自動着手に対応します。
-
-  * **Engine Game**: 2つのエンジン同士で単発対局 / 複数対局を実行できます。複数の SGF を定石ファイルとして読み込み、`lz-analyze`、`kata-analyze`、`genmove` などの方式で着手を取得できます。複数対局では ELO や標準偏差区間も自動計算します。
-
-  * **Tsumego Analysis**: 局所盤面から詰碁を切り出し、エンジンが正しい範囲で読めるよう補助石を自動生成できます。`[Analyze]-[Tsumego frame]`、`[Capture tsumego]`、またはツールバーの `[Tsumego]` ボタンを参照してください。
-
-  * **Double Engine Mode**: 2つのエンジンを同時に読み込み、並べて比較しながら解析できます。
-
-  * **Visualized KataGo Distributed Training**: KataGo 公式の分散学習を可視化し、進行中または完了した対局を確認できます。
-
-#
- * [使い方ガイド(英語)](https://github.com/yzyray/lizzieyzy/blob/main/readme_en.pdf)
- * その他の jar ソースコード: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
-
-#
-<span id="ko"></span>
-# LizzieYzy Next-FoxUID - 바둑 엔진용 GUI
-## 먼저 읽어주세요
-**원래 LizzieYzy에서는 텐센트 Fox 기보 동기화 기능이 제대로 작동하지 않았습니다. 이 유지보수 포크에서 그 기능을 복구했고, 이제 Fox ID를 입력해 최신 공개 기보를 가져올 수 있습니다.**
-
-## 유지보수 핵심 변경
-**이 포크에서 가장 중요한 변경점은 아래와 같습니다.**
-
-* **Fox 기보 동기화 복구**: 원래 흐름이 이미 깨져 있어서, 이제 Fox H5 API를 직접 호출하도록 수정했습니다.
-* **Fox ID로 바로 가져오기**: 사용자명 검색은 제거했고, Fox ID를 입력해 최신 공개 기보를 가져오도록 바꿨습니다.
-* **멀티 플랫폼 배포 복구**: Windows / macOS / Linux 배포 파일을 다시 정리했습니다.
-
-## 3단계 빠른 시작
-1. [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 에서 내 시스템에 맞는 패키지를 다운로드합니다.
-2. `with-katago` 패키지는 압축 해제 또는 설치 후 바로 사용할 수 있습니다. `without.engine` 패키지는 엔진을 직접 설정해야 합니다.
-3. 앱을 열고 Fox ID를 입력해 최신 공개 기보를 가져옵니다.
-
-## 내장 가중치 파일 위치
-- Windows / Linux 패키지: `Lizzieyzy/weights/default.bin.gz`
-- macOS 패키지: `.app` 내부의 `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- Finder 에서 `.app` 하나만 보여도 정상입니다. 앱을 우클릭하고 “패키지 내용 보기”로 확인할 수 있습니다.
-
-![screenshot_ko](/screenshot_ko.png?raw=true)
-
-LizzieYzy Next-FoxUID는 더 이상 유지되지 않는 원본 LizzieYzy에서 망가진 기능을 복구하고 계속 사용할 수 있게 유지하는 포크입니다. 현재 이 포크는 Fox 기보 동기화를 복구했고, 더 이해하기 쉬운 Fox ID 입력 방식으로 바꿨습니다.
-
-LizzieYzy는 [Lizzie](https://github.com/featurecat/lizzie)를 기반으로 [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) 등의 다른 GTP engine들을 로드할 수 있도록 수정된 그래픽 인터페이스입니다.
-
-Lizzie 기반에 몇 가지 새로운 기능 추가: **Hawk Eye, Flash Analyze, Batch Analyze, Estimate, Board Synchronization(only windows), Engine Game, Tsumego Analysis, Double Engine Mode, Visualized KataGo Distributed Training** 및 몇몇 세부 사항 조정, 고해상도를 완벽하게 지원하여 시스템 스케일링으로 인해 흐릿하게 표시되지 않습니다.
-#
-* 새로운 기능
-
-  * **Hawk Eye**: 정확도, 승률 차이, 점수 차이, 엔진 후보 수와 실제 착수의 차이를 기반으로 한 실착수를 찾아서 차트에 표시.
-
-  * **Flash Analyze**: Katago의 분석 모드를 사용함. 모든 기보를 병렬로 분석. 승률 그래프 후보를 빠르게 획득. 일괄 분석 지원.
-
-  * **Batch Analyze**: GTP engine 또는 Katago의 분석 모드를 사용한 다수 기보 일괄 분석 지원.
-
-  * **Estimate**: Katago(기본값)의 `kata-raw-nn` 명령 또는 ZenGTP의 `territory` 명령을 사용하여 현재 집 수 계산. 각 착수 후의 집 수 자동 예측을 지원.
-
-  * **Board Synchronization(C#)**: [Repository](https://github.com/yzyray/readboard) 두 가지 모드: 전경(바둑판을 이동하거나 덮을 수 없음)/배경. FoxWQ, TYGEM, SINA 플랫폼에 최적화. 버튼을 클릭하여 동기화를 허용. 다른 플랫폼이나 사진 또는 착수를 통한 동기화 시 바둑판이 포함된 영역을 선택해야 함. 양방향 자동 착수 전달 지원. C#으로 개발되어서 Windows만 지원.
-
-  * **Board Synchronization(Java)**: [Repository](https://github.com/yzyray/readboard_Boofcv) 전경 전용. 바둑판이 포함된 영역을 선택해야 함. 양방향 자동 착수 전달 지원.
-
-  * **Engine Game**: 두 엔진 간의 1회(또는 다회) 대국을 수행. 대국 시작점으로 일부 sgf를 사용할 수 있습니다. 착수를 위한 다양한 명령 지원: `lz-analyze`, `kata-analyze`, `genmove`. 다회 대국시에 몇 가지 통계를 수집합니다: elo, stdev 간격 등.
-
-  * **Tsumego Analysis**: Support capture tsumego in part of goban, and automatically generate other part of stones help engine analyze in right area, refer to [Analyze]-[Tsumego frame] or [Capture tsumego] or [Tsumego] button in toolbar.
-
-  * **Double Engine Mode**: 2개 엔진을 로드하여 동시 분석을 지원. 비교에 편리합니다.
-
-  * **Visualized KataGo Distributed Training**: 시각화된 공식 KataGo 훈련. 모든 대국(진행중이거나 완료된)을 시청할 수 있습니다.
-
-#
- * [사용 지침(영문)](https://github.com/yzyray/lizzieyzy/blob/main/readme_en.pdf)
- * 기타 jar 소스 코드 링크: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
+本项目沿用原项目许可证，详见 [LICENSE.txt](LICENSE.txt)。
