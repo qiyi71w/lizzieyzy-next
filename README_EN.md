@@ -6,6 +6,7 @@
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=1B4D3E" alt="Release"></a>
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml"><img src="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=7F4F24" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=2F4858" alt="Downloads"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/License-GPL%20v3-E7A23B" alt="License"></a>
 </p>
 
@@ -15,101 +16,217 @@
 
 # LizzieYzy Next-FoxUID
 
-**An actively maintained LizzieYzy fork that restores broken Fox Weiqi sync and ships practical KataGo-ready releases for Windows, macOS, and Linux.**
+**An actively maintained LizzieYzy fork focused on restoring broken Fox sync, standardizing the workflow around Fox ID, and shipping clearer multi-platform KataGo releases.**
+
+<p align="center">
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases">Download Releases</a>
+  ·
+  <a href="#if-you-just-want-to-start">Start Here</a>
+  ·
+  <a href="#which-package-to-download">Which Package</a>
+  ·
+  <a href="#quick-start">Quick Start</a>
+  ·
+  <a href="#docs-and-support">Docs & Support</a>
+  ·
+  <a href="#contributing">Contributing</a>
+</p>
 
 > [!IMPORTANT]
-> The original Fox sync flow in LizzieYzy no longer worked reliably. This fork restores it and standardizes the UI around Fox ID input.
+> The original Fox sync flow in LizzieYzy no longer worked reliably. This fork restores it and standardizes the UI around **Fox ID** input.
 
-## Why This Fork Exists
+## What This Fork Is
 
-The original LizzieYzy is still useful, but one of its most important flows no longer worked reliably: syncing Fox kifu. This fork focuses on making the project usable again, not just preserving history.
+`LizzieYzy Next-FoxUID` is a maintained fork of the original `lizzieyzy` project.
 
-What changed:
+The goal is not to reinvent the app. The goal is to keep the workflow people actually depend on in working shape:
 
-- **Fox sync fixed** with a newer Fox H5 API based flow
-- **Fox ID only** so users no longer need to guess whether to use a name or an internal UID
-- **Cleaner releases** so people can quickly choose the right package
-- **Ongoing maintenance** instead of a one-off patch
+- install it
+- launch it
+- fetch Fox games
+- analyze games
+
+This fork currently focuses on three practical problems:
+
+- the original Fox sync flow stopped working for many users
+- release packages were harder than they should be to choose from
+- install, troubleshooting, and maintenance information was too scattered
+
+If you previously used LizzieYzy, the biggest difference is simple: Fox sync works again here, and the input is consistently called **Fox ID**.
+
+## If You Just Want To Start
+
+| What you need right now | Go here |
+| --- | --- |
+| A package that works out of the box | Go to [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) and choose a `with-katago` package |
+| A package for custom engine setup | Read [Package Overview](docs/PACKAGES_EN.md) and choose a `without.engine` package |
+| Real-world platform verification status | Read [Tested Platforms](docs/TESTED_PLATFORMS.md) |
+| Install or first-launch help | Read [Installation Guide](docs/INSTALL_EN.md) and [Troubleshooting](docs/TROUBLESHOOTING_EN.md) |
+| Report install success or failure | Use the [Installation Report template](https://github.com/wimi321/lizzieyzy-next-foxuid/issues/new?template=installation_report.yml) |
+| Report a bug or suggest an improvement | Use [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues) or [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions) |
+
+## Current Status
+
+| Project status | Details |
+| --- | --- |
+| Fox sync | Restored, using **Fox ID** for the public-game fetch flow |
+| Release packages | Reorganized for Windows, macOS, and Linux |
+| Bundled setup | `with-katago` packages remain the easiest path |
+| Docs | Installation, troubleshooting, package, maintenance, and release docs are in place |
+| Real-machine verification | Apple Silicon has maintainer-tested coverage; other platforms are still collecting reports |
+| Maintenance model | This is a continuing maintenance fork, not a one-off patch |
 
 ## Screenshot
 
 ![LizzieYzy Next-FoxUID Screenshot](screenshot_en.png)
 
-## Download Guide
+## Which Package To Download
 
-| Platform | Recommended package | Bundled Java | Bundled KataGo |
-| --- | --- | --- | --- |
-| Windows x64 | `windows64.with-katago.zip` | Yes | Yes |
-| Windows x64 | `windows64.without.engine.zip` | Yes | No |
-| Windows x86 | `windows32.without.engine.zip` | No | No |
-| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | App runtime | Yes |
-| macOS Intel | `mac-amd64.with-katago.dmg` | App runtime | Yes |
-| Linux x64 | `linux64.with-katago.zip` | Yes | Yes |
-| Advanced users | `Macosx.amd64.Linux.amd64.without.engine.zip` | No | No |
+For most users, the right choice is simple: pick a `with-katago` package.
 
-Releases: <https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
+Only choose `without.engine` if you already know you want to manage the engine yourself.
+
+| Platform | Recommended package | Bundled Java | Bundled KataGo | Best for |
+| --- | --- | --- | --- | --- |
+| Windows x64 | `windows64.with-katago.zip` | Yes | Yes | Download and use directly |
+| Windows x64 | `windows64.without.engine.zip` | Yes | No | Custom engine setups |
+| Windows x86 | `windows32.without.engine.zip` | No | No | Legacy or compatibility cases |
+| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | App runtime | Yes | M-series Mac users |
+| macOS Intel | `mac-amd64.with-katago.dmg` | App runtime | Yes | Intel Mac users |
+| Linux x64 | `linux64.with-katago.zip` | Yes | Yes | Linux desktop users |
+| Advanced users | `Macosx.amd64.Linux.amd64.without.engine.zip` | No | No | Fully custom engine setups |
+
+Related links:
+
+- [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases)
+- [Package Overview](docs/PACKAGES_EN.md)
+- [Tested Platforms](docs/TESTED_PLATFORMS.md)
 
 ## Quick Start
 
 1. Download the package for your system from the [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) page.
-2. If you want the easiest setup, choose a `with-katago` package.
-3. Launch the app and use the Fox sync entry.
-4. Enter a **Fox ID** to fetch the latest public Fox games.
+2. If you want the shortest path, choose a `with-katago` package.
+3. Launch the app and open the Fox sync entry.
+4. Enter a numeric **Fox ID** to fetch the latest public Fox games.
+5. If your OS blocks the first launch, check the [Installation Guide](docs/INSTALL_EN.md) and [Troubleshooting](docs/TROUBLESHOOTING_EN.md).
 
-## Detailed Docs
+## What You Can Do With It
 
-- [Installation Guide](docs/INSTALL_EN.md)
-- [Troubleshooting](docs/TROUBLESHOOTING_EN.md)
-- [Package Overview](docs/PACKAGES_EN.md)
-- [Tested Platforms](docs/TESTED_PLATFORMS.md)
-- [Support](SUPPORT.md)
-- [Maintenance Notes](docs/MAINTENANCE_EN.md)
-- [Changelog](CHANGELOG.md)
+| Use case | Available capability |
+| --- | --- |
+| Fetch games | Pull the latest public Fox games by Fox ID |
+| Review a game | Hawk Eye charts, winrate swings, score swings, mistake tracking |
+| Fast analysis | Parallel whole-game analysis with KataGo analysis mode |
+| Batch workflows | Analyze multiple SGFs in one run |
+| Engine comparison | Dual-engine mode and engine-vs-engine matches |
+| Local study | Tsumego and local-shape analysis helpers |
+| Other retained workflows | Board sync, rough territory judgment, and other commonly used original features |
 
-## What Makes This Fork Different
+## Compared With The Original Project
 
-| Topic | Original project | Next-FoxUID |
+| Topic | Original LizzieYzy | Next-FoxUID |
 | --- | --- | --- |
 | Fox sync | Broken for many users | Restored |
-| Input mode | Old flow, confusing for users | Fox ID only |
-| Release layout | Harder to pick the right file | Clearer per-system packages |
-| Maintenance | Mostly inactive | Actively maintained |
+| Input naming | Mixed UID / username wording | Fox ID only |
+| Release layout | Harder to choose from | Reorganized by platform and use case |
+| macOS distribution | More confusing historical package mix | `.dmg` first, separated by Apple Silicon / Intel |
+| Windows x64 strategy | Less clear package split | Keeps both `with-katago` and `without.engine` |
+| Maintenance | Mostly inactive | Actively maintained as a fork |
+
+## If You Are Migrating From The Original Project
+
+- The Fox sync entry is now consistently described as a Fox ID based flow
+- Username lookup is no longer part of the supported path
+- Windows x64 still keeps both `with-katago` and `without.engine`
+- macOS releases are centered on `.dmg` installers instead of extra `.app.zip` assets
+- This repository is intended for continued maintenance, not a temporary hotfix drop
 
 ## Bundled Engine Details
 
-- Bundled KataGo version: `v1.16.4`
-- Default bundled weight: `g170e-b20c256x2-s5303129600-d1228401921.bin.gz`
+| Item | Current value |
+| --- | --- |
+| KataGo version | `v1.16.4` |
+| Default bundled weight | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
+
+Paths:
+
 - Windows / Linux weight path: `Lizzieyzy/weights/default.bin.gz`
 - macOS weight path: `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+- On macOS, if Finder only shows a single `.app`, that is expected. Use “Show Package Contents” to inspect the bundled files.
 
-## Feature Highlights
+## Docs And Support
 
-- Fox kifu sync by Fox ID
-- Hawk Eye analysis
-- Flash analysis with KataGo analysis mode
-- Batch analysis
-- Dual-engine comparison
-- Tsumego analysis helpers
-- Engine-vs-engine matches
-- Board sync options retained from the original project
+| If you need | Go here |
+| --- | --- |
+| Installation help | [Installation Guide](docs/INSTALL_EN.md) |
+| Startup or runtime troubleshooting | [Troubleshooting](docs/TROUBLESHOOTING_EN.md) |
+| Package explanations | [Package Overview](docs/PACKAGES_EN.md) |
+| Real-machine platform status | [Tested Platforms](docs/TESTED_PLATFORMS.md) |
+| Support and routing | [Support](SUPPORT.md) |
+| Change history | [Changelog](CHANGELOG.md) |
+| Maintenance policy | [Maintenance Notes](docs/MAINTENANCE_EN.md) |
+| Release self-check | [Release Checklist](docs/RELEASE_CHECKLIST.md) |
 
 ## FAQ
 
 <details>
 <summary><strong>Why remove username lookup?</strong></summary>
 
-Because it caused confusion and was less reliable for maintenance. Fox ID is clearer for both users and debugging.
+Because it caused confusion and was harder to maintain. Fox ID is clearer for users and easier to debug.
 </details>
 
 <details>
 <summary><strong>Why keep dmg files but remove macOS app.zip from releases?</strong></summary>
 
-Because most users want a direct installer workflow, not two macOS package formats that look similar.
+Because most users want a direct installer workflow, not multiple macOS package formats that look similar.
 </details>
+
+<details>
+<summary><strong>Why keep both with-katago and without.engine for Windows x64?</strong></summary>
+
+Because these serve two different audiences: one wants a bundled setup, the other wants to manage engines manually.
+</details>
+
+<details>
+<summary><strong>What is the relationship between this fork and the original author?</strong></summary>
+
+This is a maintained fork built on the original project. The goal is not to replace the original author, but to continue maintaining the broken workflows and release experience after the original project became inactive.
+</details>
+
+<details>
+<summary><strong>What if my platform does not have a real-machine verification record yet?</strong></summary>
+
+Check [Tested Platforms](docs/TESTED_PLATFORMS.md) first, then follow the [Installation Guide](docs/INSTALL_EN.md). If you can report either a successful install or a failure, that directly improves the project.
+</details>
+
+## Roadmap
+
+- [x] Restore Fox sync
+- [x] Switch the user-facing flow to Fox ID
+- [x] Bring back multi-platform release packages
+- [x] Restore Intel Mac packaging
+- [x] Reorganize Windows / macOS / Linux download strategy
+- [x] Add installation and troubleshooting docs
+- [x] Unify Fox ID terminology across UI and docs
+- [x] Add CI and markdown link checks
+- [ ] Add more real-machine installation verification records
+- [ ] Improve screenshots and homepage presentation further
+- [ ] Finish more complete Japanese / Korean troubleshooting docs
+- [ ] Keep reducing first-run friction based on real user feedback
 
 ## Contributing
 
-If you want to help this fork grow into a stronger long-term project, contributions are welcome.
+Contributions are welcome through issues, discussions, and pull requests.
+
+The most helpful contributions right now are:
+
+- real installation reports for Windows, Linux, and Intel Mac
+- Fox sync compatibility reports
+- documentation, translation, and UI wording improvements
+- packaging, engine-path, and release-process fixes
+- focused small code fixes
+
+Links:
 
 - [Contributing Guide](CONTRIBUTING.md)
 - [Code Of Conduct](CODE_OF_CONDUCT.md)
@@ -124,3 +241,7 @@ If you want to help this fork grow into a stronger long-term project, contributi
 - Original project: [yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
 - Upstream GUI base: [featurecat/lizzie](https://github.com/featurecat/lizzie)
 - Engine: [lightvector/KataGo](https://github.com/lightvector/KataGo)
+
+## License
+
+This project keeps the original license. See [LICENSE.txt](LICENSE.txt).

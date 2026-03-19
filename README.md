@@ -16,20 +16,20 @@
 </p>
 
 <p align="center">
-  <strong>持续维护的 LizzieYzy 分支，恢复野狐棋谱同步。</strong><br/>
-  支持输入野狐ID获取最新公开棋谱，并提供更清晰的 KataGo 多平台发布包。
+  <strong>持续维护的 LizzieYzy 分支，重点修复原版已失效的野狐棋谱同步。</strong><br/>
+  统一使用“野狐ID”获取最新公开棋谱，并继续提供更清晰的 Windows / macOS / Linux 多平台 KataGo 发布包。
 </p>
 
 <p align="center">
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases">下载发布包</a>
   ·
+  <a href="#如果你只想马上开始">现在开始</a>
+  ·
+  <a href="#下载哪个包">下载哪个包</a>
+  ·
   <a href="#快速开始">快速开始</a>
   ·
-  <a href="docs/INSTALL.md">安装教程</a>
-  ·
-  <a href="docs/TROUBLESHOOTING.md">排错指南</a>
-  ·
-  <a href="#下载">下载</a>
+  <a href="#文档与支持">文档与支持</a>
   ·
   <a href="#参与维护">参与维护</a>
 </p>
@@ -37,29 +37,56 @@
 > [!IMPORTANT]
 > 原版 LizzieYzy 的野狐棋谱同步流程已经失效。本维护版已修复该功能，界面入口统一为“野狐棋谱（输入野狐ID获取）”。
 
-## 简介
+## 这是什么
 
-LizzieYzy Next-FoxUID 是原 `lizzieyzy` 的持续维护分支。
+`LizzieYzy Next-FoxUID` 是原 `lizzieyzy` 的持续维护分支。
 
-这个分支主要做两件事：
+这个分支不是为了把原项目另起炉灶重做一遍，而是为了把大家真正会用的那条链路继续维护下去：
 
-- 把原版已经失效的野狐棋谱同步重新做成可用状态
-- 把发布包、安装文档和维护流程重新整理清楚
+- 能装
+- 能开
+- 能抓谱
+- 能分析
 
-如果你以前用 LizzieYzy，就是卡在野狐同步失效、包不好选、安装不够直接，这个仓库就是为这些问题建立的。
+这个仓库当前重点解决的是三件事：
 
-## 这个分支解决了什么
+- 原版已经失效的野狐棋谱同步
+- 新用户很难选对发布包
+- 安装、排错、维护资料不够集中
 
-- 修复了原版已经失效的野狐棋谱同步
-- 界面和文档统一改成“野狐ID”，不再保留容易混淆的 UID / 用户名说法
-- 重新整理 Windows、macOS、Linux 的发布包
-- 保留 LizzieYzy 原来的主要分析能力，并继续维护这个分支
+如果你以前就在用 LizzieYzy，现在最直接的区别就是：这里已经把野狐同步改回可用状态，并把入口统一成更直观的“野狐ID”。
+
+## 如果你只想马上开始
+
+| 你现在要做什么 | 直接去这里 |
+| --- | --- |
+| 下载后直接用 | 去 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases)，优先选 `with-katago` 包 |
+| 自己换引擎 | 看 [发布包说明](docs/PACKAGES.md)，选 `without.engine` 包 |
+| 确认某个平台有没有人实测过 | 看 [已验证平台](docs/TESTED_PLATFORMS.md) |
+| 安装或首次启动遇到问题 | 看 [安装指南](docs/INSTALL.md) 和 [排错指南](docs/TROUBLESHOOTING.md) |
+| 提交安装成功 / 失败反馈 | 用 [Installation Report 模板](https://github.com/wimi321/lizzieyzy-next-foxuid/issues/new?template=installation_report.yml) |
+| 提交 bug 或功能建议 | 用 [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues) 或 [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions) |
+
+## 当前状态
+
+| 项目状态 | 说明 |
+| --- | --- |
+| 野狐棋谱同步 | 已修复，统一按 **野狐ID** 获取最新公开棋谱 |
+| 发布包 | Windows、macOS、Linux 包已重新整理 |
+| 整合包 | `with-katago` 继续提供开箱即用版本 |
+| 文档 | 已补安装、排错、包说明、维护说明、发布清单 |
+| 实机验证 | Apple Silicon 由维护者实测，其它平台持续收集安装反馈 |
+| 维护方式 | 当前按持续维护项目的方式推进，不是一次性修补后停止更新 |
 
 ## 项目截图
 
 ![LizzieYzy Next-FoxUID Screenshot](screenshot.png)
 
-## 下载
+## 下载哪个包
+
+普通用户不用想太多，优先选 `with-katago`。
+
+只有在你明确知道自己要手动配置引擎时，再去选 `without.engine`。
 
 | 系统 | 推荐包 | 是否内置 Java | 是否内置 KataGo | 适合谁 |
 | --- | --- | --- | --- | --- |
@@ -71,62 +98,83 @@ LizzieYzy Next-FoxUID 是原 `lizzieyzy` 的持续维护分支。
 | Linux 64 位 | `linux64.with-katago.zip` | 是 | 是 | Linux 桌面用户 |
 | Linux / Intel Mac 进阶用户 | `Macosx.amd64.Linux.amd64.without.engine.zip` | 否 | 否 | 想自己配引擎 |
 
-发布页：<https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
+相关入口：
+
+- [发布页](https://github.com/wimi321/lizzieyzy-next-foxuid/releases)
+- [发布包说明](docs/PACKAGES.md)
+- [已验证平台](docs/TESTED_PLATFORMS.md)
 
 ## 快速开始
 
-1. 进入 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 下载适合你系统的包。
-2. 如果你想最省事，优先选 `with-katago` 整合包。
-3. 启动程序后，使用“野狐棋谱（输入野狐ID获取）”功能。
-4. 输入野狐ID，即可抓取最新公开棋谱。
+1. 去 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 下载适合你系统的包。
+2. 如果你只是想尽快开始，优先选 `with-katago` 整合包。
+3. 启动程序后，找到“野狐棋谱（输入野狐ID获取）”。
+4. 输入纯数字的野狐ID，获取最新公开棋谱。
+5. 如果系统拦截首次启动，先看 [安装指南](docs/INSTALL.md) 和 [排错指南](docs/TROUBLESHOOTING.md)。
 
-## 文档
+## 你可以用它做什么
 
-- [安装指南](docs/INSTALL.md)
-- [常见问题与排错](docs/TROUBLESHOOTING.md)
-- [发布包说明](docs/PACKAGES.md)
-- [已验证平台](docs/TESTED_PLATFORMS.md)
-- [获取帮助](SUPPORT.md)
-- [维护说明](docs/MAINTENANCE.md)
-- [发布检查清单](docs/RELEASE_CHECKLIST.md)
-- [更新日志](CHANGELOG.md)
+| 使用场景 | 当前可用能力 |
+| --- | --- |
+| 获取棋谱 | 通过野狐ID抓取最新公开棋谱 |
+| 对局复盘 | 鹰眼分析、胜率波动、目差波动、失误手统计 |
+| 快速分析 | 使用 KataGo analysis 模式并行分析整盘棋谱 |
+| 批量处理 | 支持多份棋谱批量分析 |
+| 引擎对比 | 支持双引擎模式和引擎对局 |
+| 局部研究 | 支持死活题分析与局部框架生成 |
+| 其他保留能力 | 棋盘同步、形势判断等原项目常用功能 |
 
-## 如果你是从原版过来的
+## 和原版相比
+
+| 项目 | 原版 LizzieYzy | Next-FoxUID |
+| --- | --- | --- |
+| 野狐棋谱同步 | 对很多用户已经失效 | 已修复 |
+| 输入方式 | UID / 用户名说法混杂 | 统一为野狐ID |
+| 发布包 | 不够容易选 | 已按系统和用途重新整理 |
+| macOS 发布 | 历史包型较混杂 | 以 `.dmg` 为主，区分 Apple Silicon / Intel |
+| Windows 64 位 | 包策略不够清楚 | 同时保留 `with-katago` 和 `without.engine` |
+| 项目维护 | 基本停滞 | 按继续维护的分支推进 |
+
+## 如果你从原版迁移过来
 
 - 野狐同步入口现在统一叫“野狐棋谱（输入野狐ID获取）”
 - 获取方式改成野狐ID，不再走旧的用户名检索逻辑
-- Windows 64 位保留 `with-katago` 和 `without.engine` 两种包
+- Windows 64 位继续保留 `with-katago` 和 `without.engine` 两种包
 - macOS 现在以 `.dmg` 为主，不再额外保留旧的 `.app.zip`
 - 这个仓库会继续维护，不是临时修一下就停止更新
 
-## 主要功能
+## 当前整合包内置内容
 
-| 模块 | 说明 |
+| 项目 | 当前值 |
 | --- | --- |
-| 野狐棋谱同步 | 通过野狐ID获取最新公开棋谱 |
-| 鹰眼分析 | 图表化展示吻合度、胜率波动、目差波动、失误手 |
-| 闪电分析 | 使用 KataGo analysis 模式并行分析整盘棋谱 |
-| 批量分析 | 支持多份棋谱批量处理 |
-| 形势判断 | 支持基于 KataGo 的粗略领地 / 局势判断 |
-| 棋盘同步 | 保留原项目 Windows / Java 同步方案 |
-| 双引擎模式 | 同时加载两个引擎做对比分析 |
-| 死活题分析 | 支持局部抓题和辅助框架生成 |
-| 引擎对局 | 支持引擎间单盘或多盘对局 |
+| KataGo 版本 | `v1.16.4` |
+| 默认权重 | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
 
-## 内置引擎与权重
+路径说明：
 
-- Windows / Linux 整合包：`Lizzieyzy/weights/default.bin.gz`
-- macOS 整合包：`LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- macOS 如果 Finder 里只看到一个 `.app`，这是正常的。右键应用，选择“显示包内容”即可查看。
-- 当前整合版内置的 KataGo 程序版本是 `v1.16.4`
-- 当前默认内置权重是 `g170e-b20c256x2-s5303129600-d1228401921.bin.gz`
+- Windows / Linux 整合包权重：`Lizzieyzy/weights/default.bin.gz`
+- macOS 整合包权重：`LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+- macOS 如果 Finder 里只看到一个 `.app`，这是正常现象。右键应用，选择“显示包内容”即可查看。
+
+## 文档与支持
+
+| 你需要什么 | 入口 |
+| --- | --- |
+| 安装说明 | [安装指南](docs/INSTALL.md) |
+| 排查启动或运行问题 | [常见问题与排错](docs/TROUBLESHOOTING.md) |
+| 看懂每个发布包 | [发布包说明](docs/PACKAGES.md) |
+| 看哪些平台有人实测 | [已验证平台](docs/TESTED_PLATFORMS.md) |
+| 求助或反馈 | [获取帮助](SUPPORT.md) |
+| 查看更新历史 | [更新日志](CHANGELOG.md) |
+| 了解维护策略 | [维护说明](docs/MAINTENANCE.md) |
+| 发版时自查 | [发布检查清单](docs/RELEASE_CHECKLIST.md) |
 
 ## 常见问题
 
 <details>
 <summary><strong>为什么不再支持用户名搜索？</strong></summary>
 
-因为这个维护分支已经统一按野狐ID工作。这样对用户更直观，对排查问题也更稳定。
+因为这个维护分支已经统一按野狐ID工作。这样对普通用户更直观，对排查问题也更稳定。
 </details>
 
 <details>
@@ -142,9 +190,15 @@ LizzieYzy Next-FoxUID 是原 `lizzieyzy` 的持续维护分支。
 </details>
 
 <details>
-<summary><strong>这个项目和原作者是什么关系？</strong></summary>
+<summary><strong>这个仓库和原作者是什么关系？</strong></summary>
 
 这是基于原项目继续维护的分支。目标不是替代原作者，而是在原项目停更后，把已经失效的功能和发布方式继续维护下去。
+</details>
+
+<details>
+<summary><strong>如果我的平台还没有实机验证记录怎么办？</strong></summary>
+
+可以先看 [已验证平台](docs/TESTED_PLATFORMS.md) 了解当前状态，再按 [安装指南](docs/INSTALL.md) 尝试安装。如果你验证成功或失败，都欢迎提交 Installation Report，能直接帮助这个项目变得更稳。
 </details>
 
 ## 路线图
@@ -159,21 +213,20 @@ LizzieYzy Next-FoxUID 是原 `lizzieyzy` 的持续维护分支。
 - [x] 接入基础 CI 与文档链接检查
 - [ ] 增加更多实机安装验收记录
 - [ ] 继续优化首页视觉、截图与演示素材
-- [ ] 继续补完整的日文 / 韩文排错文档
-- [ ] 收集真实用户反馈，持续压缩新手上手成本
+- [ ] 补完整的日文 / 韩文排错文档
+- [ ] 收集真实用户反馈，继续压缩新手上手成本
 
 ## 参与维护
 
 欢迎通过 issue、discussion 或 pull request 参与维护。
 
-适合直接帮忙的事情有：
+当前最有帮助的贡献方向：
 
-- 提交 bug 反馈
-- 提交安装成功 / 失败反馈
-- 提交功能建议
-- 帮忙补实机测试结果
-- 帮忙优化文档和翻译
-- 提交代码修复或小改进
+- 补 Windows / Linux / Intel Mac 的真实安装反馈
+- 提交野狐抓谱兼容性反馈
+- 优化文档、翻译和界面文案
+- 修复打包脚本、引擎路径或发布流程问题
+- 提交聚焦的小型代码修复
 
 入口：
 
