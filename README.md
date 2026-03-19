@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=1B4D3E" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml"><img src="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=7F4F24" alt="Stars"></a>
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=2F4858" alt="Downloads"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/License-GPL%20v3-E7A23B" alt="License"></a>
@@ -86,6 +87,7 @@
 - [发布包说明](docs/PACKAGES.md)
 - [维护说明](docs/MAINTENANCE.md)
 - [发布检查清单](docs/RELEASE_CHECKLIST.md)
+- [更新日志](CHANGELOG.md)
 
 ## 和原版相比，变化在哪里
 
@@ -162,6 +164,7 @@
 - [x] 梳理 Windows / macOS / Linux 下载策略
 - [x] 补安装与排错文档
 - [x] 文档与界面统一 Fox ID / 野狐ID 术语
+- [x] 接入基础 CI 与文档链接检查
 - [ ] 增加更多实机安装验收记录
 - [ ] 继续优化首页视觉、截图与演示素材
 - [ ] 继续补完整的日文 / 韩文排错文档

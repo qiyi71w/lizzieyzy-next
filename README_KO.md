@@ -51,6 +51,7 @@ Releases: <https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
 - [설치 가이드](docs/INSTALL_KO.md)
 - [Troubleshooting (English)](docs/TROUBLESHOOTING_EN.md)
 - [Package Overview (English)](docs/PACKAGES_EN.md)
+- [Changelog](CHANGELOG.md)
 
 ## 내장 정보
 

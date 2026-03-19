@@ -55,6 +55,7 @@ A concise, reproducible report saves a lot of time for everyone.
 - 小的 UI 文案修正
 - 打包脚本健壮性修复
 - 野狐抓谱兼容性反馈
+- CI / 自动化文档改进
 
 ## Community Tone
 

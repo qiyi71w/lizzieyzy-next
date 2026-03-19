@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=1B4D3E" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml"><img src="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=7F4F24" alt="Stars"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/License-GPL%20v3-E7A23B" alt="License"></a>
 </p>
@@ -61,6 +62,7 @@ Releases: <https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
 - [Troubleshooting](docs/TROUBLESHOOTING_EN.md)
 - [Package Overview](docs/PACKAGES_EN.md)
 - [Maintenance Notes](docs/MAINTENANCE_EN.md)
+- [Changelog](CHANGELOG.md)
 
 ## What Makes This Fork Different
 
