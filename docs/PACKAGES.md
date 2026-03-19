@@ -96,4 +96,6 @@
 
 - [安装指南](INSTALL.md)
 - [常见问题与排错](TROUBLESHOOTING.md)
+- [已验证平台](TESTED_PLATFORMS.md)
+- [获取帮助](../SUPPORT.md)
 - [项目首页](../README.md)

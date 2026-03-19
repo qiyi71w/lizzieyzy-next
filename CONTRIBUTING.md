@@ -14,6 +14,8 @@ This project is a maintained fork. We care about practical fixes, clear packagin
 4. 如果是 macOS 问题，请说明是 Apple Silicon 还是 Intel。
 5. 如果是 Windows / Linux 问题，请说明你使用的是 `with-katago` 还是 `without.engine` 包。
 
+如果你只是想确认“某个发布包在这台机器上能不能正常安装”，优先使用 Installation Report 模板，而不是普通 bug 模板。
+
 ## What Makes A Good Bug Report
 
 请尽量带上这些信息：
@@ -57,6 +59,12 @@ A concise, reproducible report saves a lot of time for everyone.
 - 野狐抓谱兼容性反馈
 - CI / 自动化文档改进
 
+实机安装验证也很有价值：
+
+- 成功安装也欢迎反馈，不一定非要等出错
+- 这些结果会整理进 [docs/TESTED_PLATFORMS.md](docs/TESTED_PLATFORMS.md)
+- 建议使用 Installation Report 模板提交
+
 ## Community Tone
 
 请默认友好、具体、直接。
@@ -69,5 +77,6 @@ A concise, reproducible report saves a lot of time for everyone.
 ## Where To Contribute
 
 - Bug reports: GitHub Issues
+- Installation verification: Installation Report issue form
 - Ideas and discussion: GitHub Discussions
 - Code changes: Pull Requests

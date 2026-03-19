@@ -51,6 +51,8 @@ Releases: <https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
 - [설치 가이드](docs/INSTALL_KO.md)
 - [Troubleshooting (English)](docs/TROUBLESHOOTING_EN.md)
 - [Package Overview (English)](docs/PACKAGES_EN.md)
+- [Tested Platforms](docs/TESTED_PLATFORMS.md)
+- [Support](SUPPORT.md)
 - [Changelog](CHANGELOG.md)
 
 ## 내장 정보
@@ -64,5 +66,7 @@ Releases: <https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
 - [Contributing Guide](CONTRIBUTING.md)
 - [Code Of Conduct](CODE_OF_CONDUCT.md)
 - [Security Policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Tested Platforms](docs/TESTED_PLATFORMS.md)
 - [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
 - [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)

@@ -1,0 +1,95 @@
+name: Installation Report
+description: Confirm whether a release package installs and launches correctly on a real machine.
+title: "[Install] "
+labels:
+  - installation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你帮忙做实机安装反馈。
+
+        这个模板既可以用来报告安装失败，也可以用来确认某个发布包已经正常安装运行。
+
+        Thanks for helping verify release packages on real hardware.
+  - type: input
+    id: package_name
+    attributes:
+      label: Package Name
+      description: 你测试的安装包文件名 / Which release asset did you test?
+      placeholder: 2026-03-16-mac-arm64.with-katago.dmg
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows x64
+        - Windows x86
+        - macOS Apple Silicon
+        - macOS Intel
+        - Linux x64
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: OS Version
+      description: 例如 Windows 11 24H2 / macOS 15.4 / Ubuntu 24.04
+      placeholder: Optional
+  - type: dropdown
+    id: package_type
+    attributes:
+      label: Package Type
+      options:
+        - with-katago
+        - without.engine
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Installed and launched successfully
+        - Installed successfully, but there were warnings or extra steps
+        - Failed to install
+        - Installed, but failed on first launch
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: What did you verify?
+      description: 可多选 / Choose all that apply.
+      options:
+        - label: Installer or archive opened normally
+        - label: App launched to the main board UI
+        - label: Fox ID fetch worked
+        - label: KataGo engine loaded normally
+        - label: I only verified installation, not runtime features
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: 请写下任何额外步骤、报错、系统安全提示、Gatekeeper 提示、杀毒软件拦截等信息。
+      placeholder: |
+        Example:
+        - Needed to right-click -> Open once on macOS
+        - Windows SmartScreen warned but app launched after confirmation
+        - Fox ID fetch worked
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshot / Log / Extra Evidence
+      description: 可贴截图、报错文本、录屏链接或日志片段。
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I understand maintainers may summarize this result in docs/TESTED_PLATFORMS.md.
+          required: true

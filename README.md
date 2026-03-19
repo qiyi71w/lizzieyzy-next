@@ -85,6 +85,8 @@ LizzieYzy Next-FoxUID 是原 `lizzieyzy` 的持续维护分支。
 - [安装指南](docs/INSTALL.md)
 - [常见问题与排错](docs/TROUBLESHOOTING.md)
 - [发布包说明](docs/PACKAGES.md)
+- [已验证平台](docs/TESTED_PLATFORMS.md)
+- [获取帮助](SUPPORT.md)
 - [维护说明](docs/MAINTENANCE.md)
 - [发布检查清单](docs/RELEASE_CHECKLIST.md)
 - [更新日志](CHANGELOG.md)
@@ -167,6 +169,7 @@ LizzieYzy Next-FoxUID 是原 `lizzieyzy` 的持续维护分支。
 适合直接帮忙的事情有：
 
 - 提交 bug 反馈
+- 提交安装成功 / 失败反馈
 - 提交功能建议
 - 帮忙补实机测试结果
 - 帮忙优化文档和翻译
@@ -177,6 +180,8 @@ LizzieYzy Next-FoxUID 是原 `lizzieyzy` 的持续维护分支。
 - [贡献指南](CONTRIBUTING.md)
 - [行为准则](CODE_OF_CONDUCT.md)
 - [安全说明](SECURITY.md)
+- [获取帮助](SUPPORT.md)
+- [已验证平台](docs/TESTED_PLATFORMS.md)
 - [问题反馈](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
 - [讨论区](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)
 

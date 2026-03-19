@@ -3,6 +3,9 @@ contact_links:
   - name: Project Discussions
     url: https://github.com/wimi321/lizzieyzy-next-foxuid/discussions
     about: Ask questions, share ideas, or discuss packaging and user workflows.
+  - name: Installation Guide
+    url: https://github.com/wimi321/lizzieyzy-next-foxuid/blob/main/docs/INSTALL.md
+    about: Start here if the app does not install or launch as expected.
   - name: Releases
     url: https://github.com/wimi321/lizzieyzy-next-foxuid/releases
     about: Download the latest release packages.

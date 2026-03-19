@@ -10,6 +10,8 @@ body:
         感谢反馈问题。请尽量填写完整，这会显著提升修复速度。
 
         Thanks for reporting. The more concrete your report is, the faster we can reproduce and fix it.
+
+        如果你主要是想反馈“某个发布包能不能安装 / 能不能首次启动”，请优先使用 `Installation Report` 模板。
   - type: input
     id: package_name
     attributes:

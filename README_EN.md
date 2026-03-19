@@ -61,6 +61,8 @@ Releases: <https://github.com/wimi321/lizzieyzy-next-foxuid/releases>
 - [Installation Guide](docs/INSTALL_EN.md)
 - [Troubleshooting](docs/TROUBLESHOOTING_EN.md)
 - [Package Overview](docs/PACKAGES_EN.md)
+- [Tested Platforms](docs/TESTED_PLATFORMS.md)
+- [Support](SUPPORT.md)
 - [Maintenance Notes](docs/MAINTENANCE_EN.md)
 - [Changelog](CHANGELOG.md)
 
@@ -112,6 +114,8 @@ If you want to help this fork grow into a stronger long-term project, contributi
 - [Contributing Guide](CONTRIBUTING.md)
 - [Code Of Conduct](CODE_OF_CONDUCT.md)
 - [Security Policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Tested Platforms](docs/TESTED_PLATFORMS.md)
 - [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
 - [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)
 
