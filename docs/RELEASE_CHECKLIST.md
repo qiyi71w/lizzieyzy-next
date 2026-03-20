@@ -156,6 +156,12 @@ mvn -DskipTests package
 3. 本次发版包含哪些平台包
 4. 如果包策略有变化，要明确写出来
 
+如果你使用 GitHub 自动生成 release notes，记得再确认：
+
+- PR 标签已经能反映本次改动类型
+- `.github/release.yml` 里的分类仍然符合当前维护重点
+- `fox-sync`、`packaging`、`installation`、平台标签、`translation` 等分类没有失真
+
 ## 九、上传后验收
 
 上传完成后，至少再检查一次：

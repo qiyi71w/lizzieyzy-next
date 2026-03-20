@@ -17,6 +17,8 @@
 - [ ] Verified package contents if packaging changed
 - [ ] Verified Fox sync flow if related
 - [ ] Added screenshots if UI changed
+- [ ] Updated README / docs if user-facing behavior changed
+- [ ] Noted affected platforms if the change is platform-specific
 
 ## Notes
 

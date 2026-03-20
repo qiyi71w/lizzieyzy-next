@@ -165,6 +165,7 @@
 | 看懂每个发布包 | [发布包说明](docs/PACKAGES.md) |
 | 看哪些平台有人实测 | [已验证平台](docs/TESTED_PLATFORMS.md) |
 | 求助或反馈 | [获取帮助](SUPPORT.md) |
+| 从源码构建或参与开发 | [开发指南](docs/DEVELOPMENT.md) |
 | 查看更新历史 | [更新日志](CHANGELOG.md) |
 | 了解维护策略 | [维护说明](docs/MAINTENANCE.md) |
 | 发版时自查 | [发布检查清单](docs/RELEASE_CHECKLIST.md) |

@@ -48,6 +48,8 @@ A concise, reproducible report saves a lot of time for everyone.
 4. 如果改了文案或界面，请附截图。
 5. 尽量保持中英文术语一致，尤其是 `Fox ID / 野狐ID`、`with-katago`、`without.engine`。
 
+如果你准备从源码构建、改打包脚本或继续维护，建议先看 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
 ## Good First Contributions
 
 这些方向都很欢迎：

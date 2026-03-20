@@ -121,6 +121,7 @@
 - [安装指南](INSTALL.md)
 - [发布包说明](PACKAGES.md)
 - [已验证平台](TESTED_PLATFORMS.md)
+- [开发指南](DEVELOPMENT.md)
 - [获取帮助](../SUPPORT.md)
 - [常见问题与排错](TROUBLESHOOTING.md)
 - [发布检查清单](RELEASE_CHECKLIST.md)

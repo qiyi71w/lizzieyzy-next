@@ -60,3 +60,6 @@ chmod +x start-linux64.sh
 - [Installation Guide (English)](INSTALL_EN.md)
 - [Troubleshooting (English)](TROUBLESHOOTING_EN.md)
 - [Package Overview (English)](PACKAGES_EN.md)
+- [Development Guide (English)](DEVELOPMENT_EN.md)
+- [Tested Platforms](TESTED_PLATFORMS.md)
+- [Support](../SUPPORT.md)

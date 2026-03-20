@@ -54,3 +54,4 @@ If maintenance time is limited, fix these first:
 - [Installation Guide](INSTALL_EN.md)
 - [Troubleshooting](TROUBLESHOOTING_EN.md)
 - [Package Overview](PACKAGES_EN.md)
+- [Development Guide](DEVELOPMENT_EN.md)

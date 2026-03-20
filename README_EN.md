@@ -163,6 +163,7 @@ Paths:
 | Package explanations | [Package Overview](docs/PACKAGES_EN.md) |
 | Real-machine platform status | [Tested Platforms](docs/TESTED_PLATFORMS.md) |
 | Support and routing | [Support](SUPPORT.md) |
+| Build from source or contribute code | [Development Guide](docs/DEVELOPMENT_EN.md) |
 | Change history | [Changelog](CHANGELOG.md) |
 | Maintenance policy | [Maintenance Notes](docs/MAINTENANCE_EN.md) |
 | Release self-check | [Release Checklist](docs/RELEASE_CHECKLIST.md) |
