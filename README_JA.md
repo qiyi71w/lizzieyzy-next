@@ -112,6 +112,12 @@
 3. 数字の **野狐ID** を入力して公開棋譜を取得する
 4. そのまま KataGo 解析とレビューを続ける
 
+下の短いデモ画像は、その流れを視覚的にまとめたものです。
+
+<p align="center">
+  <img src="assets/fox-id-demo.gif" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
+</p>
+
 ## クイックスタート
 
 1. [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) から自分の環境に合うパッケージをダウンロードします。

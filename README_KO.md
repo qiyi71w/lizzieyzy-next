@@ -112,6 +112,12 @@
 3. 숫자로 된 **Fox ID** 를 입력해 공개 기보를 가져옵니다
 4. 그대로 KataGo 분석과 복기를 이어갑니다
 
+아래 짧은 데모 이미지는 그 흐름을 한눈에 보여줍니다.
+
+<p align="center">
+  <img src="assets/fox-id-demo.gif" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
+</p>
+
 ## 빠른 시작
 
 1. [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 에서 내 시스템에 맞는 패키지를 다운로드합니다.

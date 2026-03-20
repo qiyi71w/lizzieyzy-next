@@ -109,6 +109,12 @@ For most users, the path is straightforward:
 3. Enter a numeric **Fox ID** to fetch the latest public games
 4. Continue with bundled or custom KataGo review
 
+The short demo below shows that same path in a more visual way:
+
+<p align="center">
+  <img src="assets/fox-id-demo.gif" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
+</p>
+
 ## Quick Start
 
 1. Download the package for your system from the [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) page.

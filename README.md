@@ -111,6 +111,12 @@
 3. 输入纯数字的野狐ID，获取最新公开棋谱
 4. 继续用内置或自定义 KataGo 做分析和复盘
 
+下面这张短演示图展示的，就是首页最常见的使用路径：
+
+<p align="center">
+  <img src="assets/fox-id-demo.gif" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
+</p>
+
 ## 快速开始
 
 1. 去 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 下载适合你系统的包。
