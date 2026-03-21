@@ -114,7 +114,7 @@
 下面这张短演示图展示的，就是首页最常见的使用路径：
 
 <p align="center">
-  <img src="assets/fox-id-demo.gif" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
+  <img src="assets/fox-id-demo-cn.gif" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
 </p>
 
 ## 快速开始
