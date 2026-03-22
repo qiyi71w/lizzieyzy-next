@@ -2,29 +2,27 @@
 
 这份文档回答三件事：
 
-1. 当前维护版到底提供哪些包
+1. 当前维护版到底公开推荐哪些包
 2. 每个包里内置了什么
 3. 普通用户应该怎么选
 
-## 当前推荐的发布资产
+## 当前公开推荐的 6 个主资产
 
 | 包类型 | 典型文件名 | 适合谁 |
 | --- | --- | --- |
 | Windows 64 位安装器 | `<date>-windows64.with-katago.installer.exe` | 想双击安装、直接使用的普通用户 |
 | Windows 64 位整合便携包 | `<date>-windows64.with-katago.portable.zip` | 不想安装，只想解压后直接运行 |
 | Windows 64 位无引擎便携包 | `<date>-windows64.without.engine.portable.zip` | 想自己配置 KataGo |
-| Windows 32 位兼容包 | `<date>-windows32.without.engine.zip` | 老机器或兼容环境 |
 | macOS Apple Silicon 整合包 | `<date>-mac-arm64.with-katago.dmg` | M 系列 Mac |
 | macOS Intel 整合包 | `<date>-mac-amd64.with-katago.dmg` | Intel Mac |
 | Linux 64 位整合包 | `<date>-linux64.with-katago.zip` | Linux 桌面用户 |
-| Mac/Linux 进阶无引擎包 | `<date>-Macosx.amd64.Linux.amd64.without.engine.zip` | 完全自定义配置 |
 
 说明：
 
 - `<date>` 代表发布日期，例如 `2026-03-21`。
+- 当前维护版公开 release 主列表只保留这 6 个用户向主资产。
 - Windows 64 位现在优先推荐安装器，其次才是便携包。
-- 旧 tag 里如果还看到 `windows64.with-katago.zip`，那属于历史发布格式。
-- macOS 继续只保留 `.dmg` 主包，不再把 `.app.zip` 当主推荐。
+- 旧 tag 里如果还看到兼容 zip 或历史包，那属于历史发布格式。
 
 ## 每个包里内置了什么
 
@@ -33,11 +31,9 @@
 | `windows64.with-katago.installer.exe` | 内置 | 内置 | 内置 | 安装后从开始菜单或桌面打开 |
 | `windows64.with-katago.portable.zip` | 内置 | 内置 | 内置 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
 | `windows64.without.engine.portable.zip` | 内置 | 不内置 | 不内置 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
-| `windows32.without.engine.zip` | 不内置 | 不内置 | 不内置 | 按包内说明启动 |
 | `mac-arm64.with-katago.dmg` | App 自带运行时 | 内置 | 内置 | 拖到 Applications |
 | `mac-amd64.with-katago.dmg` | App 自带运行时 | 内置 | 内置 | 拖到 Applications |
 | `linux64.with-katago.zip` | 内置 | 内置 | 内置 | 运行 `start-linux64.sh` |
-| `Macosx.amd64.Linux.amd64.without.engine.zip` | 不内置 | 不内置 | 不内置 | 手工配置 |
 
 ## 给普通用户的选择建议
 
@@ -50,7 +46,7 @@
 如果你已经熟悉引擎配置：
 
 - Windows：选 `windows64.without.engine.portable.zip`
-- 其它平台完全自定义：选 `Macosx.amd64.Linux.amd64.without.engine.zip`
+- macOS / Linux：也可以先装对应系统的主包，再在软件里改成你自己的引擎路径
 
 ## 为什么 Windows 现在优先推荐安装器
 
@@ -80,10 +76,9 @@
 从新的维护版发布开始：
 
 - Windows 64 位主推荐资产是 `installer.exe`
-- Windows 64 位无引擎包也改成 `.exe` 便携形式
-- `windows64.with-katago.zip` 这种旧格式只作为历史 tag 的兼容说明保留
-
-如果你正在整理 release 页面，建议不要再把旧的 Windows 64 位 zip 包放进主推荐列表。
+- Windows 64 位无引擎包是 `.portable.zip`
+- 当前公开 release 主列表固定为 6 个用户向主资产
+- 旧的兼容 zip 只作为历史 tag 说明保留，不再放进主推荐区
 
 ## 相关文档
 

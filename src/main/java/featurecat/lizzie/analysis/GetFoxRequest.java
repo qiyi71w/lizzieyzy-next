@@ -67,11 +67,13 @@ public class GetFoxRequest {
       emitError("empty fox user");
       return;
     }
-    // 仅支持 UID：不再尝试用户名反查。
+    // 仅支持野狐数字ID：不再尝试用户名反查。
     if (!text.matches("\\d+")) {
       JSONObject failed = new JSONObject();
       failed.put("result", 1);
-      failed.put("resultstr", "Only Fox UID is supported. Please input numeric UID.");
+      failed.put(
+          "resultstr",
+          "Only numeric Fox ID is supported. Please enter digits only, not a nickname.");
       emit(failed.toString());
       return;
     }

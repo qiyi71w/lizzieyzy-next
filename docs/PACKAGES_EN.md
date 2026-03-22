@@ -2,29 +2,27 @@
 
 This document answers three practical questions:
 
-1. which package types are currently maintained
+1. which package types are currently recommended in public releases
 2. what each package includes
 3. which one a regular user should download first
 
-## Current Recommended Release Assets
+## The 6 Primary Public Release Assets
 
 | Package type | Typical filename | Best for |
 | --- | --- | --- |
 | Windows x64 installer | `<date>-windows64.with-katago.installer.exe` | Regular users who want the easiest path |
 | Windows x64 bundled portable | `<date>-windows64.with-katago.portable.zip` | Users who do not want an installer |
 | Windows x64 no-engine portable | `<date>-windows64.without.engine.portable.zip` | Custom KataGo setup |
-| Windows x86 compatibility package | `<date>-windows32.without.engine.zip` | Older systems or compatibility cases |
 | macOS Apple Silicon bundle | `<date>-mac-arm64.with-katago.dmg` | M-series Macs |
 | macOS Intel bundle | `<date>-mac-amd64.with-katago.dmg` | Intel Macs |
 | Linux x64 bundle | `<date>-linux64.with-katago.zip` | Linux desktop users |
-| Advanced macOS/Linux no-engine package | `<date>-Macosx.amd64.Linux.amd64.without.engine.zip` | Fully custom setups |
 
 Notes:
 
 - `<date>` is the release date, for example `2026-03-21`.
-- Windows x64 is now installer-first, with a bundled portable build as the second choice.
-- If an older tag still shows `windows64.with-katago.zip`, that is the previous release layout.
-- macOS stays centered on `.dmg` packages instead of `.app.zip` archives.
+- The maintained public release page now keeps these 6 user-facing assets as the main list.
+- Windows x64 is installer-first, with a bundled portable build as the second choice.
+- Older tags may still show compatibility zips, but those are now historical layouts.
 
 ## What Each Package Includes
 
@@ -33,11 +31,9 @@ Notes:
 | `windows64.with-katago.installer.exe` | Bundled | Bundled | Bundled | Install, then launch from Start Menu or desktop |
 | `windows64.with-katago.portable.zip` | Bundled | Bundled | Bundled | Unzip and run `LizzieYzy Next-FoxUID.exe` |
 | `windows64.without.engine.portable.zip` | Bundled | Not bundled | Not bundled | Unzip and run `LizzieYzy Next-FoxUID.exe` |
-| `windows32.without.engine.zip` | Not bundled | Not bundled | Not bundled | Follow the package instructions |
 | `mac-arm64.with-katago.dmg` | App runtime | Bundled | Bundled | Drag to Applications |
 | `mac-amd64.with-katago.dmg` | App runtime | Bundled | Bundled | Drag to Applications |
 | `linux64.with-katago.zip` | Bundled | Bundled | Bundled | Run `start-linux64.sh` |
-| `Macosx.amd64.Linux.amd64.without.engine.zip` | Not bundled | Not bundled | Not bundled | Manual setup |
 
 ## Simple Download Advice
 
@@ -50,7 +46,7 @@ If you just want the shortest path:
 If you already manage engines manually:
 
 - Windows: choose `windows64.without.engine.portable.zip`
-- Full custom setup on other platforms: choose `Macosx.amd64.Linux.amd64.without.engine.zip`
+- macOS / Linux: you can still start from the standard bundle and point the app to your own engine later
 
 ## Why Windows Is Installer-First Now
 
@@ -81,10 +77,9 @@ Paths:
 From the new maintained releases onward:
 
 - the main Windows x64 package is `installer.exe`
-- the Windows x64 no-engine package also moves to a portable `.exe` flow
-- the old `windows64.with-katago.zip` naming stays only as historical compatibility guidance
-
-If you are organizing the release page, do not keep the old Windows x64 zip packages in the main recommendation list.
+- the Windows x64 no-engine package is the portable `.zip` with `LizzieYzy Next-FoxUID.exe`
+- the public release page keeps the 6 primary user-facing assets above as the main list
+- older compatibility zips now stay in historical tags instead of the main recommendation area
 
 ## Related Docs
 

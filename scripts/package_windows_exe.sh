@@ -88,7 +88,7 @@ build_app_image() {
     --dest "$app_image_dir" \
     --app-version "$APP_VERSION" \
     --vendor "wimi321" \
-    --description "LizzieYzy maintained fork with Fox ID sync fix" \
+    --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
     --java-options "-Xmx4096m"
 
   printf '%s\n' "$app_image_dir/$APP_NAME"
@@ -115,7 +115,7 @@ build_installer() {
     --dest "$installer_dir" \
     --app-version "$APP_VERSION" \
     --vendor "wimi321" \
-    --description "LizzieYzy maintained fork with Fox ID sync fix" \
+    --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
     --win-dir-chooser \
     --win-menu \
     --win-shortcut \

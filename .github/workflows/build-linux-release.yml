@@ -1,0 +1,84 @@
+name: Build Linux Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      date_tag:
+        description: Release date tag, for example 2026-03-16
+        required: true
+        default: 2026-03-16
+      release_tag:
+        description: Existing GitHub release tag to upload into
+        required: true
+        default: 2.5.3-next-foxuid-2026-03-21.1
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y maven zip unzip curl
+
+      - name: Build shaded jar
+        run: mvn -DskipTests package
+
+      - name: Prepare bundled KataGo assets
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/katago
+          NETWORKS_HTML="$(curl -fsSL https://katagotraining.org/networks/)"
+          RECOMMENDED_PATH="$(printf '%s' "$NETWORKS_HTML" | perl -0ne '
+            if (/Strongest confidently-rated network:<\/span>\s*<a href="([^"]+)"/si) {
+              print $1;
+              exit 0;
+            }
+            if (/Latest network:<\/span>\s*<a href="([^"]+)"/si) {
+              print $1;
+              exit 0;
+            }
+            exit 1;
+          ')"
+          if [[ "$RECOMMENDED_PATH" != http* ]]; then
+            RECOMMENDED_URL="https://katagotraining.org${RECOMMENDED_PATH}"
+          else
+            RECOMMENDED_URL="$RECOMMENDED_PATH"
+          fi
+          MODEL_FILENAME="$(basename "${RECOMMENDED_URL%%\?*}")"
+          MODEL_SOURCE="$PWD/.cache/katago/$MODEL_FILENAME"
+          curl -fL --retry 5 --retry-all-errors -o "$MODEL_SOURCE" "$RECOMMENDED_URL"
+          MODEL_SOURCE="$MODEL_SOURCE" ./scripts/prepare_bundled_katago.sh
+
+      - name: Build Linux package
+        run: ./scripts/package_release.sh "${{ inputs.date_tag }}" target/lizzie-yzy2.5.3-shaded.jar
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: |
+            dist/release/*linux64.with-katago.zip
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            dist/release/*linux64.with-katago.zip \
+            --repo "${{ github.repository }}" \
+            --clobber

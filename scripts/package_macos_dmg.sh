@@ -89,7 +89,7 @@ jpackage \
   --dest "$APP_IMAGE_DIR" \
   --app-version "$APP_VERSION" \
   --vendor "wimi321" \
-  --description "LizzieYzy maintained fork with Fox UID sync fix" \
+  --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
   --java-options "-Xmx4096m"
 
 jpackage \
@@ -101,7 +101,7 @@ jpackage \
   --dest "$DMG_DIR" \
   --app-version "$APP_VERSION" \
   --vendor "wimi321" \
-  --description "LizzieYzy maintained fork with Fox UID sync fix" \
+  --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
   --mac-package-identifier "$IDENTIFIER" \
   --java-options "-Xmx4096m"
 

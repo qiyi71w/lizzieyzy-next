@@ -5,7 +5,7 @@ This guide answers four practical questions:
 1. which package to download
 2. how to launch it after installation
 3. whether first launch auto-configures the engine
-4. how to fetch Fox games by Fox ID
+4. how to fetch Fox games by numeric Fox ID
 
 ## Pick The Right Package
 
@@ -14,17 +14,19 @@ This guide answers four practical questions:
 | Windows x64 | `<date>-windows64.with-katago.installer.exe` | Yes | Yes | Main recommendation for regular users |
 | Windows x64 | `<date>-windows64.with-katago.portable.zip` | Yes | Yes | No installer, unzip and run |
 | Windows x64 | `<date>-windows64.without.engine.portable.zip` | Yes | No | Custom engine setup |
-| Windows x86 | `<date>-windows32.without.engine.zip` | No | No | Legacy compatibility |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App runtime | Yes | M-series Macs |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App runtime | Yes | Intel Macs |
 | Linux x64 | `<date>-linux64.with-katago.zip` | Yes | Yes | Linux desktop users |
-| Advanced custom setup | `<date>-Macosx.amd64.Linux.amd64.without.engine.zip` | No | No | Manual Java and engine setup |
 
 Quick rule:
 
 - choose `with-katago` if you want the shortest path
-- choose `without.engine` only if you plan to manage the engine yourself
+- choose `without.engine` on Windows if you plan to manage the engine yourself
 - on Windows, regular users should start with the installer build
+
+### Legacy tag note
+
+Some older tags still show transitional zip names or compatibility packages, but the current maintained release now centers on 6 primary assets: 3 Windows, 2 macOS, and 1 Linux package.
 
 ## Windows
 
@@ -50,16 +52,6 @@ This is now the primary Windows path for regular users.
 2. Extract it and run `LizzieYzy Next-FoxUID.exe`.
 3. This package includes the application runtime but not KataGo.
 4. Configure your own engine after launch.
-
-### If you are looking at an older release tag
-
-Some older tags still use the previous `windows64.with-katago.zip` layout.
-
-If you do not see the new installer or portable package yet:
-
-1. download the matching `windows64.with-katago.zip`
-2. extract it and follow the instructions inside the package
-3. newer releases will keep moving toward the installer-first Windows layout
 
 ## macOS
 
@@ -112,13 +104,13 @@ That means most `with-katago` users should not need manual engine setup on day o
 ## Fox Sync
 
 1. Launch the app.
-2. Open **Fox Kifu (Fetch by Fox ID)**.
+2. Open **Fox Kifu (Fetch by numeric Fox ID)**.
 3. Enter a numeric Fox ID.
 4. Fetch the latest public games.
 
 Notes:
 
-- this maintained fork only supports **Fox ID**
+- this maintained fork only supports **numeric Fox ID**
 - username lookup is no longer supported
 - if the account has no recent public games, the result may be empty
 

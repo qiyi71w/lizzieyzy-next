@@ -9,12 +9,11 @@
 | Windows x64 | `<date>-windows64.with-katago.installer.exe` | 포함 | 포함 |
 | Windows x64 | `<date>-windows64.with-katago.portable.zip` | 포함 | 포함 |
 | Windows x64 | `<date>-windows64.without.engine.portable.zip` | 포함 | 없음 |
-| Windows x86 | `<date>-windows32.without.engine.zip` | 없음 | 없음 |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App 내장 | 포함 |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App 내장 | 포함 |
 | Linux x64 | `<date>-linux64.with-katago.zip` | 포함 | 포함 |
 
-가장 쉽게 시작하려면 `with-katago` 패키지를 선택하세요. Windows 에서는 보통 `installer.exe` 가 가장 쉬운 선택입니다.
+현재 공개 release 는 이 6가지 패키지를 중심으로 정리되어 있습니다. Windows 에서는 보통 `installer.exe` 가 가장 쉬운 선택입니다.
 
 ## Windows
 
@@ -75,7 +74,7 @@ chmod +x start-linux64.sh
 
 ## Fox 기보 가져오기
 
-앱을 실행한 뒤 Fox 기보 메뉴에서 **숫자만 있는 Fox ID** 를 입력하세요.
+앱을 실행한 뒤 Fox 기보 메뉴에서 **숫자 Fox ID** 를 입력하세요.
 
 - 사용자명 검색은 더 이상 지원하지 않습니다.
 - 최신 공개 기보를 가져오는 흐름으로 통일되어 있습니다.
@@ -85,6 +84,5 @@ chmod +x start-linux64.sh
 - [Installation Guide (English)](INSTALL_EN.md)
 - [Troubleshooting (English)](TROUBLESHOOTING_EN.md)
 - [Package Overview (English)](PACKAGES_EN.md)
-- [Development Guide (English)](DEVELOPMENT_EN.md)
 - [Tested Platforms](TESTED_PLATFORMS.md)
 - [Support](../SUPPORT.md)

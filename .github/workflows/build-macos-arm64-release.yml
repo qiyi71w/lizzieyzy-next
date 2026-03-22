@@ -1,4 +1,4 @@
-name: Build macOS amd64 Release
+name: Build macOS arm64 Release
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15-intel
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,23 +44,23 @@ jobs:
           ALL_PROXY: ""
         run: ./scripts/prepare_bundled_katago.sh
 
-      - name: Build macOS amd64 package
+      - name: Build macOS arm64 package
         run: ./scripts/package_macos_dmg.sh "${{ inputs.date_tag }}" 2.5.3 target/lizzie-yzy2.5.3-shaded.jar
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: macos-amd64-with-katago
+          name: macos-arm64-with-katago
           path: |
-            dist/release/*mac-amd64.with-katago.dmg
-            dist/release/*mac-amd64.with-katago-install.txt
+            dist/release/*mac-arm64.with-katago.dmg
+            dist/release/*mac-arm64.with-katago-install.txt
 
       - name: Upload assets to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            dist/release/*mac-amd64.with-katago.dmg \
-            dist/release/*mac-amd64.with-katago-install.txt \
+            dist/release/*mac-arm64.with-katago.dmg \
+            dist/release/*mac-arm64.with-katago-install.txt \
             --repo "${{ github.repository }}" \
             --clobber

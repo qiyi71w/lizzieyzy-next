@@ -12,6 +12,8 @@ fi
 DATE_TAG="${1:-$(date +%F)}"
 JAR_PATH="${2:-target/lizzie-yzy2.5.3-shaded.jar}"
 LEGACY_WINDOWS64_ZIP="${LEGACY_WINDOWS64_ZIP:-0}"
+LEGACY_WINDOWS32_ZIP="${LEGACY_WINDOWS32_ZIP:-0}"
+LEGACY_OTHER_SYSTEMS_ZIP="${LEGACY_OTHER_SYSTEMS_ZIP:-0}"
 
 if [[ ! -f "$JAR_PATH" ]]; then
   echo "Jar not found: $JAR_PATH"
@@ -152,8 +154,8 @@ EOF
 Project: LizzieYzy Next-FoxUID
 Date: $DATE_TAG
 Changes:
-- Fix Fox kifu sync by Fox ID using Fox H5 API.
-- Fox ID-only query mode (username lookup removed).
+- Fix Fox kifu sync by numeric Fox ID using Fox H5 API.
+- Numeric Fox ID-only query mode (nickname lookup removed).
 Package:
 - $bundle_note
 EOF
@@ -242,6 +244,7 @@ if exist \"Lizzieyzy\\runtime\\windows-x64\\bin\\java.exe\" set \"JAVA_CMD=Lizzi
     "windows-x64"
 fi
 
+if [[ "$LEGACY_WINDOWS32_ZIP" == "1" ]]; then
 make_bundle \
   "$DATE_TAG-windows32.$WINDOWS32_FLAVOR" \
   "start-windows32.bat" \
@@ -253,6 +256,8 @@ if exist \"Lizzieyzy\\runtime\\windows-x64\\bin\\java.exe\" set \"JAVA_CMD=Lizzi
 \"%JAVA_CMD%\" -jar \"Lizzieyzy\\lizzie-yzy2.5.3-shaded.jar\"" \
   "$WINDOWS32_RUNTIME_NOTE" \
   "$( [[ "$WINDOWS32_FLAVOR" == "with-katago" ]] && echo "windows-x86" )"
+
+fi
 
 make_bundle \
   "$DATE_TAG-linux64.$LINUX64_FLAVOR" \
@@ -269,6 +274,7 @@ fi
   "$( [[ "$LINUX64_FLAVOR" == "with-katago" ]] && echo "linux-x64" )" \
   "linux-x64"
 
+if [[ "$LEGACY_OTHER_SYSTEMS_ZIP" == "1" ]]; then
 make_bundle \
   "$DATE_TAG-Macosx.amd64.Linux.amd64.$MAC_LINUX_FLAVOR" \
   "start-macos-linux.sh" \
@@ -313,6 +319,8 @@ Mac chip support:
 If old native dependencies are incompatible in your environment, install a matching JDK and try Rosetta for x86_64 mode.
 EOF
 
+fi
+
 for d in "$STAGE_DIR"/*; do
   (
     cd "$STAGE_DIR"
@@ -324,4 +332,10 @@ echo "Built release zips:"
 ls -lh "$OUT_DIR"
 if [[ "$LEGACY_WINDOWS64_ZIP" != "1" ]]; then
   echo "Skipped legacy Windows x64 zip packages. Use scripts/package_windows_exe.sh for current Windows assets."
+fi
+if [[ "$LEGACY_WINDOWS32_ZIP" != "1" ]]; then
+  echo "Skipped legacy Windows x86 zip package. Set LEGACY_WINDOWS32_ZIP=1 to build it."
+fi
+if [[ "$LEGACY_OTHER_SYSTEMS_ZIP" != "1" ]]; then
+  echo "Skipped legacy macOS/Linux compatibility zip package. Set LEGACY_OTHER_SYSTEMS_ZIP=1 to build it."
 fi

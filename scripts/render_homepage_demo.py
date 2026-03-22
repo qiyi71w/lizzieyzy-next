@@ -40,9 +40,9 @@ LOCALES = {
             'badge': (FONT_ARIAL_BOLD, 18),
         },
         'header_chip': 'Quick Demo',
-        'header_title': 'From Fox ID to KataGo review',
+        'header_title': 'From numeric Fox ID to KataGo review',
         'header_sub': 'A short preview of the most common path after download.',
-        'step_labels': ['Package', 'Sync', 'Fox ID', 'Review'],
+        'step_labels': ['Package', 'Sync', 'Numeric ID', 'Review'],
         'step2_badge': 'Open Sync',
         'step1_helper_title': 'Recommended first download',
         'step1_helper_lines': [
@@ -50,8 +50,8 @@ LOCALES = {
             'you already manage your own engines.',
         ],
         'step1_helper_chips': ['windows64.with-katago', 'mac-arm64.dmg', 'mac-amd64.dmg', 'linux64.with-katago'],
-        'modal_chip': 'Fox ID',
-        'modal_title': 'Enter the numeric ID',
+        'modal_chip': 'Numeric Fox ID',
+        'modal_title': 'Enter the numeric Fox ID',
         'modal_sub': 'Fetch the latest visible public games.',
         'modal_button': 'Fetch',
         'scenes': [
@@ -66,7 +66,7 @@ LOCALES = {
             },
             {
                 'title': 'Enter the numeric Fox ID',
-                'lines': ['Type the Fox ID and fetch', 'the latest visible public games.'],
+                'lines': ['Type the numeric Fox ID and fetch', 'the latest visible public games.'],
             },
             {
                 'title': 'Continue with KataGo review',
@@ -97,9 +97,9 @@ LOCALES = {
             'badge': (FONT_CJK, 17),
         },
         'header_chip': '快速演示',
-        'header_title': '从野狐ID到 KataGo 分析',
+        'header_title': '从野狐数字ID到 KataGo 分析',
         'header_sub': '下载后最常见的使用路径',
-        'step_labels': ['安装包', '同步', '野狐ID', '分析'],
+        'step_labels': ['安装包', '同步', '野狐数字ID', '分析'],
         'step2_badge': '打开同步',
         'step1_helper_title': '推荐先下载整合包',
         'step1_helper_lines': [
@@ -107,8 +107,8 @@ LOCALES = {
             '后面再按需要换引擎。',
         ],
         'step1_helper_chips': ['windows64.with-katago', 'mac-arm64.dmg', 'mac-amd64.dmg', 'linux64.with-katago'],
-        'modal_chip': '野狐ID',
-        'modal_title': '输入纯数字 ID',
+        'modal_chip': '野狐数字ID',
+        'modal_title': '输入野狐数字ID',
         'modal_sub': '获取最新公开棋谱',
         'modal_button': '抓谱',
         'scenes': [
@@ -122,8 +122,8 @@ LOCALES = {
                 'lines': ['启动程序后，从上方菜单', '进入同步入口'],
             },
             {
-                'title': '输入野狐ID',
-                'lines': ['输入纯数字 ID，抓取', '最新公开棋谱'],
+                'title': '输入野狐数字ID',
+                'lines': ['输入野狐数字ID，抓取', '最新公开棋谱'],
             },
             {
                 'title': '继续分析复盘',

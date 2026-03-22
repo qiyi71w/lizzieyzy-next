@@ -7,7 +7,7 @@ If you only want to use the app, start with the [Installation Guide](INSTALL_EN.
 ## Important Context First
 
 - This is a maintained LizzieYzy fork, not a one-off patch repository.
-- The most important user flow is: install the app, launch it, fetch public Fox games through **Fox ID**, and analyze normally.
+- The most important user flow is: install the app, launch it, fetch public Fox games through **numeric Fox ID**, and analyze normally.
 - The project does not currently have a full automated test suite. The practical maintenance baseline is local builds, doc checks, and targeted manual verification.
 
 ## Building Locally
@@ -106,7 +106,7 @@ If you changed packaging, engine paths, first-launch behavior, or the Fox fetch 
 
 ## Where To Start For Common Changes
 
-### 1. Fox sync or Fox ID workflow changes
+### 1. Fox sync or numeric Fox ID workflow changes
 
 Start with:
 
@@ -116,7 +116,7 @@ Start with:
 
 Also verify:
 
-- the UI still says `Fox ID`
+- the UI still says `numeric Fox ID`
 - README and install docs do not fall back to old UID / username wording
 - you perform at least one real Fox fetch check
 
@@ -165,7 +165,7 @@ These changes usually also require updates to:
 
 ## Final Pre-PR Checklist
 
-- Did you affect the main user flow: install, launch, Fox ID fetch, analysis?
+- Did you affect the main user flow: install, launch, numeric Fox ID fetch, and analysis?
 - Did any wording drift back to old UID / username terminology?
 - Do package names, README guidance, and docs still agree?
 - If packaging changed, did you update the related docs and verification records?

@@ -6,73 +6,70 @@
 
 # 中文
 
-**这次维护版把原来已经失效的野狐棋谱同步重新做回可用状态。现在可以直接输入野狐ID，获取最新公开棋谱。**
+**原版 `lizzieyzy` 的野狐棋谱同步很多人已经用不了了。这次维护版把这条链路重新修好，并继续维护。现在统一通过“野狐数字ID”获取最新公开棋谱。这里只支持纯数字，不支持昵称。**
 
-## 这版最重要的变化
+## 先记住这 3 句
 
-- 修复野狐棋谱同步，改为当前可用的实现
-- 界面和文档统一成“野狐ID”口径，不再支持用户名搜索
+- Windows 用户先下载 `<date>-windows64.with-katago.installer.exe`
+- 抓野狐棋谱时只输入“野狐数字ID”，只能输入纯数字，不能输入昵称
 - 第一次启动会优先自动配置内置 KataGo、权重和默认引擎路径
-- Windows 64 位主推荐资产改成 `installer.exe`
 
-## 下载怎么选
+## 先下载哪个
 
-### Windows
+| 你的系统 | 直接下载这个 | 说明 |
+| --- | --- | --- |
+| Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 主推荐，双击安装，普通用户先选这个 |
+| Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 不想安装时使用，解压后运行 `.exe` |
+| Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 想自己配置引擎时使用 |
+| macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | M1 / M2 / M3 / M4 等机器 |
+| macOS Intel | `<date>-mac-amd64.with-katago.dmg` | Intel 芯片 Mac |
+| Linux 64 位 | `<date>-linux64.with-katago.zip` | Linux 64 位整合包 |
 
-- `<date>-windows64.with-katago.installer.exe`：Windows 64 位首选，双击安装，普通用户直接选这个
-- `<date>-windows64.with-katago.portable.zip`：不想安装时使用，解压后运行 `.exe`
-- `<date>-windows64.without.engine.portable.zip`：自己配置引擎时使用
-- `<date>-windows32.without.engine.zip`：老机器兼容包
+> 如果你在资产列表里看到 `*-install.txt`，那是补充说明文件，不是安装包本体。
 
-### macOS
+## 这版真正解决了什么
 
-- `<date>-mac-arm64.with-katago.dmg`：Apple Silicon Mac
-- `<date>-mac-amd64.with-katago.dmg`：Intel Mac
-- 对应的 `*-install.txt` 里写了 Gatekeeper 提示，以及引擎 / 权重路径
-
-### Linux
-
-- `<date>-linux64.with-katago.zip`：Linux 64 位整合包
-- `<date>-Macosx.amd64.Linux.amd64.without.engine.zip`：进阶自定义包
-
-## 你会直接感受到的变化
-
-- 原来已经失效的野狐棋谱同步重新可用
-- 输入野狐ID即可获取最新公开棋谱
-- 普通 Windows 用户不需要再理解 `.bat`
-- `with-katago` 包第一次打开时会优先自动配置引擎
+| 以前最容易卡住的地方 | 现在怎么处理 |
+| --- | --- |
+| 原版野狐棋谱同步失效 | 改成当前可用的实现，重新支持获取最新公开棋谱 |
+| 用户不知道 `UID` 是什么，容易把昵称填进去 | 统一写成 **野狐数字ID**，并明确写清楚“只能输入纯数字，不能输入昵称” |
+| Windows 打开方式不直观 | 主推荐改成 `.installer.exe`，便携包也直接运行 `.exe` |
+| 第一次启动要自己配引擎和权重 | 优先自动识别内置 KataGo、默认权重和引擎路径 |
+| 发布页包太多太乱 | 当前主发布页固定只讲 6 个用户向主包 |
 
 # English
 
-**This maintained release restores the broken Fox kifu sync path. You can now fetch the latest public games directly by entering a Fox ID.**
+**This maintained release restores the broken Fox kifu sync path. You now fetch the latest public games by entering a numeric Fox ID: digits only, no nickname.**
 
 ## Download quick guide
 
 - Windows x64: choose `<date>-windows64.with-katago.installer.exe`
+- Windows x64 portable: choose `<date>-windows64.with-katago.portable.zip`
+- Windows x64 custom engine: choose `<date>-windows64.without.engine.portable.zip`
 - macOS Apple Silicon: choose `<date>-mac-arm64.with-katago.dmg`
 - macOS Intel: choose `<date>-mac-amd64.with-katago.dmg`
 - Linux x64: choose `<date>-linux64.with-katago.zip`
-- Advanced custom engine setup: choose the `without.engine` packages
 
 ## Highlights
 
 - Fox sync restored
-- Fox ID only workflow
+- numeric Fox ID only workflow, with digits-only wording
 - First-launch bundled KataGo auto setup
 - Windows release is now installer-first
+- The public release page is now centered on a smaller, clearer asset set
 
 # 日本語
 
-**このメンテナンス版では、壊れていた野狐棋譜同期を復旧し、野狐IDで最新の公開棋譜を取得できるようにしました。**
+**このメンテナンス版では、壊れていた野狐棋譜同期を復旧し、野狐数字IDで最新の公開棋譜を取得できるようにしました。**
 
 - Windows x64 は `installer.exe` を優先配布
 - 初回起動で内蔵 KataGo を自動設定
-- UI と文書は野狐ID表記に統一
+- UI と文書は野狐数字ID表記に統一
 
 # 한국어
 
-**이 유지보수 릴리스에서는 고장나 있던 Fox 기보 동기화를 복구했고, 이제 Fox ID 로 최신 공개 기보를 가져올 수 있습니다.**
+**이 유지보수 릴리스에서는 고장나 있던 Fox 기보 동기화를 복구했고, 이제 numeric Fox ID 로 최신 공개 기보를 가져올 수 있습니다.**
 
 - Windows x64 는 `installer.exe` 를 우선 제공
 - 첫 실행에서 내장 KataGo 자동 설정 시도
-- UI 와 문서를 Fox ID 기준으로 통일
+- UI 와 문서를 numeric Fox ID 기준으로 통일

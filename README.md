@@ -17,7 +17,7 @@
 
 <p align="center">
   <strong>继续维护的 LizzieYzy 版本，重点把原版已经失效的野狐棋谱同步重新做回可用状态。</strong><br/>
-  现在统一通过 <strong>野狐ID</strong> 获取最新公开棋谱，并把首启自动配置、整合包和跨平台发布一起补齐。
+  现在统一通过 <strong>野狐数字ID</strong> 获取最新公开棋谱。这里只支持<strong>纯数字</strong>，不支持昵称；首启自动配置、整合包和跨平台发布也一并补齐。
 </p>
 
 <p align="center">
@@ -33,10 +33,10 @@
 </p>
 
 > [!IMPORTANT]
-> 这个维护版优先解决的不是“再做一堆新功能”，而是把原项目最常用的链路重新做顺：
-> - 修复野狐棋谱同步，界面入口统一为“野狐棋谱（输入野狐ID获取）”
-> - 首次启动优先自动配置内置 KataGo、权重和默认引擎路径
-> - 重新整理发布包，Windows 主推荐为 `.installer.exe`，macOS 主推荐为 `.dmg`
+> 如果你只想下载安装后直接用，先记住这 3 句：
+> - Windows 先下 `windows64.with-katago.installer.exe`
+> - 抓野狐棋谱时只输入“野狐数字ID”，只能输入纯数字，不能输入昵称
+> - 第一次启动会优先自动配置内置 KataGo、权重和默认引擎路径
 
 ## 先下载哪个
 
@@ -48,33 +48,32 @@
 | macOS Apple Silicon | `mac-arm64.with-katago.dmg` | M1 / M2 / M3 / M4 等机器 |
 | macOS Intel | `mac-amd64.with-katago.dmg` | Intel 芯片 Mac |
 | Linux 64 位 | `linux64.with-katago.zip` | 想直接开始分析和抓谱 |
-| 老机器或进阶自定义 | `windows32.without.engine.zip` / `Macosx.amd64.Linux.amd64.without.engine.zip` | 明确知道自己在做什么时再选 |
 
 > [!TIP]
-> 旧版本 release 里如果暂时还没有新的 Windows 安装器或便携包，先用同日期的 `windows64.with-katago.zip` 也能启动。后续 Windows 主下载项会统一切到安装器和 `.exe` 便携包。
+> 当前维护版公开发布时，主推荐列表统一只保留这 6 个用户向主包。旧 tag 里如果还能看到兼容或历史资产，那属于历史格式，不再放进主推荐区。
 
-## 为什么这个项目值得关注
+> [!NOTE]
+> 如果你不知道该选哪个：
+> - Windows：直接下 `windows64.with-katago.installer.exe`
+> - Mac：按芯片选对应的 `.dmg`
+> - Linux：直接下 `linux64.with-katago.zip`
 
-如果你以前用过 `lizzieyzy`，最在意的通常不是“有没有换一套新 UI”，而是下面这些事是不是终于变得简单了：
+## 这个维护版解决了什么
 
-- 原来已经失效的野狐棋谱同步，现在能不能重新用起来
-- 第一次打开时，还要不要手工折腾引擎、权重、配置路径
-- 发布页是不是还像以前那样，一堆包名看不懂、不知道该下哪个
-- 换一台 Windows、Mac 或 Linux 机器时，能不能重新快速装起来
-
-`LizzieYzy Next-FoxUID` 就是围绕这些真实问题继续维护的分支。目标很直接：
-
-- 能安装
-- 能启动
-- 能抓野狐公开棋谱
-- 能继续用 KataGo 分析
+| 以前最容易卡住的地方 | 这个维护版现在怎么处理 |
+| --- | --- |
+| 原版野狐棋谱同步很多人已经用不了 | 改成当前可用的实现，重新支持获取最新公开棋谱 |
+| 用户不知道 `UID` 是什么，容易把昵称填进去 | 统一写成 **野狐数字ID**，并明确提示“只能输入纯数字，不能输入昵称” |
+| Windows 打开方式不直观，要先理解 `.bat` | 主推荐改成 `.installer.exe`，便携包也直接运行 `.exe` |
+| 第一次启动要自己配引擎、权重、路径 | 优先自动识别内置 KataGo、默认权重和引擎路径 |
+| 发布页包太多，不知道该下载哪个 | 主推荐固定为 6 个包，按系统直接选 |
 
 ## 三分钟上手
 
 1. 去 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 选对自己系统的包。
 2. Windows 用户优先选 `windows64.with-katago.installer.exe`；macOS 用户按芯片选 `.dmg`；Linux 用户选 `linux64.with-katago.zip`。
 3. 第一次启动时，程序会优先自动识别内置 KataGo、配置文件和默认权重。
-4. 打开 **野狐棋谱（输入野狐ID获取）**，输入纯数字野狐ID，获取最新公开棋谱。
+4. 打开 **野狐棋谱（输入野狐数字ID获取）**，输入纯数字的野狐数字ID。不能输入昵称。
 5. 继续用内置或自定义 KataGo 做分析和复盘。
 
 ## 首次启动现在会自动做什么
@@ -104,11 +103,9 @@
 | Windows 64 位 | `windows64.with-katago.installer.exe` | 是 | 是 | 双击安装，开始菜单和桌面快捷方式 |
 | Windows 64 位 | `windows64.with-katago.portable.zip` | 是 | 是 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
 | Windows 64 位 | `windows64.without.engine.portable.zip` | 是 | 否 | 解压后运行，自行配置引擎 |
-| Windows 32 位 | `windows32.without.engine.zip` | 否 | 否 | 兼容用途，需要自装 Java |
 | macOS Apple Silicon | `mac-arm64.with-katago.dmg` | App 自带运行时 | 是 | 拖入 Applications |
 | macOS Intel | `mac-amd64.with-katago.dmg` | App 自带运行时 | 是 | 拖入 Applications |
 | Linux 64 位 | `linux64.with-katago.zip` | 是 | 是 | 解压后运行 `start-linux64.sh` |
-| 进阶用户 | `Macosx.amd64.Linux.amd64.without.engine.zip` | 否 | 否 | 手工配置 Java 和引擎 |
 
 补充说明：
 
@@ -116,13 +113,14 @@
 - Windows 的无引擎包也改成 `.exe` 便携形式，不再把 `.bat` 作为主入口。
 - macOS 继续以 `.dmg` 为主，不再把 `app.zip` 作为主推荐。
 - Linux 继续保留可直接运行的整合包。
+- 当前公开 release 主列表控制在 6 个主资产以内，避免历史兼容包重新混进首屏。
 
 ## 现在和原版有什么不同
 
 | 项目 | 原版 LizzieYzy | Next-FoxUID |
 | --- | --- | --- |
 | 野狐棋谱同步 | 对很多用户已经失效 | 已修复并继续维护 |
-| 输入方式 | UID / 用户名 / 其它叫法混在一起 | 统一为野狐ID |
+| 输入方式 | UID / 用户名 / 其它叫法混在一起 | 统一为野狐数字ID |
 | 首次启动 | 经常需要自己配引擎 | 优先自动配置内置引擎 |
 | Windows 使用体验 | 主要依赖 zip + bat | 以 `.installer.exe` 和 `.exe` 便携包为主 |
 | macOS 发布 | 历史包型偏杂 | 以 `.dmg` 为主，区分 Apple Silicon / Intel |
@@ -158,9 +156,15 @@
 ## 常见问题
 
 <details>
-<summary><strong>为什么只支持野狐ID，不支持用户名搜索？</strong></summary>
+<summary><strong>为什么只支持野狐数字ID，不支持用户名搜索？</strong></summary>
 
-因为用户名搜索更容易误判，也更难维护。这个维护版统一按野狐ID工作，界面、文档和问题反馈模板都按这个口径整理。
+因为用户名搜索更容易误判，也更难维护。这个维护版统一按野狐数字ID工作，界面、文档和问题反馈模板都按这个口径整理。
+</details>
+
+<details>
+<summary><strong>什么是野狐数字ID？</strong></summary>
+
+就是野狐账号对应的那串纯数字编号。这里不能输入昵称，也不能输入中文用户名，必须输入数字。
 </details>
 
 <details>

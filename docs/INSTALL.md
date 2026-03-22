@@ -5,7 +5,7 @@
 1. 你应该下载哪个包
 2. 装完以后怎么打开
 3. 第一次启动会不会自动配置
-4. 怎么用野狐ID抓取公开棋谱
+4. 怎么用野狐数字ID抓取公开棋谱
 
 ## 先选对包
 
@@ -14,17 +14,19 @@
 | Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 是 | 是 | 普通用户首选，双击安装 |
 | Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 是 | 是 | 不想安装，只想解压后直接运行 |
 | Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 是 | 否 | 想自己配引擎 |
-| Windows 32 位 | `<date>-windows32.without.engine.zip` | 否 | 否 | 老机器兼容用途 |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App 自带运行时 | 是 | M 系列 Mac |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App 自带运行时 | 是 | Intel Mac |
 | Linux 64 位 | `<date>-linux64.with-katago.zip` | 是 | 是 | Linux 桌面用户 |
-| 进阶自定义 | `<date>-Macosx.amd64.Linux.amd64.without.engine.zip` | 否 | 否 | 自己配 Java 和引擎 |
 
 一句话建议：
 
 - 想最省事：选 `with-katago`
-- 想完全自己配：选 `without.engine`
+- 想自己管引擎：Windows 选 `without.engine.portable.zip`
 - Windows 普通用户：优先选 `.installer.exe`
+
+### 历史 tag 说明
+
+部分旧 tag 还会看到早期的 zip 命名或兼容包，但当前维护版公开 release 已统一成 6 个主资产：3 个 Windows、2 个 macOS、1 个 Linux。普通用户直接按上面的表选即可。
 
 ## Windows 安装
 
@@ -35,7 +37,7 @@
 3. 按向导选择安装目录。
 4. 安装完成后，从桌面快捷方式或开始菜单打开程序。
 
-这是目前最推荐给普通用户的 Windows 路径。
+这是当前最推荐给普通用户的 Windows 路径。
 
 ### Windows 64 位便携包
 
@@ -50,16 +52,6 @@
 2. 解压后运行 `LizzieYzy Next-FoxUID.exe`。
 3. 这个包带程序和 Java，但不带 KataGo。
 4. 启动后请在软件里配置你自己的引擎。
-
-### 如果你看到的是旧版本发布页
-
-部分旧 tag 还保留原来的 `windows64.with-katago.zip` 形式。
-
-如果你暂时没有看到新的 `.installer.exe` 或 `.portable.zip`：
-
-1. 先下载同日期的 `windows64.with-katago.zip`。
-2. 解压后按包内说明启动。
-3. 新发布会逐步统一切到安装器优先的 Windows 资产。
 
 ## macOS 安装
 
@@ -115,13 +107,13 @@ chmod +x start-linux64.sh
 ## 打开后怎么抓野狐棋谱
 
 1. 启动程序。
-2. 点击或打开菜单里的 **野狐棋谱（输入野狐ID获取）**。
-3. 输入纯数字的野狐ID。
+2. 点击或打开菜单里的 **野狐棋谱（输入野狐数字ID获取）**。
+3. 输入纯数字野狐数字ID。
 4. 获取最新公开棋谱。
 
 注意：
 
-- 这里只支持 **野狐ID**。
+- 这里只支持 **野狐数字ID**。
 - 不再支持用户名搜索。
 - 如果该账号最近没有公开棋谱，可能会返回空结果。
 

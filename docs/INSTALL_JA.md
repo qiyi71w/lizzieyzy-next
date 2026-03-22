@@ -9,12 +9,11 @@
 | Windows x64 | `<date>-windows64.with-katago.installer.exe` | 同梱 | 同梱 |
 | Windows x64 | `<date>-windows64.with-katago.portable.zip` | 同梱 | 同梱 |
 | Windows x64 | `<date>-windows64.without.engine.portable.zip` | 同梱 | なし |
-| Windows x86 | `<date>-windows32.without.engine.zip` | なし | なし |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App 内蔵 | 同梱 |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App 内蔵 | 同梱 |
 | Linux x64 | `<date>-linux64.with-katago.zip` | 同梱 | 同梱 |
 
-簡単に使い始めたい場合は `with-katago` を選んでください。Windows では通常、`installer.exe` が最も分かりやすい選択です。
+現在の公開 release は、この 6 種類を主リストとして案内しています。Windows では通常、`installer.exe` が最も分かりやすい選択です。
 
 ## Windows
 
@@ -75,7 +74,7 @@ chmod +x start-linux64.sh
 
 ## 野狐棋譜の取得
 
-起動後は、野狐棋譜の入口から **数字のみの Fox ID** を入力してください。
+起動後は、野狐棋譜の入口から **数字のFox ID** を入力してください。
 
 - ユーザー名検索は現在サポートしていません。
 - 最新の公開棋譜を取得する方式に統一しています。
@@ -85,6 +84,5 @@ chmod +x start-linux64.sh
 - [Installation Guide (English)](INSTALL_EN.md)
 - [Troubleshooting (English)](TROUBLESHOOTING_EN.md)
 - [Package Overview (English)](PACKAGES_EN.md)
-- [Development Guide (English)](DEVELOPMENT_EN.md)
 - [Tested Platforms](TESTED_PLATFORMS.md)
 - [Support](../SUPPORT.md)
