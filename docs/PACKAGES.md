@@ -6,13 +6,19 @@
 2. 每个包里内置了什么
 3. 普通用户应该怎么选
 
-## 当前公开推荐的 6 个主资产
+如果你只想先看图再决定，先看这里：
+
+<p align="center">
+  <img src="../assets/package-guide-zh.svg" alt="LizzieYzy Next-FoxUID 下载选择图" width="100%" />
+</p>
+
+## 第一次下载就照这个选
 
 | 包类型 | 典型文件名 | 适合谁 |
 | --- | --- | --- |
 | Windows 64 位安装器 | `<date>-windows64.with-katago.installer.exe` | 想双击安装、直接使用的普通用户 |
 | Windows 64 位整合便携包 | `<date>-windows64.with-katago.portable.zip` | 不想安装，只想解压后直接运行 |
-| Windows 64 位无引擎便携包 | `<date>-windows64.without.engine.portable.zip` | 想自己配置 KataGo |
+| Windows 64 位无引擎便携包 | `<date>-windows64.without.engine.portable.zip` | 想自己配置分析引擎 |
 | macOS Apple Silicon 整合包 | `<date>-mac-arm64.with-katago.dmg` | M 系列 Mac |
 | macOS Intel 整合包 | `<date>-mac-amd64.with-katago.dmg` | Intel Mac |
 | Linux 64 位整合包 | `<date>-linux64.with-katago.zip` | Linux 桌面用户 |
@@ -26,14 +32,14 @@
 
 ## 每个包里内置了什么
 
-| 包 | Java | KataGo | 权重 | 打开方式 |
-| --- | --- | --- | --- | --- |
-| `windows64.with-katago.installer.exe` | 内置 | 内置 | 内置 | 安装后从开始菜单或桌面打开 |
-| `windows64.with-katago.portable.zip` | 内置 | 内置 | 内置 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
-| `windows64.without.engine.portable.zip` | 内置 | 不内置 | 不内置 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
-| `mac-arm64.with-katago.dmg` | App 自带运行时 | 内置 | 内置 | 拖到 Applications |
-| `mac-amd64.with-katago.dmg` | App 自带运行时 | 内置 | 内置 | 拖到 Applications |
-| `linux64.with-katago.zip` | 内置 | 内置 | 内置 | 运行 `start-linux64.sh` |
+| 包 | 是否自带运行环境 | 是否打开后就能分析 | 打开方式 |
+| --- | --- | --- | --- |
+| `windows64.with-katago.installer.exe` | 是 | 是 | 安装后从开始菜单或桌面打开 |
+| `windows64.with-katago.portable.zip` | 是 | 是 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
+| `windows64.without.engine.portable.zip` | 是 | 否 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
+| `mac-arm64.with-katago.dmg` | App 自带 | 是 | 拖到 Applications |
+| `mac-amd64.with-katago.dmg` | App 自带 | 是 | 拖到 Applications |
+| `linux64.with-katago.zip` | 是 | 是 | 运行 `start-linux64.sh` |
 
 ## 给普通用户的选择建议
 
@@ -46,16 +52,16 @@
 如果你已经熟悉引擎配置：
 
 - Windows：选 `windows64.without.engine.portable.zip`
-- macOS / Linux：也可以先装对应系统的主包，再在软件里改成你自己的引擎路径
+- macOS / Linux：也可以先装对应系统的主包，再在软件里改成你自己的分析引擎
 
 ## 为什么 Windows 现在优先推荐安装器
 
 因为普通用户真正需要的是：
 
 1. 下载后双击就能安装
-2. 不需要理解 `.bat`
-3. 不需要自己找 Java
-4. 第一次打开尽量自动配好内置 KataGo
+2. 不需要先研究脚本怎么启动
+3. 运行环境已经带好
+4. 第一次打开尽量自动准备好分析环境
 
 便携包依然保留，但它的角色已经变成“我明确知道自己不想安装”。
 
