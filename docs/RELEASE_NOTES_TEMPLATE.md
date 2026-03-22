@@ -6,27 +6,27 @@
 
 # 中文
 
-**原版 `lizzieyzy` 的野狐棋谱同步很多人已经用不了了。这个维护版先把最常用的这条链路重新修好：下载安装后，继续抓谱、分析、复盘。现在统一通过“野狐数字ID”获取最新公开棋谱，只支持纯数字，不能输入昵称。**
+**原版 `lizzieyzy` 的野狐棋谱同步很多人已经用不了了。这个维护版先把最常用的这条链路重新修好：下载安装后能直接打开，输入“野狐数字ID”就能继续抓谱、分析、复盘。这里只支持纯数字，不能输入昵称。**
 
 ## 下载前先看这 3 句
 
 - Windows 用户先下载 `<date>-windows64.with-katago.installer.exe`
 - 抓野狐棋谱时只输入“野狐数字ID”，只能输入纯数字，不能输入昵称
-- 第一次启动会优先自动配置内置 KataGo、权重和默认引擎路径
+- 第一次启动会优先把分析环境准备好，大多数人不用先手动设置
 
 ## 这版最适合谁
 
 - 以前在用 `lizzieyzy`，现在最头疼的是野狐棋谱同步失效
 - 想要一个下载安装后就能继续使用的版本
-- 不想再研究 UID、`.bat`、Java、引擎路径和权重文件
+- 希望少折腾设置，打开后就能先抓谱、分析、复盘
 
 ## 先下载哪个
 
 | 你的系统 | 直接下载这个 | 说明 |
 | --- | --- | --- |
-| Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 主推荐，双击安装，普通用户先选这个 |
+| Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 主推荐，双击安装，打开后就能开始用 |
 | Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 不想安装时使用，解压后运行 `.exe` |
-| Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 想自己配置引擎时使用 |
+| Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 想自己决定分析引擎时再选 |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | M1 / M2 / M3 / M4 等机器 |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | Intel 芯片 Mac |
 | Linux 64 位 | `<date>-linux64.with-katago.zip` | Linux 64 位整合包 |
@@ -34,14 +34,14 @@
 ## 这次你会直接感受到什么
 
 - 原版失效的野狐抓谱链路已经修好，并继续维护
-- 界面和文档统一改成“野狐数字ID”，减少把昵称输进去的错误
+- 界面和文档统一改成“野狐数字ID”，并明确写清“只能输入纯数字，不能输入昵称”
 - Windows 主推荐直接改成 `.installer.exe`
-- 首次启动优先自动配置内置 KataGo、默认权重和引擎路径
+- 第一次启动会优先准备好内置分析环境
 - 发布页只保留 6 个主包，普通用户不用在历史资产里做选择
 
 # English
 
-**This maintained release restores the broken Fox kifu sync path. You now fetch the latest public games by entering a numeric Fox ID: digits only, no nickname.**
+**This maintained release restores the broken Fox kifu sync path. Download it, open it, enter a numeric Fox ID, and keep reviewing. Numeric Fox ID means digits only, not a nickname.**
 
 ## Download quick guide
 
@@ -56,22 +56,22 @@
 
 - Fox sync restored
 - numeric Fox ID only workflow, with digits-only wording
-- First-launch bundled KataGo auto setup
+- First launch prepares the bundled analysis environment for most users
 - Windows release is now installer-first
 - The public release page is now centered on a smaller, clearer asset set
 
 # 日本語
 
-**このメンテナンス版では、壊れていた野狐棋譜同期を復旧し、野狐数字IDで最新の公開棋譜を取得できるようにしました。**
+**このメンテナンス版では、壊れていた野狐棋譜同期を復旧し、ダウンロード後すぐに野狐数字IDで公開棋譜を取得して解析を続けられるようにしました。野狐数字ID は数字のみで、ニックネームは使えません。**
 
 - Windows x64 は `installer.exe` を優先配布
-- 初回起動で内蔵 KataGo を自動設定
+- 初回起動ではそのまま使えるように分析まわりの自動準備を優先
 - UI と文書は野狐数字ID表記に統一
 
 # 한국어
 
-**이 유지보수 릴리스에서는 고장나 있던 Fox 기보 동기화를 복구했고, 이제 numeric Fox ID 로 최신 공개 기보를 가져올 수 있습니다.**
+**이 유지보수 릴리스는 고장난 Fox 기보 동기화를 복구해, 내려받은 뒤 바로 숫자 Fox ID 로 공개 기보를 가져오고 분석을 이어갈 수 있게 합니다. 숫자 Fox ID 는 숫자만 입력해야 하며 닉네임은 사용할 수 없습니다.**
 
 - Windows x64 는 `installer.exe` 를 우선 제공
-- 첫 실행에서 내장 KataGo 자동 설정 시도
+- 첫 실행에서는 바로 쓸 수 있도록 분석 환경 자동 준비를 우선 시도
 - UI 와 문서를 numeric Fox ID 기준으로 통일

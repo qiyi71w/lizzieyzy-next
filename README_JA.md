@@ -14,9 +14,10 @@
   <a href="README.md">中文</a> · <a href="README_EN.md">English</a> · 日本語 · <a href="README_KO.md">한국어</a>
 </p>
 
-# LizzieYzy Next-FoxUID
-
-**元の LizzieYzy で実質的に壊れていた野狐棋譜同期を修復し、数字のFox ID ベースの流れと配布パッケージを整理した、継続メンテ中のフォークです。**
+<p align="center">
+  <strong>壊れてしまった野狐棋譜同期を、もう一度使える状態に戻すためのメンテ版です。</strong><br/>
+  このフォークの目的は、ダウンロードして開き、<strong>野狐数字ID</strong> を入力して、すぐに棋譜取得・解析・復盤へ戻れる状態を作ることです。野狐数字ID は数字のみ入力でき、ニックネームは使えません。
+</p>
 
 <p align="center">
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases">Releases</a>
@@ -33,42 +34,48 @@
 </p>
 
 > [!IMPORTANT]
-> 元の LizzieYzy では野狐棋譜同期が実質的に使いにくい状態でした。このフォークではその流れを修復し、入力方式も **野狐数字ID** に統一しています。
+> すぐ使いたい人は、まず次の 3 点だけ見てください:
+> - Windows は `windows64.with-katago.installer.exe` を先に選ぶ
+> - 野狐棋譜取得では **野狐数字ID** を入力する。数字のみ、ニックネーム不可
+> - 初回起動では、そのまま使えるように分析まわりの準備を自動で進める
 
-## このメンテ版で変わったこと
+## この版が向いている人
 
-`LizzieYzy Next-FoxUID` は、元の `lizzieyzy` を今でも実用的に使える状態で維持するためのフォークです。
+- 以前 `lizzieyzy` を使っていて、今は野狐棋譜同期が壊れて困っている人
+- ダウンロードしてすぐ使える継続保守版が欲しい人
+- 最初に設定で止まりたくない人
+- Windows / macOS / Linux で分かりやすい配布パッケージが欲しい人
 
-このリポジトリは別アプリを一から作るためのものではありません。元の LizzieYzy を使っていた人が、今の環境でもそのまま使い続けやすいように整えていくためのフォークです。
+## ダウンロード前にまずここを見る
 
-主に直しているのは次の点です。
+| 環境 | まず選ぶパッケージ | どういう人向けか |
+| --- | --- | --- |
+| Windows x64 | `windows64.with-katago.installer.exe` | すぐ使いたい人向け。まずはこれで十分 |
+| Windows x64 | `windows64.with-katago.portable.zip` | インストーラなしで始めたい人向け |
+| Windows x64 | `windows64.without.engine.portable.zip` | エンジンを自分で管理したい人向け |
+| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | M シリーズ Mac |
+| macOS Intel | `mac-amd64.with-katago.dmg` | Intel Mac |
+| Linux x64 | `linux64.with-katago.zip` | Linux デスクトップ |
 
-- 壊れていた野狐棋譜同期を使える状態に戻したこと
-- UI とドキュメントの表記を **野狐数字ID** に統一したこと
-- 配布パッケージを選びやすく整理し直したこと
-- インストールとトラブル対応の情報をこのリポジトリにまとめたこと
+> [!TIP]
+> 公開 release では、普通の利用者向けにこの 6 種類を主推薦として整理しています。
 
-## 今すぐ始めたいなら
+## このメンテ版が先に直したこと
 
-| やりたいこと | まず見る場所 |
-| --- | --- |
-| すぐ使えるパッケージが欲しい | [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) で `with-katago` を選ぶ |
-| 自分でエンジンを管理したい | [Package Overview (English)](docs/PACKAGES_EN.md) を見て `without.engine` を選ぶ |
-| 実機確認状況を知りたい | [Tested Platforms](docs/TESTED_PLATFORMS.md) |
-| インストールや初回起動で困っている | [インストールガイド](docs/INSTALL_JA.md) と [Troubleshooting (English)](docs/TROUBLESHOOTING_EN.md) |
-| インストール成功 / 失敗を報告したい | [Installation Report](https://github.com/wimi321/lizzieyzy-next-foxuid/issues/new?template=installation_report.yml) |
-| バグや改善案を出したい | [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues) / [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions) |
+このフォークが先に解決したいのは、見た目の刷新ではなく、利用者が本当に詰まりやすい部分です。
 
-## 現在の状態
+- インストール後にちゃんと起動するか
+- 野狐公開棋譜を今でも取得できるか
+- 初回起動で設定に時間を取られずに済むか
+- release ページでどのファイルを選べばよいか分かるか
 
-| 状態 | 内容 |
-| --- | --- |
-| 野狐棋譜同期 | 修復済み。**野狐数字ID** ベースで最新の公開棋譜を取得 |
-| 配布パッケージ | Windows / macOS / Linux 向けに再整理済み |
-| 同梱構成 | `with-katago` を継続提供 |
-| ドキュメント | インストール、トラブル対応、パッケージ説明、保守情報を整備 |
-| 実機確認 | Apple Silicon はメンテナが確認済み。他プラットフォームは報告を継続募集中 |
-| 保守方針 | 一度だけ直して終わるのではなく、継続保守前提 |
+この版で実際に変わったこと:
+
+- 壊れていた野狐棋譜同期を修復し、継続保守の対象にした
+- UI とドキュメントの表記を **野狐数字ID** に統一した
+- Windows は `.installer.exe` を主推薦にした
+- 初回起動でそのまま使えるように分析まわりの自動準備を優先する
+- 公開 release を 6 個の主パッケージに絞った
 
 ## スクリーンショット
 
@@ -150,6 +157,17 @@
 | macOS 配布 | 旧来の構成が分かりにくい | `.dmg` を中心に Apple Silicon / Intel を分離 |
 | Windows x64 | 目的別の分かれ方が弱い | `with-katago` と `without.engine` を併存 |
 | 保守状態 | ほぼ停滞 | 継続保守中 |
+
+## 整合パッケージに入っているもの
+
+| 項目 | 現在の値 |
+| --- | --- |
+| KataGo バージョン | `v1.16.4` |
+| 既定の内蔵重み | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
+| 初回起動の自動設定 | 有効 |
+| 重みダウンロード補助 | 対応 |
+
+一言で言えば、主推薦の整合パッケージには KataGo と既定重みが最初から入っているため、多くの利用者は最初に自分で重みを探す必要がありません。
 
 ## 元プロジェクトから移行する場合
 

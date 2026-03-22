@@ -14,9 +14,10 @@
   <a href="README.md">中文</a> · <a href="README_EN.md">English</a> · <a href="README_JA.md">日本語</a> · 한국어
 </p>
 
-# LizzieYzy Next-FoxUID
-
-**원래 LizzieYzy 에서 사실상 망가졌던 Fox 기보 동기화를 복구하고, 숫자 Fox ID 중심 흐름과 배포 패키지를 다시 정리한 지속 유지보수 포크입니다.**
+<p align="center">
+  <strong>망가진 Fox 기보 동기화를 다시 쓸 수 있게 되돌리는 유지보수판입니다.</strong><br/>
+  이 포크의 목적은 내려받아 바로 열고, <strong>숫자 Fox ID</strong> 를 입력해 기보를 가져온 뒤 곧바로 분석과 복기를 이어가게 하는 것입니다. 숫자 Fox ID 는 숫자만 입력할 수 있고 닉네임은 사용할 수 없습니다.
+</p>
 
 <p align="center">
   <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases">Releases</a>
@@ -33,42 +34,48 @@
 </p>
 
 > [!IMPORTANT]
-> 원래 LizzieYzy 에서는 Fox 기보 동기화가 사실상 잘 동작하지 않았습니다. 이 포크는 그 흐름을 복구하고 입력 방식도 **숫자 Fox ID** 기준으로 통일했습니다.
+> 바로 쓰고 싶다면 먼저 이 3가지만 보면 됩니다:
+> - Windows 는 `windows64.with-katago.installer.exe` 를 먼저 선택
+> - Fox 기보를 가져올 때는 **숫자 Fox ID** 만 입력. 숫자만 가능, 닉네임 불가
+> - 첫 실행에서는 바로 쓸 수 있도록 분석 환경 준비를 자동으로 먼저 시도
 
-## 이 유지보수판이 바꾼 점
+## 이런 사용자에게 맞습니다
 
-`LizzieYzy Next-FoxUID` 는 원래 `lizzieyzy` 를 지금도 실제로 쓸 수 있는 상태로 유지하기 위한 포크입니다.
+- 예전에 `lizzieyzy` 를 썼는데 지금은 Fox 기보 동기화가 안 되는 사용자
+- 내려받은 뒤 바로 계속 쓸 수 있는 유지보수판이 필요한 사용자
+- 처음부터 설정 때문에 막히고 싶지 않은 사용자
+- Windows / macOS / Linux 용 패키지를 쉽게 고르고 싶은 사용자
 
-이 저장소는 완전히 새로운 앱을 다시 만드는 프로젝트가 아닙니다. 기존 LizzieYzy 사용자가 지금 환경에서도 계속 설치하고, 기보를 가져오고, 분석할 수 있도록 유지보수하는 데 초점을 둡니다.
+## 다운로드 전 여기만 보면 됩니다
 
-주로 손본 부분은 다음과 같습니다.
+| 환경 | 먼저 받을 패키지 | 어떤 사용자에게 맞는가 |
+| --- | --- | --- |
+| Windows x64 | `windows64.with-katago.installer.exe` | 가장 쉬운 경로. 먼저 이것을 고르면 됩니다 |
+| Windows x64 | `windows64.with-katago.portable.zip` | 설치 없이 바로 시작하고 싶은 경우 |
+| Windows x64 | `windows64.without.engine.portable.zip` | 엔진을 직접 관리하고 싶은 경우 |
+| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | M 시리즈 Mac |
+| macOS Intel | `mac-amd64.with-katago.dmg` | Intel Mac |
+| Linux x64 | `linux64.with-katago.zip` | Linux 데스크톱 |
 
-- 망가졌던 Fox 기보 동기화를 다시 사용할 수 있게 복구
-- UI 와 문서의 용어를 **숫자 Fox ID** 로 통일
-- 배포 패키지를 플랫폼과 용도 기준으로 다시 정리
-- 설치와 문제 해결 문서를 이 저장소에 모아서 계속 갱신
+> [!TIP]
+> 현재 공개 release 는 일반 사용자를 위해 이 6개 패키지를 중심으로 정리되어 있습니다.
 
-## 바로 시작하고 싶다면
+## 왜 이 유지보수판을 먼저 보게 되는가
 
-| 지금 필요한 것 | 먼저 볼 곳 |
-| --- | --- |
-| 바로 쓸 수 있는 패키지 | [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 에서 `with-katago` 선택 |
-| 직접 엔진을 관리하는 패키지 | [Package Overview (English)](docs/PACKAGES_EN.md) 를 보고 `without.engine` 선택 |
-| 실제 기기 검증 상태 확인 | [Tested Platforms](docs/TESTED_PLATFORMS.md) |
-| 설치나 첫 실행 문제 해결 | [설치 가이드](docs/INSTALL_KO.md) 와 [Troubleshooting (English)](docs/TROUBLESHOOTING_EN.md) |
-| 설치 성공 / 실패 보고 | [Installation Report](https://github.com/wimi321/lizzieyzy-next-foxuid/issues/new?template=installation_report.yml) |
-| 버그 제보나 개선 제안 | [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues) / [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions) |
+이 포크는 겉모습을 바꾸는 것보다, 사용자가 실제로 자주 막히는 경로를 먼저 복구하는 데 초점을 둡니다.
 
-## 현재 상태
+- 설치한 뒤 바로 열리는가
+- 지금도 Fox 공개 기보를 가져올 수 있는가
+- 첫 실행에서 설정 때문에 오래 막히지 않는가
+- release 페이지에서 뭘 받아야 하는지 바로 알 수 있는가
 
-| 상태 | 설명 |
-| --- | --- |
-| Fox 기보 동기화 | 복구 완료. **숫자 Fox ID** 로 최신 공개 기보를 가져오는 흐름 유지 |
-| 배포 패키지 | Windows / macOS / Linux 기준으로 다시 정리 |
-| 통합 패키지 | `with-katago` 계속 제공 |
-| 문서 | 설치, 문제 해결, 패키지 설명, 유지보수 문서를 정리 |
-| 실기기 검증 | Apple Silicon 은 유지보수자가 확인. 다른 플랫폼은 계속 보고 수집 중 |
-| 유지보수 방식 | 일회성 핫픽스가 아니라 계속 유지보수하는 포크 |
+이 유지보수판이 실제로 바꾼 점:
+
+- 고장난 Fox 기보 동기화 경로를 복구하고 계속 유지보수
+- UI 와 문서 표현을 **숫자 Fox ID** 로 통일
+- Windows 는 `.installer.exe` 를 주 추천 경로로 변경
+- 첫 실행에서 바로 쓸 수 있도록 분석 환경 자동 준비를 우선
+- 공개 release 를 6개의 주 패키지로 정리
 
 ## 스크린샷
 
@@ -150,6 +157,17 @@
 | macOS 배포 | 예전 방식이 다소 혼란스러움 | `.dmg` 중심, Apple Silicon / Intel 분리 |
 | Windows x64 | 목적별 구분이 약함 | `with-katago` 와 `without.engine` 동시 제공 |
 | 유지보수 | 거의 정체 | 지속 유지보수 중 |
+
+## 통합 패키지에 들어 있는 것
+
+| 항목 | 현재 값 |
+| --- | --- |
+| KataGo 버전 | `v1.16.4` |
+| 기본 내장 가중치 | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
+| 첫 실행 자동 설정 | 사용 |
+| 가중치 다운로드 도우미 | 포함 |
+
+실질적으로는, 주 추천 통합 패키지에 KataGo 와 기본 가중치가 이미 포함되어 있어서 대부분의 사용자는 첫 실행 전에 모델 파일을 따로 찾을 필요가 없습니다.
 
 ## 원 프로젝트에서 넘어오는 경우
 

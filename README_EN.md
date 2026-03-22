@@ -16,8 +16,8 @@
 </p>
 
 <p align="center">
-  <strong>A maintained LizzieYzy fork focused on making the broken Fox sync usable again.</strong><br/>
-  The workflow now centers on <strong>numeric Fox ID</strong>: digits only, not a nickname, plus first-launch auto setup, bundled KataGo packages, and clearer multi-platform releases.
+  <strong>Restore the broken Fox sync path and make LizzieYzy practical again.</strong><br/>
+  This maintained fork is for people who want to download the app, open it, fetch Fox games, and keep reviewing without turning first launch into a setup project. The app now centers on <strong>numeric Fox ID</strong>: digits only, not a nickname.
 </p>
 
 <p align="center">
@@ -36,9 +36,16 @@
 > If you just want the app to work after download, remember these 3 things:
 > - Windows users should start with `windows64.with-katago.installer.exe`
 > - Fox kifu fetch now expects a **numeric Fox ID**: digits only, no nickname
-> - First launch tries to auto-configure bundled KataGo, weights, and engine paths
+> - First launch tries to prepare the bundled analysis environment for you
 
-## What To Download First
+## Who This Is For
+
+- You used `lizzieyzy` before, but Fox sync no longer works for you
+- You want a build you can install and keep using right away
+- You want to start using it, not spend your first session on setup
+- You want clear packages for Windows, macOS, and Linux
+
+## Download In One Glance
 
 | If you are on | Download this first | Best for |
 | --- | --- | --- |
@@ -52,21 +59,22 @@
 > [!TIP]
 > The maintained public release page now keeps only the 6 primary user-facing assets in the main recommendation list. If older tags still show compatibility packages, treat them as historical assets rather than the main path.
 
-> [!NOTE]
-> If you are not sure what to pick:
-> - Windows: choose `windows64.with-katago.installer.exe`
-> - Mac: choose the `.dmg` that matches your CPU
-> - Linux: choose `linux64.with-katago.zip`
+## Why People Look At This Fork First
 
-## What This Fork Fixes
+This fork is not trying to repaint the whole project before the basics work again. It focuses on the path people actually use:
 
-| User problem | What this fork changes |
-| --- | --- |
-| Fox sync in the original project stopped working for many users | Restores the public-game fetch flow around numeric Fox ID |
-| Users do not know what UID means and may type a nickname | UI and docs now say **numeric Fox ID** and explicitly say digits only |
-| Windows launch felt too technical | The main recommendation is now `.installer.exe`, with portable `.exe` builds still available |
-| First launch often turned into engine setup work | Bundled KataGo, weights, and paths are auto-configured first |
-| Release assets were hard to choose | The public release page is centered on 6 primary packages |
+- can you install it and open it without friction
+- can you still fetch public Fox games
+- do you still have to spend the first launch on manual setup
+- can you tell what to download without guessing
+
+What this maintained fork changes:
+
+- the broken Fox sync path is restored and kept maintainable
+- the UI and docs now say **numeric Fox ID** and make the digits-only rule clearer
+- Windows now leads with `.installer.exe`, while portable `.exe` builds stay available
+- first launch prepares the bundled analysis environment before asking you to configure anything
+- the public release page stays focused on 6 primary packages
 
 ## Three-Minute Setup
 
@@ -109,7 +117,7 @@ That keeps the common case simple: install, open, fetch, review.
 
 A few design choices behind this layout:
 
-- Windows now treats the installer as the primary user-facing package instead of `.bat` launchers.
+- Windows now treats the installer as the primary user-facing package, so the easiest path is obvious.
 - The Windows no-engine package also moves to a portable `.exe` flow instead of a bat-first flow.
 - macOS stays centered on `.dmg` installers, one for Apple Silicon and one for Intel.
 - Linux keeps a practical all-in-one package.
@@ -126,7 +134,7 @@ A few design choices behind this layout:
 | macOS packages | Historically confusing mix | `.dmg` first, split by Apple Silicon / Intel |
 | Maintenance | Mostly inactive | Ongoing releases, docs, and support |
 
-## Bundled Engine Details
+## What The Bundled Package Includes
 
 | Item | Current value |
 | --- | --- |
@@ -134,6 +142,8 @@ A few design choices behind this layout:
 | Default bundled weight | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
 | First-launch auto setup | Enabled |
 | Recommended weight download helper | Included |
+
+If you only care about the practical takeaway: the main bundled packages already include KataGo and a default weight, so most users do not need to hunt for model files before the first review.
 
 Common paths:
 

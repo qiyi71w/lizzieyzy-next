@@ -94,44 +94,44 @@
   </g>
 
   <rect x="108" y="500" width="384" height="104" rx="24" fill="#FFF8E9" fill-opacity="0.72" stroke="#F6E7BF"/>
-  <text x="136" y="538" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#2C2417">Fox public games, back in reach.</text>
-  <text x="136" y="566" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" fill="#70592D">Fetch the latest visible games by Fox ID,</text>
-  <text x="136" y="588" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" fill="#70592D">then keep the LizzieYzy analysis path you know.</text>
+  <text x="136" y="538" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#2C2417">野狐数字ID抓谱</text>
+  <text x="136" y="566" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" fill="#70592D">只能输入纯数字，不能输入昵称</text>
+  <text x="136" y="588" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" fill="#70592D">继续用 LizzieYzy 做分析和复盘</text>
 
   <g filter="url(#shadow)">
     <rect x="528" y="78" width="680" height="564" rx="34" fill="url(#mainPanel)" stroke="#FFF7E6" stroke-width="2"/>
   </g>
 
   <rect x="572" y="126" width="220" height="42" rx="21" fill="#173C34"/>
-  <text x="682" y="153" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#F8F1E0">MAINTAINED FORK</text>
+  <text x="682" y="153" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#F8F1E0">持续维护版</text>
 
   <text x="572" y="236" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="70" font-weight="800" fill="#181614">LizzieYzy</text>
   <text x="572" y="314" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="70" font-weight="800" fill="#181614">Next-FoxUID</text>
 
-  <text x="572" y="372" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="28" font-weight="700" fill="#6B5125">Restored Fox sync.</text>
-  <text x="572" y="408" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="28" font-weight="700" fill="#6B5125">Clearer packages. KataGo-ready releases.</text>
-  <text x="572" y="446" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="20" font-weight="500" fill="#7B6640">Built for the install - sync - analyze path on Windows, macOS, and Linux.</text>
+  <text x="572" y="372" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="34" font-weight="700" fill="#6B5125">野狐数字ID抓谱，重新可用</text>
+  <text x="572" y="412" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="30" font-weight="700" fill="#6B5125">Windows 直接下 exe</text>
+  <text x="572" y="446" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="20" font-weight="500" fill="#7B6640">下载安装后，输入野狐数字ID，继续抓谱、分析、复盘。</text>
 
   <rect x="572" y="482" width="186" height="118" rx="24" fill="url(#cardFill)" stroke="#F0DFC1"/>
   <circle cx="612" cy="522" r="16" fill="#1B4D3E"/>
   <text x="612" y="528" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="#F7F0DF">01</text>
-  <text x="572" y="558" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#1E1A16">Fox ID flow</text>
-  <text x="572" y="582" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">Latest public Fox games</text>
-  <text x="572" y="602" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">fetched by Fox ID.</text>
+  <text x="572" y="558" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#1E1A16">野狐数字ID</text>
+  <text x="572" y="582" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">只能输入纯数字</text>
+  <text x="572" y="602" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">不能输入昵称</text>
 
   <rect x="775" y="482" width="186" height="118" rx="24" fill="url(#cardFill)" stroke="#F0DFC1"/>
   <circle cx="815" cy="522" r="16" fill="#7F4F24"/>
   <text x="815" y="528" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="#FFF6E6">02</text>
-  <text x="775" y="558" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#1E1A16">Clear packages</text>
-  <text x="775" y="582" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">Choose builds by</text>
-  <text x="775" y="602" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">how you install.</text>
+  <text x="775" y="558" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#1E1A16">Windows 直接下 exe</text>
+  <text x="775" y="582" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">installer 优先</text>
+  <text x="775" y="602" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">普通用户更省事</text>
 
   <rect x="978" y="482" width="186" height="118" rx="24" fill="url(#cardFill)" stroke="#F0DFC1"/>
   <circle cx="1018" cy="522" r="16" fill="#2F4858"/>
   <text x="1018" y="528" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="#F5F7FA">03</text>
-  <text x="978" y="558" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#1E1A16">KataGo ready</text>
-  <text x="978" y="582" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">Bundled builds for</text>
-  <text x="978" y="602" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">direct review.</text>
+  <text x="978" y="558" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#1E1A16">打开就能分析</text>
+  <text x="978" y="582" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">首次启动优先自动准备</text>
+  <text x="978" y="602" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" fill="#6F5A33">大多数人更省事</text>
 
   <rect x="572" y="614" width="594" height="16" rx="8" fill="#EAD4A5" fill-opacity="0.64"/>
   <rect x="572" y="614" width="190" height="16" rx="8" fill="#1B4D3E" fill-opacity="0.94"/>
