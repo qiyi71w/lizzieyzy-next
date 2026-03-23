@@ -68,7 +68,7 @@ body:
       options:
         - label: Installer or archive opened normally
         - label: App launched to the main board UI
-        - label: Fox ID fetch worked
+        - label: Fox nickname fetch worked
         - label: KataGo engine loaded normally
         - label: I only verified installation, not runtime features
   - type: textarea
@@ -80,7 +80,7 @@ body:
         Example:
         - Needed to right-click -> Open once on macOS
         - Windows SmartScreen warned but app launched after confirmation
-        - Fox ID fetch worked
+        - Fox nickname fetch worked
   - type: textarea
     id: evidence
     attributes:

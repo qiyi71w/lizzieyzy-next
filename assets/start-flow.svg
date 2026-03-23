@@ -17,7 +17,7 @@
   <rect width="1280" height="560" rx="36" fill="url(#bg)"/>
 
   <text x="640" y="92" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="40" font-weight="800" fill="#1A1713">Typical flow: download, fetch, review</text>
-  <text x="640" y="130" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="20" font-weight="500" fill="#755C30">Pick a package, enter a Fox ID, then continue with KataGo review.</text>
+  <text x="640" y="130" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="20" font-weight="500" fill="#755C30">Pick a package, enter a Fox nickname, then continue with KataGo review.</text>
 
   <g filter="url(#shadow)">
     <rect x="70" y="204" width="254" height="250" rx="28" fill="url(#panel)" stroke="#F2DFBB"/>
@@ -50,9 +50,9 @@
 
   <circle cx="692" cy="246" r="18" fill="#2F4858"/>
   <text x="692" y="252" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="14" font-weight="800" fill="#F5F7FA">03</text>
-  <text x="666" y="306" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="24" font-weight="800" fill="#171513">Enter Fox ID</text>
+  <text x="666" y="306" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="24" font-weight="800" fill="#171513">Enter Fox nickname</text>
   <text x="666" y="344" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="17" font-weight="600" fill="#6F5A33">Open the Fox sync entry</text>
-  <text x="666" y="368" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="17" font-weight="600" fill="#6F5A33">and input the numeric ID.</text>
+  <text x="666" y="368" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="17" font-weight="600" fill="#6F5A33">and let the app resolve the account.</text>
   <rect x="666" y="396" width="164" height="32" rx="16" fill="#2F4858" fill-opacity="0.12"/>
   <text x="748" y="417" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="15" font-weight="700" fill="#2F4858">Latest visible public games</text>
 

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="LizzieYzy Next-FoxUID" width="100%" />
+  <img src="assets/hero.svg" alt="LizzieYzy Next" width="100%" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=111111" alt="Release"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=444444" alt="Stars"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=666666" alt="Downloads"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next?display_name=tag&label=Release&color=111111" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next?style=flat&color=444444" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next/total?label=Downloads&color=666666" alt="Downloads"></a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-888888" alt="Platforms">
 </p>
 
@@ -20,12 +20,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><strong>下载发布包</strong></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><strong>下载发布包</strong></a>
   ·
   <a href="docs/INSTALL.md"><strong>安装说明</strong></a>
   ·
   <a href="docs/TROUBLESHOOTING.md"><strong>常见问题</strong></a>
 </p>
+
+> [!TIP]
+> 项目讨论 QQ 群：`299419120`
+>
+> 欢迎进群交流使用问题、反馈 bug、讨论功能，或者一起继续维护这个项目。
 
 > [!IMPORTANT]
 > 先知道这 3 件事就够了：
@@ -34,7 +39,7 @@
 > - 主推荐整合包已内置 KataGo，第一次打开会自动准备好
 
 <p align="center">
-  <img src="assets/highlights-zh.svg" alt="LizzieYzy Next-FoxUID 维护版亮点" width="100%" />
+  <img src="assets/highlights-zh.svg" alt="LizzieYzy Next 维护版亮点" width="100%" />
 </p>
 
 ## Windows 用户先下载这个
@@ -73,13 +78,13 @@
 
 ## 三步开始
 
-1. 去 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 下载适合自己系统的包。
+1. 去 [Releases](https://github.com/wimi321/lizzieyzy-next/releases) 下载适合自己系统的包。
 2. 打开程序后，点击 **野狐棋谱（输入野狐昵称获取）**。
 3. 输入野狐昵称，抓到棋谱后继续分析和复盘。
 
 <p align="center">
   <a href="assets/fox-id-demo-cn.gif">
-    <img src="assets/fox-id-demo-cn-cover.png" alt="LizzieYzy Next-FoxUID 野狐昵称抓谱演示" width="100%" />
+    <img src="assets/fox-id-demo-cn-cover.png" alt="LizzieYzy Next 野狐昵称抓谱演示" width="100%" />
   </a>
 </p>
 
@@ -92,7 +97,7 @@
 下面这张就是现在这个维护版的真实界面截图。底部可以直接看到 **野狐棋谱**、**更新官方权重** 等入口，不再是旧版本历史截图。
 
 <p align="center">
-  <img src="assets/interface-overview.png" alt="LizzieYzy Next-FoxUID 当前真实界面" width="100%" />
+  <img src="assets/interface-overview.png" alt="LizzieYzy Next 当前真实界面" width="100%" />
 </p>
 
 ## 整合包已经带好什么

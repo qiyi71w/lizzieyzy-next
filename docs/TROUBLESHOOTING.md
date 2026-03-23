@@ -11,7 +11,7 @@
 ### Windows
 
 - 安装器版：重新运行 `windows64.with-katago.installer.exe`
-- 便携版：确认你启动的是 `LizzieYzy Next-FoxUID.exe`
+- 便携版：确认你启动的是 `LizzieYzy Next.exe`
 - 不要再从旧的 `.bat` 路径排查当前主发布版
 
 ### macOS
@@ -72,7 +72,7 @@ chmod +x start-linux64.sh
 默认位置：
 
 - Windows / Linux：`Lizzieyzy/weights/default.bin.gz`
-- macOS：`LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+- macOS：`LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
 
 替换后如果启动异常，请先恢复原版权重确认是不是新权重本身的问题。
 
@@ -98,4 +98,4 @@ chmod +x start-linux64.sh
 
 - [安装指南](INSTALL.md)
 - [发布包说明](PACKAGES.md)
-- [GitHub Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
+- [GitHub Issues](https://github.com/wimi321/lizzieyzy-next/issues)

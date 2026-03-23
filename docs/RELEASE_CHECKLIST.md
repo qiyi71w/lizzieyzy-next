@@ -136,7 +136,7 @@ python3 scripts/generate_release_notes.py \
 ```bash
 gh workflow run update-release-notes.yml \
   -f date_tag=2026-03-21 \
-  -f release_tag=2.5.3-next-foxuid-2026-03-21.1
+  -f release_tag=2.5.3-next-2026-03-24.1
 ```
 
 ## 六、Release Notes 应该先写什么

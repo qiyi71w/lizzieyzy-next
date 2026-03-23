@@ -1,0 +1,54 @@
+name: Update Release Notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      date_tag:
+        description: Release date tag, for example 2026-03-23
+        required: true
+        default: 2026-03-24
+      release_tag:
+        description: Existing GitHub release tag to update
+        required: true
+        default: 2.5.3-next-2026-03-24.1
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/generate_release_notes.py \
+            --from-gh \
+            --repo "${{ github.repository }}" \
+            --release-tag "${{ inputs.release_tag }}" \
+            --date-tag "${{ inputs.date_tag }}" \
+            --output "dist/release-meta/${{ inputs.date_tag }}-release-notes.md"
+
+      - name: Upload generated notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: dist/release-meta/${{ inputs.date_tag }}-release-notes.md
+
+      - name: Update GitHub release body
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "${{ inputs.release_tag }}" \
+            --repo "${{ github.repository }}" \
+            --notes-file "dist/release-meta/${{ inputs.date_tag }}-release-notes.md"

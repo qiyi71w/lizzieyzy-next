@@ -1,16 +1,16 @@
 # Support
 
-如果你在使用 `LizzieYzy Next-FoxUID` 时遇到问题，先按下面的入口选择，会比直接发一个模糊 issue 更快得到结果。
+如果你在使用 `LizzieYzy Next` 时遇到问题，先按下面的入口选择，会比直接发一个模糊 issue 更快得到结果。
 
-If you need help with `LizzieYzy Next-FoxUID`, please pick the closest path below. Clear routing helps us respond faster.
+If you need help with `LizzieYzy Next`, please pick the closest path below. Clear routing helps us respond faster.
 
 ## Where To Ask
 
-- 使用问题、配置建议、包怎么选：请优先到 [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)
-- 可稳定复现的软件问题：请提交 [Bug Report](https://github.com/wimi321/lizzieyzy-next-foxuid/issues/new?template=bug_report.yml)
-- 安装成功 / 安装失败 / 首次启动异常：请提交 [Installation Report](https://github.com/wimi321/lizzieyzy-next-foxuid/issues/new?template=installation_report.yml)
+- 使用问题、配置建议、包怎么选：请优先到 [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next/discussions)
+- 可稳定复现的软件问题：请提交 [Bug Report](https://github.com/wimi321/lizzieyzy-next/issues/new?template=bug_report.yml)
+- 安装成功 / 安装失败 / 首次启动异常：请提交 [Installation Report](https://github.com/wimi321/lizzieyzy-next/issues/new?template=installation_report.yml)
 - 安全问题：请阅读 [SECURITY.md](SECURITY.md)
-- 下载发布包：请前往 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases)
+- 下载发布包：请前往 [Releases](https://github.com/wimi321/lizzieyzy-next/releases)
 
 ## Before You Open A Report
 

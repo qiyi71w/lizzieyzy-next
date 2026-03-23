@@ -20,7 +20,7 @@ if [[ ! -f "$JAR_PATH" ]]; then
   exit 1
 fi
 
-APP_NAME="LizzieYzy Next-FoxUID"
+APP_NAME="LizzieYzy Next"
 MAIN_JAR="$(basename "$JAR_PATH")"
 ICON_PATH="$ROOT_DIR/packaging/icons/app-icon.ico"
 ENGINE_PLATFORM_DIR="windows-x64"

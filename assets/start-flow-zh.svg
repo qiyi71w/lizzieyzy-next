@@ -17,7 +17,7 @@
   <rect width="1280" height="560" rx="36" fill="url(#bg)"/>
 
   <text x="640" y="92" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="40" font-weight="800" fill="#1A1713">第一次用，就按这个顺序走</text>
-  <text x="640" y="130" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="20" font-weight="500" fill="#755C30">先下载对的包，再输入野狐数字ID，然后继续抓谱、分析和复盘。</text>
+  <text x="640" y="130" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="20" font-weight="500" fill="#755C30">先下载对的包，再输入野狐昵称，然后继续抓谱、分析和复盘。</text>
 
   <g filter="url(#shadow)">
     <rect x="70" y="204" width="254" height="250" rx="28" fill="url(#panel)" stroke="#F2DFBB"/>
@@ -50,9 +50,9 @@
 
   <circle cx="692" cy="246" r="18" fill="#2F4858"/>
   <text x="692" y="252" text-anchor="middle" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="14" font-weight="800" fill="#F5F7FA">03</text>
-  <text x="666" y="306" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="24" font-weight="800" fill="#171513">输入野狐数字ID</text>
+  <text x="666" y="306" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="24" font-weight="800" fill="#171513">输入野狐昵称</text>
   <text x="666" y="344" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="17" font-weight="600" fill="#6F5A33">打开野狐棋谱入口，</text>
-  <text x="666" y="368" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="17" font-weight="600" fill="#6F5A33">只能输入纯数字，不能输入昵称。</text>
+  <text x="666" y="368" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="17" font-weight="600" fill="#6F5A33">程序会自动匹配账号并抓最近公开棋谱。</text>
   <rect x="666" y="396" width="164" height="32" rx="16" fill="#2F4858" fill-opacity="0.12"/>
   <text x="748" y="417" text-anchor="middle" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="15" font-weight="700" fill="#2F4858">最近公开棋谱</text>
 

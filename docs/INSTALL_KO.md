@@ -1,6 +1,6 @@
 # 설치 가이드
 
-이 문서는 `LizzieYzy Next-FoxUID` 를 최대한 빨리 설치해서 사용하고 싶은 사용자를 위한 안내입니다.
+이 문서는 `LizzieYzy Next` 를 최대한 빨리 설치해서 사용하고 싶은 사용자를 위한 안내입니다.
 
 ## 먼저 기억할 것
 
@@ -23,13 +23,13 @@
 
 1. `windows64.with-katago.installer.exe` 를 다운로드합니다.
 2. 설치 프로그램을 실행합니다.
-3. 설치가 끝나면 `LizzieYzy Next-FoxUID.exe` 를 실행합니다.
+3. 설치가 끝나면 `LizzieYzy Next.exe` 를 실행합니다.
 
 ## macOS
 
 1. Apple Silicon 인지 Intel 인지 확인합니다.
 2. 맞는 `.dmg` 를 엽니다.
-3. `LizzieYzy Next-FoxUID.app` 을 `Applications` 로 드래그합니다.
+3. `LizzieYzy Next.app` 을 `Applications` 로 드래그합니다.
 4. 처음 막히면 `시스템 설정 -> 개인정보 보호 및 보안` 에서 `그래도 열기` 를 선택합니다.
 
 ## Linux

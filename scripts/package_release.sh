@@ -162,7 +162,8 @@ EOF
 
 Notes:
 - If your desktop environment does not start the app on double-click, launch it from the terminal first.
-- Fox kifu sync expects a numeric Fox ID, not a nickname.
+- Fox kifu sync supports entering a Fox nickname directly.
+- If nickname search succeeds, the app also shows the matched Fox UID in the results.
 EOF
 }
 
@@ -201,11 +202,11 @@ EOF
   fi
 
   cat >"$root/Update.txt" <<EOF
-Project: LizzieYzy Next-FoxUID
+Project: LizzieYzy Next
 Date: $DATE_TAG
 Changes:
-- Fix Fox kifu sync by numeric Fox ID using Fox H5 API.
-- Numeric Fox ID-only query mode (nickname lookup removed).
+- Restore Fox kifu sync with nickname lookup using Fox H5 API.
+- Nickname search now resolves the matching account automatically.
 Package:
 - $bundle_note
 EOF

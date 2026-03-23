@@ -11,7 +11,7 @@ Check these first:
 ### Windows
 
 - Installer build: rerun `windows64.with-katago.installer.exe`
-- Portable build: make sure you are launching `LizzieYzy Next-FoxUID.exe`
+- Portable build: make sure you are launching `LizzieYzy Next.exe`
 - The current public release should not require `.bat` launchers for the main Windows path
 
 ### macOS
@@ -72,7 +72,7 @@ You can replace the default weight file directly, but keep the filename and loca
 Default locations:
 
 - Windows / Linux: `Lizzieyzy/weights/default.bin.gz`
-- macOS: `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+- macOS: `LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
 
 If the app stops starting after the change, restore the original weight first to confirm whether the new weight file is the problem.
 
@@ -98,4 +98,4 @@ Related docs:
 
 - [Installation Guide](INSTALL_EN.md)
 - [Package Overview](PACKAGES_EN.md)
-- [GitHub Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
+- [GitHub Issues](https://github.com/wimi321/lizzieyzy-next/issues)

@@ -42,14 +42,14 @@
 ### Windows 64 位便携包
 
 1. 下载 `windows64.with-katago.portable.zip`。
-2. 解压到普通目录，例如 `D:\LizzieYzy-Next-FoxUID`。
+2. 解压到普通目录，例如 `D:\LizzieYzy-Next`。
 3. 打开解压后的目录。
-4. 双击 `LizzieYzy Next-FoxUID.exe`。
+4. 双击 `LizzieYzy Next.exe`。
 
 ### Windows 64 位无引擎包
 
 1. 下载 `windows64.without.engine.portable.zip`。
-2. 解压后运行 `LizzieYzy Next-FoxUID.exe`。
+2. 解压后运行 `LizzieYzy Next.exe`。
 3. 这个包带程序和 Java，但不带 KataGo。
 4. 启动后请在软件里配置你自己的引擎。
 
@@ -64,7 +64,7 @@
 
 1. 下载对应的 `.dmg`。
 2. 打开 `.dmg`。
-3. 把 `LizzieYzy Next-FoxUID.app` 拖到 `Applications`。
+3. 把 `LizzieYzy Next.app` 拖到 `Applications`。
 4. 从“应用程序”中打开它。
 
 ### 第一次被系统拦住怎么办
@@ -120,8 +120,8 @@ chmod +x start-linux64.sh
 ## 整合包里的引擎和权重在哪
 
 - Windows / Linux 整合包权重：`Lizzieyzy/weights/default.bin.gz`
-- macOS 整合包权重：`LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- macOS 整合包引擎：`LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/`
+- macOS 整合包权重：`LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
+- macOS 整合包引擎：`LizzieYzy Next.app/Contents/app/engines/katago/`
 
 当前默认内置信息：
 

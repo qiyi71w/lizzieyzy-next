@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="LizzieYzy Next-FoxUID" width="100%" />
+  <img src="assets/hero.svg" alt="LizzieYzy Next" width="100%" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=111111" alt="Release"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=444444" alt="Stars"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=666666" alt="Downloads"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next?display_name=tag&label=Release&color=111111" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next?style=flat&color=444444" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next/total?label=Downloads&color=666666" alt="Downloads"></a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-888888" alt="Platforms">
 </p>
 
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><strong>Releases</strong></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><strong>Releases</strong></a>
   ·
   <a href="docs/INSTALL_JA.md"><strong>インストールガイド</strong></a>
   ·
@@ -69,13 +69,13 @@
 
 ## 3 ステップで開始
 
-1. [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) から自分の環境に合うパッケージをダウンロードします。
+1. [Releases](https://github.com/wimi321/lizzieyzy-next/releases) から自分の環境に合うパッケージをダウンロードします。
 2. **野狐棋譜（ニックネームで取得）** の入口を開きます。
 3. 野狐のニックネームを入力し、最新の公開棋譜を取得して、そのまま解析を続けます。
 
 <p align="center">
   <a href="assets/fox-id-demo.gif">
-    <img src="assets/fox-id-demo-cover.png" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
+    <img src="assets/fox-id-demo-cover.png" alt="LizzieYzy Next Demo" width="100%" />
   </a>
 </p>
 
@@ -88,7 +88,7 @@
 以下は、現在のメンテ版そのものの実画面です。下部には **野狐棋譜** と **公式重み更新** の入口が直接見えるようになっています。
 
 <p align="center">
-  <img src="assets/interface-overview.png" alt="LizzieYzy Next-FoxUID actual interface" width="100%" />
+  <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
 
 ## 統合パッケージに最初から入っているもの

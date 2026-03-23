@@ -78,7 +78,7 @@ cp README.md README_EN.md README_JA.md README_KO.md LICENSE.txt "$INPUT_DIR/"
 cp readme_cn.pdf readme_en.pdf "$INPUT_DIR/"
 copy_bundle_engine_assets
 
-APP_NAME="LizzieYzy Next-FoxUID"
+APP_NAME="LizzieYzy Next"
 MAIN_JAR="$(basename "$JAR_PATH")"
 ICON_PATH="$ROOT_DIR/packaging/icons/app-icon.icns"
 IDENTIFIER="com.wimi321.lizzieyzy.nextfoxuid"
@@ -142,9 +142,9 @@ If macOS blocks the first launch:
 4. Launch the app again.
 
 Bundled KataGo paths inside the app bundle:
-- Engine: LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/$ENGINE_PLATFORM_DIR/katago
-- Weight: LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz
-- Configs: LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/configs/
+- Engine: LizzieYzy Next.app/Contents/app/engines/katago/$ENGINE_PLATFORM_DIR/katago
+- Weight: LizzieYzy Next.app/Contents/app/weights/default.bin.gz
+- Configs: LizzieYzy Next.app/Contents/app/engines/katago/configs/
 
 Notes:
 - This package is unsigned and not notarized.

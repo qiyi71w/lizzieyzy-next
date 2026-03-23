@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="LizzieYzy Next-FoxUID" width="100%" />
+  <img src="assets/hero.svg" alt="LizzieYzy Next" width="100%" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=111111" alt="Release"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=444444" alt="Stars"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=666666" alt="Downloads"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next?display_name=tag&label=Release&color=111111" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next?style=flat&color=444444" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next/total?label=Downloads&color=666666" alt="Downloads"></a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-888888" alt="Platforms">
 </p>
 
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><strong>Releases</strong></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><strong>Releases</strong></a>
   ·
   <a href="docs/INSTALL_KO.md"><strong>설치 가이드</strong></a>
   ·
@@ -69,13 +69,13 @@
 
 ## 3단계로 시작
 
-1. [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 에서 내 시스템에 맞는 패키지를 다운로드합니다.
+1. [Releases](https://github.com/wimi321/lizzieyzy-next/releases) 에서 내 시스템에 맞는 패키지를 다운로드합니다.
 2. **Fox 기보 가져오기(닉네임 검색)** 메뉴를 엽니다.
 3. Fox 닉네임을 입력하고 최신 공개 기보를 가져온 뒤 바로 복기와 분석을 이어갑니다.
 
 <p align="center">
   <a href="assets/fox-id-demo.gif">
-    <img src="assets/fox-id-demo-cover.png" alt="LizzieYzy Next-FoxUID Demo" width="100%" />
+    <img src="assets/fox-id-demo-cover.png" alt="LizzieYzy Next Demo" width="100%" />
   </a>
 </p>
 
@@ -88,7 +88,7 @@
 아래 이미지는 지금 유지보수 중인 현재 버전의 실제 화면입니다. 하단에서 **野狐棋谱** 와 **공식 가중치 업데이트** 같은 실사용 버튼을 바로 볼 수 있습니다.
 
 <p align="center">
-  <img src="assets/interface-overview.png" alt="LizzieYzy Next-FoxUID actual interface" width="100%" />
+  <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
 
 ## 통합 패키지에 이미 들어 있는 것

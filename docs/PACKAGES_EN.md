@@ -29,8 +29,8 @@ Notes:
 | Package | Java | KataGo | Weight | How you start it |
 | --- | --- | --- | --- | --- |
 | `windows64.with-katago.installer.exe` | Bundled | Bundled | Bundled | Install, then launch from Start Menu or desktop |
-| `windows64.with-katago.portable.zip` | Bundled | Bundled | Bundled | Unzip and run `LizzieYzy Next-FoxUID.exe` |
-| `windows64.without.engine.portable.zip` | Bundled | Not bundled | Not bundled | Unzip and run `LizzieYzy Next-FoxUID.exe` |
+| `windows64.with-katago.portable.zip` | Bundled | Bundled | Bundled | Unzip and run `LizzieYzy Next.exe` |
+| `windows64.without.engine.portable.zip` | Bundled | Not bundled | Not bundled | Unzip and run `LizzieYzy Next.exe` |
 | `mac-arm64.with-katago.dmg` | App runtime | Bundled | Bundled | Drag to Applications |
 | `mac-amd64.with-katago.dmg` | App runtime | Bundled | Bundled | Drag to Applications |
 | `linux64.with-katago.zip` | Bundled | Bundled | Bundled | Run `start-linux64.sh` |
@@ -70,14 +70,14 @@ Current bundled defaults:
 Paths:
 
 - Windows / Linux bundles: `Lizzieyzy/weights/default.bin.gz`
-- macOS bundles: `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+- macOS bundles: `LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
 
 ## How To Read Old Versus New Release Layouts
 
 From the new maintained releases onward:
 
 - the main Windows x64 package is `installer.exe`
-- the Windows x64 no-engine package is the portable `.zip` with `LizzieYzy Next-FoxUID.exe`
+- the Windows x64 no-engine package is the portable `.zip` with `LizzieYzy Next.exe`
 - the public release page keeps the 6 primary user-facing assets above as the main list
 - older compatibility zips now stay in historical tags instead of the main recommendation area
 

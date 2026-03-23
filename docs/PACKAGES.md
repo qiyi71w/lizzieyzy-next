@@ -9,7 +9,7 @@
 如果你只想先看图再决定，先看这里：
 
 <p align="center">
-  <img src="../assets/package-guide-zh.svg" alt="LizzieYzy Next-FoxUID 下载选择图" width="100%" />
+  <img src="../assets/package-guide-zh.svg" alt="LizzieYzy Next 下载选择图" width="100%" />
 </p>
 
 ## 第一次下载就照这个选
@@ -35,8 +35,8 @@
 | 包 | 是否自带运行环境 | 是否打开后就能分析 | 打开方式 |
 | --- | --- | --- | --- |
 | `windows64.with-katago.installer.exe` | 是 | 是 | 安装后从开始菜单或桌面打开 |
-| `windows64.with-katago.portable.zip` | 是 | 是 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
-| `windows64.without.engine.portable.zip` | 是 | 否 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
+| `windows64.with-katago.portable.zip` | 是 | 是 | 解压后运行 `LizzieYzy Next.exe` |
+| `windows64.without.engine.portable.zip` | 是 | 否 | 解压后运行 `LizzieYzy Next.exe` |
 | `mac-arm64.with-katago.dmg` | App 自带 | 是 | 拖到 Applications |
 | `mac-amd64.with-katago.dmg` | App 自带 | 是 | 拖到 Applications |
 | `linux64.with-katago.zip` | 是 | 是 | 运行 `start-linux64.sh` |
@@ -75,7 +75,7 @@
 路径说明：
 
 - Windows / Linux 权重：`Lizzieyzy/weights/default.bin.gz`
-- macOS 权重：`LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
+- macOS 权重：`LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
 
 ## 新旧发布格式怎么理解
 

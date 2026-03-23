@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="LizzieYzy Next-FoxUID" width="100%" />
+  <img src="assets/hero.svg" alt="LizzieYzy Next" width="100%" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=111111" alt="Release"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=444444" alt="Stars"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=666666" alt="Downloads"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next?display_name=tag&label=Release&color=111111" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next?style=flat&color=444444" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next/total?label=Downloads&color=666666" alt="Downloads"></a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-888888" alt="Platforms">
 </p>
 
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><strong>Download Releases</strong></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next/releases"><strong>Download Releases</strong></a>
   ·
   <a href="docs/INSTALL_EN.md"><strong>Installation Guide</strong></a>
   ·
@@ -69,13 +69,13 @@ Quick rule:
 
 ## Start In 3 Steps
 
-1. Download the right package from [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases).
+1. Download the right package from [Releases](https://github.com/wimi321/lizzieyzy-next/releases).
 2. Open **Fox Kifu (search by nickname)**.
 3. Enter a Fox nickname, fetch the latest visible public games, and continue reviewing.
 
 <p align="center">
   <a href="assets/fox-id-demo.gif">
-    <img src="assets/fox-id-demo-cover.png" alt="LizzieYzy Next-FoxUID Fox nickname demo" width="100%" />
+    <img src="assets/fox-id-demo-cover.png" alt="LizzieYzy Next Fox nickname demo" width="100%" />
   </a>
 </p>
 
@@ -88,7 +88,7 @@ Quick rule:
 This is the current maintained build interface, not an old historical screenshot. The bottom toolbar now exposes practical entries such as **Fox Kifu** and **Update Official Weight** directly.
 
 <p align="center">
-  <img src="assets/interface-overview.png" alt="LizzieYzy Next-FoxUID actual interface" width="100%" />
+  <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
 
 ## What The Bundled Packages Already Include

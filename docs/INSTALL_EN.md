@@ -44,12 +44,12 @@ This is now the primary Windows path for regular users.
 1. Download `windows64.with-katago.portable.zip`.
 2. Extract it to a normal folder.
 3. Open the extracted folder.
-4. Run `LizzieYzy Next-FoxUID.exe`.
+4. Run `LizzieYzy Next.exe`.
 
 ### Windows x64 no-engine build
 
 1. Download `windows64.without.engine.portable.zip`.
-2. Extract it and run `LizzieYzy Next-FoxUID.exe`.
+2. Extract it and run `LizzieYzy Next.exe`.
 3. This package includes the application runtime but not KataGo.
 4. Configure your own engine after launch.
 
@@ -63,7 +63,7 @@ This is now the primary Windows path for regular users.
 ### Installation steps
 
 1. Open the correct `.dmg`.
-2. Drag `LizzieYzy Next-FoxUID.app` into `Applications`.
+2. Drag `LizzieYzy Next.app` into `Applications`.
 3. Launch it from `Applications`.
 
 ### If Gatekeeper blocks first launch
@@ -117,8 +117,8 @@ Notes:
 ## Bundled Engine Paths
 
 - Windows / Linux bundles: `Lizzieyzy/weights/default.bin.gz`
-- macOS bundles: `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- macOS engine directory: `LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/`
+- macOS bundles: `LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
+- macOS engine directory: `LizzieYzy Next.app/Contents/app/engines/katago/`
 
 Current bundled defaults:
 

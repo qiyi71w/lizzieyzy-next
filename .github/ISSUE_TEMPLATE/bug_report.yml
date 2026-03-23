@@ -43,10 +43,10 @@ body:
     validations:
       required: true
   - type: input
-    id: fox_id
+    id: fox_nickname
     attributes:
-      label: Fox ID
-      description: 如果和野狐抓谱有关，请填写野狐ID；不要填写用户名。
+      label: Fox Nickname
+      description: 如果和野狐抓谱有关，请填写你输入的野狐昵称。
       placeholder: Optional
   - type: textarea
     id: steps

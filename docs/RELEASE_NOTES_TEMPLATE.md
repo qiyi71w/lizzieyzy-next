@@ -8,7 +8,7 @@
 
 **原版 `lizzieyzy` 的野狐棋谱同步很多人已经用不了了。这个维护版先把最常用的这条链路重新修好：下载安装后能直接打开，输入“野狐昵称”就能继续抓谱、分析、复盘，程序会自动找到账号并获取最近公开棋谱。**
 
-![LizzieYzy Next-FoxUID 下载选择图](https://raw.githubusercontent.com/wimi321/lizzieyzy-next-foxuid/main/assets/package-guide-zh.svg)
+![LizzieYzy Next 下载选择图](https://raw.githubusercontent.com/wimi321/lizzieyzy-next/main/assets/package-guide-zh.svg)
 
 ## 下载前先看这 3 句
 
