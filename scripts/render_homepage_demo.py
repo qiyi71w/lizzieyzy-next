@@ -61,7 +61,8 @@ LOCALES = {
         'modal_chip': 'Fox nickname',
         'modal_title': 'Enter a Fox nickname',
         'modal_sub': 'Fetch recent public games automatically.',
-        'modal_input_value': 'fox_player',
+        'modal_input_value': 'Enter nickname',
+        'modal_input_fill': COLOR_MUTED,
         'modal_button': 'Fetch',
         'scenes': [
             {
@@ -121,7 +122,8 @@ LOCALES = {
         'modal_chip': '野狐昵称',
         'modal_title': '输入野狐昵称',
         'modal_sub': '自动匹配账号并获取最近公开棋谱',
-        'modal_input_value': '什么好吃',
+        'modal_input_value': '请输入昵称',
+        'modal_input_fill': COLOR_MUTED,
         'modal_button': '抓谱',
         'scenes': [
             {
@@ -376,7 +378,14 @@ def draw_step3_modal(canvas, cfg):
     draw_text(draw, (648, 316), cfg['modal_title'], font(cfg, 'modal_title'), COLOR_TEXT)
     draw_text(draw, (648, 350), cfg['modal_sub'], font(cfg, 'modal_body'), COLOR_MUTED)
     draw.rounded_rectangle((648, 376, 948, 422), radius=20, fill=(251, 248, 242, 255), outline=(226, 211, 184, 255), width=2)
-    draw_text(draw, (672, 402), cfg['modal_input_value'], font(cfg, 'modal_input'), COLOR_TEXT)
+    draw_text(
+        draw,
+        (672, 399),
+        cfg['modal_input_value'],
+        font(cfg, 'modal_input'),
+        cfg.get('modal_input_fill', COLOR_TEXT),
+        anchor='lm',
+    )
     draw.rounded_rectangle((962, 376, 1026, 422), radius=20, fill=ACCENTS[0])
     draw_text(draw, (994, 401), cfg['modal_button'], font(cfg, 'modal_button'), (255, 255, 255, 255), anchor='mm')
 

@@ -33,6 +33,22 @@
 > - Fox 기보 가져오기는 이제 **Fox 닉네임** 을 입력하면 됩니다. 앱이 맞는 계정을 자동으로 찾습니다
 > - 첫 실행에서는 분석 환경을 자동으로 준비하는 흐름을 먼저 시도합니다
 
+## 커뮤니티와 현재 방향
+
+| 지금 하고 싶은 일 | 먼저 볼 곳 |
+| --- | --- |
+| 다운로드하고 설치하기 | [Releases](https://github.com/wimi321/lizzieyzy-next/releases) / [설치 가이드](docs/INSTALL_KO.md) |
+| 버그나 설치 결과 공유하기 | [Support](SUPPORT.md) |
+| 사용 경험과 아이디어 이야기하기 | [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next/discussions) / QQ 그룹 `299419120` |
+| 프로젝트가 다음에 집중할 일 보기 | [ROADMAP.md](ROADMAP.md) |
+| 유지보수에 참여하기 | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+이 저장소는 다음 같은 실사용 목표를 우선합니다.
+
+- 아직 `lizzieyzy` 흐름을 쓰는 사용자들의 핵심 경로를 계속 유지하기
+- Fox 기보 가져오기, KataGo 포함 패키지, 첫 실행 경험을 이해하기 쉽게 유지하기
+- 설정에 익숙한 소수만이 아니라 일반 사용자도 바로 쓰기 쉽게 만들기
+
 ## 대부분의 사용자는 여기부터 보면 됩니다
 
 **Windows** 를 쓴다면 먼저 이것을 다운로드하세요.
@@ -42,6 +58,12 @@
 가장 쉬운 주 추천판입니다. 다운로드하고, 더블클릭해서 설치하고, 바로 실행해 사용할 수 있습니다.
 
 ## 무엇을 다운로드해야 하나요
+
+표보다 먼저 그림으로 보고 싶다면 이 선택 가이드를 보면 됩니다.
+
+<p align="center">
+  <img src="assets/package-guide.svg" alt="LizzieYzy Next package guide" width="100%" />
+</p>
 
 | 내 컴퓨터 | 먼저 받을 파일 |
 | --- | --- |
@@ -57,6 +79,12 @@
 - Windows: 모르겠으면 `installer.exe`
 - Mac: Apple Silicon 인지 Intel 인지 먼저 확인
 - Linux: `with-katago.zip`
+
+짧게 정리하면:
+
+- `installer.exe` 는 대부분의 Windows 사용자용 기본 선택
+- `portable.zip` 는 설치 없이 압축만 풀어 쓰고 싶은 경우
+- `without.engine` 는 이미 자기 엔진을 관리하는 사용자용
 
 ## 이 유지보수판이 해결한 것
 
@@ -90,6 +118,14 @@
 <p align="center">
   <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
+
+자주 쓰는 입구는 처음부터 메인 화면에서 바로 보이게 유지하고 있습니다.
+
+| 하고 싶은 일 | 메인 화면에서 바로 보이는 것 |
+| --- | --- |
+| 최근 공개 기보 가져오기 | `野狐棋谱` |
+| 공식 KataGo 가중치 업데이트 | `更新官方权重` |
+| 바로 AI 복기 이어가기 | `Kata评估` / `自动分析` |
 
 ## 통합 패키지에 이미 들어 있는 것
 
@@ -142,6 +178,8 @@
 - [Package Overview](docs/PACKAGES_EN.md)
 - [Troubleshooting](docs/TROUBLESHOOTING_EN.md)
 - [Tested Platforms](docs/TESTED_PLATFORMS.md)
+- [Roadmap](ROADMAP.md)
+- [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 - [Support](SUPPORT.md)
 

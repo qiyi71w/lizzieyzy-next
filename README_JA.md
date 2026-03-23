@@ -33,6 +33,22 @@
 > - 野狐棋譜取得では **野狐のニックネーム** を入力します。アプリが対応するアカウントを自動で見つけます
 > - 初回起動では、分析環境を自動で準備する流れを優先します
 
+## コミュニティと現在の方針
+
+| いまやりたいこと | まず見る場所 |
+| --- | --- |
+| ダウンロードしてインストールしたい | [Releases](https://github.com/wimi321/lizzieyzy-next/releases) / [インストールガイド](docs/INSTALL_JA.md) |
+| バグやインストール結果を共有したい | [Support](SUPPORT.md) |
+| 利用感や改善案を話したい | [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next/discussions) / QQ グループ `299419120` |
+| 今後の優先事項を見たい | [ROADMAP.md](ROADMAP.md) |
+| 維持開発に参加したい | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+このリポジトリは、次のような実用面を優先して保守しています。
+
+- `lizzieyzy` を今も使っている利用者向けの主要な流れを維持すること
+- 野狐棋譜取得、KataGo 同梱、初回起動のわかりやすさを保つこと
+- 設定に詳しい少数者だけでなく、普通の利用者にも使いやすくすること
+
 ## まず多くの人はここだけ見れば大丈夫です
 
 **Windows** を使っているなら、まずはこれをダウンロードしてください。
@@ -42,6 +58,12 @@
 いちばん簡単な主推薦版です。ダウンロードして、ダブルクリックして、インストールして、そのまま使い始められます。
 
 ## どれをダウンロードするか
+
+先に図で見たい場合は、こちらを見るのが早いです。
+
+<p align="center">
+  <img src="assets/package-guide.svg" alt="LizzieYzy Next package guide" width="100%" />
+</p>
 
 | あなたの環境 | まず選ぶもの |
 | --- | --- |
@@ -57,6 +79,12 @@
 - Windows: 迷ったら `installer.exe`
 - Mac: Apple Silicon か Intel かを先に確認
 - Linux: `with-katago.zip`
+
+ざっくり言うと:
+
+- `installer.exe` は多くの Windows 利用者向け
+- `portable.zip` はインストールせずにすぐ使いたい人向け
+- `without.engine` は自分のエンジンを使いたい人向け
 
 ## このメンテ版で改善したこと
 
@@ -90,6 +118,14 @@
 <p align="center">
   <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
+
+普段よく使う入口は、最初から主画面に見えるようにしています。
+
+| やりたいこと | 主画面で見る場所 |
+| --- | --- |
+| 最近の公開棋譜を取得したい | `野狐棋譜` |
+| 公式 KataGo 重みを更新したい | `更新官方权重` |
+| そのまま解析と復習を続けたい | `Kata評估` / `自動分析` |
 
 ## 統合パッケージに最初から入っているもの
 
@@ -142,6 +178,8 @@
 - [Package Overview](docs/PACKAGES_EN.md)
 - [Troubleshooting](docs/TROUBLESHOOTING_EN.md)
 - [Tested Platforms](docs/TESTED_PLATFORMS.md)
+- [Roadmap](ROADMAP.md)
+- [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 - [Support](SUPPORT.md)
 

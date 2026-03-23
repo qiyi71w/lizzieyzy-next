@@ -59,6 +59,12 @@ This is the main beginner-friendly build: download it, double-click it, install 
 
 ## What To Download
 
+If you prefer a visual chooser first, start with this:
+
+<p align="center">
+  <img src="assets/package-guide.svg" alt="LizzieYzy Next package guide" width="100%" />
+</p>
+
 | Your computer | Download this |
 | --- | --- |
 | Windows x64 | `windows64.with-katago.installer.exe` |
@@ -73,6 +79,12 @@ Quick rule:
 - Windows: if you are not sure, choose `installer.exe`
 - Mac: choose Apple Silicon or Intel first
 - Linux: choose `with-katago.zip`
+
+At a glance:
+
+- `installer.exe`: best default choice for most Windows users
+- `portable.zip`: for people who want unzip-and-run without installing
+- `without.engine`: for people who already manage their own engine
 
 ## Why Many Users Start Here
 
@@ -106,6 +118,15 @@ This is the current maintained build interface, not an old historical screenshot
 <p align="center">
   <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
+
+The main day-to-day actions are now visible on the main window instead of being buried first:
+
+| What you want to do | What you can click right away |
+| --- | --- |
+| Fetch recent public Fox games | `Fox Kifu` |
+| Update official KataGo weights | `Update Official Weight` |
+| Keep reviewing with AI | `Kata review` / `Auto analysis` |
+| Stay on the main workflow | fewer detours into setup-heavy dialogs |
 
 ## What The Bundled Packages Already Include
 

@@ -68,6 +68,12 @@
 
 ## 按系统选择
 
+如果你更想先看图，再决定下载哪个包，先看这张：
+
+<p align="center">
+  <img src="assets/package-guide-zh.svg" alt="LizzieYzy Next 下载选择图" width="100%" />
+</p>
+
 | 你的电脑 | 直接下载这个 |
 | --- | --- |
 | Windows 64 位 | `windows64.with-katago.installer.exe` |
@@ -82,6 +88,12 @@
 - Windows：不知道怎么选，就下 `installer.exe`
 - Mac：先看自己是 Apple Silicon 还是 Intel
 - Linux：直接下 `with-katago.zip`
+
+一眼记住版本定位：
+
+- `installer.exe`：最适合大多数 Windows 用户
+- `portable.zip`：适合不想安装、只想解压就跑
+- `without.engine`：适合你已经有自己的分析引擎
 
 ## 为什么很多人先看这个维护版
 
@@ -115,6 +127,15 @@
 <p align="center">
   <img src="assets/interface-overview.png" alt="LizzieYzy Next 当前真实界面" width="100%" />
 </p>
+
+你打开以后，最常用的入口基本都在底部这一排：
+
+| 你想做什么 | 直接看的入口 |
+| --- | --- |
+| 抓最近公开棋谱 | `野狐棋谱` |
+| 更新官方 KataGo 权重 | `更新官方权重` |
+| 继续 AI 分析和复盘 | `Kata评估` / `自动分析` |
+| 保持常用功能都在主界面 | 不需要先钻进复杂设置页 |
 
 ## 整合包已经带好什么
 
