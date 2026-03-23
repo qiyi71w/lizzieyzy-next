@@ -3,12 +3,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=1B4D3E" alt="Release"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml"><img src="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=7F4F24" alt="Stars"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=2F4858" alt="Downloads"></a>
-  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/License-GPL%20v3-E7A23B" alt="License"></a>
-  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-4A5D23" alt="Platforms">
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=111111" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=444444" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=666666" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-888888" alt="Platforms">
 </p>
 
 <p align="center">
@@ -16,201 +14,130 @@
 </p>
 
 <p align="center">
-  <strong>把原版已经失效的野狐棋谱同步重新做回可用。</strong><br/>
-  这个维护版想解决的事情很简单：下载安装后能直接打开，输入 <strong>野狐数字ID</strong> 就能抓到最新公开棋谱，然后继续分析和复盘。这里的野狐数字ID 只能输入<strong>纯数字</strong>，不能输入昵称。
+  <strong>原 lizzieyzy 的持续维护版。</strong><br/>
+  原版很多人已经没法正常同步野狐棋谱了。这个版本把常用抓谱链路重新做回可用，也把安装和第一次启动尽量做简单。<br/>
+  <strong>下载安装，输入野狐昵称，继续抓谱、分析、复盘。</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases">下载发布包</a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><strong>下载发布包</strong></a>
   ·
-  <a href="#先下载哪个">先下载哪个</a>
+  <a href="docs/INSTALL.md"><strong>安装说明</strong></a>
   ·
-  <a href="#三分钟上手">三分钟上手</a>
-  ·
-  <a href="#发布包说明">发布包说明</a>
-  ·
-  <a href="#文档与支持">文档与支持</a>
+  <a href="docs/TROUBLESHOOTING.md"><strong>常见问题</strong></a>
 </p>
 
 > [!IMPORTANT]
-> 如果你只想下载安装后直接用，先记住这 3 句：
-> - Windows 先下 `windows64.with-katago.installer.exe`
-> - 抓野狐棋谱时只输入“野狐数字ID”，只能输入纯数字，不能输入昵称
-> - 第一次启动会优先把分析环境准备好，大多数人不用先手动设置
+> 先看这 3 点：
+> - Windows 大多数用户下载 `windows64.with-katago.installer.exe`
+> - 现在直接输入 **野狐昵称** 就行，程序会自动找到账号并获取最近公开棋谱
+> - 主推荐整合包已内置 KataGo，第一次打开会自动准备好
 
-## 一页看懂这个项目
+<p align="center">
+  <img src="assets/highlights-zh.svg" alt="LizzieYzy Next-FoxUID 维护版亮点" width="100%" />
+</p>
 
-| 你最关心的事 | 这个维护版现在怎么做 |
+## Windows 用户先下载这个
+
+如果你用的是 **Windows 电脑**，先下载：
+
+**`windows64.with-katago.installer.exe`**
+
+这是最省事的版本。下载后双击安装，装好就能直接打开使用。
+
+## 按系统选择
+
+| 你的电脑 | 直接下载这个 |
 | --- | --- |
-| 下载以后能不能直接打开 | Windows 主推荐 `installer.exe`，macOS 主推荐 `.dmg`，Linux 给整合包 |
-| 野狐棋谱还能不能抓 | 已恢复这条链路，并继续维护 |
-| 到底该输入什么 | 统一写成“野狐数字ID”，并明确只能输入纯数字，不能输入昵称 |
-| 第一次打开会不会卡在设置上 | 会优先把分析环境准备好，大多数人不用先手动折腾 |
-| 以后会不会又没人管 | 这个仓库就是为继续维护、发版和收反馈而建 |
+| Windows 64 位 | `windows64.with-katago.installer.exe` |
+| Windows 64 位，想免安装 | `windows64.with-katago.portable.zip` |
+| Windows 64 位，想自己配引擎 | `windows64.without.engine.portable.zip` |
+| macOS Apple Silicon | `mac-arm64.with-katago.dmg` |
+| macOS Intel | `mac-amd64.with-katago.dmg` |
+| Linux 64 位 | `linux64.with-katago.zip` |
 
-## 先下载哪个
+如果你懒得分辨：
 
-<p align="center">
-  <img src="assets/package-guide-zh.svg" alt="LizzieYzy Next-FoxUID 下载选择图" width="100%" />
-</p>
+- Windows：不知道怎么选，就下 `installer.exe`
+- Mac：先看自己是 Apple Silicon 还是 Intel
+- Linux：直接下 `with-katago.zip`
 
-| 你现在在用什么 | 直接下载这个 | 这是给谁的 |
-| --- | --- | --- |
-| Windows 64 位，想装完就用 | `windows64.with-katago.installer.exe` | 最省事，双击安装，打开后就能开始用 |
-| Windows 64 位，想免安装 | `windows64.with-katago.portable.zip` | 想解压后直接运行，不走安装向导 |
-| Windows 64 位，想自己配引擎 | `windows64.without.engine.portable.zip` | 想自己决定分析引擎时再选 |
-| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | M1 / M2 / M3 / M4 等机器 |
-| macOS Intel | `mac-amd64.with-katago.dmg` | Intel 芯片 Mac |
-| Linux 64 位 | `linux64.with-katago.zip` | 想直接开始分析和抓谱 |
+## 这个版本做了什么
 
-> [!TIP]
-> 当前维护版公开发布时，主推荐列表统一只保留这 6 个用户向主包。旧 tag 里如果还能看到兼容或历史资产，那属于历史格式，不再放进主推荐区。
+- **把野狐棋谱同步重新做回可用**
+  原版很多人已经用不了了，这个版本把常用抓谱链路重新接回来了。
+- **把输入方式改成普通用户更容易懂的样子**
+  现在直接输入野狐昵称，程序会自动找到账号，再去抓最近公开棋谱。
+- **把第一次使用变简单了**
+  主推荐整合包已经带好 KataGo 和默认权重，第一次打开会自动准备分析环境。
 
-## 第一次来就按这个顺序用
+## 三步开始
 
-<p align="center">
-  <img src="assets/start-flow-zh.svg" alt="LizzieYzy Next-FoxUID 上手流程图" width="100%" />
-</p>
-
-## 三分钟上手
-
-1. 去 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 选对自己系统的包。
-2. Windows 用户优先选 `windows64.with-katago.installer.exe`；macOS 用户按芯片选 `.dmg`；Linux 用户选 `linux64.with-katago.zip`。
-3. 第一次启动时，程序会优先把内置分析环境准备好。
-4. 打开 **野狐棋谱（输入野狐数字ID获取）**，输入纯数字的野狐数字ID。不能输入昵称。
-5. 继续用内置或自定义 KataGo 做分析和复盘。
+1. 去 [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) 下载适合自己系统的包。
+2. 打开程序后，点击 **野狐棋谱（输入野狐昵称获取）**。
+3. 输入野狐昵称，抓到棋谱后继续分析和复盘。
 
 <p align="center">
-  <img src="assets/fox-id-demo-cn.gif" alt="LizzieYzy Next-FoxUID 野狐数字ID抓谱演示" width="100%" />
+  <img src="assets/fox-id-demo-cn.gif" alt="LizzieYzy Next-FoxUID 野狐昵称抓谱演示" width="960" />
 </p>
-
-## 首次启动会帮你准备什么
-
-现在的首启流程，不再默认把用户丢进一堆设置项里。
-
-程序会优先尝试：
-
-- 检查包里自带的分析组件是否已经齐全
-- 自动写入可直接使用的默认分析配置
-- 如果本地缺少权重，提供下载推荐官方权重的入口
-- 只有在自动准备仍然失败时，才退回到手工设置界面
-
-这套逻辑的目标很明确：让大多数普通用户第一次打开就能直接开始用，而不是先研究一堆设置项。
 
 ## 实际界面
 
 ![LizzieYzy Next-FoxUID Screenshot](screenshot.png)
 
-## 发布包说明
-
-> [!TIP]
-> 对大多数人来说，记住一句话就够了：想省事就选 `with-katago`，想完全自定义再选 `without.engine`。
-
-| 系统 | 推荐资产 | 是否自带运行环境 | 是否开箱可分析 | 安装方式 |
-| --- | --- | --- | --- | --- |
-| Windows 64 位 | `windows64.with-katago.installer.exe` | 是 | 是 | 双击安装，开始菜单和桌面快捷方式 |
-| Windows 64 位 | `windows64.with-katago.portable.zip` | 是 | 是 | 解压后运行 `LizzieYzy Next-FoxUID.exe` |
-| Windows 64 位 | `windows64.without.engine.portable.zip` | 是 | 否 | 解压后运行，自行配置引擎 |
-| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | App 自带 | 是 | 拖入 Applications |
-| macOS Intel | `mac-amd64.with-katago.dmg` | App 自带 | 是 | 拖入 Applications |
-| Linux 64 位 | `linux64.with-katago.zip` | 是 | 是 | 解压后运行 `start-linux64.sh` |
-
-补充说明：
-
-- Windows 现在把安装器放在最前面，是为了让普通用户下载后更容易直接安装和打开。
-- Windows 的无引擎包也改成 `.exe` 便携形式，想免安装的人也能直接双击运行。
-- macOS 继续以 `.dmg` 为主，不再把 `app.zip` 作为主推荐。
-- Linux 继续保留可直接运行的整合包。
-- 当前公开 release 主列表控制在 6 个主资产以内，避免历史兼容包重新混进首屏。
-
-## 现在和原版有什么不同
-
-| 项目 | 原版 LizzieYzy | Next-FoxUID |
-| --- | --- | --- |
-| 野狐棋谱同步 | 对很多用户已经失效 | 已修复并继续维护 |
-| 输入方式 | 数字ID / 昵称 / 其它叫法混在一起 | 统一为野狐数字ID |
-| 首次启动 | 经常需要自己折腾分析环境 | 优先自动准备内置分析环境 |
-| Windows 使用体验 | 下载后还不够直观 | 以 `.installer.exe` 和 `.exe` 便携包为主 |
-| macOS 发布 | 历史包型偏杂 | 以 `.dmg` 为主，区分 Apple Silicon / Intel |
-| 项目维护 | 基本停滞 | 持续发包、修文档、收反馈 |
-
-## 整合包里自带什么
+## 整合包已经带好什么
 
 | 项目 | 当前值 |
 | --- | --- |
 | KataGo 版本 | `v1.16.4` |
-| 默认内置权重 | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
-| 首启自动配置 | 已启用 |
-| 权重补全能力 | 支持下载推荐官方权重 |
+| 默认权重 | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
+| 首次启动自动配置 | 已启用 |
+| 官方权重下载入口 | 已提供 |
 
-如果你只想知道一句话：主推荐整合包已经把 KataGo 和默认权重一起带好，普通用户下载后不用先自己找权重。
+对大多数人来说，你只需要知道一句话：
 
-常见路径：
-
-- Windows / Linux 整合包权重：`Lizzieyzy/weights/default.bin.gz`
-- macOS 整合包权重：`LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- macOS 整合包引擎：`LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/`
-
-## 文档与支持
-
-| 你需要什么 | 入口 |
-| --- | --- |
-| 安装说明 | [安装指南](docs/INSTALL.md) |
-| 看懂所有发布包 | [发布包说明](docs/PACKAGES.md) |
-| 启动失败 / 抓谱无结果 / 引擎没连上 | [常见问题与排错](docs/TROUBLESHOOTING.md) |
-| 看哪些平台已经有人实测 | [已验证平台](docs/TESTED_PLATFORMS.md) |
-| 了解如何发版 | [发布检查清单](docs/RELEASE_CHECKLIST.md) |
-| 获取帮助 | [Support](SUPPORT.md) |
-| 查看更新历史 | [更新日志](CHANGELOG.md) |
+**主推荐整合包已经把 KataGo 和默认权重带好了，下载后直接打开就行。**
 
 ## 常见问题
 
 <details>
-<summary><strong>为什么只支持野狐数字ID，不支持用户名搜索？</strong></summary>
+<summary><strong>还需要先知道账号数字吗？</strong></summary>
 
-因为用户名搜索更容易误判，也更难维护。这个维护版统一按野狐数字ID工作，界面、文档和问题反馈模板都按这个口径整理。
+不需要。现在直接输入野狐昵称就行，程序会自动找到对应账号。抓到棋谱后，列表里也会把昵称和账号数字一起显示出来，方便你确认是不是找对人。
 </details>
 
 <details>
-<summary><strong>什么是野狐数字ID？</strong></summary>
+<summary><strong>为什么现在改成昵称输入？</strong></summary>
 
-就是野狐账号对应的那串纯数字编号。这里不能输入昵称，也不能输入中文用户名，必须输入数字。
+因为普通用户通常只知道昵称，不知道账号数字。这个维护版把“先查账号、再抓棋谱”这件事放到程序里自动完成，使用起来更自然。
 </details>
 
 <details>
-<summary><strong>第一次打开还需要自己设置引擎吗？</strong></summary>
+<summary><strong>搜不到棋谱时先检查什么？</strong></summary>
 
-大多数用户不需要。现在程序会优先自动识别内置 KataGo、默认权重和配置路径。只有自动配置仍然失败时，才需要你手工处理。
+先确认三件事：昵称有没有输对、这个账号最近有没有公开棋谱、网络有没有暂时性异常。如果账号没有公开棋谱，返回空结果是正常现象。
 </details>
 
 <details>
-<summary><strong>Windows 为什么改成 installer.exe 作为主推荐？</strong></summary>
+<summary><strong>第一次打开还要不要自己设置引擎？</strong></summary>
 
-因为普通用户真正需要的是“下载、双击、装好、能打开”。便携包仍然保留，但主推荐会优先放最容易上手的安装器。
+大多数 `with-katago` 用户不需要。程序会优先识别内置 KataGo、默认权重和配置路径，只有自动准备失败时才需要你手工处理。
 </details>
 
 <details>
-<summary><strong>macOS 为什么第一次可能会被拦住？</strong></summary>
+<summary><strong>Mac 第一次打不开怎么办？</strong></summary>
 
-因为当前维护版的 macOS 包还没有做签名 / 公证。第一次被 Gatekeeper 拦截是正常现象，按安装文档里的“仍要打开”步骤处理即可。
+因为当前 macOS 包还没有做签名和公证。第一次被系统拦住时，按 [安装说明](docs/INSTALL.md) 里的步骤点“仍要打开”即可。
 </details>
 
-## 参与维护
+## 更多说明
 
-当前最欢迎的反馈和贡献：
-
-- Windows / Linux / Intel Mac 的真实安装反馈
-- 野狐抓谱兼容性反馈
-- 发布页、安装文档、翻译文案优化
-- 打包、首启自动配置、引擎集成相关修复
-
-相关入口：
-
-- [Contributing Guide](CONTRIBUTING.md)
-- [Code Of Conduct](CODE_OF_CONDUCT.md)
-- [Security Policy](SECURITY.md)
-- [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
-- [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)
+- [安装说明](docs/INSTALL.md)
+- [发布包说明](docs/PACKAGES.md)
+- [常见问题与排错](docs/TROUBLESHOOTING.md)
+- [已验证平台](docs/TESTED_PLATFORMS.md)
+- [更新日志](CHANGELOG.md)
+- [Support](SUPPORT.md)
 
 ## 致谢
 

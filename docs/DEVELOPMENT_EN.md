@@ -7,7 +7,7 @@ If you only want to use the app, start with the [Installation Guide](INSTALL_EN.
 ## Important Context First
 
 - This is a maintained LizzieYzy fork, not a one-off patch repository.
-- The most important user flow is: install the app, launch it, fetch public Fox games through **numeric Fox ID**, and analyze normally.
+- The most important user flow is: install the app, launch it, fetch public Fox games through **Fox nickname**, and analyze normally.
 - The project does not currently have a full automated test suite. The practical maintenance baseline is local builds, doc checks, and targeted manual verification.
 
 ## Building Locally
@@ -106,7 +106,7 @@ If you changed packaging, engine paths, first-launch behavior, or the Fox fetch 
 
 ## Where To Start For Common Changes
 
-### 1. Fox sync or numeric Fox ID workflow changes
+### 1. Fox sync or Fox nickname workflow changes
 
 Start with:
 
@@ -116,8 +116,8 @@ Start with:
 
 Also verify:
 
-- the UI still says `numeric Fox ID`
-- README and install docs do not fall back to old UID / username wording
+- the UI still says `Fox nickname`
+- README and install docs do not fall back to old Fox nickname wording
 - you perform at least one real Fox fetch check
 
 ### 2. UI wording, localization, and menu entries
@@ -160,13 +160,15 @@ These changes usually also require updates to:
   - builds Windows / Linux / advanced zip packages
 - `scripts/package_macos_dmg.sh`
   - builds macOS `.dmg` packages
+- `scripts/validate_release_assets.sh`
+  - checks that `dist/release/` only contains the public-facing main assets
 - `scripts/check_markdown_links.py`
   - validates local markdown links
 
 ## Final Pre-PR Checklist
 
-- Did you affect the main user flow: install, launch, numeric Fox ID fetch, and analysis?
-- Did any wording drift back to old UID / username terminology?
+- Did you affect the main user flow: install, launch, Fox nickname fetch, and analysis?
+- Did any wording drift back to old Fox nickname terminology?
 - Do package names, README guidance, and docs still agree?
 - If packaging changed, did you update the related docs and verification records?
 - If the UI changed, should you attach a screenshot?

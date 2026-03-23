@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/release_metadata.sh"
 
 DATE_TAG="${1:-$(date +%F)}"
 APP_VERSION="${2:-2.5.3}"
@@ -21,13 +22,15 @@ fi
 
 APP_NAME="LizzieYzy Next-FoxUID"
 MAIN_JAR="$(basename "$JAR_PATH")"
+ICON_PATH="$ROOT_DIR/packaging/icons/app-icon.ico"
 ENGINE_PLATFORM_DIR="windows-x64"
 ARCH_TAG="windows64"
 DIST_DIR="$ROOT_DIR/dist/windows"
 RELEASE_DIR="$ROOT_DIR/dist/release"
+META_DIR="$ROOT_DIR/dist/release-meta"
 
 rm -rf "$DIST_DIR"
-mkdir -p "$DIST_DIR" "$RELEASE_DIR"
+mkdir -p "$DIST_DIR" "$RELEASE_DIR" "$META_DIR"
 
 has_bundled_katago() {
   [[ -f "$ROOT_DIR/weights/default.bin.gz" ]] \
@@ -88,7 +91,8 @@ build_app_image() {
     --dest "$app_image_dir" \
     --app-version "$APP_VERSION" \
     --vendor "wimi321" \
-    --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
+    --description "LizzieYzy maintained fork with restored Fox nickname sync" \
+    --icon "$ICON_PATH" \
     --java-options "-Xmx4096m"
 
   printf '%s\n' "$app_image_dir/$APP_NAME"
@@ -115,7 +119,8 @@ build_installer() {
     --dest "$installer_dir" \
     --app-version "$APP_VERSION" \
     --vendor "wimi321" \
-    --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
+    --description "LizzieYzy maintained fork with restored Fox nickname sync" \
+    --icon "$ICON_PATH" \
     --win-dir-chooser \
     --win-menu \
     --win-shortcut \
@@ -124,50 +129,69 @@ build_installer() {
   find "$installer_dir" -maxdepth 1 -type f -name '*.exe' | head -n 1
 }
 
-write_install_note() {
-  local flavor="$1"
-  local include_katago="$2"
-  local include_installer="$3"
-  local note_file="$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.${flavor}-install.txt"
+write_windows_install_note() {
+  local has_with_katago="$1"
+  local has_no_engine_installer="$2"
+  local note_file="$META_DIR/${DATE_TAG}-${ARCH_TAG}-install.txt"
 
-  cat >"$note_file" <<NOTE
+  cat >"$note_file" <<EOF
 Package type: Windows x64 release assets
 Generated on: $DATE_TAG
-Flavor: $flavor
-Bundled KataGo: $include_katago
-NOTE
 
-  if [[ "$include_installer" == "true" ]]; then
-    cat >>"$note_file" <<NOTE
+How to pick the right file:
+EOF
 
-Recommended for most users:
-1. Run ${DATE_TAG}-${ARCH_TAG}.${flavor}.installer.exe
-2. Follow the setup wizard
-3. Launch from the Start Menu or desktop shortcut
-NOTE
+  if [[ "$has_with_katago" == "true" ]]; then
+    cat >>"$note_file" <<EOF
+- ${DATE_TAG}-${ARCH_TAG}.with-katago.installer.exe
+  Recommended for most users. Run the installer, finish setup, then launch from Start Menu or desktop.
+- ${DATE_TAG}-${ARCH_TAG}.with-katago.portable.zip
+  Use this if you do not want the installer. Unzip it and open ${APP_NAME}.exe.
+EOF
   fi
 
-  cat >>"$note_file" <<NOTE
+  cat >>"$note_file" <<EOF
+- ${DATE_TAG}-${ARCH_TAG}.without.engine.portable.zip
+  Use this if you want to keep the packaged Java runtime but configure your own engine.
+EOF
 
-Portable package:
-- ${DATE_TAG}-${ARCH_TAG}.${flavor}.portable.zip
-- After unzip, open: ${APP_NAME}/${APP_NAME}.exe
+  if [[ "$has_no_engine_installer" == "true" ]]; then
+    cat >>"$note_file" <<EOF
+- ${DATE_TAG}-${ARCH_TAG}.without.engine.installer.exe
+  Fallback installer used when bundled KataGo assets are not available at build time.
+EOF
+  fi
 
-Notes:
-- The packaged app includes a Java runtime via jpackage.
-NOTE
+  cat >>"$note_file" <<EOF
 
-  if [[ "$include_katago" == "true" ]]; then
-    cat >>"$note_file" <<'NOTE'
-- Bundled KataGo is included in this flavor.
-- First launch should auto-configure the bundled engine and default weight.
-NOTE
+Download verification:
+- Compare the file hash with ${DATE_TAG}-${ARCH_TAG}-sha256.txt
+- PowerShell:
+  Get-FileHash <filename> -Algorithm SHA256
+- Command Prompt:
+  certutil -hashfile <filename> SHA256
+
+What is bundled:
+- Windows release assets include a packaged Java runtime via jpackage.
+EOF
+
+  if [[ "$has_with_katago" == "true" ]]; then
+    cat >>"$note_file" <<'EOF'
+- The with-katago assets also include bundled KataGo and a default weight.
+- First launch should auto-configure the bundled engine for most users.
+EOF
   else
-    cat >>"$note_file" <<'NOTE'
-- This flavor does not include KataGo.
-- Configure your own engine after launch.
-NOTE
+    cat >>"$note_file" <<'EOF'
+- Bundled KataGo is not included in this build. Configure your own engine after launch.
+EOF
   fi
+
+  cat >>"$note_file" <<'EOF'
+
+Fox kifu note:
+- The maintained fork supports entering a Fox nickname.
+- If a nickname search succeeds, the app will also show the matched Fox UID in the results.
+EOF
 }
 
 create_portable_zip() {
@@ -185,15 +209,16 @@ create_portable_zip() {
 
 artifacts=()
 build_no_engine_installer="false"
+has_with_katago_assets="false"
 
 if has_bundled_katago; then
+  has_with_katago_assets="true"
   with_katago_root="$(build_app_image with-katago true)"
   create_portable_zip with-katago "$with_katago_root"
   installer_path="$(build_installer with-katago true)"
   final_installer="$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.with-katago.installer.exe"
   cp "$installer_path" "$final_installer"
-  write_install_note with-katago true true
-  artifacts+=("$final_installer" "$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.with-katago.portable.zip" "$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.with-katago-install.txt")
+  artifacts+=("$final_installer" "$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.with-katago.portable.zip")
 else
   build_no_engine_installer="true"
 fi
@@ -206,8 +231,15 @@ if [[ "$build_no_engine_installer" == "true" ]]; then
   cp "$installer_path" "$final_installer"
   artifacts+=("$final_installer")
 fi
-write_install_note without.engine false "$build_no_engine_installer"
-artifacts+=("$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.without.engine.portable.zip" "$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.without.engine-install.txt")
+artifacts+=("$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.without.engine.portable.zip")
+
+install_note="$META_DIR/${DATE_TAG}-${ARCH_TAG}-install.txt"
+checksum_file="$META_DIR/${DATE_TAG}-${ARCH_TAG}-sha256.txt"
+write_windows_install_note "$has_with_katago_assets" "$build_no_engine_installer"
+write_sha256_file "$checksum_file" "${artifacts[@]}" "$install_note"
 
 echo "Artifacts:"
 ls -lh "${artifacts[@]}"
+echo
+echo "Maintainer metadata:"
+ls -lh "$install_note" "$checksum_file"

@@ -5,7 +5,7 @@ This guide answers four practical questions:
 1. which package to download
 2. how to launch it after installation
 3. whether first launch auto-configures the engine
-4. how to fetch Fox games by numeric Fox ID
+4. how to fetch Fox games by nickname
 
 ## Pick The Right Package
 
@@ -104,15 +104,15 @@ That means most `with-katago` users should not need manual engine setup on day o
 ## Fox Sync
 
 1. Launch the app.
-2. Open **Fox Kifu (Fetch by numeric Fox ID)**.
-3. Enter a numeric Fox ID.
-4. Fetch the latest public games.
+2. Open **Fox Kifu (search by nickname)**.
+3. Enter a Fox nickname.
+4. The app resolves the account automatically and fetches recent public games.
 
 Notes:
 
-- this maintained fork only supports **numeric Fox ID**
-- username lookup is no longer supported
-- if the account has no recent public games, the result may be empty
+- you do not need to know the numeric account ID first
+- if the nickname is wrong, the account lookup can fail
+- an empty result is normal if the account has no recent public games
 
 ## Bundled Engine Paths
 

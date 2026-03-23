@@ -54,7 +54,8 @@ public class FoxKifuDownload extends JFrame {
   public GetFoxRequest foxReq;
   private List<KifuInfo> foxKifuInfos;
   private final List<RecentFoxSearch> recentSearches = new ArrayList<RecentFoxSearch>();
-  private int myUid;
+  private String myUid = "";
+  private String currentFoxNickname = "";
   private String lastCode = "";
   private int tabNumber = 1;
   private final int numbersPerTab = 25;
@@ -156,7 +157,7 @@ public class FoxKifuDownload extends JFrame {
     recentSearchesPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     recentWrapper.add(recentSearchesPanel, BorderLayout.CENTER);
 
-    updateCurrentUserLabel(null, txtUserName.getText().trim());
+    updateCurrentUserLabel(txtUserName.getText().trim(), null);
     updateRecentSearchesPanel();
 
     JPanel buttonPane = new JPanel();
@@ -298,21 +299,18 @@ public class FoxKifuDownload extends JFrame {
     triggerFoxSearch(txtUserName.getText().trim());
   }
 
-  private void triggerFoxSearch(String foxUidText) {
-    if (foxUidText == null || foxUidText.trim().isEmpty()) {
+  private void triggerFoxSearch(String foxUserText) {
+    if (foxUserText == null || foxUserText.trim().isEmpty()) {
       Utils.showMsg(Lizzie.resourceBundle.getString("FoxKifuDownload.noUser"), this);
       return;
     }
-    String normalizedUid = foxUidText.trim();
-    if (!normalizedUid.matches("\\d+")) {
-      Utils.showMsg(Lizzie.resourceBundle.getString("FoxKifuDownload.invalidUid"), this);
-      return;
-    }
+    String normalizedUser = foxUserText.trim();
     if (isSearching) {
       Utils.showMsg(Lizzie.resourceBundle.getString("FoxKifuDownload.waitLastSearch"), this);
       return;
     }
-    myUid = Integer.parseInt(normalizedUid);
+    myUid = "";
+    currentFoxNickname = normalizedUser;
     isSearching = true;
     isComplete = false;
     isSecondTimeReqEmpty = false;
@@ -326,12 +324,12 @@ public class FoxKifuDownload extends JFrame {
     tabNumber = 1;
     curTabNumber = 1;
     lastCode = "";
-    txtUserName.setText(normalizedUid);
-    updateCurrentUserLabel(null, normalizedUid);
-    Lizzie.config.lastFoxName = normalizedUid;
+    txtUserName.setText(normalizedUser);
+    updateCurrentUserLabel(normalizedUser, null);
+    Lizzie.config.lastFoxName = normalizedUser;
     Lizzie.config.uiConfig.put("last-fox-name", Lizzie.config.lastFoxName);
     saveConfigQuietly();
-    foxReq.sendCommand("uid " + normalizedUid + " 0");
+    foxReq.sendCommand("user_name " + normalizedUser);
   }
 
   public void receiveResult(String string) {
@@ -354,8 +352,21 @@ public class FoxKifuDownload extends JFrame {
             this);
         return;
       }
+      String resolvedUid = jsonObject.optString("fox_uid", "").trim();
+      String resolvedNickname =
+          firstNonEmpty(
+              jsonObject.optString("fox_nickname", ""),
+              jsonObject.optString("username", ""),
+              jsonObject.optString("name", ""),
+              currentFoxNickname);
+      if (!resolvedUid.isEmpty()) {
+        myUid = resolvedUid;
+      }
+      if (!resolvedNickname.isEmpty()) {
+        currentFoxNickname = resolvedNickname;
+      }
       if (jsonObject.has("chesslist")) {
-        handleChessList(jsonObject.getJSONArray("chesslist"));
+        handleChessList(jsonObject.getJSONArray("chesslist"), resolvedNickname, resolvedUid);
       }
       if (jsonObject.has("chess")) {
         String kifu = jsonObject.getString("chess");
@@ -377,7 +388,8 @@ public class FoxKifuDownload extends JFrame {
     }
   }
 
-  private void handleChessList(JSONArray jsonArray) throws JSONException {
+  private void handleChessList(JSONArray jsonArray, String resolvedNickname, String resolvedUid)
+      throws JSONException {
     isSearching = false;
     int oldRows = foxKifuInfos.size();
     int previousTabNumber = curTabNumber;
@@ -401,15 +413,21 @@ public class FoxKifuDownload extends JFrame {
       KifuInfo kifuInfo = new KifuInfo();
       kifuInfo.index = foxKifuInfos.size() + 1;
       kifuInfo.playTime = jsonObject.getString("starttime");
-      kifuInfo.blackUid = jsonObject.getInt("blackuid");
-      kifuInfo.whiteUid = jsonObject.getInt("whiteuid");
+      kifuInfo.blackUid = jsonObject.optString("blackuid", "").trim();
+      if (kifuInfo.blackUid.isEmpty()) {
+        kifuInfo.blackUid = String.valueOf(jsonObject.optLong("blackuid"));
+      }
+      kifuInfo.whiteUid = jsonObject.optString("whiteuid", "").trim();
+      if (kifuInfo.whiteUid.isEmpty()) {
+        kifuInfo.whiteUid = String.valueOf(jsonObject.optLong("whiteuid"));
+      }
       kifuInfo.blackName =
           resolveFoxName(jsonObject, "blacknick", "blacknickname", "blackname", "blackenname");
       kifuInfo.whiteName =
           resolveFoxName(jsonObject, "whitenick", "whitenickname", "whitename", "whiteenname");
       if (detectedNickname == null) {
-        if (kifuInfo.blackUid == myUid) detectedNickname = kifuInfo.blackName;
-        else if (kifuInfo.whiteUid == myUid) detectedNickname = kifuInfo.whiteName;
+        if (kifuInfo.blackUid.equals(myUid)) detectedNickname = kifuInfo.blackName;
+        else if (kifuInfo.whiteUid.equals(myUid)) detectedNickname = kifuInfo.whiteName;
       }
       int bRank = jsonObject.getInt("blackdan") - 17;
       kifuInfo.blackRank =
@@ -428,11 +446,20 @@ public class FoxKifuDownload extends JFrame {
       foxKifuInfos.add(kifuInfo);
     }
 
-    if (detectedNickname != null && !detectedNickname.trim().isEmpty()) {
-      updateCurrentUserLabel(detectedNickname, String.valueOf(myUid));
-      addRecentSearch(detectedNickname, String.valueOf(myUid));
+    String displayUid = firstNonEmpty(resolvedUid, myUid);
+    String displayNickname = firstNonEmpty(detectedNickname, resolvedNickname, currentFoxNickname);
+    if (!displayUid.isEmpty()) {
+      myUid = displayUid;
+    }
+    if (!displayNickname.isEmpty()) {
+      currentFoxNickname = displayNickname;
+    }
+
+    if (!displayNickname.isEmpty() || !displayUid.isEmpty()) {
+      updateCurrentUserLabel(displayNickname, displayUid);
+      addRecentSearch(displayNickname, displayUid);
     } else {
-      updateCurrentUserLabel(null, String.valueOf(myUid));
+      updateCurrentUserLabel(null, null);
     }
 
     rows = new ArrayList<String[]>();
@@ -441,9 +468,9 @@ public class FoxKifuDownload extends JFrame {
       String[] rowParams = {
         String.valueOf(info.index),
         info.playTime,
-        formatFoxUser(info.blackName, String.valueOf(info.blackUid)),
+        formatFoxUser(info.blackName, info.blackUid),
         info.blackRank,
-        formatFoxUser(info.whiteName, String.valueOf(info.whiteUid)),
+        formatFoxUser(info.whiteName, info.whiteUid),
         info.whiteRank,
         info.result,
         String.valueOf(info.totalMoves),
@@ -544,8 +571,8 @@ public class FoxKifuDownload extends JFrame {
 
   private boolean isCurrentUserWin(JSONObject jsonObject) throws JSONException {
     int winner = jsonObject.getInt("winner");
-    if (winner == 1) return jsonObject.getInt("blackuid") == myUid;
-    if (winner == 2) return jsonObject.getInt("whiteuid") == myUid;
+    if (winner == 1) return String.valueOf(jsonObject.optLong("blackuid")).equals(myUid);
+    if (winner == 2) return String.valueOf(jsonObject.optLong("whiteuid")).equals(myUid);
     return false;
   }
 
@@ -561,12 +588,16 @@ public class FoxKifuDownload extends JFrame {
 
   private void updateCurrentUserLabel(String nickname, String uid) {
     String display;
-    if (uid == null || uid.trim().isEmpty()) {
+    String safeNickname = nickname == null ? "" : nickname.trim();
+    String safeUid = uid == null ? "" : uid.trim();
+    if (safeUid.isEmpty() && safeNickname.isEmpty()) {
       display = Lizzie.resourceBundle.getString("FoxKifuDownload.currentUser.waiting");
-    } else if (nickname == null || nickname.trim().isEmpty()) {
-      display = uid.trim();
+    } else if (safeUid.isEmpty()) {
+      display = safeNickname;
+    } else if (safeNickname.isEmpty()) {
+      display = safeUid;
     } else {
-      display = formatFoxUser(nickname, uid);
+      display = formatFoxUser(safeNickname, safeUid);
     }
     lblCurrentUser.setText(
         Lizzie.resourceBundle.getString("FoxKifuDownload.currentUser.label") + display);
@@ -579,6 +610,7 @@ public class FoxKifuDownload extends JFrame {
             : nickname.trim();
     String safeUid = uid == null ? "" : uid.trim();
     if (safeUid.isEmpty()) return safeName;
+    if (safeName.equals(safeUid)) return safeName;
     return safeName + " (" + safeUid + ")";
   }
 
@@ -589,11 +621,13 @@ public class FoxKifuDownload extends JFrame {
     for (int i = 0; i < saved.length(); i++) {
       JSONObject item = saved.optJSONObject(i);
       if (item == null) continue;
-      String uid = item.optString("uid", "").trim();
-      if (uid.isEmpty()) continue;
       RecentFoxSearch search = new RecentFoxSearch();
-      search.uid = uid;
+      search.uid = item.optString("uid", "").trim();
       search.nickname = item.optString("nickname", "").trim();
+      if (search.nickname.isEmpty() && !search.uid.isEmpty()) {
+        search.nickname = search.uid;
+      }
+      if (search.nickname.isEmpty() && search.uid.isEmpty()) continue;
       recentSearches.add(search);
     }
   }
@@ -612,11 +646,13 @@ public class FoxKifuDownload extends JFrame {
   }
 
   private void addRecentSearch(String nickname, String uid) {
-    if (uid == null || uid.trim().isEmpty()) return;
-    String normalizedUid = uid.trim();
+    String normalizedUid = uid == null ? "" : uid.trim();
     String normalizedNickname = nickname == null ? "" : nickname.trim();
+    if (normalizedNickname.isEmpty() && normalizedUid.isEmpty()) return;
     for (int i = recentSearches.size() - 1; i >= 0; i--) {
-      if (normalizedUid.equals(recentSearches.get(i).uid)) {
+      RecentFoxSearch existing = recentSearches.get(i);
+      if ((!normalizedUid.isEmpty() && normalizedUid.equals(existing.uid))
+          || normalizedNickname.equals(existing.nickname)) {
         recentSearches.remove(i);
       }
     }
@@ -646,8 +682,12 @@ public class FoxKifuDownload extends JFrame {
         button.addActionListener(
             new ActionListener() {
               public void actionPerformed(ActionEvent e) {
-                txtUserName.setText(search.uid);
-                triggerFoxSearch(search.uid);
+                String keyword = search.nickname == null ? "" : search.nickname.trim();
+                if (keyword.isEmpty()) {
+                  keyword = search.uid == null ? "" : search.uid.trim();
+                }
+                txtUserName.setText(keyword);
+                triggerFoxSearch(keyword);
               }
             });
         recentSearchesPanel.add(button);
@@ -682,6 +722,18 @@ public class FoxKifuDownload extends JFrame {
       foxReq.shutdown();
       foxReq = null;
     }
+  }
+
+  private String firstNonEmpty(String... values) {
+    if (values == null) {
+      return "";
+    }
+    for (String value : values) {
+      if (value != null && !value.trim().isEmpty()) {
+        return value.trim();
+      }
+    }
+    return "";
   }
 }
 
@@ -775,10 +827,10 @@ class KifuInfo {
   int index;
   String playTime;
   String blackName;
-  int blackUid;
+  String blackUid;
   String blackRank;
   String whiteName;
-  int whiteUid;
+  String whiteUid;
   String whiteRank;
   String result;
   int totalMoves;

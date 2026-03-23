@@ -6,7 +6,7 @@ This fork is meant to be maintained, not just patched once and left behind.
 
 The project currently prioritizes:
 
-- Keeping Fox kifu sync working through **numeric Fox ID** input
+- Keeping Fox kifu sync working through **Fox nickname** input
 - Shipping clear, practical multi-platform release packages
 - Preserving the strongest LizzieYzy features while keeping the basic user flow reliable
 - Reducing setup friction for first-time users
@@ -18,14 +18,14 @@ The main maintained user flow is:
 1. Install the app
 2. Launch it successfully
 3. Use the Fox sync entry
-4. Enter a numeric Fox ID
+4. Enter a Fox nickname
 5. Fetch the latest public Fox games
 
 ## Terminology
 
 To avoid confusion, the project now standardizes on:
 
-- `numeric Fox ID` instead of ambiguous UID wording
+- `Fox nickname` instead of ambiguous UID wording
 - `with-katago`
 - `without.engine`
 
@@ -47,7 +47,7 @@ If maintenance time is limited, fix these first:
 2. Fox sync cannot fetch public games
 3. Release assets do not match README guidance
 4. Bundled KataGo is broken in all-in-one packages
-5. UI or docs still mislead users about numeric Fox ID input
+5. UI or docs still mislead users about Fox nickname input
 
 ## Related Docs
 

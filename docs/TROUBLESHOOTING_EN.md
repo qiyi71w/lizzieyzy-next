@@ -55,14 +55,14 @@ Only switch to manual configuration after that.
 
 Check these first:
 
-- you entered a **numeric Fox ID**
+- you entered the correct **Fox nickname**
 - the account really has recent public games
 - there is no temporary network issue
 
 Notes:
 
-- this maintained fork only supports **numeric Fox ID**
-- username lookup is no longer supported
+- the maintained fork now defaults to **nickname search** and resolves the account automatically
+- if the nickname is wrong, the account lookup can fail
 - an empty result is normal if the account has no recent public games
 
 ## 4. I want to replace the bundled weight

@@ -3,6 +3,7 @@ package featurecat.lizzie.analysis;
 import featurecat.lizzie.gui.FoxKifuDownload;
 import featurecat.lizzie.util.Utils;
 import java.io.IOException;
+import java.net.Proxy;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
@@ -11,6 +12,10 @@ import org.json.JSONObject;
 
 public class GetFoxRequest {
   private static final String BASE_URL = "https://h5.foxwq.com/yehuDiamond/chessbook_local";
+  private static final String QUERY_USER_URL = "https://newframe.foxwq.com/cgi/QueryUserInfoPanel";
+  private static final int HTTP_CONNECT_TIMEOUT_MS = 20000;
+  private static final int HTTP_READ_TIMEOUT_MS = 25000;
+  private static final int HTTP_MAX_RETRIES = 3;
 
   private ExecutorService executor;
   private final FoxKifuDownload foxKifuDownload;
@@ -39,22 +44,28 @@ public class GetFoxRequest {
 
   private void handleCommand(String command) {
     try {
-      String[] parts = command.split("\\s+");
+      String[] parts = command.split("\\s+", 2);
       if (parts.length < 2) {
         return;
       }
-      if ("user_name".equals(parts[0])) {
-        handleUserName(parts[1]);
+      String action = parts[0];
+      String arguments = parts[1].trim();
+      if (arguments.isEmpty()) {
         return;
       }
-      if ("uid".equals(parts[0])) {
-        String uid = parts[1];
-        String lastCode = parts.length >= 3 ? parts[2] : "0";
+      if ("user_name".equals(action)) {
+        handleUserName(arguments);
+        return;
+      }
+      if ("uid".equals(action)) {
+        String[] uidArgs = arguments.split("\\s+", 2);
+        String uid = uidArgs[0];
+        String lastCode = uidArgs.length >= 2 ? uidArgs[1].trim() : "0";
         emit(fetchChessList(uid, lastCode));
         return;
       }
-      if ("chessid".equals(parts[0])) {
-        emit(fetchSgf(parts[1]));
+      if ("chessid".equals(action)) {
+        emit(fetchSgf(arguments));
       }
     } catch (Exception e) {
       emitError(e.getMessage());
@@ -67,17 +78,20 @@ public class GetFoxRequest {
       emitError("empty fox user");
       return;
     }
-    // 仅支持野狐数字ID：不再尝试用户名反查。
-    if (!text.matches("\\d+")) {
-      JSONObject failed = new JSONObject();
-      failed.put("result", 1);
-      failed.put(
-          "resultstr",
-          "Only numeric Fox ID is supported. Please enter digits only, not a nickname.");
-      emit(failed.toString());
+    if (text.matches("\\d+")) {
+      emit(wrapChessListWithUserInfo(fetchChessList(text, "0"), text, text, text));
       return;
     }
-    emit(fetchChessList(text, "0"));
+
+    JSONObject userInfo = queryUserByName(text);
+    String uid = userInfo.opt("uid").toString().trim();
+    String nickname =
+        firstNonEmpty(
+            userInfo.optString("username", ""),
+            userInfo.optString("name", ""),
+            userInfo.optString("englishname", ""),
+            text);
+    emit(wrapChessListWithUserInfo(fetchChessList(uid, "0"), uid, nickname, text));
   }
 
   private String fetchChessList(String uid, String lastCode) {
@@ -95,39 +109,100 @@ public class GetFoxRequest {
     return httpGet(BASE_URL + "/YHWQFetchChess?chessid=" + url(chessid));
   }
 
+  private JSONObject queryUserByName(String nickname) {
+    JSONObject json =
+        new JSONObject(httpGet(QUERY_USER_URL + "?srcuid=0&username=" + url(nickname)));
+    int result = json.has("result") ? json.optInt("result", -1) : json.optInt("errcode", -1);
+    if (result != 0) {
+      throw new RuntimeException(
+          firstNonEmpty(
+              json.optString("resultstr", ""),
+              json.optString("errmsg", ""),
+              "Can't find a Fox account for nickname: " + nickname));
+    }
+    String uid = json.opt("uid") == null ? "" : json.opt("uid").toString().trim();
+    if (uid.isEmpty()) {
+      throw new RuntimeException("Fox account was found, but the numeric UID was empty.");
+    }
+    return json;
+  }
+
+  private String wrapChessListWithUserInfo(
+      String payload, String uid, String nickname, String queryText) {
+    JSONObject json = new JSONObject(payload);
+    if (!uid.trim().isEmpty()) {
+      json.put("fox_uid", uid.trim());
+    }
+    String safeNickname = nickname == null ? "" : nickname.trim();
+    if (!safeNickname.isEmpty()) {
+      json.put("fox_nickname", safeNickname);
+    }
+    String safeQuery = queryText == null ? "" : queryText.trim();
+    if (!safeQuery.isEmpty()) {
+      json.put("fox_query", safeQuery);
+    }
+    return json.toString();
+  }
+
   private String httpGet(String url) {
-    java.net.HttpURLConnection conn = null;
-    try {
-      conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-      conn.setRequestMethod("GET");
-      conn.setConnectTimeout(15000);
-      conn.setReadTimeout(15000);
-      conn.setRequestProperty("Accept", "application/json,text/plain,*/*");
-      conn.setRequestProperty(
-          "User-Agent",
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
-              + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1");
-      int code = conn.getResponseCode();
-      java.io.InputStream in =
-          code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-      if (in == null) {
-        throw new IOException("HTTP " + code + " with empty body");
-      }
-      try (java.io.InputStream input = in;
-          java.util.Scanner scanner = new java.util.Scanner(input, "UTF-8").useDelimiter("\\A")) {
-        return scanner.hasNext() ? scanner.next() : "";
-      }
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    } finally {
-      if (conn != null) {
-        conn.disconnect();
+    IOException lastError = null;
+    for (int attempt = 1; attempt <= HTTP_MAX_RETRIES; attempt++) {
+      java.net.HttpURLConnection conn = null;
+      try {
+        conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection(Proxy.NO_PROXY);
+        conn.setRequestMethod("GET");
+        conn.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+        conn.setReadTimeout(HTTP_READ_TIMEOUT_MS);
+        conn.setRequestProperty("Accept", "application/json,text/plain,*/*");
+        conn.setRequestProperty("Connection", "close");
+        conn.setRequestProperty(
+            "User-Agent",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+                + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1");
+        int code = conn.getResponseCode();
+        java.io.InputStream in =
+            code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
+        if (in == null) {
+          throw new IOException("HTTP " + code + " with empty body");
+        }
+        try (java.io.InputStream input = in;
+            java.util.Scanner scanner = new java.util.Scanner(input, "UTF-8").useDelimiter("\\A")) {
+          return scanner.hasNext() ? scanner.next() : "";
+        }
+      } catch (IOException e) {
+        lastError = e;
+        if (attempt >= HTTP_MAX_RETRIES) {
+          break;
+        }
+        try {
+          Thread.sleep(350L * attempt);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException(e);
+        }
+      } finally {
+        if (conn != null) {
+          conn.disconnect();
+        }
       }
     }
+    throw new RuntimeException(lastError);
   }
 
   private static String url(String text) {
     return URLEncoder.encode(text == null ? "" : text, StandardCharsets.UTF_8);
+  }
+
+  private static String firstNonEmpty(String... values) {
+    if (values == null) {
+      return "";
+    }
+    for (String value : values) {
+      if (value != null && !value.trim().isEmpty()) {
+        return value.trim();
+      }
+    }
+    return "";
   }
 
   private void emit(String payload) {

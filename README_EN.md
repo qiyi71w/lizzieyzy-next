@@ -3,12 +3,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=1B4D3E" alt="Release"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml"><img src="https://github.com/wimi321/lizzieyzy-next-foxuid/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=7F4F24" alt="Stars"></a>
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=2F4858" alt="Downloads"></a>
-  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/License-GPL%20v3-E7A23B" alt="License"></a>
-  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-4A5D23" alt="Platforms">
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/v/release/wimi321/lizzieyzy-next-foxuid?display_name=tag&label=Release&color=111111" alt="Release"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/stargazers"><img src="https://img.shields.io/github/stars/wimi321/lizzieyzy-next-foxuid?style=flat&color=444444" alt="Stars"></a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><img src="https://img.shields.io/github/downloads/wimi321/lizzieyzy-next-foxuid/total?label=Downloads&color=666666" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-888888" alt="Platforms">
 </p>
 
 <p align="center">
@@ -16,204 +14,131 @@
 </p>
 
 <p align="center">
-  <strong>Restore the broken Fox sync path and make LizzieYzy practical again.</strong><br/>
-  This maintained fork is for people who want to download the app, open it, fetch Fox games, and keep reviewing without turning first launch into a setup project. The app now centers on <strong>numeric Fox ID</strong>: digits only, not a nickname.
+  <strong>Make LizzieYzy simple and useful again.</strong><br/>
+  The original project can no longer fetch Fox games for many users. This maintained fork restores that practical path and keeps first launch much simpler.<br/>
+  <strong>download it, enter a Fox nickname, fetch games, review again.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases">Download Releases</a>
+  <a href="https://github.com/wimi321/lizzieyzy-next-foxuid/releases"><strong>Download Releases</strong></a>
   ·
-  <a href="#one-page-overview">At A Glance</a>
+  <a href="docs/INSTALL_EN.md"><strong>Installation Guide</strong></a>
   ·
-  <a href="#what-to-download-first">Pick Your Download</a>
-  ·
-  <a href="#first-time-flow">First-Time Flow</a>
-  ·
-  <a href="#three-minute-setup">Three-Minute Setup</a>
-  ·
-  <a href="#release-assets">Release Assets</a>
-  ·
-  <a href="#docs-and-support">Docs & Support</a>
+  <a href="docs/TROUBLESHOOTING_EN.md"><strong>Troubleshooting</strong></a>
 </p>
 
 > [!IMPORTANT]
-> If you just want the app to work after download, remember these 3 things:
-> - Windows users should start with `windows64.with-katago.installer.exe`
-> - Fox kifu fetch now expects a **numeric Fox ID**: digits only, no nickname
-> - First launch tries to prepare the bundled analysis environment for you
+> Start with these 3 points:
+> - Most Windows users should download `windows64.with-katago.installer.exe`
+> - You can now enter a **Fox nickname** directly. The app resolves the account and fetches recent public games automatically.
+> - First launch now tries to prepare the bundled analysis setup for you.
 
-## One-Page Overview
+## Most Users Start Here
 
-| What you care about | What this maintained fork now does |
+If you are on **Windows**, download:
+
+**`windows64.with-katago.installer.exe`**
+
+This is the main beginner-friendly build: download it, double-click it, install it, open it, start reviewing.
+
+## What To Download
+
+| Your computer | Download this |
 | --- | --- |
-| Can I install it and open it without fuss? | Windows leads with `installer.exe`, macOS leads with `.dmg`, Linux keeps one practical bundled zip |
-| Can I still fetch Fox games? | Yes. The broken public-game sync path is restored and maintained |
-| What am I supposed to type? | The UI now says **numeric Fox ID** everywhere, and it clearly says digits only, no nickname |
-| Will first launch get stuck on setup? | The app prepares the bundled analysis environment first, so most users can start immediately |
-| Is this just a one-off patch? | No. This repo exists to keep shipping releases, docs, and fixes |
+| Windows x64 | `windows64.with-katago.installer.exe` |
+| Windows x64, no installer | `windows64.with-katago.portable.zip` |
+| Windows x64, your own engine | `windows64.without.engine.portable.zip` |
+| macOS Apple Silicon | `mac-arm64.with-katago.dmg` |
+| macOS Intel | `mac-amd64.with-katago.dmg` |
+| Linux x64 | `linux64.with-katago.zip` |
 
-## What To Download First
+Quick rule:
 
-<p align="center">
-  <img src="assets/package-guide.svg" alt="LizzieYzy Next-FoxUID Package Guide" width="100%" />
-</p>
+- Windows: if you are not sure, choose `installer.exe`
+- Mac: choose Apple Silicon or Intel first
+- Linux: choose `with-katago.zip`
 
-| If you are on | Download this first | Best for |
-| --- | --- | --- |
-| Windows x64 and want the easiest path | `windows64.with-katago.installer.exe` | Double-click install, launch, start reviewing |
-| Windows x64 and prefer no installer | `windows64.with-katago.portable.zip` | Unzip and run the packaged app directly |
-| Windows x64 and want your own engine | `windows64.without.engine.portable.zip` | Keep the app runtime and configure KataGo yourself |
-| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | M-series Macs |
-| macOS Intel | `mac-amd64.with-katago.dmg` | Intel Macs |
-| Linux x64 | `linux64.with-katago.zip` | Fastest Linux desktop path |
+## What This Maintained Fork Fixes
 
-> [!TIP]
-> The maintained public release page now keeps only the 6 primary user-facing assets in the main recommendation list. If older tags still show compatibility packages, treat them as historical assets rather than the main path.
+- **Fox sync works again**
+  The original fetch path is broken for many users. This fork restores the common public-game workflow.
+- **You no longer need to know the account number first**
+  Enter a Fox nickname and the app resolves the matching account before fetching recent public games.
+- **First launch is less work**
+  The app now tries to prepare the bundled analysis environment before asking you to configure anything by hand.
 
-## First-Time Flow
+## Start In 3 Steps
 
-<p align="center">
-  <img src="assets/start-flow.svg" alt="LizzieYzy Next-FoxUID Start Flow" width="100%" />
-</p>
-
-## Three-Minute Setup
-
-1. Go to [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases) and choose the package for your system.
-2. Windows users should start with `windows64.with-katago.installer.exe`; macOS users should pick the correct `.dmg`; Linux users should choose `linux64.with-katago.zip`.
-3. On first launch, the app now tries to prepare the bundled analysis environment automatically.
-4. Open **Fox Kifu (Fetch by numeric Fox ID)** and enter a numeric Fox ID. Digits only, not a nickname.
-5. Fetch the latest public games and continue with bundled or custom KataGo review.
+1. Download the right package from [Releases](https://github.com/wimi321/lizzieyzy-next-foxuid/releases).
+2. Open **Fox Kifu (search by nickname)**.
+3. Enter a Fox nickname, fetch the latest visible public games, and continue reviewing.
 
 <p align="center">
-  <img src="assets/fox-id-demo.gif" alt="LizzieYzy Next-FoxUID Fox numeric ID demo" width="100%" />
+  <img src="assets/fox-id-demo.gif" alt="LizzieYzy Next-FoxUID Fox nickname demo" width="960" />
 </p>
-
-## What First Launch Does Now
-
-The maintained fork no longer assumes new users want to configure engines by hand.
-
-At startup, it now tries to:
-
-- detect bundled KataGo binaries, configs, and bundled weight files
-- write a usable default engine configuration automatically
-- offer a guided path to download a recommended official weight if needed
-- fall back to manual setup only when automatic setup still cannot produce a working configuration
-
-That keeps the common case simple: install, open, fetch, review.
 
 ## Actual Interface
 
 ![LizzieYzy Next-FoxUID Screenshot](screenshot_en.png)
 
-## Release Assets
-
-> [!TIP]
-> For most users, the rule is simple: choose `with-katago` if you want the shortest path, and `without.engine` only if you want to manage the engine yourself.
-
-| Platform | Recommended asset | Runtime included | Ready to review | Install style |
-| --- | --- | --- | --- | --- |
-| Windows x64 | `windows64.with-katago.installer.exe` | Yes | Yes | Installer with Start Menu and desktop shortcut |
-| Windows x64 | `windows64.with-katago.portable.zip` | Yes | Yes | Portable app image, unzip and run `LizzieYzy Next-FoxUID.exe` |
-| Windows x64 | `windows64.without.engine.portable.zip` | Yes | No | Portable app with manual engine setup |
-| macOS Apple Silicon | `mac-arm64.with-katago.dmg` | App runtime | Yes | Drag to Applications |
-| macOS Intel | `mac-amd64.with-katago.dmg` | App runtime | Yes | Drag to Applications |
-| Linux x64 | `linux64.with-katago.zip` | Yes | Yes | Unzip and run `start-linux64.sh` |
-
-A few design choices behind this layout:
-
-- Windows now treats the installer as the primary user-facing package, so the easiest path is obvious.
-- The Windows no-engine package also uses the same portable `.exe` style instead of an older manual-launch style.
-- macOS stays centered on `.dmg` installers, one for Apple Silicon and one for Intel.
-- Linux keeps a practical all-in-one package.
-- The public release page now stays focused on the 6 primary assets instead of mixing in historical compatibility bundles.
-
-## Compared With The Original Project
-
-| Topic | Original LizzieYzy | Next-FoxUID |
-| --- | --- | --- |
-| Fox sync | Broken for many users | Restored and maintained |
-| Input wording | UID, username, and mixed labels | numeric Fox ID only |
-| First launch | Often required manual engine setup | Prefers automatic bundled setup |
-| Windows experience | Mostly zip + bat based | Installer-first with portable `.exe` fallback |
-| macOS packages | Historically confusing mix | `.dmg` first, split by Apple Silicon / Intel |
-| Maintenance | Mostly inactive | Ongoing releases, docs, and support |
-
-## What The Bundled Package Includes
+## What The Bundled Packages Already Include
 
 | Item | Current value |
 | --- | --- |
 | KataGo version | `v1.16.4` |
-| Default bundled weight | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
+| Default weight | `g170e-b20c256x2-s5303129600-d1228401921.bin.gz` |
 | First-launch auto setup | Enabled |
-| Recommended weight download helper | Included |
+| Official weight download entry | Included |
 
-If you only care about the practical takeaway: the main bundled packages already include KataGo and a default weight, so most users do not need to hunt for model files before the first review.
+For most people, the main takeaway is simple:
 
-Common paths:
-
-- Windows / Linux bundles: `Lizzieyzy/weights/default.bin.gz`
-- macOS bundles: `LizzieYzy Next-FoxUID.app/Contents/app/weights/default.bin.gz`
-- macOS engine directory: `LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/`
-
-## Docs And Support
-
-| If you need | Go here |
-| --- | --- |
-| Installation steps | [Installation Guide](docs/INSTALL_EN.md) |
-| Package explanations | [Package Overview](docs/PACKAGES_EN.md) |
-| Startup, engine, or Fox sync troubleshooting | [Troubleshooting](docs/TROUBLESHOOTING_EN.md) |
-| Real-machine verification status | [Tested Platforms](docs/TESTED_PLATFORMS.md) |
-| Release process guidance | [Release Checklist](docs/RELEASE_CHECKLIST.md) |
-| Help routing | [Support](SUPPORT.md) |
-| Change history | [Changelog](CHANGELOG.md) |
+**The bundled packages already include KataGo and a default weight, so you can usually open the app and start reviewing right away.**
 
 ## FAQ
 
 <details>
-<summary><strong>Why remove username lookup?</strong></summary>
+<summary><strong>Do I need the Fox account number first?</strong></summary>
 
-Because it was harder to debug, easier to misunderstand, and less reliable for maintenance. This fork standardizes the user path around numeric Fox ID.
+No. Enter the Fox nickname you already know. The app resolves the matching account automatically, and the game list still shows both nickname and account number so you can confirm the result.
 </details>
 
 <details>
-<summary><strong>Do I still need to configure the engine by hand on first launch?</strong></summary>
+<summary><strong>Why switch to nickname input?</strong></summary>
 
-Most users should not. The maintained fork now tries to auto-configure the bundled engine first and only falls back to manual setup when necessary.
+Because normal users usually know the nickname, not the account number. This maintained fork moves the lookup step into the app so the workflow feels natural again.
 </details>
 
 <details>
-<summary><strong>Why make the Windows installer the main recommendation?</strong></summary>
+<summary><strong>What should I check if no games are found?</strong></summary>
 
-Because regular users want a straightforward install flow: download, double-click, finish setup, and open the app. Portable builds still exist, but they are no longer the main path.
+Check whether the nickname is correct, whether that account has recent public games, and whether there is a temporary network issue. Empty results are normal when the account has no visible public games.
 </details>
 
 <details>
-<summary><strong>Why can macOS still block first launch?</strong></summary>
+<summary><strong>Do I still need to configure KataGo by hand?</strong></summary>
 
-Current maintenance builds are still unsigned and not notarized. That means Gatekeeper may block the first launch until you choose “Open Anyway” in macOS security settings.
+Most `with-katago` users do not. The app now tries to detect bundled KataGo, bundled weights, and the right config path automatically.
 </details>
 
-## Contributing
+<details>
+<summary><strong>What if macOS blocks the app on first launch?</strong></summary>
 
-The most helpful contributions right now are:
+Current macOS builds are not signed or notarized yet. If macOS blocks the app the first time, follow the steps in the [Installation Guide](docs/INSTALL_EN.md).
+</details>
 
-- real-machine Windows, Linux, and Intel Mac install reports
-- Fox sync compatibility feedback
-- better release-page copy, installation docs, and translations
-- packaging, first-launch setup, and engine integration fixes
+## More Docs
 
-Links:
-
-- [Contributing Guide](CONTRIBUTING.md)
-- [Code Of Conduct](CODE_OF_CONDUCT.md)
-- [Security Policy](SECURITY.md)
-- [Issues](https://github.com/wimi321/lizzieyzy-next-foxuid/issues)
-- [Discussions](https://github.com/wimi321/lizzieyzy-next-foxuid/discussions)
+- [Installation Guide](docs/INSTALL_EN.md)
+- [Package Overview](docs/PACKAGES_EN.md)
+- [Troubleshooting](docs/TROUBLESHOOTING_EN.md)
+- [Tested Platforms](docs/TESTED_PLATFORMS.md)
+- [Changelog](CHANGELOG.md)
+- [Support](SUPPORT.md)
 
 ## Credits
 
 - Original project: [yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
-- Engine: [lightvector/KataGo](https://github.com/lightvector/KataGo)
+- KataGo: [lightvector/KataGo](https://github.com/lightvector/KataGo)
 - Historical Fox sync references:
   - [yzyray/FoxRequest](https://github.com/yzyray/FoxRequest)
   - [FuckUbuntu/Lizzieyzy-Helper](https://github.com/FuckUbuntu/Lizzieyzy-Helper)

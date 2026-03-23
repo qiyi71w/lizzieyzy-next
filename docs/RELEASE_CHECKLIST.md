@@ -8,7 +8,7 @@
 
 - 用户进入 release 页面后，第一眼就知道该下载哪个包
 - `with-katago` 包尽量开箱即用
-- 野狐棋谱同步仍然可用，而且明确写成“野狐数字ID”
+- 野狐棋谱同步仍然可用，而且明确写成“野狐昵称”
 - README、安装文档、发布页文案、真实资产名保持一致
 
 ## 二、当前推荐的公开资产集合
@@ -44,11 +44,14 @@
 - `scripts/package_release.sh`
 - `scripts/package_macos_dmg.sh`
 - `scripts/package_windows_exe.sh`
+- `scripts/generate_release_notes.py`
+- `scripts/validate_release_assets.sh`
 
 GitHub Actions：
 
 - `.github/workflows/build-windows-release.yml`
 - `.github/workflows/build-macos-amd64-release.yml`
+- `.github/workflows/update-release-notes.yml`
 
 ## 四、构建前检查
 
@@ -56,7 +59,7 @@ GitHub Actions：
 
 - `README.md` 和 `README_EN.md` 的包名与计划上传的文件完全一致
 - 安装文档里的 Windows 主路径仍然是 `installer.exe`
-- 界面里仍然写的是 `野狐棋谱（输入野狐数字ID获取）`
+- 界面里仍然写的是 `野狐棋谱（输入野狐昵称获取）`
 - `weights/default.bin.gz` 存在
 - `engines/katago/` 下目标平台文件完整
 - 如需 bundled Java，对应 `runtime/` 目录仍然存在
@@ -92,12 +95,14 @@ mvn -DskipTests package
 
 ```bash
 ./scripts/package_windows_exe.sh 2026-03-21 2.5.3 target/lizzie-yzy2.5.3-shaded.jar
+./scripts/validate_release_assets.sh windows dist/release 2026-03-21
 ```
 
 ### 5. 构建 Linux 主整合包
 
 ```bash
 ./scripts/package_release.sh 2026-03-21 target/lizzie-yzy2.5.3-shaded.jar
+./scripts/validate_release_assets.sh linux dist/release 2026-03-21
 ```
 
 如果确实需要历史兼容 zip，额外显式打开：
@@ -112,6 +117,26 @@ LEGACY_WINDOWS32_ZIP=1 LEGACY_OTHER_SYSTEMS_ZIP=1 ./scripts/package_release.sh 2
 
 ```bash
 ./scripts/package_macos_dmg.sh 2026-03-21 2.5.3 target/lizzie-yzy2.5.3-shaded.jar
+./scripts/validate_release_assets.sh mac-arm64 dist/release 2026-03-21
+```
+
+### 7. 生成发布页文案
+
+本地先预览 release notes：
+
+```bash
+python3 scripts/generate_release_notes.py \
+  --date-tag 2026-03-21 \
+  --release-dir dist/release \
+  --output dist/release-meta/2026-03-21-release-notes.md
+```
+
+如果资产已经上传到 GitHub release，可以直接用工作流更新发布页正文：
+
+```bash
+gh workflow run update-release-notes.yml \
+  -f date_tag=2026-03-21 \
+  -f release_tag=2.5.3-next-foxuid-2026-03-21.1
 ```
 
 ## 六、Release Notes 应该先写什么
@@ -119,7 +144,7 @@ LEGACY_WINDOWS32_ZIP=1 LEGACY_OTHER_SYSTEMS_ZIP=1 ./scripts/package_release.sh 2
 发布页最上面先回答用户最关心的三件事：
 
 1. 原版野狐棋谱同步已失效，这个维护版已修复
-2. 现在输入野狐数字ID即可获取最新公开棋谱
+2. 现在输入野狐昵称即可获取最新公开棋谱，程序会自动找到账号
 3. Windows 64 位优先下载 `installer.exe`，macOS 下载 `.dmg`，Linux 下载 `with-katago.zip`
 
 推荐顺序：
@@ -129,6 +154,8 @@ LEGACY_WINDOWS32_ZIP=1 LEGACY_OTHER_SYSTEMS_ZIP=1 ./scripts/package_release.sh 2
 - 再给日文、韩文短摘要
 - 最后再写维护细节或技术补充
 
+现在可以直接用 `scripts/generate_release_notes.py` 生成这份多语言正文，再更新到 GitHub release。
+
 ## 七、上传前自查
 
 至少逐项确认：
@@ -137,7 +164,7 @@ LEGACY_WINDOWS32_ZIP=1 LEGACY_OTHER_SYSTEMS_ZIP=1 ./scripts/package_release.sh 2
 - Windows 主推荐资产确实是 `installer.exe`
 - Windows 无引擎包已经是 `.portable.zip`
 - macOS 同时有 `arm64` 与 `amd64` 的 `.dmg`
-- 对应的 `*-install.txt` 已一起上传
+- 发布目录里没有把 `.txt`、校验文件或历史兼容包混进公开资产
 - 没把历史兼容包重新混进主 release 页面
 
 ## 八、上传后，从用户视角复查
@@ -148,4 +175,4 @@ LEGACY_WINDOWS32_ZIP=1 LEGACY_OTHER_SYSTEMS_ZIP=1 ./scripts/package_release.sh 2
 - README 里的推荐包名在 release 页面能不能对上
 - Windows 用户会不会第一眼看到 `.exe` 安装器而不是历史 zip
 - 中文说明是不是在最前面，而且信息足够醒目
-- “野狐数字ID”和“首启自动配置”有没有被写清楚
+- “野狐昵称”和“首启自动配置”有没有被写清楚

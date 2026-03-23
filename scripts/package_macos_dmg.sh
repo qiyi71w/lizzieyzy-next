@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/release_metadata.sh"
 
 DATE_TAG="${1:-$(date +%F)}"
 APP_VERSION="${2:-2.5.3}"
@@ -68,16 +69,18 @@ DIST_DIR="$ROOT_DIR/dist/macos"
 INPUT_DIR="$DIST_DIR/input"
 APP_IMAGE_DIR="$DIST_DIR/app-image"
 DMG_DIR="$DIST_DIR/dmg"
+META_DIR="$ROOT_DIR/dist/release-meta"
 rm -rf "$INPUT_DIR" "$APP_IMAGE_DIR" "$DMG_DIR"
-mkdir -p "$INPUT_DIR" "$APP_IMAGE_DIR" "$DMG_DIR"
+mkdir -p "$INPUT_DIR" "$APP_IMAGE_DIR" "$DMG_DIR" "$META_DIR"
 
 cp "$JAR_PATH" "$INPUT_DIR/"
-cp README.md README_EN.md README_KO.md LICENSE.txt "$INPUT_DIR/"
+cp README.md README_EN.md README_JA.md README_KO.md LICENSE.txt "$INPUT_DIR/"
 cp readme_cn.pdf readme_en.pdf "$INPUT_DIR/"
 copy_bundle_engine_assets
 
 APP_NAME="LizzieYzy Next-FoxUID"
 MAIN_JAR="$(basename "$JAR_PATH")"
+ICON_PATH="$ROOT_DIR/packaging/icons/app-icon.icns"
 IDENTIFIER="com.wimi321.lizzieyzy.nextfoxuid"
 
 jpackage \
@@ -89,7 +92,8 @@ jpackage \
   --dest "$APP_IMAGE_DIR" \
   --app-version "$APP_VERSION" \
   --vendor "wimi321" \
-  --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
+  --description "LizzieYzy maintained fork with restored Fox nickname sync" \
+  --icon "$ICON_PATH" \
   --java-options "-Xmx4096m"
 
 jpackage \
@@ -101,26 +105,41 @@ jpackage \
   --dest "$DMG_DIR" \
   --app-version "$APP_VERSION" \
   --vendor "wimi321" \
-  --description "LizzieYzy maintained fork with numeric Fox ID sync fix" \
+  --description "LizzieYzy maintained fork with restored Fox nickname sync" \
+  --icon "$ICON_PATH" \
   --mac-package-identifier "$IDENTIFIER" \
   --java-options "-Xmx4096m"
 
 DMG_FILE="$(ls "$DMG_DIR"/*.dmg | head -n 1)"
 FINAL_DMG="$ROOT_DIR/dist/release/${DATE_TAG}-${ARCH_TAG}.${PACKAGE_FLAVOR}.dmg"
+INSTALL_NOTE="$META_DIR/${DATE_TAG}-${ARCH_TAG}-install.txt"
+SHA256_FILE="$META_DIR/${DATE_TAG}-${ARCH_TAG}-sha256.txt"
 
 mkdir -p "$ROOT_DIR/dist/release"
 cp "$DMG_FILE" "$FINAL_DMG"
 
-cat >"$ROOT_DIR/dist/release/${DATE_TAG}-${ARCH_TAG}.${PACKAGE_FLAVOR}-install.txt" <<EOF
+cat >"$INSTALL_NOTE" <<EOF
 Package type: unsigned macOS app + dmg
 Build architecture: $ARCH
 Generated on: $DATE_TAG
+Main asset: $(basename "$FINAL_DMG")
 Engine: $PACKAGE_NOTE
 
 Install:
-1. Open the dmg and drag app to Applications.
-2. First run may be blocked by Gatekeeper, use:
-   System Settings -> Privacy & Security -> Open Anyway
+1. Open $(basename "$FINAL_DMG").
+2. Drag the app to Applications.
+3. Launch it from Applications.
+
+Download verification:
+- Compare the file hash with $(basename "$SHA256_FILE")
+- Example:
+  shasum -a 256 $(basename "$FINAL_DMG")
+
+If macOS blocks the first launch:
+1. Try to open the app once.
+2. Go to System Settings -> Privacy & Security.
+3. Click Open Anyway.
+4. Launch the app again.
 
 Bundled KataGo paths inside the app bundle:
 - Engine: LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/$ENGINE_PLATFORM_DIR/katago
@@ -128,9 +147,14 @@ Bundled KataGo paths inside the app bundle:
 - Configs: LizzieYzy Next-FoxUID.app/Contents/app/engines/katago/configs/
 
 Notes:
-- This package is unsigned/not notarized.
+- This package is unsigned and not notarized.
 - For Intel/Apple Silicon dual-native support, build once on each architecture.
 EOF
 
+write_sha256_file "$SHA256_FILE" "$FINAL_DMG" "$INSTALL_NOTE"
+
 echo "Artifacts:"
-ls -lh "$ROOT_DIR/dist/release/${DATE_TAG}-${ARCH_TAG}.${PACKAGE_FLAVOR}"*
+ls -lh "$FINAL_DMG"
+echo
+echo "Maintainer metadata:"
+ls -lh "$INSTALL_NOTE" "$SHA256_FILE"

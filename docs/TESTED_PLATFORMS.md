@@ -20,7 +20,7 @@
 
 | 包 | 平台 | 当前状态 | 已确认内容 | 备注 |
 | --- | --- | --- | --- | --- |
-| `mac-arm64.with-katago.dmg` | macOS Apple Silicon | `Maintainer tested` | 安装、启动、界面打开、野狐数字ID抓谱入口可见 | 当前最完整的实机验证链路 |
+| `mac-arm64.with-katago.dmg` | macOS Apple Silicon | `Maintainer tested` | 安装、启动、界面打开、野狐昵称抓谱入口可见 | 当前最完整的实机验证链路 |
 | `mac-amd64.with-katago.dmg` | macOS Intel | `Build verified` | 已纳入独立发布流程 | 需要真实 Intel Mac 反馈 |
 | `windows64.with-katago.installer.exe` | Windows x64 | `Build verified` | Windows 安装器工作流和公开 release 资产已验证 | 需要真实 Windows 安装反馈 |
 | `windows64.with-katago.portable.zip` | Windows x64 | `Build verified` | `.exe` 便携包工作流和公开 release 资产已验证 | 作为免安装备选 |
@@ -35,7 +35,7 @@
 - 首次启动是否被系统安全策略拦截
 - 程序能不能进入主界面
 - `with-katago` 包里引擎是否正常加载
-- “野狐棋谱（输入野狐数字ID获取）”是否能抓到公开棋谱
+- “野狐棋谱（输入野狐昵称获取）”是否能抓到公开棋谱
 
 ## 如何补充反馈
 
