@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/release_metadata.sh"
 
 if ! command -v zip >/dev/null 2>&1; then
   echo "zip command not found"
@@ -23,8 +24,9 @@ fi
 
 STAGE_DIR="dist/stage"
 OUT_DIR="dist/release"
-rm -rf "$STAGE_DIR" "$OUT_DIR"
-mkdir -p "$STAGE_DIR" "$OUT_DIR"
+META_DIR="dist/release-meta"
+rm -rf "$STAGE_DIR" "$OUT_DIR" "$META_DIR"
+mkdir -p "$STAGE_DIR" "$OUT_DIR" "$META_DIR"
 
 has_default_weight() {
   [[ -f "$ROOT_DIR/weights/default.bin.gz" ]]
@@ -114,6 +116,54 @@ copy_bundle_runtime_assets() {
 
   mkdir -p "$app_dir/runtime"
   cp -R "$ROOT_DIR/runtime/$platform_dir" "$app_dir/runtime/"
+}
+
+write_linux_install_note() {
+  local asset_path="$1"
+  local flavor="$2"
+  local note_file="$META_DIR/${DATE_TAG}-linux64-install.txt"
+
+  cat >"$note_file" <<EOF
+Package type: Linux x64 release assets
+Generated on: $DATE_TAG
+Main asset: $(basename "$asset_path")
+
+How to use:
+1. Download $(basename "$asset_path")
+2. Extract it to a writable folder
+3. Open a terminal in the extracted folder
+4. Run:
+   chmod +x start-linux64.sh
+   ./start-linux64.sh
+
+How to verify the download:
+- Compare the file hash with ${DATE_TAG}-linux64-sha256.txt
+- Example commands:
+  shasum -a 256 $(basename "$asset_path")
+  sha256sum $(basename "$asset_path")
+
+Bundled runtime:
+- Linux builds include a bundled Java runtime when Lizzieyzy/runtime/linux-x64/ is present.
+
+Bundled KataGo:
+EOF
+
+  if [[ "$flavor" == "with-katago" ]]; then
+    cat >>"$note_file" <<'EOF'
+- Yes. This package includes bundled KataGo and the default weight.
+EOF
+  else
+    cat >>"$note_file" <<'EOF'
+- No. Configure your own engine after launch.
+EOF
+  fi
+
+  cat >>"$note_file" <<'EOF'
+
+Notes:
+- If your desktop environment does not start the app on double-click, launch it from the terminal first.
+- Fox kifu sync expects a numeric Fox ID, not a nickname.
+EOF
 }
 
 make_bundle() {
@@ -327,6 +377,14 @@ for d in "$STAGE_DIR"/*; do
     zip -rq "$ROOT_DIR/$OUT_DIR/$(basename "$d").zip" "$(basename "$d")"
   )
 done
+
+LINUX_ASSET="$OUT_DIR/${DATE_TAG}-linux64.${LINUX64_FLAVOR}.zip"
+LINUX_INSTALL_NOTE="$META_DIR/${DATE_TAG}-linux64-install.txt"
+LINUX_SHA256_FILE="$META_DIR/${DATE_TAG}-linux64-sha256.txt"
+if [[ -f "$LINUX_ASSET" ]]; then
+  write_linux_install_note "$LINUX_ASSET" "$LINUX64_FLAVOR"
+  write_sha256_file "$LINUX_SHA256_FILE" "$LINUX_ASSET" "$LINUX_INSTALL_NOTE"
+fi
 
 echo "Built release zips:"
 ls -lh "$OUT_DIR"

@@ -3,12 +3,15 @@ package featurecat.lizzie.gui;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
+import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadCancelledException;
+import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadSession;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.RemoteWeightInfo;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.SetupResult;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.SetupSnapshot;
 import featurecat.lizzie.util.Utils;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
@@ -17,35 +20,53 @@ import java.awt.Insets;
 import java.awt.Window;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.List;
 import javax.swing.BorderFactory;
+import javax.swing.DefaultComboBoxModel;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.SwingUtilities;
 
 public class KataGoAutoSetupDialog extends JDialog {
+  private static final Color OK_COLOR = new Color(0, 120, 64);
+  private static final Color WARN_COLOR = new Color(190, 105, 0);
+  private static final Color ERROR_COLOR = new Color(170, 42, 42);
+  private static final Color INFO_BG = new Color(248, 249, 251);
+  private static final Color INFO_BORDER = new Color(224, 228, 234);
+
   private SetupSnapshot snapshot;
-  private RemoteWeightInfo remoteWeightInfo;
+  private List<RemoteWeightInfo> remoteWeightInfos = Collections.emptyList();
+  private volatile DownloadSession activeDownloadSession;
+  private volatile Thread activeWorkerThread;
 
   private final JLabel lblEngineValue = new JFontLabel();
   private final JLabel lblWeightValue = new JFontLabel();
+  private final JLabel lblWeightModelValue = new JFontLabel();
   private final JLabel lblConfigValue = new JFontLabel();
-  private final JLabel lblRemoteValue = new JFontLabel();
+  private final JLabel lblRemoteDetailValue = new JFontLabel();
   private final JLabel lblStatus = new JFontLabel();
+  private final JFontComboBox<RemoteWeightInfo> cmbRemoteWeights =
+      new JFontComboBox<RemoteWeightInfo>();
   private final JProgressBar progressBar = new JProgressBar();
   private final JFontButton btnRefresh = new JFontButton();
   private final JFontButton btnAutoSetup = new JFontButton();
   private final JFontButton btnDownloadWeight = new JFontButton();
+  private final JFontButton btnStopDownload = new JFontButton();
   private final JFontButton btnClose = new JFontButton();
 
   public KataGoAutoSetupDialog(Window owner) {
     super(owner);
     setModal(false);
     setTitle(text("AutoSetup.title"));
-    setSize(720, 340);
-    setMinimumSize(new Dimension(680, 320));
+    setSize(780, 420);
+    setMinimumSize(new Dimension(740, 390));
     setLocationRelativeTo(owner);
     setAlwaysOnTop(owner instanceof LizzieFrame && ((LizzieFrame) owner).isAlwaysOnTop());
 
@@ -68,8 +89,28 @@ public class KataGoAutoSetupDialog extends JDialog {
 
     addInfoRow(infoPanel, gbc, text("AutoSetup.localEngine"), lblEngineValue);
     addInfoRow(infoPanel, gbc, text("AutoSetup.localWeight"), lblWeightValue);
+    addInfoRow(infoPanel, gbc, text("AutoSetup.localWeightModel"), lblWeightModelValue);
     addInfoRow(infoPanel, gbc, text("AutoSetup.localConfig"), lblConfigValue);
-    addInfoRow(infoPanel, gbc, text("AutoSetup.recommendedWeight"), lblRemoteValue);
+
+    cmbRemoteWeights.setMaximumRowCount(18);
+    cmbRemoteWeights.setRenderer(
+        new DefaultListCellRenderer() {
+          @Override
+          public Component getListCellRendererComponent(
+              JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+            JLabel label =
+                (JLabel)
+                    super.getListCellRendererComponent(
+                        list, value, index, isSelected, cellHasFocus);
+            if (value instanceof RemoteWeightInfo) {
+              label.setText(formatRemoteChoice((RemoteWeightInfo) value));
+            }
+            return label;
+          }
+        });
+    cmbRemoteWeights.addActionListener(e -> updateSelectedRemoteWeightInfo());
+    addComponentRow(infoPanel, gbc, text("AutoSetup.officialWeights"), cmbRemoteWeights);
+    addInfoRow(infoPanel, gbc, text("AutoSetup.selectedWeightInfo"), lblRemoteDetailValue);
     addInfoRow(infoPanel, gbc, text("AutoSetup.currentStatus"), lblStatus);
 
     JPanel bottomPanel = new JPanel(new BorderLayout(0, 10));
@@ -85,15 +126,18 @@ public class KataGoAutoSetupDialog extends JDialog {
     btnRefresh.setText(text("AutoSetup.refresh"));
     btnAutoSetup.setText(text("AutoSetup.autoSetup"));
     btnDownloadWeight.setText(text("AutoSetup.downloadWeight"));
+    btnStopDownload.setText(text("AutoSetup.stopDownload"));
     btnClose.setText(text("AutoSetup.close"));
 
     btnRefresh.addActionListener(e -> refreshState());
     btnAutoSetup.addActionListener(e -> autoSetupOrDownload());
     btnDownloadWeight.addActionListener(e -> startRecommendedWeightDownload(false));
+    btnStopDownload.addActionListener(e -> stopActiveDownload());
     btnClose.addActionListener(e -> setVisible(false));
 
     buttonPanel.add(btnRefresh);
     buttonPanel.add(btnDownloadWeight);
+    buttonPanel.add(btnStopDownload);
     buttonPanel.add(btnAutoSetup);
     buttonPanel.add(btnClose);
 
@@ -111,6 +155,12 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void addInfoRow(JPanel panel, GridBagConstraints gbc, String title, JLabel valueLabel) {
+    styleInfoLabel(valueLabel);
+    addComponentRow(panel, gbc, title, valueLabel);
+  }
+
+  private void addComponentRow(
+      JPanel panel, GridBagConstraints gbc, String title, JComponent valueComponent) {
     GridBagConstraints labelConstraints = (GridBagConstraints) gbc.clone();
     labelConstraints.gridx = 0;
     labelConstraints.weightx = 0;
@@ -122,41 +172,45 @@ public class KataGoAutoSetupDialog extends JDialog {
     valueConstraints.gridx = 1;
     valueConstraints.weightx = 1;
     valueConstraints.fill = GridBagConstraints.HORIZONTAL;
-    valueLabel.setOpaque(true);
-    valueLabel.setBackground(new Color(248, 249, 251));
-    valueLabel.setBorder(
-        BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(224, 228, 234)),
-            BorderFactory.createEmptyBorder(6, 8, 6, 8)));
-    panel.add(valueLabel, valueConstraints);
+    panel.add(valueComponent, valueConstraints);
 
     gbc.gridy += 1;
+  }
+
+  private void styleInfoLabel(JLabel valueLabel) {
+    valueLabel.setOpaque(true);
+    valueLabel.setBackground(INFO_BG);
+    valueLabel.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(INFO_BORDER),
+            BorderFactory.createEmptyBorder(6, 8, 6, 8)));
   }
 
   private void renderSnapshot() {
     setInfoValue(lblEngineValue, snapshot.hasEngine(), formatPath(snapshot.enginePath));
     setInfoValue(lblWeightValue, snapshot.hasWeight(), formatWeight(snapshot));
+    setInfoValue(lblWeightModelValue, snapshot.hasWeight(), formatWeightModel(snapshot));
     setInfoValue(lblConfigValue, snapshot.hasConfigs(), formatConfig(snapshot));
-    lblRemoteValue.setText(text("AutoSetup.loadingRemote"));
-    lblRemoteValue.setToolTipText(null);
-    lblRemoteValue.setForeground(Color.DARK_GRAY);
+    lblRemoteDetailValue.setText(text("AutoSetup.loadingRemote"));
+    lblRemoteDetailValue.setToolTipText(null);
+    lblRemoteDetailValue.setForeground(Color.DARK_GRAY);
 
     if (snapshot.hasEngine() && snapshot.hasConfigs() && snapshot.hasWeight()) {
       lblStatus.setText(text("AutoSetup.ready"));
-      lblStatus.setForeground(new Color(0, 120, 64));
+      lblStatus.setForeground(OK_COLOR);
     } else if (!snapshot.hasWeight()) {
       lblStatus.setText(text("AutoSetup.needWeight"));
-      lblStatus.setForeground(new Color(190, 105, 0));
+      lblStatus.setForeground(WARN_COLOR);
     } else {
       lblStatus.setText(text("AutoSetup.needSetup"));
-      lblStatus.setForeground(new Color(170, 42, 42));
+      lblStatus.setForeground(ERROR_COLOR);
     }
   }
 
   private void setInfoValue(JLabel label, boolean ok, String value) {
     label.setText(value);
     label.setToolTipText(value);
-    label.setForeground(ok ? new Color(0, 120, 64) : new Color(170, 42, 42));
+    label.setForeground(ok ? OK_COLOR : ERROR_COLOR);
   }
 
   private String formatPath(Path path) {
@@ -177,6 +231,21 @@ public class KataGoAutoSetupDialog extends JDialog {
     return formatPath(state.activeWeightPath) + "  |  " + extra;
   }
 
+  private String formatWeightModel(SetupSnapshot state) {
+    if (state.activeWeightPath == null) {
+      return text("AutoSetup.notFound");
+    }
+    String actualModelName = KataGoAutoSetupHelper.resolveActiveWeightModelName(state);
+    if (actualModelName == null || actualModelName.trim().isEmpty()) {
+      return state.activeWeightPath.getFileName().toString();
+    }
+    String activeFile = state.activeWeightPath.getFileName().toString();
+    if (actualModelName.equalsIgnoreCase(activeFile)) {
+      return actualModelName;
+    }
+    return actualModelName + "  |  " + activeFile;
+  }
+
   private String formatConfig(SetupSnapshot state) {
     if (state.gtpConfigPath == null) {
       return text("AutoSetup.notFound");
@@ -194,15 +263,19 @@ public class KataGoAutoSetupDialog extends JDialog {
     new Thread(
             () -> {
               try {
-                RemoteWeightInfo fetched = KataGoAutoSetupHelper.fetchRecommendedWeight();
+                List<RemoteWeightInfo> fetched = KataGoAutoSetupHelper.fetchOfficialWeights();
                 SwingUtilities.invokeLater(() -> showRemoteWeightInfo(fetched));
               } catch (IOException e) {
                 SwingUtilities.invokeLater(
                     () -> {
-                      remoteWeightInfo = null;
-                      lblRemoteValue.setText(text("AutoSetup.remoteUnavailable"));
-                      lblRemoteValue.setToolTipText(e.getMessage());
-                      lblRemoteValue.setForeground(new Color(170, 42, 42));
+                      remoteWeightInfos = Collections.emptyList();
+                      cmbRemoteWeights.setModel(new DefaultComboBoxModel<RemoteWeightInfo>());
+                      cmbRemoteWeights.setEnabled(false);
+                      lblRemoteDetailValue.setText(text("AutoSetup.remoteUnavailable"));
+                      lblRemoteDetailValue.setToolTipText(e.getMessage());
+                      lblRemoteDetailValue.setForeground(ERROR_COLOR);
+                      btnDownloadWeight.setEnabled(false);
+                      btnStopDownload.setEnabled(false);
                     });
               }
             },
@@ -210,15 +283,19 @@ public class KataGoAutoSetupDialog extends JDialog {
         .start();
   }
 
-  private void showRemoteWeightInfo(RemoteWeightInfo info) {
-    remoteWeightInfo = info;
-    String uploadedAt =
-        info.uploadedAt == null || info.uploadedAt.trim().isEmpty()
-            ? ""
-            : "  |  " + info.uploadedAt;
-    lblRemoteValue.setText(info.typeLabel + "  |  " + info.fileName() + uploadedAt);
-    lblRemoteValue.setToolTipText(info.downloadUrl);
-    lblRemoteValue.setForeground(new Color(0, 120, 64));
+  private void showRemoteWeightInfo(List<RemoteWeightInfo> infos) {
+    remoteWeightInfos = infos == null ? Collections.<RemoteWeightInfo>emptyList() : infos;
+    DefaultComboBoxModel<RemoteWeightInfo> model = new DefaultComboBoxModel<RemoteWeightInfo>();
+    for (RemoteWeightInfo info : remoteWeightInfos) {
+      model.addElement(info);
+    }
+    cmbRemoteWeights.setModel(model);
+    cmbRemoteWeights.setEnabled(model.getSize() > 0);
+    RemoteWeightInfo preferred = choosePreferredRemoteWeight();
+    if (preferred != null) {
+      cmbRemoteWeights.setSelectedItem(preferred);
+    }
+    updateSelectedRemoteWeightInfo();
   }
 
   private void autoSetupOrDownload() {
@@ -242,20 +319,31 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void startRecommendedWeightDownload(boolean autoApplyAfterDownload) {
-    setBusy(true, text("AutoSetup.downloading"), -1, -1);
-    new Thread(
+    final RemoteWeightInfo targetInfo = getSelectedRemoteWeight();
+    if (targetInfo == null) {
+      Utils.showMsg(text("AutoSetup.noRemoteWeights"), this);
+      return;
+    }
+
+    final DownloadSession session = new DownloadSession();
+    activeDownloadSession = session;
+    setBusy(true, text("AutoSetup.downloading"), 0, -1);
+    Thread worker =
+        new Thread(
             () -> {
               try {
-                RemoteWeightInfo info =
-                    remoteWeightInfo != null
-                        ? remoteWeightInfo
-                        : KataGoAutoSetupHelper.fetchRecommendedWeight();
                 Path downloadedWeight =
                     KataGoAutoSetupHelper.downloadWeight(
-                        info,
+                        targetInfo,
                         (statusText, downloadedBytes, totalBytes) ->
                             SwingUtilities.invokeLater(
-                                () -> setBusy(true, statusText, downloadedBytes, totalBytes)));
+                                () ->
+                                    setBusy(
+                                        true,
+                                        text("AutoSetup.downloading") + " " + statusText,
+                                        downloadedBytes,
+                                        totalBytes)),
+                        session);
                 SetupSnapshot refreshed =
                     KataGoAutoSetupHelper.inspectLocalSetup().withActiveWeight(downloadedWeight);
                 if (autoApplyAfterDownload) {
@@ -272,19 +360,27 @@ public class KataGoAutoSetupDialog extends JDialog {
                       setBusy(false, text("AutoSetup.downloadDone"), 0, 0);
                       snapshot = refreshed;
                       renderSnapshot();
+                      selectRemoteWeightByModelName(
+                          KataGoAutoSetupHelper.resolveActiveWeightModelName(refreshed));
+                      updateSelectedRemoteWeightInfo();
                       Utils.showMsg(
                           text("AutoSetup.downloadDoneMessage") + "\n" + downloadedWeight, this);
                     });
+              } catch (DownloadCancelledException e) {
+                SwingUtilities.invokeLater(() -> onDownloadCancelled());
               } catch (IOException e) {
                 SwingUtilities.invokeLater(() -> onBackgroundError(e));
+              } finally {
+                clearActiveDownload(session, Thread.currentThread());
               }
             },
-            autoApplyAfterDownload ? "katago-download-and-setup" : "katago-download-weight")
-        .start();
+            autoApplyAfterDownload ? "katago-download-and-setup" : "katago-download-weight");
+    activeWorkerThread = worker;
+    worker.start();
   }
 
   private void startAutoSetup(SetupSnapshot state) {
-    setBusy(true, text("AutoSetup.settingUp"), -1, -1);
+    setBusy(true, text("AutoSetup.settingUp"), 0, -1);
     new Thread(
             () -> {
               try {
@@ -305,6 +401,8 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void onSetupApplied(SetupResult result, String message) {
     snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
     renderSnapshot();
+    selectRemoteWeightByModelName(KataGoAutoSetupHelper.resolveActiveWeightModelName(snapshot));
+    updateSelectedRemoteWeightInfo();
     reloadRunningEngine(result.engineIndex);
     Utils.showMsg(message + "\n" + result.snapshot.activeWeightPath, this);
   }
@@ -332,26 +430,163 @@ public class KataGoAutoSetupDialog extends JDialog {
     Utils.showMsg(text("AutoSetup.failed") + "\n" + e.getMessage(), this);
   }
 
+  private void onDownloadCancelled() {
+    setBusy(false, text("AutoSetup.downloadCancelled"), 0, 0);
+    lblStatus.setText(text("AutoSetup.downloadCancelled"));
+    lblStatus.setForeground(WARN_COLOR);
+  }
+
   private void setBusy(boolean busy, String statusText, long downloadedBytes, long totalBytes) {
     btnRefresh.setEnabled(!busy);
     btnAutoSetup.setEnabled(!busy);
-    btnDownloadWeight.setEnabled(!busy);
-    btnClose.setEnabled(!busy);
-    progressBar.setVisible(busy || downloadedBytes > 0 || totalBytes > 0);
+    btnDownloadWeight.setEnabled(!busy && getSelectedRemoteWeight() != null);
+    btnStopDownload.setEnabled(busy && activeDownloadSession != null);
+    btnClose.setEnabled(true);
+
+    progressBar.setVisible(busy);
     progressBar.setIndeterminate(busy && totalBytes <= 0);
+    if (!busy) {
+      progressBar.setIndeterminate(false);
+      progressBar.setValue(0);
+      progressBar.setString("");
+      return;
+    }
+
     if (totalBytes > 0) {
       progressBar.setMaximum(1000);
       progressBar.setValue((int) Math.min(1000, (downloadedBytes * 1000L) / totalBytes));
       progressBar.setString(
           statusText
               + "  "
-              + Math.max(0, downloadedBytes / 1024 / 1024)
+              + Math.min(100, (downloadedBytes * 100L) / totalBytes)
+              + "%  "
+              + formatSize(downloadedBytes)
               + " / "
-              + Math.max(0, totalBytes / 1024 / 1024)
-              + " MB");
+              + formatSize(totalBytes));
+    } else if (downloadedBytes > 0) {
+      progressBar.setValue(0);
+      progressBar.setString(statusText + "  " + formatSize(downloadedBytes));
     } else {
       progressBar.setValue(0);
       progressBar.setString(statusText);
+    }
+  }
+
+  private String formatSize(long bytes) {
+    if (bytes <= 0) {
+      return "0 MB";
+    }
+    double mb = bytes / 1024.0 / 1024.0;
+    if (mb >= 100) {
+      return String.format("%.0f MB", mb);
+    }
+    return String.format("%.1f MB", mb);
+  }
+
+  private String formatRemoteChoice(RemoteWeightInfo info) {
+    if (info == null) {
+      return text("AutoSetup.remoteUnavailable");
+    }
+    return info.typeLabel + "  |  " + info.modelName;
+  }
+
+  private void updateSelectedRemoteWeightInfo() {
+    RemoteWeightInfo info = getSelectedRemoteWeight();
+    if (info == null) {
+      lblRemoteDetailValue.setText(text("AutoSetup.remoteUnavailable"));
+      lblRemoteDetailValue.setToolTipText(null);
+      lblRemoteDetailValue.setForeground(ERROR_COLOR);
+      btnDownloadWeight.setEnabled(false);
+      return;
+    }
+    StringBuilder detail = new StringBuilder();
+    detail.append(info.fileName());
+    if (info.uploadedAt != null && !info.uploadedAt.trim().isEmpty()) {
+      detail.append("  |  ").append(info.uploadedAt.trim());
+    }
+    if (info.eloRating != null && !info.eloRating.trim().isEmpty()) {
+      detail.append("  |  ").append(info.eloRating.trim());
+    }
+    if (matchesCurrentWeight(info)) {
+      detail.append("  |  ").append(text("AutoSetup.currentlyUsing"));
+    }
+    lblRemoteDetailValue.setText(detail.toString());
+    lblRemoteDetailValue.setToolTipText(info.downloadUrl);
+    lblRemoteDetailValue.setForeground(matchesCurrentWeight(info) ? OK_COLOR : Color.DARK_GRAY);
+    btnDownloadWeight.setEnabled(activeDownloadSession == null);
+  }
+
+  private RemoteWeightInfo getSelectedRemoteWeight() {
+    Object selected = cmbRemoteWeights.getSelectedItem();
+    return selected instanceof RemoteWeightInfo ? (RemoteWeightInfo) selected : null;
+  }
+
+  private RemoteWeightInfo choosePreferredRemoteWeight() {
+    if (remoteWeightInfos.isEmpty()) {
+      return null;
+    }
+    String currentModel = KataGoAutoSetupHelper.resolveActiveWeightModelName(snapshot);
+    if (currentModel != null && !currentModel.trim().isEmpty()) {
+      for (RemoteWeightInfo info : remoteWeightInfos) {
+        if (matchesModelName(info, currentModel)) {
+          return info;
+        }
+      }
+    }
+    for (RemoteWeightInfo info : remoteWeightInfos) {
+      if (info.recommended) {
+        return info;
+      }
+    }
+    return remoteWeightInfos.get(0);
+  }
+
+  private void selectRemoteWeightByModelName(String modelName) {
+    if (modelName == null || modelName.trim().isEmpty()) {
+      return;
+    }
+    for (int i = 0; i < cmbRemoteWeights.getItemCount(); i++) {
+      RemoteWeightInfo item = cmbRemoteWeights.getItemAt(i);
+      if (matchesModelName(item, modelName)) {
+        cmbRemoteWeights.setSelectedIndex(i);
+        return;
+      }
+    }
+  }
+
+  private boolean matchesCurrentWeight(RemoteWeightInfo info) {
+    return matchesModelName(info, KataGoAutoSetupHelper.resolveActiveWeightModelName(snapshot));
+  }
+
+  private boolean matchesModelName(RemoteWeightInfo info, String modelName) {
+    if (info == null || modelName == null || modelName.trim().isEmpty()) {
+      return false;
+    }
+    String normalizedModel = modelName.trim();
+    return info.modelName.equalsIgnoreCase(normalizedModel)
+        || info.fileName().equalsIgnoreCase(normalizedModel);
+  }
+
+  private void stopActiveDownload() {
+    DownloadSession session = activeDownloadSession;
+    if (session == null) {
+      return;
+    }
+    btnStopDownload.setEnabled(false);
+    setBusy(true, text("AutoSetup.cancelling"), 0, -1);
+    session.cancel();
+    Thread worker = activeWorkerThread;
+    if (worker != null) {
+      worker.interrupt();
+    }
+  }
+
+  private void clearActiveDownload(DownloadSession session, Thread workerThread) {
+    if (activeDownloadSession == session) {
+      activeDownloadSession = null;
+    }
+    if (activeWorkerThread == workerThread) {
+      activeWorkerThread = null;
     }
   }
 

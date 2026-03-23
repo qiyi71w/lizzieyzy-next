@@ -67,6 +67,9 @@ jobs:
       - name: Build Linux package
         run: ./scripts/package_release.sh "${{ inputs.date_tag }}" target/lizzie-yzy2.5.3-shaded.jar
 
+      - name: Validate public Linux assets
+        run: ./scripts/validate_release_assets.sh linux dist/release "${{ inputs.date_tag }}"
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:

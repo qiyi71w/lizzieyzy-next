@@ -12167,7 +12167,6 @@ public class LizzieFrame extends JFrame {
     kataGoAutoSetupDialog.refreshState();
     kataGoAutoSetupDialog.setVisible(true);
     kataGoAutoSetupDialog.toFront();
-    kataGoAutoSetupDialog.startRecommendedWeightDownload();
   }
 
   private void resumeAnalysisAfterLoad() {
