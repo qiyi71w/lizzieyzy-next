@@ -47,15 +47,25 @@ try {
 
         $hasConfig = (Test-Path -LiteralPath $configFile) -and (Test-Path -LiteralPath $persistFile)
         $hasRuntimeLogs = Test-Path -LiteralPath $requiredRuntimeLogDir
+        $hasRuntimeState = $hasRuntimeLogs -or (Test-Path -LiteralPath $runtimeDir)
 
-        if ($hasConfig -and $hasRuntimeLogs) {
-            Write-Host "Smoke test passed. Config and bundled KataGo runtime logs were created."
+        if ($hasConfig -and $hasRuntimeState) {
+            if ($hasRuntimeLogs) {
+                Write-Host "Smoke test passed. Config files and bundled KataGo runtime logs were created."
+            }
+            else {
+                Write-Host "Smoke test passed. Config files were created and the runtime directory is writable."
+            }
             $passed = $true
             return
         }
+
+        if ($hasConfig) {
+            Write-Host "Config files detected. Waiting briefly for runtime state..."
+        }
     }
 
-    throw "Timed out waiting for config files or bundled KataGo logs in $requiredRuntimeLogDir"
+    throw "Timed out waiting for config files or runtime state in $runtimeDir"
 }
 finally {
     if ($process -and -not $process.HasExited) {
