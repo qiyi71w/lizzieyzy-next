@@ -6,12 +6,13 @@ This document answers three practical questions:
 2. what each package includes
 3. which one a regular user should download first
 
-## The 6 Primary Public Release Assets
+## The 7 Primary Public Release Assets
 
 | Package type | Typical filename | Best for |
 | --- | --- | --- |
 | Windows x64 installer | `<date>-windows64.with-katago.installer.exe` | Regular users who want the easiest path |
 | Windows x64 bundled portable | `<date>-windows64.with-katago.portable.zip` | Users who do not want an installer |
+| Windows x64 no-engine installer | `<date>-windows64.without.engine.installer.exe` | Users who want installer flow with their own engine |
 | Windows x64 no-engine portable | `<date>-windows64.without.engine.portable.zip` | Custom KataGo setup |
 | macOS Apple Silicon bundle | `<date>-mac-arm64.with-katago.dmg` | M-series Macs |
 | macOS Intel bundle | `<date>-mac-amd64.with-katago.dmg` | Intel Macs |
@@ -20,7 +21,7 @@ This document answers three practical questions:
 Notes:
 
 - `<date>` is the release date, for example `2026-03-21`.
-- The maintained public release page now keeps these 6 user-facing assets as the main list.
+- The maintained public release page now keeps these 7 user-facing assets as the main list.
 - Windows x64 is installer-first, with a bundled portable build as the second choice.
 - Older tags may still show compatibility zips, but those are now historical layouts.
 
@@ -30,6 +31,7 @@ Notes:
 | --- | --- | --- | --- | --- |
 | `windows64.with-katago.installer.exe` | Bundled | Bundled | Bundled | Install, then launch from Start Menu or desktop |
 | `windows64.with-katago.portable.zip` | Bundled | Bundled | Bundled | Unzip and run `LizzieYzy Next.exe` |
+| `windows64.without.engine.installer.exe` | Bundled | Not bundled | Not bundled | Install, then launch from Start Menu or desktop |
 | `windows64.without.engine.portable.zip` | Bundled | Not bundled | Not bundled | Unzip and run `LizzieYzy Next.exe` |
 | `mac-arm64.with-katago.dmg` | App runtime | Bundled | Bundled | Drag to Applications |
 | `mac-amd64.with-katago.dmg` | App runtime | Bundled | Bundled | Drag to Applications |
@@ -45,7 +47,7 @@ If you just want the shortest path:
 
 If you already manage engines manually:
 
-- Windows: choose `windows64.without.engine.portable.zip`
+- Windows: choose `windows64.without.engine.installer.exe` if you want installation, or `windows64.without.engine.portable.zip` if you do not
 - macOS / Linux: you can still start from the standard bundle and point the app to your own engine later
 
 ## Why Windows Is Installer-First Now
@@ -77,8 +79,8 @@ Paths:
 From the new maintained releases onward:
 
 - the main Windows x64 package is `installer.exe`
-- the Windows x64 no-engine package is the portable `.zip` with `LizzieYzy Next.exe`
-- the public release page keeps the 6 primary user-facing assets above as the main list
+- the Windows x64 no-engine option now has both an installer and a portable `.zip`
+- the public release page keeps the 7 primary user-facing assets above as the main list
 - older compatibility zips now stay in historical tags instead of the main recommendation area
 
 ## Related Docs

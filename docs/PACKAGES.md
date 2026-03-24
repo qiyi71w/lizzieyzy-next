@@ -18,6 +18,7 @@
 | --- | --- | --- |
 | Windows 64 位安装器 | `<date>-windows64.with-katago.installer.exe` | 想双击安装、直接使用的普通用户 |
 | Windows 64 位整合便携包 | `<date>-windows64.with-katago.portable.zip` | 不想安装，只想解压后直接运行 |
+| Windows 64 位无引擎安装器 | `<date>-windows64.without.engine.installer.exe` | 想保留安装流程，但自己配置分析引擎 |
 | Windows 64 位无引擎便携包 | `<date>-windows64.without.engine.portable.zip` | 想自己配置分析引擎 |
 | macOS Apple Silicon 整合包 | `<date>-mac-arm64.with-katago.dmg` | M 系列 Mac |
 | macOS Intel 整合包 | `<date>-mac-amd64.with-katago.dmg` | Intel Mac |
@@ -26,7 +27,7 @@
 说明：
 
 - `<date>` 代表发布日期，例如 `2026-03-21`。
-- 当前维护版公开 release 主列表只保留这 6 个用户向主资产。
+- 当前维护版公开 release 主列表只保留这 7 个用户向主资产。
 - Windows 64 位现在优先推荐安装器，其次才是便携包。
 - 旧 tag 里如果还看到兼容 zip 或历史包，那属于历史发布格式。
 
@@ -36,6 +37,7 @@
 | --- | --- | --- | --- |
 | `windows64.with-katago.installer.exe` | 是 | 是 | 安装后从开始菜单或桌面打开 |
 | `windows64.with-katago.portable.zip` | 是 | 是 | 解压后运行 `LizzieYzy Next.exe` |
+| `windows64.without.engine.installer.exe` | 是 | 否 | 安装后从开始菜单或桌面打开 |
 | `windows64.without.engine.portable.zip` | 是 | 否 | 解压后运行 `LizzieYzy Next.exe` |
 | `mac-arm64.with-katago.dmg` | App 自带 | 是 | 拖到 Applications |
 | `mac-amd64.with-katago.dmg` | App 自带 | 是 | 拖到 Applications |
@@ -51,7 +53,7 @@
 
 如果你已经熟悉引擎配置：
 
-- Windows：选 `windows64.without.engine.portable.zip`
+- Windows：想安装就选 `windows64.without.engine.installer.exe`，想免安装就选 `windows64.without.engine.portable.zip`
 - macOS / Linux：也可以先装对应系统的主包，再在软件里改成你自己的分析引擎
 
 ## 为什么 Windows 现在优先推荐安装器
@@ -82,8 +84,8 @@
 从新的维护版发布开始：
 
 - Windows 64 位主推荐资产是 `installer.exe`
-- Windows 64 位无引擎包是 `.portable.zip`
-- 当前公开 release 主列表固定为 6 个用户向主资产
+- Windows 64 位无引擎包同时提供安装器和 `.portable.zip`
+- 当前公开 release 主列表固定为 7 个用户向主资产
 - 旧的兼容 zip 只作为历史 tag 说明保留，不再放进主推荐区
 
 ## 相关文档

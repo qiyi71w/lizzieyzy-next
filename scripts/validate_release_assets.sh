@@ -21,6 +21,7 @@ case "$PLATFORM" in
     expected=(
       "${DATE_TAG}-windows64.with-katago.installer.exe"
       "${DATE_TAG}-windows64.with-katago.portable.zip"
+      "${DATE_TAG}-windows64.without.engine.installer.exe"
       "${DATE_TAG}-windows64.without.engine.portable.zip"
     )
     ;;

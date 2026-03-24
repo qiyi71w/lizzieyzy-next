@@ -31,6 +31,7 @@
 | --- | --- | --- |
 | Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 主推荐，双击安装，打开后就能开始用 |
 | Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 不想安装时使用，解压后运行 `.exe` |
+| Windows 64 位 | `<date>-windows64.without.engine.installer.exe` | 想保留安装流程，但自己决定分析引擎 |
 | Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 想自己决定分析引擎时再选 |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | M1 / M2 / M3 / M4 等机器 |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | Intel 芯片 Mac |
@@ -42,7 +43,7 @@
 - 现在直接输入野狐昵称，程序自动找到账号再抓最近公开棋谱
 - Windows 主推荐直接改成 `.installer.exe`
 - 第一次启动会优先准备好内置分析环境
-- 发布页只保留 6 个主包，普通用户不用在历史资产里做选择
+- 发布页只保留少量主包，普通用户不用在历史资产里做选择
 
 # English
 
@@ -52,6 +53,7 @@
 
 - Windows x64: choose `<date>-windows64.with-katago.installer.exe`
 - Windows x64 portable: choose `<date>-windows64.with-katago.portable.zip`
+- Windows x64 custom engine installer: choose `<date>-windows64.without.engine.installer.exe`
 - Windows x64 custom engine: choose `<date>-windows64.without.engine.portable.zip`
 - macOS Apple Silicon: choose `<date>-mac-arm64.with-katago.dmg`
 - macOS Intel: choose `<date>-mac-amd64.with-katago.dmg`

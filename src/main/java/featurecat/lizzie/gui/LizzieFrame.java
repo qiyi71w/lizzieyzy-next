@@ -12146,9 +12146,7 @@ public class LizzieFrame extends JFrame {
     if (foxKifuDownload == null || !foxKifuDownload.isDisplayable()) {
       foxKifuDownload = new FoxKifuDownload();
     }
-    foxKifuDownload.setVisible(true);
-    foxKifuDownload.toFront();
-    foxKifuDownload.requestFocus();
+    foxKifuDownload.presentWindow();
   }
 
   public void openKataGoAutoSetup() {

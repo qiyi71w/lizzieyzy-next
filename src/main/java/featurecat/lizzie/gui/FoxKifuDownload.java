@@ -701,6 +701,27 @@ public class FoxKifuDownload extends JFrame {
     lblTab.setText(i + "/" + Math.max(1, tabNumber) + (isComplete ? "" : "..."));
   }
 
+  public void presentWindow() {
+    int state = getExtendedState();
+    if ((state & JFrame.ICONIFIED) != 0) {
+      setExtendedState(state & ~JFrame.ICONIFIED);
+    }
+    if (!isVisible()) {
+      setVisible(true);
+    }
+    boolean restoreAlwaysOnTop = isAlwaysOnTop();
+    if (!restoreAlwaysOnTop) {
+      setAlwaysOnTop(true);
+    }
+    toFront();
+    repaint();
+    requestFocus();
+    requestFocusInWindow();
+    if (!restoreAlwaysOnTop) {
+      setAlwaysOnTop(false);
+    }
+  }
+
   private void hideColumn(int i) {
     table.getColumnModel().getColumn(i).setWidth(0);
     table.getColumnModel().getColumn(i).setMaxWidth(0);

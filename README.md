@@ -78,6 +78,7 @@
 | --- | --- |
 | Windows 64 位 | `windows64.with-katago.installer.exe` |
 | Windows 64 位，想免安装 | `windows64.with-katago.portable.zip` |
+| Windows 64 位，想自己配引擎，也想安装器 | `windows64.without.engine.installer.exe` |
 | Windows 64 位，想自己配引擎 | `windows64.without.engine.portable.zip` |
 | macOS Apple Silicon | `mac-arm64.with-katago.dmg` |
 | macOS Intel | `mac-amd64.with-katago.dmg` |
@@ -93,7 +94,8 @@
 
 - `installer.exe`：最适合大多数 Windows 用户
 - `portable.zip`：适合不想安装、只想解压就跑
-- `without.engine`：适合你已经有自己的分析引擎
+- `without.engine.installer.exe`：适合想保留安装流程、但自己配引擎的人
+- `without.engine.portable.zip`：适合你已经有自己的分析引擎，也不想安装
 
 ## 为什么很多人先看这个维护版
 

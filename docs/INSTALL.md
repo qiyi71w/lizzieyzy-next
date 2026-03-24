@@ -13,6 +13,7 @@
 | --- | --- | --- | --- | --- |
 | Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 是 | 是 | 普通用户首选，双击安装 |
 | Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 是 | 是 | 不想安装，只想解压后直接运行 |
+| Windows 64 位 | `<date>-windows64.without.engine.installer.exe` | 是 | 否 | 想保留安装流程，但自己配引擎 |
 | Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 是 | 否 | 想自己配引擎 |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App 自带运行时 | 是 | M 系列 Mac |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App 自带运行时 | 是 | Intel Mac |
@@ -21,12 +22,12 @@
 一句话建议：
 
 - 想最省事：选 `with-katago`
-- 想自己管引擎：Windows 选 `without.engine.portable.zip`
+- 想自己管引擎：Windows 选 `without.engine.installer.exe` 或 `without.engine.portable.zip`
 - Windows 普通用户：优先选 `.installer.exe`
 
 ### 历史 tag 说明
 
-部分旧 tag 还会看到早期的 zip 命名或兼容包，但当前维护版公开 release 已统一成 6 个主资产：3 个 Windows、2 个 macOS、1 个 Linux。普通用户直接按上面的表选即可。
+部分旧 tag 还会看到早期的 zip 命名或兼容包，但当前维护版公开 release 已统一成 7 个主资产：4 个 Windows、2 个 macOS、1 个 Linux。普通用户直接按上面的表选即可。
 
 ## Windows 安装
 
@@ -47,6 +48,15 @@
 4. 双击 `LizzieYzy Next.exe`。
 
 ### Windows 64 位无引擎包
+
+如果你想自己配引擎，但仍然想走正常安装流程：
+
+1. 下载 `windows64.without.engine.installer.exe`。
+2. 双击运行安装器。
+3. 安装完成后，从开始菜单或桌面打开程序。
+4. 启动后在软件里配置你自己的引擎。
+
+如果你更想免安装：
 
 1. 下载 `windows64.without.engine.portable.zip`。
 2. 解压后运行 `LizzieYzy Next.exe`。

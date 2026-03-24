@@ -13,6 +13,7 @@ This guide answers four practical questions:
 | --- | --- | --- | --- | --- |
 | Windows x64 | `<date>-windows64.with-katago.installer.exe` | Yes | Yes | Main recommendation for regular users |
 | Windows x64 | `<date>-windows64.with-katago.portable.zip` | Yes | Yes | No installer, unzip and run |
+| Windows x64 | `<date>-windows64.without.engine.installer.exe` | Yes | No | Installer flow with your own engine |
 | Windows x64 | `<date>-windows64.without.engine.portable.zip` | Yes | No | Custom engine setup |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App runtime | Yes | M-series Macs |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App runtime | Yes | Intel Macs |
@@ -21,12 +22,12 @@ This guide answers four practical questions:
 Quick rule:
 
 - choose `with-katago` if you want the shortest path
-- choose `without.engine` on Windows if you plan to manage the engine yourself
+- choose `without.engine.installer.exe` or `without.engine.portable.zip` on Windows if you plan to manage the engine yourself
 - on Windows, regular users should start with the installer build
 
 ### Legacy tag note
 
-Some older tags still show transitional zip names or compatibility packages, but the current maintained release now centers on 6 primary assets: 3 Windows, 2 macOS, and 1 Linux package.
+Some older tags still show transitional zip names or compatibility packages, but the current maintained release now centers on 7 primary assets: 4 Windows, 2 macOS, and 1 Linux package.
 
 ## Windows
 
@@ -47,6 +48,15 @@ This is now the primary Windows path for regular users.
 4. Run `LizzieYzy Next.exe`.
 
 ### Windows x64 no-engine build
+
+If you want the installer flow but prefer your own engine:
+
+1. Download `windows64.without.engine.installer.exe`.
+2. Double-click the installer.
+3. Finish setup and launch `LizzieYzy Next`.
+4. Configure your own engine after launch.
+
+If you prefer a no-install package:
 
 1. Download `windows64.without.engine.portable.zip`.
 2. Extract it and run `LizzieYzy Next.exe`.

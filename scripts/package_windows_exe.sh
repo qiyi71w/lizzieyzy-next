@@ -8,6 +8,7 @@ source "$ROOT_DIR/scripts/release_metadata.sh"
 DATE_TAG="${1:-$(date +%F)}"
 APP_VERSION="${2:-2.5.3}"
 JAR_PATH="${3:-target/lizzie-yzy2.5.3-shaded.jar}"
+WINDOWS_UPGRADE_UUID="${WINDOWS_UPGRADE_UUID:-c2ef73ec-f99a-4f3d-b950-f52c0186122a}"
 
 if ! command -v jpackage >/dev/null 2>&1; then
   echo "jpackage not found. Please use JDK 14+ with jpackage."
@@ -31,6 +32,51 @@ META_DIR="$ROOT_DIR/dist/release-meta"
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR" "$RELEASE_DIR" "$META_DIR"
+
+derive_windows_app_version() {
+  local date_tag="$1"
+  local build_serial="${WINDOWS_BUILD_SERIAL:-0}"
+  local python_bin=""
+
+  if ! [[ "$build_serial" =~ ^[0-9]+$ ]]; then
+    build_serial=0
+  fi
+  if (( build_serial < 0 )); then
+    build_serial=0
+  elif (( build_serial > 99 )); then
+    build_serial=99
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    python_bin="python3"
+  elif command -v python >/dev/null 2>&1; then
+    python_bin="python"
+  else
+    printf '%s\n' "$APP_VERSION"
+    return 0
+  fi
+
+  "$python_bin" - "$date_tag" "$build_serial" "$APP_VERSION" <<'PY'
+from datetime import datetime
+import sys
+
+date_tag = sys.argv[1]
+build_serial = int(sys.argv[2])
+fallback = sys.argv[3]
+
+try:
+    dt = datetime.strptime(date_tag, "%Y-%m-%d")
+except ValueError:
+    print(fallback)
+    raise SystemExit(0)
+
+year_offset = max(0, dt.year - 2020)
+patch = dt.timetuple().tm_yday * 100 + build_serial
+print(f"2.{year_offset}.{patch}")
+PY
+}
+
+WINDOWS_APP_VERSION="$(derive_windows_app_version "$DATE_TAG")"
 
 has_bundled_katago() {
   [[ -f "$ROOT_DIR/weights/default.bin.gz" ]] \
@@ -89,7 +135,7 @@ build_app_image() {
     --main-jar "$MAIN_JAR" \
     --main-class featurecat.lizzie.Lizzie \
     --dest "$app_image_dir" \
-    --app-version "$APP_VERSION" \
+    --app-version "$WINDOWS_APP_VERSION" \
     --vendor "wimi321" \
     --description "LizzieYzy maintained fork with restored Fox nickname sync" \
     --icon "$ICON_PATH" \
@@ -117,13 +163,14 @@ build_installer() {
     --main-jar "$MAIN_JAR" \
     --main-class featurecat.lizzie.Lizzie \
     --dest "$installer_dir" \
-    --app-version "$APP_VERSION" \
+    --app-version "$WINDOWS_APP_VERSION" \
     --vendor "wimi321" \
     --description "LizzieYzy maintained fork with restored Fox nickname sync" \
     --icon "$ICON_PATH" \
     --win-dir-chooser \
     --win-menu \
     --win-shortcut \
+    --win-upgrade-uuid "$WINDOWS_UPGRADE_UUID" \
     --java-options "-Xmx4096m"
 
   find "$installer_dir" -maxdepth 1 -type f -name '*.exe' | head -n 1
@@ -158,7 +205,7 @@ EOF
   if [[ "$has_no_engine_installer" == "true" ]]; then
     cat >>"$note_file" <<EOF
 - ${DATE_TAG}-${ARCH_TAG}.without.engine.installer.exe
-  Fallback installer used when bundled KataGo assets are not available at build time.
+  Use this if you want the installer but prefer configuring your own engine.
 EOF
   fi
 
@@ -190,7 +237,7 @@ EOF
 
 Fox kifu note:
 - The maintained fork supports entering a Fox nickname.
-- If a nickname search succeeds, the app will also show the matched Fox UID in the results.
+- If a nickname search succeeds, the app will also show the matched nickname and account number in the results.
 EOF
 }
 
@@ -208,7 +255,7 @@ create_portable_zip() {
 }
 
 artifacts=()
-build_no_engine_installer="false"
+build_no_engine_installer="true"
 has_with_katago_assets="false"
 
 if has_bundled_katago; then
@@ -220,17 +267,15 @@ if has_bundled_katago; then
   cp "$installer_path" "$final_installer"
   artifacts+=("$final_installer" "$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.with-katago.portable.zip")
 else
-  build_no_engine_installer="true"
+  has_with_katago_assets="false"
 fi
 
 without_engine_root="$(build_app_image without.engine false)"
 create_portable_zip without.engine "$without_engine_root"
-if [[ "$build_no_engine_installer" == "true" ]]; then
-  installer_path="$(build_installer without.engine false)"
-  final_installer="$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.without.engine.installer.exe"
-  cp "$installer_path" "$final_installer"
-  artifacts+=("$final_installer")
-fi
+installer_path="$(build_installer without.engine false)"
+final_installer="$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.without.engine.installer.exe"
+cp "$installer_path" "$final_installer"
+artifacts+=("$final_installer")
 artifacts+=("$RELEASE_DIR/${DATE_TAG}-${ARCH_TAG}.without.engine.portable.zip")
 
 install_note="$META_DIR/${DATE_TAG}-${ARCH_TAG}-install.txt"
@@ -240,6 +285,9 @@ write_sha256_file "$checksum_file" "${artifacts[@]}" "$install_note"
 
 echo "Artifacts:"
 ls -lh "${artifacts[@]}"
+echo
+echo "Windows installer version: $WINDOWS_APP_VERSION"
+echo "Windows upgrade UUID: $WINDOWS_UPGRADE_UUID"
 echo
 echo "Maintainer metadata:"
 ls -lh "$install_note" "$checksum_file"

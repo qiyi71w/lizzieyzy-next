@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       date_tag:
-        description: Release date tag, for example 2026-03-21
+        description: Release date tag, for example 2026-03-24
         required: true
-        default: 2026-03-21
+        default: 2026-03-24
       release_tag:
         description: Existing GitHub release tag to upload into
         required: true
-        default: 2.5.3-next-2026-03-24.1
+        default: 2.5.3-next-2026-03-24.2
 
 permissions:
   contents: write
@@ -68,11 +68,35 @@ jobs:
 
       - name: Build Windows installer and portable package
         shell: bash
-        run: ./scripts/package_windows_exe.sh "${{ inputs.date_tag }}" 2.5.3 target/lizzie-yzy2.5.3-shaded.jar
+        run: |
+          serial="${{ inputs.release_tag }}"
+          serial="${serial##*.}"
+          if [[ ! "$serial" =~ ^[0-9]+$ ]]; then
+            serial="${GITHUB_RUN_ATTEMPT:-0}"
+          fi
+          WINDOWS_BUILD_SERIAL="$serial" \
+            ./scripts/package_windows_exe.sh "${{ inputs.date_tag }}" 2.5.3 target/lizzie-yzy2.5.3-shaded.jar
 
       - name: Validate public Windows assets
         shell: bash
         run: bash ./scripts/validate_release_assets.sh windows dist/release "${{ inputs.date_tag }}"
+
+      - name: Smoke test bundled Windows app image
+        shell: powershell
+        run: |
+          $appExe = Join-Path $PWD "dist\windows\app-image-with-katago\LizzieYzy Next\LizzieYzy Next.exe"
+          & "$PWD\scripts\windows_smoke_test.ps1" -AppExe $appExe -WaitSeconds 60
+
+      - name: Smoke test Windows upgrade install path
+        shell: powershell
+        run: |
+          $inputDir = Join-Path $PWD "dist\windows\input-with-katago"
+          $iconPath = Join-Path $PWD "packaging\icons\app-icon.ico"
+          & "$PWD\scripts\windows_upgrade_smoke.ps1" `
+            -InputDir $inputDir `
+            -MainJar "lizzie-yzy2.5.3-shaded.jar" `
+            -IconPath $iconPath `
+            -UpgradeUuid "c2ef73ec-f99a-4f3d-b950-f52c0186122a"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -81,6 +105,16 @@ jobs:
           path: |
             dist/release/*windows64*.installer.exe
             dist/release/*windows64*.portable.zip
+
+      - name: Upload Windows smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke-logs
+          path: |
+            ${{ runner.temp }}/lizzieyzy-next-msi-smoke/logs/*
+            dist/windows/app-image-with-katago/LizzieYzy Next/LastConsoleLogs_*.txt
+            dist/windows/app-image-with-katago/LizzieYzy Next/LastErrorLogs_*.txt
 
       - name: Upload assets to release
         shell: bash

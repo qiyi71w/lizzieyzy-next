@@ -14,6 +14,7 @@
 | --- | --- |
 | Windows x64 | `<date>-windows64.with-katago.installer.exe` |
 | Windows x64, 설치 없이 사용 | `<date>-windows64.with-katago.portable.zip` |
+| Windows x64, 내 엔진 사용 + 설치형 | `<date>-windows64.without.engine.installer.exe` |
 | Windows x64, 직접 엔진 설정 | `<date>-windows64.without.engine.portable.zip` |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` |
@@ -24,6 +25,12 @@
 1. `windows64.with-katago.installer.exe` 를 다운로드합니다.
 2. 설치 프로그램을 실행합니다.
 3. 설치가 끝나면 `LizzieYzy Next.exe` 를 실행합니다.
+
+직접 엔진을 쓰고 싶다면:
+
+1. `windows64.without.engine.installer.exe` 또는 `windows64.without.engine.portable.zip` 를 선택합니다.
+2. 설치형이면 설치를 완료하고, portable 이면 압축을 푼 뒤 `LizzieYzy Next.exe` 를 실행합니다.
+3. 실행 후 자신의 엔진을 설정합니다.
 
 ## macOS
 

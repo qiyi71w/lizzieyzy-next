@@ -1,5 +1,6 @@
 package featurecat.lizzie.analysis;
 
+import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.AnalysisSettings;
 import featurecat.lizzie.gui.EngineFailedMessage;
@@ -113,6 +114,9 @@ public class AnalysisEngine {
       }
     } else {
       ProcessBuilder processBuilder = new ProcessBuilder(commands);
+      if (Config.isBundledKataGoCommand(engineCommand)) {
+        processBuilder.directory(Lizzie.config.getRuntimeWorkDirectory());
+      }
       processBuilder.redirectErrorStream(true);
       try {
         process = processBuilder.start();
@@ -199,7 +203,6 @@ public class AnalysisEngine {
     isLoaded = false;
     if (!isNormalEnd) {
       showErrMsg(resourceBundle.getString("Leelaz.engineEndUnormalHint"));
-      if (!isPreLoad && !Lizzie.gtpConsole.isVisible()) Lizzie.gtpConsole.setVisible(true);
     }
     process = null;
     shutdown();

@@ -1,5 +1,6 @@
 package featurecat.lizzie.analysis;
 
+import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.gui.EngineFailedMessage;
@@ -325,6 +326,9 @@ public class Leelaz {
       }
     } else {
       ProcessBuilder processBuilder = new ProcessBuilder(commands);
+      if (Config.isBundledKataGoCommand(engineCommand)) {
+        processBuilder.directory(Lizzie.config.getRuntimeWorkDirectory());
+      }
       processBuilder.redirectErrorStream(false);
       try {
         process = processBuilder.start();
@@ -2445,7 +2449,6 @@ public class Leelaz {
       isDownWithError = true;
       // isLoaded=false;
       tryToDignostic(Lizzie.resourceBundle.getString("Leelaz.engineEndUnormalHint"), false);
-      if (!Lizzie.gtpConsole.isVisible()) Lizzie.gtpConsole.setVisible(true);
       // ("打开Gtp窗口(快捷键E)查看报错信息");
       // LizzieFrame.openMoreEngineDialog();
     }

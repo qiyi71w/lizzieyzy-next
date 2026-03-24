@@ -17,6 +17,7 @@
 
 - `windows64.with-katago.installer.exe`
 - `windows64.with-katago.portable.zip`
+- `windows64.without.engine.installer.exe`
 - `windows64.without.engine.portable.zip`
 - `windows64.with-katago-install.txt`
 - `windows64.without.engine-install.txt`
@@ -59,6 +60,7 @@ GitHub Actions：
 
 - `README.md` 和 `README_EN.md` 的包名与计划上传的文件完全一致
 - 安装文档里的 Windows 主路径仍然是 `installer.exe`
+- 如果提供 Windows 无引擎包，要同时核对 `without.engine.installer.exe` 和 `without.engine.portable.zip`
 - 界面里仍然写的是 `野狐棋谱（输入野狐昵称获取）`
 - `weights/default.bin.gz` 存在
 - `engines/katago/` 下目标平台文件完整

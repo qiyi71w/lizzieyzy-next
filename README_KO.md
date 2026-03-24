@@ -69,6 +69,7 @@
 | --- | --- |
 | Windows x64 | `windows64.with-katago.installer.exe` |
 | Windows x64, 설치 없이 사용 | `windows64.with-katago.portable.zip` |
+| Windows x64, 내 엔진 사용 + 설치형 | `windows64.without.engine.installer.exe` |
 | Windows x64, 내 엔진 사용 | `windows64.without.engine.portable.zip` |
 | macOS Apple Silicon | `mac-arm64.with-katago.dmg` |
 | macOS Intel | `mac-amd64.with-katago.dmg` |
@@ -84,7 +85,8 @@
 
 - `installer.exe` 는 대부분의 Windows 사용자용 기본 선택
 - `portable.zip` 는 설치 없이 압축만 풀어 쓰고 싶은 경우
-- `without.engine` 는 이미 자기 엔진을 관리하는 사용자용
+- `without.engine.installer.exe` 는 설치형을 원하지만 엔진은 직접 쓰려는 경우
+- `without.engine.portable.zip` 는 이미 자기 엔진을 관리하고 설치도 원하지 않는 경우
 
 ## 이 유지보수판이 해결한 것
 

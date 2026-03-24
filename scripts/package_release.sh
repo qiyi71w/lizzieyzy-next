@@ -163,7 +163,7 @@ EOF
 Notes:
 - If your desktop environment does not start the app on double-click, launch it from the terminal first.
 - Fox kifu sync supports entering a Fox nickname directly.
-- If nickname search succeeds, the app also shows the matched Fox UID in the results.
+- If nickname search succeeds, the app also shows the matched nickname and account number in the results.
 EOF
 }
 

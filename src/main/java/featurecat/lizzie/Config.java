@@ -128,7 +128,10 @@ public class Config {
   public JSONObject saveBoard;
   public JSONObject saveBoardConfig;
 
+  private static final String USER_WORK_DIR_NAME = ".lizzieyzy-next";
+  private static final String LEGACY_USER_WORK_DIR_NAME = ".lizzieyzy-next-foxuid";
   private static final String WORK_DIR = resolveWorkDir();
+  private static final String RUNTIME_WORK_DIR = "runtime";
   private static final String BUNDLED_ENGINE_NAME = "KataGo Bundled";
   private static final String BUNDLED_ENGINE_ROOT = "engines";
   private static final String BUNDLED_WEIGHT_ROOT = "weights";
@@ -250,14 +253,32 @@ public class Config {
     }
 
     try {
-      Path fallback = Path.of(System.getProperty("user.home"), ".lizzieyzy-next-foxuid");
-      Files.createDirectories(fallback.resolve("save"));
+      Path fallback = resolveWritableFallbackDir();
       System.out.println("Config dir fallback: " + fallback);
       return fallback.toString();
     } catch (Exception e) {
       e.printStackTrace();
       return System.getProperty("user.home");
     }
+  }
+
+  public static Path resolveWritableFallbackDir() throws IOException {
+    Path preferred = Path.of(System.getProperty("user.home"), USER_WORK_DIR_NAME);
+    Path legacy = Path.of(System.getProperty("user.home"), LEGACY_USER_WORK_DIR_NAME);
+
+    if (!Files.exists(preferred) && Files.isDirectory(legacy)) {
+      try {
+        Files.move(legacy, preferred);
+        System.out.println("Migrated config dir to " + preferred);
+      } catch (Exception moveError) {
+        System.out.println("Config dir migration skipped: " + moveError.getMessage());
+        Files.createDirectories(legacy.resolve("save"));
+        return legacy;
+      }
+    }
+
+    Files.createDirectories(preferred.resolve("save"));
+    return preferred;
   }
 
   private static Optional<Path> findBundledAppRoot() {
@@ -303,7 +324,10 @@ public class Config {
     return "\"" + path.toAbsolutePath().normalize().toString() + "\"";
   }
 
-  private static boolean isBundledCommand(String command) {
+  public static boolean isBundledKataGoCommand(String command) {
+    if (command == null) {
+      return false;
+    }
     return command.contains("engines/katago") || command.contains("engines\\katago");
   }
 
@@ -405,7 +429,7 @@ public class Config {
         continue;
       }
       if (BUNDLED_ENGINE_NAME.equals(engineInfo.optString("name", ""))
-          || isBundledCommand(engineInfo.optString("command", ""))) {
+          || isBundledKataGoCommand(engineInfo.optString("command", ""))) {
         bundledIndex = i;
         break;
       }
@@ -2782,6 +2806,14 @@ public class Config {
 
   public String getConfigFilePath() {
     return new File(configFilename).getAbsolutePath();
+  }
+
+  public File getRuntimeWorkDirectory() {
+    File runtimeDir = new File(WORK_DIR, RUNTIME_WORK_DIR).getAbsoluteFile();
+    if (!runtimeDir.exists()) {
+      runtimeDir.mkdirs();
+    }
+    return runtimeDir;
   }
 
   public void deletePersist(boolean showMsg) {

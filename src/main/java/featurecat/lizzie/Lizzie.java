@@ -179,8 +179,7 @@ public class Lizzie {
       if (Files.isWritable(cwd)) {
         return;
       }
-      Path fallback = Path.of(System.getProperty("user.home"), ".lizzieyzy-next-foxuid");
-      Files.createDirectories(fallback.resolve("save"));
+      Path fallback = Config.resolveWritableFallbackDir();
       System.setProperty("user.dir", fallback.toString());
       System.out.println("switch user.dir to writable path: " + fallback);
     } catch (Exception e) {

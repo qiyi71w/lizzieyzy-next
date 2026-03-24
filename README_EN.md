@@ -69,6 +69,7 @@ If you prefer a visual chooser first, start with this:
 | --- | --- |
 | Windows x64 | `windows64.with-katago.installer.exe` |
 | Windows x64, no installer | `windows64.with-katago.portable.zip` |
+| Windows x64, your own engine with installer | `windows64.without.engine.installer.exe` |
 | Windows x64, your own engine | `windows64.without.engine.portable.zip` |
 | macOS Apple Silicon | `mac-arm64.with-katago.dmg` |
 | macOS Intel | `mac-amd64.with-katago.dmg` |
@@ -84,7 +85,8 @@ At a glance:
 
 - `installer.exe`: best default choice for most Windows users
 - `portable.zip`: for people who want unzip-and-run without installing
-- `without.engine`: for people who already manage their own engine
+- `without.engine.installer.exe`: for people who want installer flow but their own engine
+- `without.engine.portable.zip`: for people who already manage their own engine and do not want installation
 
 ## Why Many Users Start Here
 

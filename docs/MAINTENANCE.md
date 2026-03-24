@@ -29,10 +29,11 @@
 
 当前发布包策略以“普通用户能快速选对并直接用”为核心。
 
-当前主推荐矩阵固定为 6 个公开资产：
+当前主推荐矩阵固定为 7 个公开资产：
 
 - Windows 64 位：`with-katago.installer.exe`
 - Windows 64 位：`with-katago.portable.zip`
+- Windows 64 位：`without.engine.installer.exe`
 - Windows 64 位：`without.engine.portable.zip`
 - macOS Apple Silicon：`.dmg`
 - macOS Intel：`.dmg`

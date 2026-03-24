@@ -106,7 +106,7 @@ public class GetFoxRequest {
   }
 
   private String fetchSgf(String chessid) {
-    return httpGet(BASE_URL + "/YHWQFetchChess?chessid=" + url(chessid));
+    return normalizeFoxSgfPayload(httpGet(BASE_URL + "/YHWQFetchChess?chessid=" + url(chessid)));
   }
 
   private JSONObject queryUserByName(String nickname) {
@@ -216,5 +216,186 @@ public class GetFoxRequest {
     error.put("result", 1);
     error.put("resultstr", msg == null ? "request failed" : msg);
     emit(error.toString());
+  }
+
+  private String normalizeFoxSgfPayload(String payload) {
+    if (payload == null || payload.trim().isEmpty()) {
+      return payload;
+    }
+    try {
+      JSONObject json = new JSONObject(payload);
+      String sgf = json.optString("chess", "");
+      if (!sgf.trim().isEmpty()) {
+        json.put("chess", retainMainLineOnly(sgf));
+      }
+      return json.toString();
+    } catch (Exception e) {
+      return payload;
+    }
+  }
+
+  private String retainMainLineOnly(String sgf) {
+    if (sgf == null || sgf.trim().isEmpty()) {
+      return sgf;
+    }
+    try {
+      return new SgfMainLineReducer(sgf).reduce();
+    } catch (RuntimeException e) {
+      return sgf;
+    }
+  }
+
+  private static final class SgfMainLineReducer {
+    private final String input;
+    private int index = 0;
+
+    private SgfMainLineReducer(String input) {
+      this.input = input;
+    }
+
+    private String reduce() {
+      StringBuilder out = new StringBuilder(input.length());
+      skipWhitespace();
+      boolean hasTree = false;
+      while (index < input.length()) {
+        char current = input.charAt(index);
+        if (current == '(') {
+          appendTree(out);
+          hasTree = true;
+        } else if (Character.isWhitespace(current)) {
+          index++;
+        } else {
+          throw new IllegalStateException("Unexpected SGF token: " + current);
+        }
+        skipWhitespace();
+      }
+      return hasTree ? out.toString() : input;
+    }
+
+    private void appendTree(StringBuilder out) {
+      expect('(');
+      out.append('(');
+      skipWhitespace();
+      while (index < input.length() && input.charAt(index) == ';') {
+        appendNode(out);
+        skipWhitespace();
+      }
+      boolean keptChild = false;
+      while (index < input.length() && input.charAt(index) == '(') {
+        if (!keptChild) {
+          appendTree(out);
+          keptChild = true;
+        } else {
+          skipTree();
+        }
+        skipWhitespace();
+      }
+      expect(')');
+      out.append(')');
+    }
+
+    private void appendNode(StringBuilder out) {
+      expect(';');
+      out.append(';');
+      while (true) {
+        skipWhitespace();
+        if (index >= input.length()) {
+          return;
+        }
+        char current = input.charAt(index);
+        if (current == ';' || current == '(' || current == ')') {
+          return;
+        }
+        appendProperty(out);
+      }
+    }
+
+    private void appendProperty(StringBuilder out) {
+      int nameStart = index;
+      while (index < input.length()) {
+        char current = input.charAt(index);
+        if ((current >= 'A' && current <= 'Z') || (current >= 'a' && current <= 'z')) {
+          index++;
+        } else {
+          break;
+        }
+      }
+      if (nameStart == index) {
+        throw new IllegalStateException("Invalid SGF property");
+      }
+      out.append(input, nameStart, index);
+      skipWhitespace();
+      boolean hasValue = false;
+      while (index < input.length() && input.charAt(index) == '[') {
+        appendValue(out);
+        skipWhitespace();
+        hasValue = true;
+      }
+      if (!hasValue) {
+        throw new IllegalStateException("Missing SGF property value");
+      }
+    }
+
+    private void appendValue(StringBuilder out) {
+      expect('[');
+      out.append('[');
+      while (index < input.length()) {
+        char current = input.charAt(index++);
+        out.append(current);
+        if (current == '\\') {
+          if (index < input.length()) {
+            out.append(input.charAt(index++));
+          }
+        } else if (current == ']') {
+          return;
+        }
+      }
+      throw new IllegalStateException("Unterminated SGF value");
+    }
+
+    private void skipTree() {
+      int depth = 0;
+      while (index < input.length()) {
+        char current = input.charAt(index++);
+        if (current == '(') {
+          depth++;
+        } else if (current == ')') {
+          depth--;
+          if (depth == 0) {
+            return;
+          }
+        } else if (current == '[') {
+          skipValue();
+        }
+      }
+      throw new IllegalStateException("Unterminated SGF variation");
+    }
+
+    private void skipValue() {
+      while (index < input.length()) {
+        char current = input.charAt(index++);
+        if (current == '\\') {
+          if (index < input.length()) {
+            index++;
+          }
+        } else if (current == ']') {
+          return;
+        }
+      }
+      throw new IllegalStateException("Unterminated SGF value");
+    }
+
+    private void expect(char expected) {
+      if (index >= input.length() || input.charAt(index) != expected) {
+        throw new IllegalStateException("Expected '" + expected + "'");
+      }
+      index++;
+    }
+
+    private void skipWhitespace() {
+      while (index < input.length() && Character.isWhitespace(input.charAt(index))) {
+        index++;
+      }
+    }
   }
 }

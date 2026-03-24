@@ -14,6 +14,7 @@
 | --- | --- |
 | Windows x64 | `<date>-windows64.with-katago.installer.exe` |
 | Windows x64、インストーラ不要 | `<date>-windows64.with-katago.portable.zip` |
+| Windows x64、自分でエンジン設定、インストーラあり | `<date>-windows64.without.engine.installer.exe` |
 | Windows x64、自分でエンジン設定 | `<date>-windows64.without.engine.portable.zip` |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` |
@@ -24,6 +25,12 @@
 1. `windows64.with-katago.installer.exe` をダウンロードします。
 2. インストーラを実行します。
 3. インストール完了後、`LizzieYzy Next.exe` を起動します。
+
+自分のエンジンを使いたい場合:
+
+1. `windows64.without.engine.installer.exe` または `windows64.without.engine.portable.zip` を選びます。
+2. インストーラ版ならそのままセットアップし、portable 版なら展開して `LizzieYzy Next.exe` を起動します。
+3. 起動後に自分のエンジンを設定します。
 
 ## macOS
 

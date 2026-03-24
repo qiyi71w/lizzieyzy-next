@@ -69,6 +69,7 @@
 | --- | --- |
 | Windows x64 | `windows64.with-katago.installer.exe` |
 | Windows x64、インストーラ不要 | `windows64.with-katago.portable.zip` |
+| Windows x64、自分でエンジンを設定したい、インストーラあり | `windows64.without.engine.installer.exe` |
 | Windows x64、自分でエンジンを設定したい | `windows64.without.engine.portable.zip` |
 | macOS Apple Silicon | `mac-arm64.with-katago.dmg` |
 | macOS Intel | `mac-amd64.with-katago.dmg` |
@@ -84,7 +85,8 @@
 
 - `installer.exe` は多くの Windows 利用者向け
 - `portable.zip` はインストールせずにすぐ使いたい人向け
-- `without.engine` は自分のエンジンを使いたい人向け
+- `without.engine.installer.exe` はインストーラ経由で自分のエンジンを使いたい人向け
+- `without.engine.portable.zip` は自分のエンジンを使い、インストールも省きたい人向け
 
 ## このメンテ版で改善したこと
 

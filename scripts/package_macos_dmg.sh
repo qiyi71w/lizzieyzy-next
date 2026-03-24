@@ -81,7 +81,7 @@ copy_bundle_engine_assets
 APP_NAME="LizzieYzy Next"
 MAIN_JAR="$(basename "$JAR_PATH")"
 ICON_PATH="$ROOT_DIR/packaging/icons/app-icon.icns"
-IDENTIFIER="com.wimi321.lizzieyzy.nextfoxuid"
+IDENTIFIER="com.wimi321.lizzieyzy.next"
 
 jpackage \
   --type app-image \

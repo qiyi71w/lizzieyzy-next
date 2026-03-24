@@ -14,7 +14,8 @@ VERSION_FILE = ROOT / 'engines' / 'katago' / 'VERSION.txt'
 ASSET_SPECS = [
     ('windows_installer', 'windows64.with-katago.installer.exe', 'Windows 64 位', 'Windows x64'),
     ('windows_portable', 'windows64.with-katago.portable.zip', 'Windows 64 位，想免安装', 'Windows x64, no installer'),
-    ('windows_no_engine', 'windows64.without.engine.portable.zip', 'Windows 64 位，想自己配引擎', 'Windows x64, your own engine'),
+    ('windows_no_engine_installer', 'windows64.without.engine.installer.exe', 'Windows 64 位，想自己配引擎，也想安装器', 'Windows x64, your own engine with installer'),
+    ('windows_no_engine_portable', 'windows64.without.engine.portable.zip', 'Windows 64 位，想自己配引擎', 'Windows x64, your own engine'),
     ('mac_arm64', 'mac-arm64.with-katago.dmg', 'macOS Apple Silicon', 'macOS Apple Silicon'),
     ('mac_amd64', 'mac-amd64.with-katago.dmg', 'macOS Intel', 'macOS Intel'),
     ('linux64', 'linux64.with-katago.zip', 'Linux 64 位', 'Linux x64'),
@@ -114,12 +115,15 @@ def format_asset_en(asset_name: str | None, repo: str, release_tag: str | None) 
 def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str], repo: str, release_tag: str | None) -> str:
     windows_installer = format_asset(asset_map['windows_installer'], repo, release_tag)
     windows_portable = format_asset(asset_map['windows_portable'], repo, release_tag)
-    windows_no_engine = format_asset(asset_map['windows_no_engine'], repo, release_tag)
+    windows_no_engine_installer = format_asset(asset_map['windows_no_engine_installer'], repo, release_tag)
+    windows_no_engine_portable = format_asset(asset_map['windows_no_engine_portable'], repo, release_tag)
     mac_arm64 = format_asset(asset_map['mac_arm64'], repo, release_tag)
     mac_amd64 = format_asset(asset_map['mac_amd64'], repo, release_tag)
     linux64 = format_asset(asset_map['linux64'], repo, release_tag)
 
     windows_installer_en = format_asset_en(asset_map['windows_installer'], repo, release_tag)
+    windows_no_engine_installer_en = format_asset_en(asset_map['windows_no_engine_installer'], repo, release_tag)
+    windows_no_engine_portable_en = format_asset_en(asset_map['windows_no_engine_portable'], repo, release_tag)
     mac_arm64_en = format_asset_en(asset_map['mac_arm64'], repo, release_tag)
     mac_amd64_en = format_asset_en(asset_map['mac_amd64'], repo, release_tag)
     linux64_en = format_asset_en(asset_map['linux64'], repo, release_tag)
@@ -146,7 +150,8 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
 | --- | --- |
 | Windows 64 位 | {windows_installer} |
 | Windows 64 位，想免安装 | {windows_portable} |
-| Windows 64 位，想自己配引擎 | {windows_no_engine} |
+| Windows 64 位，想自己配引擎，也想安装器 | {windows_no_engine_installer} |
+| Windows 64 位，想自己配引擎 | {windows_no_engine_portable} |
 | macOS Apple Silicon | {mac_arm64} |
 | macOS Intel | {mac_amd64} |
 | Linux 64 位 | {linux64} |
@@ -164,6 +169,8 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
 This maintained fork restores the broken Fox public-game fetch path for LizzieYzy and keeps the common review workflow usable.
 
 - Windows first choice: {windows_installer_en}
+- Windows custom-engine installer: {windows_no_engine_installer_en}
+- Windows custom-engine portable: {windows_no_engine_portable_en}
 - Fox fetch now starts from a **Fox nickname** and resolves the matching account automatically.
 - First launch tries to prepare the bundled analysis setup automatically.
 - Bundled packages include KataGo `{katago_version}` and the default weight `{model_source}`.
@@ -175,6 +182,7 @@ This maintained fork restores the broken Fox public-game fetch path for LizzieYz
 このメンテ版は、元の `lizzieyzy` で使えなくなっていた野狐棋譜取得の流れを、もう一度使える状態に戻すための継続保守版です。
 
 - Windows 利用者の多くは {windows_installer_en} を選べば始めやすいです
+- 自分のエンジンを使いたい場合は {windows_no_engine_installer_en} または {windows_no_engine_portable_en} を選べます
 - 棋譜取得では **野狐のニックネーム** を入力します。アプリが一致するアカウントを自動で探します
 - 初回起動では、内蔵の解析環境を自動で準備する流れを優先します
 - 主な整合パッケージには KataGo `{katago_version}` と既定の重み `{model_source}` が含まれています
@@ -184,6 +192,7 @@ This maintained fork restores the broken Fox public-game fetch path for LizzieYz
 이 유지보수판은 원래 `lizzieyzy` 에서 더 이상 잘 동작하지 않던 Fox 공개 기보 가져오기를 다시 쓸 수 있게 만든 지속 유지보수 포크입니다.
 
 - 대부분의 Windows 사용자는 {windows_installer_en} 를 먼저 받으면 가장 쉽습니다
+- 직접 엔진을 쓰고 싶다면 {windows_no_engine_installer_en} 또는 {windows_no_engine_portable_en} 를 고를 수 있습니다
 - 기보를 가져올 때는 **Fox 닉네임** 을 입력하면 앱이 맞는 계정을 자동으로 찾아 줍니다
 - 첫 실행에서는 내장 분석 환경을 자동으로 준비하는 흐름을 먼저 시도합니다
 - 주요 통합 패키지에는 KataGo `{katago_version}` 와 기본 가중치 `{model_source}` 가 포함되어 있습니다
