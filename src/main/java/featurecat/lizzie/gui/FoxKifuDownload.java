@@ -373,6 +373,14 @@ public class FoxKifuDownload extends JFrame {
         boolean oriReadKomi = Lizzie.config.readKomi;
         Lizzie.config.readKomi = false;
         SGFParser.loadFromString(kifu);
+        try {
+          String normalizedKifu = SGFParser.saveMainTrunkRawToString();
+          if (SGFParser.isSGF(normalizedKifu)) {
+            SGFParser.loadFromString(normalizedKifu);
+          }
+        } catch (IOException normalizeException) {
+          normalizeException.printStackTrace();
+        }
         Lizzie.board.setMovelistAll();
         if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
         Lizzie.frame.refresh();

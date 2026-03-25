@@ -845,6 +845,20 @@ public class SGFParser {
     }
   }
 
+  public static String saveMainTrunkRawToString() throws IOException {
+    boolean originalSavingRaw = LizzieFrame.isSavingRaw;
+    boolean originalSavingRawComment = LizzieFrame.isSavingRawComment;
+    try (StringWriter writer = new StringWriter()) {
+      LizzieFrame.isSavingRaw = true;
+      LizzieFrame.isSavingRawComment = false;
+      saveToStream(Lizzie.board, writer, false, false, true, true);
+      return writer.toString();
+    } finally {
+      LizzieFrame.isSavingRaw = originalSavingRaw;
+      LizzieFrame.isSavingRawComment = originalSavingRawComment;
+    }
+  }
+
   public static void appendGameTimeAndPlayouts() {
     BoardHistoryNode node = Lizzie.board.getHistory().getStart();
     long blackPlayouts = 0;
@@ -984,6 +998,17 @@ public class SGFParser {
 
   private static void saveToStream(
       Board board, Writer writer, boolean forUpload, boolean fromAutoSave) throws IOException {
+    saveToStream(board, writer, forUpload, fromAutoSave, false, false);
+  }
+
+  private static void saveToStream(
+      Board board,
+      Writer writer,
+      boolean forUpload,
+      boolean fromAutoSave,
+      boolean mainTrunkOnly,
+      boolean stripRootMetadata)
+      throws IOException {
     // collect game info
 
     BoardHistoryList history = board.getHistory().shallowCopy();
@@ -1267,7 +1292,7 @@ public class SGFParser {
     }
 
     // The AW/AB Comment
-    if (!history.getData().comment.isEmpty()) {
+    if (!stripRootMetadata && !history.getData().comment.isEmpty()) {
       String coment = history.getData().comment;
       if (forUpload) {
         coment =
@@ -1276,21 +1301,23 @@ public class SGFParser {
       builder.append(String.format(Locale.ENGLISH, "C[%s]", Escaping(coment)));
     }
     BoardHistoryNode curNode = history.getCurrentHistoryNode();
-    try {
-      if (curNode.getData().getPlayouts() > 0)
-        builder.append(String.format(Locale.ENGLISH, "LZOP[%s]", formatNodeData(curNode)));
-      if (Lizzie.config.isDoubleEngineMode() && curNode.getData().getPlayouts2() > 0)
-        builder.append(String.format(Locale.ENGLISH, "LZOP2[%s]", formatNodeData2(curNode)));
-      if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
-        BoardData data = curNode.getData();
-        if (Lizzie.board.isGameBoard) {
-          if (data.getPlayouts() > 0 && curNode.next().isPresent())
-            curNode.next().get().getData().comment = formatCommentForGame(curNode);
-          else if (curNode.next().isPresent()) curNode.next().get().getData().comment = "";
+    if (!stripRootMetadata) {
+      try {
+        if (curNode.getData().getPlayouts() > 0)
+          builder.append(String.format(Locale.ENGLISH, "LZOP[%s]", formatNodeData(curNode)));
+        if (Lizzie.config.isDoubleEngineMode() && curNode.getData().getPlayouts2() > 0)
+          builder.append(String.format(Locale.ENGLISH, "LZOP2[%s]", formatNodeData2(curNode)));
+        if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
+          BoardData data = curNode.getData();
+          if (Lizzie.board.isGameBoard) {
+            if (data.getPlayouts() > 0 && curNode.next().isPresent())
+              curNode.next().get().getData().comment = formatCommentForGame(curNode);
+            else if (curNode.next().isPresent()) curNode.next().get().getData().comment = "";
+          }
         }
+      } catch (Exception e) {
+        Lizzie.board.isLoadingFile = false;
       }
-    } catch (Exception e) {
-      Lizzie.board.isLoadingFile = false;
     }
     // replay moves, and convert them to tags.
     // * format: ";B[xy]" or ";W[xy]"
@@ -1312,12 +1339,18 @@ public class SGFParser {
         continue;
       }
       builder = generateNode(board, cur, forUpload, builder);
-      boolean hasBrothers = (cur.numberOfChildren() > 1);
-      if (cur.numberOfChildren() >= 1) {
-        for (int i = cur.numberOfChildren() - 1; i >= 0; i--) {
-          if (hasBrothers) stack.push(makerEnd);
-          stack.push(cur.getVariations().get(i));
-          if (hasBrothers) stack.push(makerBeg);
+      if (mainTrunkOnly) {
+        if (cur.next().isPresent()) {
+          stack.push(cur.next().get());
+        }
+      } else {
+        boolean hasBrothers = (cur.numberOfChildren() > 1);
+        if (cur.numberOfChildren() >= 1) {
+          for (int i = cur.numberOfChildren() - 1; i >= 0; i--) {
+            if (hasBrothers) stack.push(makerEnd);
+            stack.push(cur.getVariations().get(i));
+            if (hasBrothers) stack.push(makerBeg);
+          }
         }
       }
     }
