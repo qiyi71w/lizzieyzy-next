@@ -9,6 +9,8 @@
 - 用户进入 release 页面后，第一眼就知道该下载哪个包
 - `with-katago` 包尽量开箱即用
 - 野狐棋谱同步仍然可用，而且明确写成“野狐昵称”
+- 普通 Windows 包支持“智能优化”的信息要写清楚
+- NVIDIA Windows 包“首次自动准备官方运行库”的信息要写清楚
 - README、安装文档、发布页文案、真实资产名保持一致
 - 程序窗口图标、安装包图标、README 展示图标不要混成两套
 
@@ -67,6 +69,8 @@ GitHub Actions：
 - 如果提供 NVIDIA 极速包，要同时核对 `nvidia.installer.exe` 和 `nvidia.portable.zip`
 - 如果提供 Windows 无引擎包，要同时核对 `without.engine.installer.exe` 和 `without.engine.portable.zip`
 - 界面里仍然写的是 `野狐棋谱（输入野狐昵称获取）`
+- 发布页最上面的中文说明里，要明确写“普通 Windows 包也支持智能优化”
+- 发布页最上面的中文说明里，要明确写“NVIDIA 包首次会自动准备官方运行库”
 - `src/main/resources/assets/logo.png`、`packaging/icons/app-icon.ico`、`packaging/icons/app-icon.icns` 代表的是同一套当前图标
 - `weights/default.bin.gz` 存在
 - `engines/katago/` 下目标平台文件完整
@@ -161,6 +165,8 @@ gh workflow run update-release-notes.yml \
 1. 原版野狐棋谱同步已失效，这个维护版已修复
 2. 现在输入野狐昵称即可获取最新公开棋谱，程序会自动找到账号
 3. Windows 64 位优先下载 `installer.exe`，macOS 下载 `.dmg`，Linux 下载 `with-katago.zip`
+4. 普通 Windows 包也支持智能优化
+5. NVIDIA Windows 包首次需要时会自动准备官方运行库
 
 推荐顺序：
 
@@ -191,4 +197,16 @@ gh workflow run update-release-notes.yml \
 - Windows 用户会不会第一眼看到 `.exe` 安装器而不是历史 zip
 - 中文说明是不是在最前面，而且信息足够醒目
 - “野狐昵称”和“首启自动配置”有没有被写清楚
+- “普通 Windows 包也支持智能优化”有没有写清楚
+- “NVIDIA 包首启自动准备官方运行库”有没有写清楚
 - 下载后的应用图标、安装器图标、主窗口图标是不是同一套
+
+## 九、Windows 体验复查
+
+每次 Windows 新版发布前，至少做下面这些检查：
+
+- 普通 `with-katago.installer.exe` 首次打开后，不应该再弹出 `Cannot run program "java"` 这类错误
+- 普通 `with-katago` 包里应能看到“智能优化 / Smart Optimize”入口
+- 做完一次智能优化后，推荐线程数要能写回配置，并在重启后继续保留
+- NVIDIA 包首次需要运行库时，应提示正在准备官方运行库，而不是让用户自己研究 CUDA / cuDNN
+- NVIDIA 运行库准备完成后，用户目录下应能看到 `runtime/nvidia-runtime/manifest.txt`

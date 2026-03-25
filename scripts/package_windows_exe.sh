@@ -255,6 +255,7 @@ EOF
     cat >>"$note_file" <<'EOF'
 - The with-katago assets also include bundled KataGo and a default weight.
 - First launch should auto-configure the bundled engine for most users.
+- The regular Windows bundle also supports Smart Optimize and can save a better thread setting automatically after benchmarking.
 EOF
   else
     cat >>"$note_file" <<'EOF'
@@ -265,6 +266,7 @@ EOF
   if [[ "$has_nvidia_katago" == "true" ]]; then
     cat >>"$note_file" <<'EOF'
 - The NVIDIA assets include the official KataGo CUDA 12.1 Windows build.
+- On first use, if the required NVIDIA runtime is missing, the app can download and prepare the official runtime files automatically in the user folder.
 - Only choose the NVIDIA package if your PC has an NVIDIA GPU. If you are not sure, use the regular with-katago installer instead.
 EOF
   fi
