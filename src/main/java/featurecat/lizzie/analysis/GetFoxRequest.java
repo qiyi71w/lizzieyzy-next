@@ -1,16 +1,25 @@
 package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.gui.FoxKifuDownload;
+import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.rules.BoardData;
+import featurecat.lizzie.rules.BoardHistoryList;
+import featurecat.lizzie.rules.BoardHistoryNode;
+import featurecat.lizzie.rules.SGFParser;
+import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.util.Utils;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.Proxy;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
@@ -18,9 +27,17 @@ import org.json.JSONObject;
 public class GetFoxRequest {
   private static final String BASE_URL = "https://h5.foxwq.com/yehuDiamond/chessbook_local";
   private static final String QUERY_USER_URL = "https://newframe.foxwq.com/cgi/QueryUserInfoPanel";
+  private static final String[] FOX_SGF_CGI_URLS = {
+    "http://happyapp.huanle.qq.com/cgi-bin/CommonMobileCGI/TXWQFetchChess",
+    "http://cgi.foxwq.com/cgi-bin/CommonMobileCGI/TXWQFetchChess"
+  };
   private static final int HTTP_CONNECT_TIMEOUT_MS = 20000;
   private static final int HTTP_READ_TIMEOUT_MS = 25000;
   private static final int HTTP_MAX_RETRIES = 3;
+  private static final String MOBILE_USER_AGENT =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+          + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+  private static final String CGI_USER_AGENT = "okhttp/3.12.12";
 
   private ExecutorService executor;
   private final FoxKifuDownload foxKifuDownload;
@@ -111,7 +128,32 @@ public class GetFoxRequest {
   }
 
   private String fetchSgf(String chessid) {
+    String cgiPayload = fetchSgfFromCgi(chessid);
+    if (!cgiPayload.isEmpty()) {
+      return normalizeFoxSgfPayload(cgiPayload);
+    }
     return normalizeFoxSgfPayload(httpGet(BASE_URL + "/YHWQFetchChess?chessid=" + url(chessid)));
+  }
+
+  private String fetchSgfFromCgi(String chessid) {
+    String safeChessId = chessid == null ? "" : chessid.trim();
+    if (safeChessId.isEmpty()) {
+      return "";
+    }
+    LinkedHashMap<String, String> form = new LinkedHashMap<String, String>();
+    form.put("chessid", safeChessId);
+    for (String endpoint : FOX_SGF_CGI_URLS) {
+      try {
+        String response = httpPostForm(endpoint, form, CGI_USER_AGENT);
+        JSONObject json = new JSONObject(response);
+        if (json.optInt("result", -1) == 0 && !json.optString("chess", "").trim().isEmpty()) {
+          return response;
+        }
+      } catch (Exception e) {
+        // Fall through to the next endpoint or the legacy H5 fallback.
+      }
+    }
+    return "";
   }
 
   private JSONObject queryUserByName(String nickname) {
@@ -150,27 +192,56 @@ public class GetFoxRequest {
   }
 
   private String httpGet(String url) {
+    return httpRequest("GET", url, null, null, MOBILE_USER_AGENT);
+  }
+
+  private String httpPostForm(String url, LinkedHashMap<String, String> form, String userAgent) {
+    StringBuilder body = new StringBuilder();
+    boolean first = true;
+    for (java.util.Map.Entry<String, String> entry : form.entrySet()) {
+      if (!first) {
+        body.append('&');
+      }
+      first = false;
+      body.append(url(entry.getKey())).append('=').append(url(entry.getValue()));
+    }
+    return httpRequest(
+        "POST",
+        url,
+        body.toString().getBytes(StandardCharsets.UTF_8),
+        "application/x-www-form-urlencoded",
+        userAgent);
+  }
+
+  private String httpRequest(
+      String method, String url, byte[] body, String contentType, String userAgent) {
     IOException lastError = null;
     for (int attempt = 1; attempt <= HTTP_MAX_RETRIES; attempt++) {
       java.net.HttpURLConnection conn = null;
       try {
         conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection(Proxy.NO_PROXY);
-        conn.setRequestMethod("GET");
+        conn.setRequestMethod(method);
         conn.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
         conn.setReadTimeout(HTTP_READ_TIMEOUT_MS);
         conn.setRequestProperty("Accept", "application/json,text/plain,*/*");
         conn.setRequestProperty("Connection", "close");
-        conn.setRequestProperty(
-            "User-Agent",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
-                + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1");
+        conn.setRequestProperty("User-Agent", userAgent == null ? MOBILE_USER_AGENT : userAgent);
+        if (contentType != null && !contentType.trim().isEmpty()) {
+          conn.setRequestProperty("Content-Type", contentType);
+        }
+        if (body != null) {
+          conn.setDoOutput(true);
+          conn.setFixedLengthStreamingMode(body.length);
+          conn.getOutputStream().write(body);
+          conn.getOutputStream().flush();
+          conn.getOutputStream().close();
+        }
         int code = conn.getResponseCode();
-        java.io.InputStream in =
-            code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
+        InputStream in = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
         if (in == null) {
           throw new IOException("HTTP " + code + " with empty body");
         }
-        try (java.io.InputStream input = in;
+        try (InputStream input = in;
             java.util.Scanner scanner = new java.util.Scanner(input, "UTF-8").useDelimiter("\\A")) {
           return scanner.hasNext() ? scanner.next() : "";
         }
@@ -319,7 +390,7 @@ public class GetFoxRequest {
       SgfNode rootNode = tree.nodes.get(0);
       List<SgfProperty> rootProperties = buildCleanRootProperties(rootNode.properties);
       List<SgfMove> rootMoves = extractMoves(rootNode.properties);
-      List<SgfMove> mainLineMoves = extractMainLineMoves(tree, true);
+      List<SgfMove> mainLineMoves = recoverPreferredMoves(tree, rootMoves);
       String nextColor = mainLineMoves.isEmpty() ? null : mainLineMoves.get(0).color;
       List<SgfMove> rootPrefix = chooseCompatibleRootPrefix(rootMoves, nextColor);
       List<SgfMove> moves = normalizeMoves(rootPrefix, mainLineMoves);
@@ -328,6 +399,10 @@ public class GetFoxRequest {
         return input;
       }
 
+      return buildSgf(rootProperties, moves);
+    }
+
+    private String buildSgf(List<SgfProperty> rootProperties, List<SgfMove> moves) {
       StringBuilder out = new StringBuilder(Math.max(128, input.length() / 8));
       out.append('(').append(';');
       appendProperties(out, rootProperties);
@@ -502,6 +577,501 @@ public class GetFoxRequest {
       return new SgfProperty(property.name, new ArrayList<String>(property.values));
     }
 
+    private List<SgfMove> recoverPreferredMoves(SgfTree tree, List<SgfMove> rootMoves) {
+      List<SgfMove> defaultMoves = extractMainLineMoves(tree, true);
+      if (!looksLikeWindowedFox(tree)) {
+        return defaultMoves;
+      }
+      List<SgfMove> mergedMoves = recoverMergedFoxBranch(tree);
+      if (mergedMoves.size() >= Math.max(12, defaultMoves.size())) {
+        return mergedMoves;
+      }
+      List<FoxWindow> windows = extractFoxWindows(tree.children);
+      if (windows.size() < 5) {
+        return defaultMoves;
+      }
+      List<SgfMove> recovered = recoverWindowedMoves(windows, rootMoves);
+      if (recovered.size() >= Math.max(15, defaultMoves.size() + 4)) {
+        return recovered;
+      }
+      return defaultMoves;
+    }
+
+    private boolean looksLikeWindowedFox(SgfTree tree) {
+      if (tree.children.size() < 20) {
+        return false;
+      }
+      int candidateChildren = 0;
+      for (SgfTree child : tree.children) {
+        int moveNodes = countNodesWithMoves(child.nodes);
+        if (child.children.isEmpty() && moveNodes >= 7 && moveNodes <= 10) {
+          candidateChildren++;
+        }
+      }
+      return candidateChildren >= Math.max(10, tree.children.size() / 3);
+    }
+
+    private List<SgfMove> recoverMergedFoxBranch(SgfTree tree) {
+      int originalWidth = Board.boardWidth;
+      int originalHeight = Board.boardHeight;
+      try {
+        int[] boardSize =
+            detectBoardSize(tree.nodes.isEmpty() ? null : tree.nodes.get(0).properties);
+        Board.boardWidth = boardSize[0];
+        Board.boardHeight = boardSize[1];
+
+        BoardHistoryList history =
+            new BoardHistoryList(BoardData.empty(boardSize[0], boardSize[1]));
+        mergeTreeIntoHistory(tree, history, history.getCurrentHistoryNode());
+        return extractMainBranch(history);
+      } catch (RuntimeException e) {
+        return Collections.emptyList();
+      } finally {
+        Board.boardWidth = originalWidth;
+        Board.boardHeight = originalHeight;
+      }
+    }
+
+    private int[] detectBoardSize(List<SgfProperty> properties) {
+      int width = 19;
+      int height = 19;
+      if (properties == null) {
+        return new int[] {width, height};
+      }
+      for (SgfProperty property : properties) {
+        if (!"SZ".equals(property.name) || property.values.isEmpty()) {
+          continue;
+        }
+        String sizeText = property.values.get(property.values.size() - 1);
+        if (sizeText == null || sizeText.trim().isEmpty()) {
+          continue;
+        }
+        String trimmed = sizeText.trim();
+        if (trimmed.contains(":")) {
+          String[] parts = trimmed.split(":", 2);
+          if (parts.length == 2) {
+            width = safeParseBoardSize(parts[0], 19);
+            height = safeParseBoardSize(parts[1], width);
+          }
+        } else {
+          width = safeParseBoardSize(trimmed, 19);
+          height = width;
+        }
+      }
+      return new int[] {Math.max(2, width), Math.max(2, height)};
+    }
+
+    private int safeParseBoardSize(String value, int defaultValue) {
+      try {
+        return Integer.parseInt(value.trim());
+      } catch (NumberFormatException e) {
+        return defaultValue;
+      }
+    }
+
+    private void mergeTreeIntoHistory(
+        SgfTree tree, BoardHistoryList history, BoardHistoryNode branchStart) {
+      history.setHead(branchStart);
+      for (SgfNode node : tree.nodes) {
+        applyNodeToHistory(node, history);
+      }
+      BoardHistoryNode nextStart = history.getCurrentHistoryNode();
+      for (SgfTree child : tree.children) {
+        mergeTreeIntoHistory(child, history, nextStart);
+      }
+    }
+
+    private void applyNodeToHistory(SgfNode node, BoardHistoryList history) {
+      for (SgfProperty property : node.properties) {
+        if (property.values == null || property.values.isEmpty()) {
+          continue;
+        }
+        if ("AB".equals(property.name)
+            || "AW".equals(property.name)
+            || "AE".equals(property.name)) {
+          Stone stone =
+              "AB".equals(property.name)
+                  ? Stone.BLACK
+                  : ("AW".equals(property.name) ? Stone.WHITE : Stone.EMPTY);
+          for (String value : property.values) {
+            int[] coord = SGFParser.convertSgfPosToCoord(value);
+            if (coord != null) {
+              history.setStone(coord, stone);
+            }
+          }
+          continue;
+        }
+        if (!"B".equals(property.name) && !"W".equals(property.name)) {
+          continue;
+        }
+        Stone color = "B".equals(property.name) ? Stone.BLACK : Stone.WHITE;
+        for (String value : property.values) {
+          int[] coord = SGFParser.convertSgfPosToCoord(value);
+          if (coord == null) {
+            history.pass(color, false);
+          } else {
+            history.place(coord[0], coord[1], color, false);
+          }
+        }
+      }
+    }
+
+    private List<SgfMove> extractMainBranch(BoardHistoryList history) {
+      List<SgfMove> moves = new ArrayList<SgfMove>();
+      BoardHistoryNode node = history.getStart();
+      while (node.next().isPresent()) {
+        node = node.next().get();
+        Optional<int[]> lastMove = node.getData().lastMove;
+        Stone color = node.getData().lastMoveColor;
+        if (!lastMove.isPresent() || color == null || color == Stone.EMPTY) {
+          continue;
+        }
+        String coordinate = SGFParser.asCoord(lastMove.get()).toLowerCase();
+        moves.add(new SgfMove(color.isBlack() ? "B" : "W", coordinate));
+      }
+      return moves;
+    }
+
+    private int countNodesWithMoves(List<SgfNode> nodes) {
+      int count = 0;
+      for (SgfNode node : nodes) {
+        if (!extractMoves(node.properties).isEmpty()) {
+          count++;
+        }
+      }
+      return count;
+    }
+
+    private List<FoxWindow> extractFoxWindows(List<SgfTree> children) {
+      List<FoxWindow> windows = new ArrayList<FoxWindow>();
+      for (int i = 0; i < children.size(); i++) {
+        SgfTree child = children.get(i);
+        List<SgfMove> context = new ArrayList<SgfMove>();
+        List<SgfMove> sequence = new ArrayList<SgfMove>();
+        boolean firstNode = true;
+        for (SgfNode node : child.nodes) {
+          List<SgfMove> moves = extractMoves(node.properties);
+          if (moves.isEmpty()) {
+            continue;
+          }
+          if (firstNode && moves.size() >= 2) {
+            sequence.add(moves.get(0));
+            context.add(moves.get(1));
+          } else {
+            sequence.add(moves.get(0));
+          }
+          firstNode = false;
+        }
+        if (!sequence.isEmpty()) {
+          windows.add(new FoxWindow(i, context, sequence));
+        }
+      }
+      return windows;
+    }
+
+    private List<SgfMove> recoverWindowedMoves(List<FoxWindow> windows, List<SgfMove> rootMoves) {
+      List<FoxWindow> seeds = pickSeedWindows(windows, rootMoves);
+      if (seeds.isEmpty()) {
+        return Collections.emptyList();
+      }
+      List<List<SgfMove>> rootPrefixes = buildRootPrefixCandidates(rootMoves);
+      List<SgfMove> bestMoves = Collections.emptyList();
+      int bestScore = Integer.MIN_VALUE;
+      int bestPriority = Integer.MIN_VALUE;
+      for (List<SgfMove> rootPrefix : rootPrefixes) {
+        for (FoxWindow seed : seeds) {
+          int priority = seedPriority(seed, rootMoves);
+          List<SgfMove> attempt = buildWindowedSequence(seed, windows, rootPrefix);
+          if (attempt.isEmpty()) {
+            continue;
+          }
+          int score = scoreRecoveredMoves(attempt, rootPrefix, rootMoves);
+          if (score > bestScore
+              || (score == bestScore && priority > bestPriority)
+              || (score == bestScore
+                  && priority == bestPriority
+                  && attempt.size() > bestMoves.size())) {
+            bestMoves = attempt;
+            bestScore = score;
+            bestPriority = priority;
+          }
+        }
+      }
+      return bestMoves;
+    }
+
+    private List<List<SgfMove>> buildRootPrefixCandidates(List<SgfMove> rootMoves) {
+      List<List<SgfMove>> candidates = new ArrayList<List<SgfMove>>();
+      addRootPrefixCandidate(candidates, rootMoves);
+      if (!rootMoves.isEmpty()) {
+        addRootPrefixCandidate(
+            candidates, new ArrayList<SgfMove>(Arrays.asList(rootMoves.get(rootMoves.size() - 1))));
+      }
+      if (rootMoves.size() > 1) {
+        List<SgfMove> reversed = new ArrayList<SgfMove>(rootMoves);
+        Collections.reverse(reversed);
+        addRootPrefixCandidate(candidates, reversed);
+      }
+      addRootPrefixCandidate(candidates, Collections.<SgfMove>emptyList());
+      if (candidates.isEmpty()) {
+        candidates.add(Collections.<SgfMove>emptyList());
+      }
+      return candidates;
+    }
+
+    private void addRootPrefixCandidate(List<List<SgfMove>> candidates, List<SgfMove> prefix) {
+      List<SgfMove> normalized =
+          prefix == null ? Collections.<SgfMove>emptyList() : new ArrayList<SgfMove>(prefix);
+      if (!normalized.isEmpty() && !isAlternating(normalized)) {
+        return;
+      }
+      for (List<SgfMove> existing : candidates) {
+        if (existing.equals(normalized)) {
+          return;
+        }
+      }
+      candidates.add(normalized);
+    }
+
+    private List<FoxWindow> pickSeedWindows(List<FoxWindow> windows, List<SgfMove> rootMoves) {
+      List<FoxWindow> ordered = new ArrayList<FoxWindow>(windows);
+      Collections.sort(
+          ordered,
+          (left, right) -> {
+            int leftPriority = seedPriority(left, rootMoves);
+            int rightPriority = seedPriority(right, rootMoves);
+            if (leftPriority != rightPriority) {
+              return rightPriority - leftPriority;
+            }
+            return left.index - right.index;
+          });
+      if (ordered.size() > 16) {
+        return new ArrayList<FoxWindow>(ordered.subList(0, 16));
+      }
+      return ordered;
+    }
+
+    private int seedPriority(FoxWindow window, List<SgfMove> rootMoves) {
+      String lastRootColor = rootMoves.isEmpty() ? null : rootMoves.get(rootMoves.size() - 1).color;
+      SgfMove lastRootMove = rootMoves.isEmpty() ? null : rootMoves.get(rootMoves.size() - 1);
+      if (!window.context.isEmpty()
+          && lastRootMove != null
+          && lastRootMove.equals(window.context.get(0))) {
+        return 4;
+      }
+      if (window.context.isEmpty()
+          && !window.sequence.isEmpty()
+          && lastRootColor != null
+          && !lastRootColor.equals(window.sequence.get(0).color)) {
+        return 3;
+      }
+      if (!window.sequence.isEmpty()
+          && lastRootColor != null
+          && !lastRootColor.equals(window.sequence.get(0).color)) {
+        return 2;
+      }
+      if (window.context.isEmpty()) {
+        return 1;
+      }
+      return 0;
+    }
+
+    private List<SgfMove> buildWindowedSequence(
+        FoxWindow seed, List<FoxWindow> windows, List<SgfMove> rootPrefix) {
+      List<SgfMove> current = new ArrayList<SgfMove>(rootPrefix);
+      int seedOverlap = rootPrefix.isEmpty() ? 0 : computeOverlap(rootPrefix, seed.sequence);
+      if (!rootPrefix.isEmpty() && !canAppend(rootPrefix, seed.sequence, seedOverlap)) {
+        return Collections.emptyList();
+      }
+      appendMoves(current, seed.sequence.subList(seedOverlap, seed.sequence.size()));
+      if (!isAlternating(current)) {
+        return Collections.emptyList();
+      }
+      LinkedHashSet<Integer> used = new LinkedHashSet<Integer>();
+      used.add(seed.index);
+      while (current.size() < 600) {
+        FoxCandidate best = null;
+        for (FoxWindow window : windows) {
+          if (used.contains(window.index)) {
+            continue;
+          }
+          best =
+              selectBetterCandidate(
+                  best, buildCandidate(current, window.sequence, window.index, false, 3));
+          if (!window.skipSequence.isEmpty()) {
+            best =
+                selectBetterCandidate(
+                    best, buildCandidate(current, window.skipSequence, window.index, false, 2));
+          }
+          if (!window.context.isEmpty()) {
+            best =
+                selectBetterCandidate(
+                    best, buildCandidate(current, window.augmented, window.index, true, 1));
+          }
+        }
+        if (best == null || best.overlap < 2) {
+          break;
+        }
+        appendMoves(current, best.target.subList(best.overlap, best.target.size()));
+        used.add(best.index);
+      }
+      if (current.size() <= rootPrefix.size()) {
+        return Collections.emptyList();
+      }
+      return new ArrayList<SgfMove>(current.subList(rootPrefix.size(), current.size()));
+    }
+
+    private int scoreRecoveredMoves(
+        List<SgfMove> recoveredMoves, List<SgfMove> rootPrefix, List<SgfMove> rootMoves) {
+      int score = recoveredMoves.size() * 100;
+      score += rootPrefix.size() * 8;
+      if (!rootPrefix.isEmpty() && recoveredMoves.size() > rootPrefix.size()) {
+        SgfMove firstRecovered = recoveredMoves.get(0);
+        if (firstRecovered != null
+            && rootPrefix.get(rootPrefix.size() - 1) != null
+            && !firstRecovered.color.equals(rootPrefix.get(rootPrefix.size() - 1).color)) {
+          score += 24;
+        }
+      }
+      score -= repeatPenalty(recoveredMoves);
+      if (!rootMoves.isEmpty() && recoveredMoves.size() >= rootMoves.size()) {
+        boolean matchesRoot = true;
+        for (int i = 0; i < rootMoves.size(); i++) {
+          if (!rootMoves.get(i).equals(recoveredMoves.get(i))) {
+            matchesRoot = false;
+            break;
+          }
+        }
+        if (matchesRoot) {
+          score += 20;
+        }
+      }
+      return score;
+    }
+
+    private int repeatPenalty(List<SgfMove> moves) {
+      int penalty = 0;
+      for (int i = 0; i < moves.size(); i++) {
+        for (int j = Math.max(0, i - 12); j < i; j++) {
+          if (moves.get(i).equals(moves.get(j))) {
+            penalty += Math.max(12, 120 - (i - j) * 6);
+          }
+        }
+      }
+      for (int blockSize = 2; blockSize <= 4; blockSize++) {
+        penalty += repeatedBlockPenalty(moves, blockSize);
+      }
+      return penalty;
+    }
+
+    private int repeatedBlockPenalty(List<SgfMove> moves, int blockSize) {
+      if (moves.size() < blockSize * 2) {
+        return 0;
+      }
+      int penalty = 0;
+      LinkedHashMap<String, Integer> firstSeen = new LinkedHashMap<String, Integer>();
+      for (int i = 0; i + blockSize <= moves.size(); i++) {
+        String key = movesBlockKey(moves, i, blockSize);
+        Integer previousIndex = firstSeen.get(key);
+        if (previousIndex == null) {
+          firstSeen.put(key, i);
+          continue;
+        }
+        if (i - previousIndex <= 16) {
+          penalty += blockSize * 180;
+        }
+      }
+      return penalty;
+    }
+
+    private String movesBlockKey(List<SgfMove> moves, int start, int blockSize) {
+      StringBuilder key = new StringBuilder(blockSize * 8);
+      for (int i = 0; i < blockSize; i++) {
+        SgfMove move = moves.get(start + i);
+        key.append(move.color).append(':').append(move.coordinate).append('|');
+      }
+      return key.toString();
+    }
+
+    private FoxCandidate buildCandidate(
+        List<SgfMove> current,
+        List<SgfMove> target,
+        int index,
+        boolean usesContext,
+        int variantRank) {
+      if (target.isEmpty()) {
+        return null;
+      }
+      int overlap = computeOverlap(current, target);
+      if (overlap <= 0) {
+        return null;
+      }
+      if (!canAppend(current, target, overlap)) {
+        return null;
+      }
+      return new FoxCandidate(
+          index, target, overlap, usesContext, target.size() - overlap, variantRank);
+    }
+
+    private FoxCandidate selectBetterCandidate(FoxCandidate current, FoxCandidate next) {
+      if (next == null) {
+        return current;
+      }
+      if (current == null) {
+        return next;
+      }
+      if (next.overlap != current.overlap) {
+        return next.overlap > current.overlap ? next : current;
+      }
+      if (next.appendSize != current.appendSize) {
+        return next.appendSize > current.appendSize ? next : current;
+      }
+      if (next.variantRank != current.variantRank) {
+        return next.variantRank > current.variantRank ? next : current;
+      }
+      if (next.usesContext != current.usesContext) {
+        return current.usesContext ? current : next;
+      }
+      return next.index < current.index ? next : current;
+    }
+
+    private int computeOverlap(List<SgfMove> current, List<SgfMove> target) {
+      int best = 0;
+      int max = Math.min(current.size(), target.size());
+      for (int size = 1; size <= max; size++) {
+        boolean matches = true;
+        for (int i = 0; i < size; i++) {
+          if (!current.get(current.size() - size + i).equals(target.get(i))) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) {
+          best = size;
+        }
+      }
+      return best;
+    }
+
+    private boolean canAppend(List<SgfMove> current, List<SgfMove> target, int overlap) {
+      if (overlap >= target.size()) {
+        return false;
+      }
+      List<SgfMove> appended = target.subList(overlap, target.size());
+      if (appended.isEmpty()) {
+        return false;
+      }
+      if (!current.isEmpty()
+          && current.get(current.size() - 1).color.equals(appended.get(0).color)) {
+        return false;
+      }
+      return isAlternating(appended);
+    }
+
+    private void appendMoves(List<SgfMove> current, List<SgfMove> source) {
+      current.addAll(source);
+    }
+
     private List<SgfMove> extractMainLineMoves(SgfTree tree, boolean skipRootNode) {
       List<SgfMove> moves = new ArrayList<SgfMove>();
       int startNode = skipRootNode ? 1 : 0;
@@ -663,6 +1233,51 @@ public class GetFoxRequest {
     }
   }
 
+  private static final class FoxWindow {
+    private final int index;
+    private final List<SgfMove> context;
+    private final List<SgfMove> sequence;
+    private final List<SgfMove> skipSequence;
+    private final List<SgfMove> augmented;
+
+    private FoxWindow(int index, List<SgfMove> context, List<SgfMove> sequence) {
+      this.index = index;
+      this.context = new ArrayList<SgfMove>(context);
+      this.sequence = new ArrayList<SgfMove>(sequence);
+      this.skipSequence =
+          sequence.size() > 1
+              ? new ArrayList<SgfMove>(sequence.subList(1, sequence.size()))
+              : Collections.<SgfMove>emptyList();
+      this.augmented = new ArrayList<SgfMove>(context.size() + sequence.size());
+      this.augmented.addAll(context);
+      this.augmented.addAll(sequence);
+    }
+  }
+
+  private static final class FoxCandidate {
+    private final int index;
+    private final List<SgfMove> target;
+    private final int overlap;
+    private final boolean usesContext;
+    private final int appendSize;
+    private final int variantRank;
+
+    private FoxCandidate(
+        int index,
+        List<SgfMove> target,
+        int overlap,
+        boolean usesContext,
+        int appendSize,
+        int variantRank) {
+      this.index = index;
+      this.target = target;
+      this.overlap = overlap;
+      this.usesContext = usesContext;
+      this.appendSize = appendSize;
+      this.variantRank = variantRank;
+    }
+  }
+
   private static final class SgfMove {
     private final String color;
     private final String coordinate;
@@ -670,6 +1285,29 @@ public class GetFoxRequest {
     private SgfMove(String color, String coordinate) {
       this.color = color;
       this.coordinate = coordinate;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) {
+        return true;
+      }
+      if (!(other instanceof SgfMove)) {
+        return false;
+      }
+      SgfMove move = (SgfMove) other;
+      return safeEquals(color, move.color) && safeEquals(coordinate, move.coordinate);
+    }
+
+    @Override
+    public int hashCode() {
+      int result = color == null ? 0 : color.hashCode();
+      result = 31 * result + (coordinate == null ? 0 : coordinate.hashCode());
+      return result;
+    }
+
+    private boolean safeEquals(String left, String right) {
+      return left == null ? right == null : left.equals(right);
     }
   }
 }
