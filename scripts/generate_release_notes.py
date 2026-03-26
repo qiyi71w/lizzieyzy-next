@@ -184,7 +184,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
 - 抓谱时直接输入 **野狐昵称**，程序会自动匹配账号并获取最近公开棋谱
 - 主推荐整合包已内置 KataGo `{katago_version}` 和默认权重 `{model_source}`
 - Windows 普通整合包也支持 **智能优化**，可以自动写入更合适的线程设置
-- Windows NVIDIA 整合包会在第一次需要时自动准备官方运行库
+- Windows NVIDIA 整合包已内置官方运行库，首启可离线使用
 
 ### 下载建议
 
@@ -206,7 +206,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
 - 现在直接输入“野狐昵称”，程序会自动找到账号再抓最近公开棋谱
 - Windows 继续把 `.installer.exe` 放在最前面，普通用户更容易直接开始用
 - Windows 普通整合包也支持智能优化，测速后会自动保存推荐线程数
-- 对有 NVIDIA 独显的 Windows 用户，额外提供官方 CUDA 版 KataGo 的极速整合包，而且会在首启时自动准备官方运行库
+- 对有 NVIDIA 独显的 Windows 用户，额外提供官方 CUDA 版 KataGo 的极速整合包，并且把官方运行库一起打进包里
 - macOS 继续提供 Apple Silicon / Intel 两种 `.dmg`
 - 整合包继续内置 KataGo 与默认权重，打开后更快进入分析
 
@@ -227,7 +227,7 @@ This maintained release keeps LizzieYzy practical again for normal users: Fox ga
 - The recommended bundles include KataGo `{katago_version}` and the default weight `{model_source}`.
 - The regular Windows bundle also supports **Smart Optimize** to benchmark and save a better thread setting automatically.
 - The NVIDIA package uses the official KataGo CUDA build `{windows_nvidia_bundle}`.
-- The NVIDIA bundle now auto-prepares the official NVIDIA runtime on first use when it is missing.
+- The NVIDIA bundle now includes the official NVIDIA runtime files, so supported PCs can start offline on first launch.
 - First launch tries to prepare the bundled analysis setup automatically.
 - macOS downloads: Apple Silicon {mac_arm64_en}, Intel {mac_amd64_en}
 - Linux download: {linux64_en}
@@ -243,7 +243,7 @@ This maintained release keeps LizzieYzy practical again for normal users: Fox ga
 - 棋譜取得では **野狐のニックネーム** を入力します。アプリが一致するアカウントを自動で探します
 - 通常の Windows 同梱版でも **Smart Optimize** により、推奨スレッド数を保存しやすくなりました
 - 初回起動では、内蔵の解析環境を自動で準備する流れを優先します
-- NVIDIA 同梱版では、必要な公式ランタイムが見つからない場合、初回利用時に自動準備を試みます
+- NVIDIA 同梱版は、必要な公式ランタイムも同梱するため、対応 PC なら初回起動をオフラインで始めやすくなりました
 - 主な整合パッケージには KataGo `{katago_version}` と既定の重み `{model_source}` が含まれています
 
 ## 한국어
@@ -256,7 +256,7 @@ This maintained release keeps LizzieYzy practical again for normal users: Fox ga
 - 기보를 가져올 때는 **Fox 닉네임** 을 입력하면 앱이 맞는 계정을 자동으로 찾아 줍니다
 - 일반 Windows 통합판도 **Smart Optimize** 로 더 알맞은 스레드 값을 저장할 수 있습니다
 - 첫 실행에서는 내장 분석 환경을 자동으로 준비하는 흐름을 먼저 시도합니다
-- NVIDIA 통합판은 필요한 공식 런타임이 없으면 첫 사용 시 자동으로 준비를 시도합니다
+- NVIDIA 통합판은 필요한 공식 런타임도 함께 포함하므로, 지원되는 PC에서는 첫 실행을 오프라인으로 시작하기 쉽습니다
 - 주요 통합 패키지에는 KataGo `{katago_version}` 와 기본 가중치 `{model_source}` 가 포함되어 있습니다
 """
 

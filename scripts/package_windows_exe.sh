@@ -36,6 +36,25 @@ RELEASE_DIR="$ROOT_DIR/dist/release"
 META_DIR="$ROOT_DIR/dist/release-meta"
 WINDOWS_UPGRADE_UUID_NVIDIA="${WINDOWS_UPGRADE_UUID_NVIDIA:-14a4599e-6d5b-4b86-9895-7748266f0c25}"
 ENGINE_BACKEND_MARKER_NAME="lizzieyzy-next-engine-backend.txt"
+NVIDIA_RUNTIME_PREPARE_SCRIPT="$ROOT_DIR/scripts/prepare_bundled_nvidia_runtime.py"
+NVIDIA_RUNTIME_STAGE_DIR="$DIST_DIR/nvidia-runtime"
+PYTHON_BIN=""
+
+resolve_python_bin() {
+  if [[ -n "$PYTHON_BIN" ]]; then
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+    return 0
+  fi
+  echo "Python not found. Install Python 3 to prepare the Windows NVIDIA runtime."
+  exit 1
+}
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR" "$RELEASE_DIR" "$META_DIR"
@@ -123,6 +142,35 @@ copy_bundle_engine_assets() {
   cp "$ROOT_DIR/weights/default.bin.gz" "$input_dir/weights/default.bin.gz"
 }
 
+prepare_bundled_nvidia_runtime_assets() {
+  resolve_python_bin
+  if [[ ! -f "$NVIDIA_RUNTIME_PREPARE_SCRIPT" ]]; then
+    echo "Missing NVIDIA runtime prepare script: $NVIDIA_RUNTIME_PREPARE_SCRIPT"
+    exit 1
+  fi
+  "$PYTHON_BIN" "$NVIDIA_RUNTIME_PREPARE_SCRIPT" --output-dir "$NVIDIA_RUNTIME_STAGE_DIR"
+}
+
+copy_bundle_nvidia_runtime_assets() {
+  local input_dir="$1"
+  local engine_target_dir="${2:-$STANDARD_ENGINE_PLATFORM_DIR}"
+  local engine_dir="$input_dir/engines/katago/$engine_target_dir"
+
+  if [[ ! -d "$NVIDIA_RUNTIME_STAGE_DIR" ]]; then
+    echo "Bundled NVIDIA runtime assets not prepared: $NVIDIA_RUNTIME_STAGE_DIR"
+    exit 1
+  fi
+
+  mkdir -p "$engine_dir"
+  find "$NVIDIA_RUNTIME_STAGE_DIR" -maxdepth 1 -type f \( -name '*.dll' -o -name 'lizzieyzy-next-nvidia-runtime-manifest.txt' \) \
+    -exec cp -f {} "$engine_dir/" \;
+
+  if [[ -d "$NVIDIA_RUNTIME_STAGE_DIR/licenses" ]]; then
+    mkdir -p "$engine_dir/licenses/nvidia-runtime"
+    cp -R "$NVIDIA_RUNTIME_STAGE_DIR/licenses/." "$engine_dir/licenses/nvidia-runtime/"
+  fi
+}
+
 to_native_path() {
   local path="$1"
   if command -v cygpath >/dev/null 2>&1; then
@@ -147,6 +195,9 @@ build_app_image() {
   copy_common_inputs "$input_dir"
   if [[ "$include_katago" == "true" ]]; then
     copy_bundle_engine_assets "$input_dir" "$engine_source_dir" "$engine_target_dir" "$engine_backend"
+    if [[ "$engine_backend" == "nvidia" ]]; then
+      copy_bundle_nvidia_runtime_assets "$input_dir" "$engine_target_dir"
+    fi
   fi
 
   jpackage \
@@ -181,6 +232,9 @@ build_installer() {
   copy_common_inputs "$input_dir"
   if [[ "$include_katago" == "true" ]]; then
     copy_bundle_engine_assets "$input_dir" "$engine_source_dir" "$engine_target_dir" "$engine_backend"
+    if [[ "$engine_backend" == "nvidia" ]]; then
+      copy_bundle_nvidia_runtime_assets "$input_dir" "$engine_target_dir"
+    fi
   fi
 
   jpackage \
@@ -274,7 +328,8 @@ EOF
   if [[ "$has_nvidia_katago" == "true" ]]; then
     cat >>"$note_file" <<'EOF'
 - The NVIDIA assets include the official KataGo CUDA 12.1 Windows build.
-- On first use, if the required NVIDIA runtime is missing, the app can download and prepare the official runtime files automatically in the user folder.
+- The NVIDIA assets also include the required official NVIDIA runtime files, so first launch should work offline on supported NVIDIA PCs.
+- If those NVIDIA runtime files are missing later, the app can still repair them automatically in the user folder.
 - Only choose the NVIDIA package if your PC has an NVIDIA GPU. If you are not sure, use the regular with-katago installer instead.
 EOF
   fi
@@ -361,6 +416,7 @@ fi
 
 if has_bundled_katago "$NVIDIA_ENGINE_PLATFORM_DIR"; then
   has_nvidia_katago_assets="true"
+  prepare_bundled_nvidia_runtime_assets
   build_release_variant \
     "nvidia" \
     "true" \

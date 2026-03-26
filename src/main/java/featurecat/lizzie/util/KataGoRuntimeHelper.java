@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import javax.swing.BorderFactory;
@@ -57,8 +58,6 @@ public final class KataGoRuntimeHelper {
       "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.1.1.json";
   private static final String CUDNN_MANIFEST_URL =
       "https://developer.download.nvidia.com/compute/cudnn/redist/redistrib_8.9.7.29.json";
-  private static final String NVIDIA_DOWNLOAD_BASE =
-      "https://developer.download.nvidia.com/compute/";
   private static final Pattern BENCHMARK_RECOMMENDED_PATTERN =
       Pattern.compile("numSearchThreads\\s*=\\s*(\\d+):.*\\(recommended\\)");
   private static final Pattern BENCHMARK_CURRENT_PATTERN =
@@ -73,7 +72,7 @@ public final class KataGoRuntimeHelper {
           "cublas64_12.dll",
           "cublasLt64_12.dll",
           "cudnn64_8.dll",
-          "nvJitLink_12.dll",
+          "nvJitLink*.dll",
           "zlibwapi.dll");
   private static final Object NVIDIA_RUNTIME_LOCK = new Object();
   private static final int BENCHMARK_VISITS = 120;
@@ -328,14 +327,15 @@ public final class KataGoRuntimeHelper {
         missing.add(dllName);
       }
     }
-    boolean ready = missing.isEmpty();
+    Path readyDir = findDirectoryContainingRequiredDlls(searchDirs);
+    boolean ready = readyDir != null;
     long downloadBytes = APPROX_RUNTIME_DOWNLOAD_BYTES;
     String detailText;
     if (ready) {
       detailText =
           resource("AutoSetup.nvidiaRuntimeReady", "Ready")
               + "  |  "
-              + runtimeDir.toAbsolutePath().normalize();
+              + readyDir.toAbsolutePath().normalize();
     } else {
       detailText =
           resource(
@@ -716,11 +716,52 @@ public final class KataGoRuntimeHelper {
 
   private static boolean hasFile(List<Path> searchDirs, String fileName) {
     for (Path dir : searchDirs) {
-      if (dir != null && Files.isRegularFile(dir.resolve(fileName))) {
+      if (dir == null) {
+        continue;
+      }
+      if (fileName.contains("*")) {
+        String prefix = fileName.substring(0, fileName.indexOf('*'));
+        String suffix = fileName.substring(fileName.indexOf('*') + 1);
+        try (Stream<Path> files = Files.list(dir)) {
+          boolean found =
+              files.anyMatch(
+                  path -> {
+                    String name = path.getFileName().toString();
+                    return Files.isRegularFile(path)
+                        && name.startsWith(prefix)
+                        && name.endsWith(suffix);
+                  });
+          if (found) {
+            return true;
+          }
+        } catch (IOException e) {
+        }
+        continue;
+      }
+      if (Files.isRegularFile(dir.resolve(fileName))) {
         return true;
       }
     }
     return false;
+  }
+
+  private static Path findDirectoryContainingRequiredDlls(List<Path> searchDirs) {
+    for (Path dir : searchDirs) {
+      if (dir == null) {
+        continue;
+      }
+      boolean allPresent = true;
+      for (String dllName : REQUIRED_RUNTIME_DLLS) {
+        if (!Files.isRegularFile(dir.resolve(dllName))) {
+          allPresent = false;
+          break;
+        }
+      }
+      if (allPresent) {
+        return dir.toAbsolutePath().normalize();
+      }
+    }
+    return null;
   }
 
   private static Path getNvidiaRuntimeDir() {
@@ -738,15 +779,24 @@ public final class KataGoRuntimeHelper {
     List<RuntimePackageSpec> packages = new ArrayList<RuntimePackageSpec>();
     JSONObject cudaManifest = new JSONObject(httpGet(CUDA_MANIFEST_URL));
     JSONObject cudnnManifest = new JSONObject(httpGet(CUDNN_MANIFEST_URL));
-    packages.add(readPackageSpec(cudaManifest, "cuda_cudart", "windows-x86_64", "CUDA Runtime"));
-    packages.add(readPackageSpec(cudaManifest, "libcublas", "windows-x86_64", "CUDA cuBLAS"));
-    packages.add(readPackageSpec(cudaManifest, "libnvjitlink", "windows-x86_64", "CUDA nvJitLink"));
-    packages.add(readPackageSpec(cudnnManifest, "cudnn", "windows-x86_64", "NVIDIA cuDNN"));
+    packages.add(
+        readPackageSpec(
+            cudaManifest, CUDA_MANIFEST_URL, "cuda_cudart", "windows-x86_64", "CUDA Runtime"));
+    packages.add(
+        readPackageSpec(
+            cudaManifest, CUDA_MANIFEST_URL, "libcublas", "windows-x86_64", "CUDA cuBLAS"));
+    packages.add(
+        readPackageSpec(
+            cudaManifest, CUDA_MANIFEST_URL, "libnvjitlink", "windows-x86_64", "CUDA nvJitLink"));
+    packages.add(
+        readPackageSpec(
+            cudnnManifest, CUDNN_MANIFEST_URL, "cudnn", "windows-x86_64", "NVIDIA cuDNN"));
     return packages;
   }
 
   private static RuntimePackageSpec readPackageSpec(
-      JSONObject manifest, String key, String platformKey, String displayName) throws IOException {
+      JSONObject manifest, String manifestUrl, String key, String platformKey, String displayName)
+      throws IOException {
     JSONObject packageJson = manifest.optJSONObject(key);
     if (packageJson == null) {
       throw new IOException("Missing NVIDIA package metadata: " + key);
@@ -763,8 +813,18 @@ public final class KataGoRuntimeHelper {
       throw new IOException("Incomplete NVIDIA metadata: " + key);
     }
     String url =
-        relativePath.startsWith("http") ? relativePath : NVIDIA_DOWNLOAD_BASE + relativePath;
+        relativePath.startsWith("http")
+            ? relativePath
+            : resolveRelativeDownloadUrl(manifestUrl, relativePath);
     return new RuntimePackageSpec(displayName, version, url, sha256, sizeBytes, key);
+  }
+
+  private static String resolveRelativeDownloadUrl(String manifestUrl, String relativePath) {
+    int lastSlash = manifestUrl.lastIndexOf('/');
+    if (lastSlash < 0) {
+      return relativePath;
+    }
+    return manifestUrl.substring(0, lastSlash + 1) + relativePath;
   }
 
   private static void downloadRuntimePackage(
