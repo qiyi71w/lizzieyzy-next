@@ -25,12 +25,53 @@ param(
 
     [string]$SmokeInstallDir = "LizzieYzyNextSmoke",
 
-    [string]$SmokeConfigDir = "$env:USERPROFILE\.lizzieyzy-next",
+    [string]$SmokeConfigDir = "",
 
     [string]$RequiredLogDir = "gtp_logs"
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-SmokeConfigDirCandidates {
+    param(
+        [string]$PreferredConfigDir
+    )
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($PreferredConfigDir -and $PreferredConfigDir.Trim()) {
+        $candidates.Add($PreferredConfigDir)
+    }
+    if ($env:PUBLIC) {
+        $candidates.Add((Join-Path $env:PUBLIC "Documents\LizzieYzyNext"))
+        $candidates.Add((Join-Path $env:PUBLIC "LizzieYzyNext"))
+    }
+    if ($env:PROGRAMDATA) {
+        $candidates.Add((Join-Path $env:PROGRAMDATA "LizzieYzyNext"))
+    }
+    if ($env:USERPROFILE) {
+        $candidates.Add((Join-Path $env:USERPROFILE ".lizzieyzy-next"))
+        $candidates.Add((Join-Path $env:USERPROFILE ".lizzieyzy-next-foxuid"))
+    }
+
+    return $candidates | Where-Object { $_ -and $_.Trim() } | Select-Object -Unique
+}
+
+function Resolve-ExistingSmokeConfigDir {
+    param(
+        [string[]]$Candidates
+    )
+
+    foreach ($candidate in $Candidates) {
+        if ((Test-Path -LiteralPath (Join-Path $candidate "config.txt")) `
+            -or (Test-Path -LiteralPath (Join-Path $candidate "persist")) `
+            -or (Test-Path -LiteralPath (Join-Path $candidate "runtime")) `
+            -or (Test-Path -LiteralPath (Join-Path $candidate "save"))) {
+            return $candidate
+        }
+    }
+
+    return ""
+}
 
 function Invoke-JPackageMsiBuild {
     param(
@@ -194,6 +235,7 @@ $tempRoot = Join-Path $env:RUNNER_TEMP "lizzieyzy-next-msi-smoke"
 $oldDest = Join-Path $tempRoot "old"
 $newDest = Join-Path $tempRoot "new"
 $logsDir = Join-Path $tempRoot "logs"
+$smokeConfigCandidates = @(Get-SmokeConfigDirCandidates -PreferredConfigDir $SmokeConfigDir)
 
 Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
@@ -206,9 +248,15 @@ Invoke-MsiInstall -MsiPath $msiOld -LogPath (Join-Path $logsDir "install-old.log
     -AppExe (Find-InstalledAppExe) `
     -ConfigDir $SmokeConfigDir `
     -RequiredLogDir $RequiredLogDir `
-    -WaitSeconds 60
+    -WaitSeconds 60 `
+    -RequireConfig
 
-$configPath = Join-Path $SmokeConfigDir "config.txt"
+$resolvedSmokeConfigDir = Resolve-ExistingSmokeConfigDir -Candidates $smokeConfigCandidates
+if (-not $resolvedSmokeConfigDir) {
+    throw "Smoke config directory was not created by the first installed app launch."
+}
+Write-Host "Resolved smoke config dir: $resolvedSmokeConfigDir"
+$configPath = Join-Path $resolvedSmokeConfigDir "config.txt"
 Set-StaleLegacyEngineConfig -ConfigPath $configPath
 
 Invoke-MsiInstall -MsiPath $msiNew -LogPath (Join-Path $logsDir "install-new.log")
@@ -218,10 +266,11 @@ Write-Host "Installed exe: $appExe"
 
 & (Join-Path $PSScriptRoot "windows_smoke_test.ps1") `
     -AppExe $appExe `
-    -ConfigDir $SmokeConfigDir `
+    -ConfigDir $resolvedSmokeConfigDir `
     -RequiredLogDir $RequiredLogDir `
     -WaitSeconds 60 `
-    -PreserveConfig
+    -PreserveConfig `
+    -RequireConfig
 
 if ($LASTEXITCODE -ne 0) {
     throw "Installed app smoke test failed after MSI upgrade."

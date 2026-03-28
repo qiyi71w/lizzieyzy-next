@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$AppExe,
 
-    [string]$ConfigDir = "$env:USERPROFILE\.lizzieyzy-next",
+    [string]$ConfigDir = "",
 
     [string]$RequiredLogDir = "gtp_logs",
 
@@ -10,10 +10,56 @@ param(
 
     [int]$WaitSeconds = 60,
 
-    [switch]$PreserveConfig
+    [switch]$PreserveConfig,
+
+    [switch]$RequireConfig
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-SmokeConfigDirCandidates {
+    param(
+        [string]$PreferredConfigDir
+    )
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($PreferredConfigDir -and $PreferredConfigDir.Trim()) {
+        $candidates.Add($PreferredConfigDir)
+    }
+    if ($env:PUBLIC) {
+        $candidates.Add((Join-Path $env:PUBLIC "Documents\LizzieYzyNext"))
+        $candidates.Add((Join-Path $env:PUBLIC "LizzieYzyNext"))
+    }
+    if ($env:PROGRAMDATA) {
+        $candidates.Add((Join-Path $env:PROGRAMDATA "LizzieYzyNext"))
+    }
+    if ($env:USERPROFILE) {
+        $candidates.Add((Join-Path $env:USERPROFILE ".lizzieyzy-next"))
+        $candidates.Add((Join-Path $env:USERPROFILE ".lizzieyzy-next-foxuid"))
+    }
+
+    return $candidates | Where-Object { $_ -and $_.Trim() } | Select-Object -Unique
+}
+
+function Resolve-ExistingSmokeConfigDir {
+    param(
+        [string[]]$Candidates
+    )
+
+    foreach ($candidate in $Candidates) {
+        if ((Test-Path -LiteralPath (Join-Path $candidate "config.txt")) `
+            -or (Test-Path -LiteralPath (Join-Path $candidate "persist")) `
+            -or (Test-Path -LiteralPath (Join-Path $candidate "runtime")) `
+            -or (Test-Path -LiteralPath (Join-Path $candidate "save"))) {
+            return $candidate
+        }
+    }
+
+    if ($Candidates.Count -gt 0) {
+        return $Candidates[0]
+    }
+    return ""
+}
 
 if (-not (Test-Path -LiteralPath $AppExe)) {
     throw "App executable not found: $AppExe"
@@ -22,9 +68,18 @@ if (-not (Test-Path -LiteralPath $AppExe)) {
 $appDir = Split-Path -Parent $AppExe
 $consoleLogs = Join-Path $appDir "LastConsoleLogs_*.txt"
 $errorLogs = Join-Path $appDir "LastErrorLogs_*.txt"
+$configDirCandidates = @(Get-SmokeConfigDirCandidates -PreferredConfigDir $ConfigDir)
 
-if ((-not $PreserveConfig) -and (Test-Path -LiteralPath $ConfigDir)) {
-    Remove-Item -LiteralPath $ConfigDir -Recurse -Force
+if ($configDirCandidates.Count -eq 0) {
+    throw "No candidate config directory could be resolved for the Windows smoke test."
+}
+
+if (-not $PreserveConfig) {
+    foreach ($candidate in $configDirCandidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            Remove-Item -LiteralPath $candidate -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Get-ChildItem -Path $consoleLogs -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -34,12 +89,9 @@ Write-Host "Launching $AppExe"
 $process = Start-Process -FilePath $AppExe -WorkingDirectory $appDir -PassThru
 
 $deadline = (Get-Date).AddSeconds($WaitSeconds)
-$runtimeDir = Join-Path $ConfigDir "runtime"
-$requiredRuntimeLogDir = Join-Path $runtimeDir $RequiredLogDir
-$configFile = Join-Path $ConfigDir "config.txt"
-$persistFile = Join-Path $ConfigDir "persist"
 $passed = $false
 $healthyDeadline = (Get-Date).AddSeconds($HealthyProcessSeconds)
+$activeConfigDir = Resolve-ExistingSmokeConfigDir -Candidates $configDirCandidates
 
 try {
     while ((Get-Date) -lt $deadline) {
@@ -50,11 +102,17 @@ try {
             throw "Application exited early with code $exitCode"
         }
 
+        $activeConfigDir = Resolve-ExistingSmokeConfigDir -Candidates $configDirCandidates
+        $runtimeDir = Join-Path $activeConfigDir "runtime"
+        $requiredRuntimeLogDir = Join-Path $runtimeDir $RequiredLogDir
+        $configFile = Join-Path $activeConfigDir "config.txt"
+        $persistFile = Join-Path $activeConfigDir "persist"
         $hasConfig = (Test-Path -LiteralPath $configFile) -and (Test-Path -LiteralPath $persistFile)
         $hasRuntimeLogs = Test-Path -LiteralPath $requiredRuntimeLogDir
         $hasRuntimeState = $hasRuntimeLogs -or (Test-Path -LiteralPath $runtimeDir)
 
         if ($hasConfig -and $hasRuntimeState) {
+            Write-Host "Resolved config dir: $activeConfigDir"
             if ($hasRuntimeLogs) {
                 Write-Host "Smoke test passed. Config files and bundled KataGo runtime logs were created."
             }
@@ -69,7 +127,8 @@ try {
             Write-Host "Config files detected. Waiting briefly for runtime state..."
         }
 
-        if ((Get-Date) -ge $healthyDeadline) {
+        if ((Get-Date) -ge $healthyDeadline -and (-not $RequireConfig)) {
+            Write-Host "Resolved config dir candidate: $activeConfigDir"
             Write-Host "Smoke test passed. App process stayed alive long enough for CI."
             $passed = $true
             return
@@ -84,9 +143,11 @@ finally {
         Start-Sleep -Seconds 2
     }
 
+    $activeConfigDir = Resolve-ExistingSmokeConfigDir -Candidates $configDirCandidates
     Write-Host "--- Config dir ---"
-    if (Test-Path -LiteralPath $ConfigDir) {
-        Get-ChildItem -LiteralPath $ConfigDir -Recurse -Force | Select-Object FullName, Length
+    Write-Host $activeConfigDir
+    if ($activeConfigDir -and (Test-Path -LiteralPath $activeConfigDir)) {
+        Get-ChildItem -LiteralPath $activeConfigDir -Recurse -Force | Select-Object FullName, Length
     }
 
     Write-Host "--- Console logs ---"
