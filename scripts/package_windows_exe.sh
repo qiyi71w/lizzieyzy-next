@@ -279,18 +279,18 @@ EOF
   if [[ "$has_with_katago" == "true" ]]; then
     cat >>"$note_file" <<EOF
 - ${DATE_TAG}-${ARCH_TAG}.with-katago.installer.exe
-  Recommended CPU build for most users. Best stability. Run the installer, finish setup, then launch from Start Menu or desktop.
+  CPU fallback build. Use this if OpenCL runs poorly on your PC and you need the safer compatibility option.
 - ${DATE_TAG}-${ARCH_TAG}.with-katago.portable.zip
-  Recommended CPU portable build. Use this if you do not want the installer. Unzip it and open ${APP_NAME}.exe.
+  CPU fallback portable build. Use this if you do not want the installer and prefer the safer compatibility option.
 EOF
   fi
 
   if [[ "$has_opencl_katago" == "true" ]]; then
     cat >>"$note_file" <<EOF
 - ${DATE_TAG}-${OPENCL_ARCH_TAG}.installer.exe
-  Optional OpenCL build for PCs where OpenCL GPU acceleration works well. Choose this only if you specifically want the OpenCL engine.
+  Recommended Windows build for most users who want better KataGo speed. Choose this first if your PC can run OpenCL normally.
 - ${DATE_TAG}-${OPENCL_ARCH_TAG}.portable.zip
-  OpenCL portable build. Unzip it and open ${OPENCL_APP_NAME}.exe.
+  Recommended OpenCL portable build. Unzip it and open ${OPENCL_APP_NAME}.exe.
 EOF
   fi
 
@@ -332,8 +332,8 @@ EOF
     cat >>"$note_file" <<'EOF'
 - The with-katago assets also include bundled KataGo and a default weight.
 - First launch should auto-configure the bundled engine for most users.
-- The regular Windows bundle now uses the official CPU KataGo build by default for better compatibility on mixed Windows hardware.
-- The regular Windows bundle also supports Smart Optimize and can save a better thread setting automatically after benchmarking.
+- The CPU assets use the official KataGo CPU build as a compatibility fallback when OpenCL is not suitable.
+- The CPU assets also support Smart Optimize and can save a better thread setting automatically after benchmarking.
 EOF
   else
     cat >>"$note_file" <<'EOF'
@@ -344,8 +344,8 @@ EOF
   if [[ "$has_opencl_katago" == "true" ]]; then
     cat >>"$note_file" <<'EOF'
 - The OpenCL assets include the official KataGo OpenCL Windows build.
-- Choose the OpenCL package only if you want GPU acceleration through OpenCL and know your PC handles OpenCL reliably.
-- If you are not sure, use the regular CPU package instead.
+- The OpenCL package is now the main recommended Windows choice for users who want better analysis speed.
+- If OpenCL behaves badly on your PC, switch to the CPU package instead.
 EOF
   fi
 

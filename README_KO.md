@@ -29,8 +29,8 @@
 
 > [!IMPORTANT]
 > 먼저 이 5가지만 보면 됩니다:
-> - 대부분의 Windows 사용자는 `windows64.with-katago.installer.exe` 를 받으면 가장 쉽습니다. 이것이 추천 **CPU 버전** 입니다
-> - OpenCL GPU 가속을 직접 써 보고 싶다면 `windows64.opencl.installer.exe` 를 고를 수 있습니다
+> - 대부분의 Windows 사용자는 `windows64.opencl.installer.exe` 를 받으면 가장 쉽습니다. 이것이 추천 **OpenCL 버전** 입니다
+> - OpenCL 이 잘 맞지 않으면 `windows64.with-katago.installer.exe` 로 바꿔서 쓸 수 있습니다
 > - PC 에 **NVIDIA 그래픽카드** 가 있고 더 빠른 분석을 원하면 `windows64.nvidia.installer.exe` 를 고르면 됩니다
 > - Fox 기보 가져오기는 이제 **Fox 닉네임** 을 입력하면 됩니다. 앱이 맞는 계정을 자동으로 찾습니다
 > - 주 추천 통합 패키지는 KataGo 를 포함하고 있고, 첫 실행에서는 자동 설정을 먼저 시도합니다
@@ -55,11 +55,11 @@
 
 **Windows** 를 쓴다면:
 
-- 대부분의 사용자는 **`windows64.with-katago.installer.exe`** 입니다. 더 안정적인 **CPU 버전** 입니다
-- OpenCL GPU 가속을 직접 써 보고 싶다면 **`windows64.opencl.installer.exe`**
+- 대부분의 사용자는 **`windows64.opencl.installer.exe`** 입니다. 속도를 우선한 **OpenCL 버전** 입니다
+- OpenCL 이 잘 맞지 않는다면 **`windows64.with-katago.installer.exe`** 를 쓰면 됩니다. 이쪽은 **CPU 대안 버전** 입니다
 - NVIDIA 그래픽카드가 있고 속도를 더 원하면 **`windows64.nvidia.installer.exe`**
 
-위 3가지는 각각 CPU 버전, OpenCL 버전, NVIDIA 전용 고속 버전입니다.
+위 3가지는 각각 OpenCL 추천 버전, CPU 대안 버전, NVIDIA 전용 고속 버전입니다.
 NVIDIA 패키지는 처음 실행할 때 필요한 공식 NVIDIA 런타임을 사용자 폴더에 자동으로 준비한 뒤 고속 분석을 사용할 수 있게 합니다.
 CPU 버전, OpenCL 버전, NVIDIA 버전 모두 `KataGo Auto Setup` 의 `Smart Optimize` 를 사용할 수 있습니다.
 
@@ -73,10 +73,10 @@ CPU 버전, OpenCL 버전, NVIDIA 버전 모두 `KataGo Auto Setup` 의 `Smart O
 
 | 내 컴퓨터 | 먼저 받을 파일 |
 | --- | --- |
-| Windows x64, CPU 버전, 추천 | `windows64.with-katago.installer.exe` |
-| Windows x64, CPU 버전, 설치 없이 사용 | `windows64.with-katago.portable.zip` |
-| Windows x64, OpenCL 버전, GPU 가속 시도 | `windows64.opencl.installer.exe` |
+| Windows x64, OpenCL 버전, 추천 | `windows64.opencl.installer.exe` |
 | Windows x64, OpenCL 버전, 설치 없이 사용 | `windows64.opencl.portable.zip` |
+| Windows x64, CPU 버전, 호환 대안 | `windows64.with-katago.installer.exe` |
+| Windows x64, CPU 버전, 호환 대안, 설치 없이 사용 | `windows64.with-katago.portable.zip` |
 | Windows x64, NVIDIA GPU, 더 빠르게 | `windows64.nvidia.installer.exe` |
 | Windows x64, NVIDIA GPU, 설치 없이 사용 | `windows64.nvidia.portable.zip` |
 | Windows x64, 내 엔진 사용 + 설치형 | `windows64.without.engine.installer.exe` |
@@ -87,18 +87,18 @@ CPU 버전, OpenCL 버전, NVIDIA 버전 모두 `KataGo Auto Setup` 의 `Smart O
 
 간단한 기준:
 
-- Windows: 무엇을 골라야 할지 모르겠으면 `windows64.with-katago.installer.exe`
+- Windows: 무엇을 골라야 할지 모르겠으면 `windows64.opencl.installer.exe`
 - Mac: Apple Silicon 인지 Intel 인지 먼저 확인
 - Linux: `with-katago.zip`
 
 짧게 정리하면:
 
-- `with-katago.installer.exe` 는 대부분의 Windows 사용자용 CPU 버전
-- `opencl.installer.exe` 는 OpenCL GPU 가속을 직접 써 보고 싶은 경우
+- `opencl.installer.exe` 는 Windows 추천 버전
+- `with-katago.installer.exe` 는 OpenCL 이 잘 맞지 않는 PC 를 위한 CPU 대안
 - `nvidia.installer.exe` 는 NVIDIA GPU 사용자용 빠른 패키지
 - `opencl.portable.zip` 는 OpenCL 무설치 패키지
 - `nvidia.portable.zip` 는 NVIDIA GPU 사용자용 무설치 패키지
-- `with-katago.portable.zip` 는 CPU 무설치 패키지
+- `with-katago.portable.zip` 는 CPU 대안 무설치 패키지
 - `without.engine.installer.exe` 는 설치형을 원하지만 엔진은 직접 쓰려는 경우
 - `without.engine.portable.zip` 는 이미 자기 엔진을 관리하고 설치도 원하지 않는 경우
 
