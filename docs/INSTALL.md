@@ -11,81 +11,94 @@
 
 | 你的系统 | 推荐下载 | 内置 Java | 内置 KataGo | 适合谁 |
 | --- | --- | --- | --- | --- |
-| Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 是 | 是 | 普通用户首选，双击安装 |
-| Windows 64 位 | `<date>-windows64.nvidia.installer.exe` | 是 | 是 | 有 NVIDIA 显卡，想要更快分析 |
-| Windows 64 位 | `<date>-windows64.nvidia.portable.zip` | 是 | 是 | 有 NVIDIA 显卡，不想安装 |
-| Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 是 | 是 | 不想安装，只想解压后直接运行 |
+| Windows 64 位 | `<date>-windows64.opencl.portable.zip` | 是 | 是 | 普通用户首选，免安装，解压即用 |
+| Windows 64 位 | `<date>-windows64.opencl.installer.exe` | 是 | 是 | 想保留安装流程的 OpenCL 用户 |
+| Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 是 | 是 | OpenCL 不稳定时的 CPU 兜底，免安装 |
+| Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 是 | 是 | 想安装的 CPU 兜底版 |
+| Windows 64 位 | `<date>-windows64.nvidia.portable.zip` | 是 | 是 | 有 NVIDIA 显卡，想要更快分析，也不想安装 |
+| Windows 64 位 | `<date>-windows64.nvidia.installer.exe` | 是 | 是 | 有 NVIDIA 显卡，想保留安装流程 |
+| Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 是 | 否 | 想自己配引擎，也不想安装 |
 | Windows 64 位 | `<date>-windows64.without.engine.installer.exe` | 是 | 否 | 想保留安装流程，但自己配引擎 |
-| Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 是 | 否 | 想自己配引擎 |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App 自带运行时 | 是 | M 系列 Mac |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App 自带运行时 | 是 | Intel Mac |
 | Linux 64 位 | `<date>-linux64.with-katago.zip` | 是 | 是 | Linux 桌面用户 |
 
 一句话建议：
 
-- 想最省事：选 `with-katago`
-- 想在 NVIDIA 显卡上跑得更快：选 `windows64.nvidia.installer.exe`
-- 想自己管引擎：Windows 选 `without.engine.installer.exe` 或 `without.engine.portable.zip`
-- Windows 普通用户：优先选 `.installer.exe`
+- 想最省事：选 `windows64.opencl.portable.zip`
+- 如果 OpenCL 在你电脑上不稳定：改用 `windows64.with-katago.portable.zip`
+- 想在 NVIDIA 显卡上跑得更快：选 `windows64.nvidia.portable.zip`
+- 想自己管引擎：Windows 选 `without.engine.portable.zip`，想安装再选同名 `installer.exe`
+- Windows 普通用户：优先选 `.portable.zip`，想保留安装流程再选同名 `.installer.exe`
 
 ### 历史 tag 说明
 
-部分旧 tag 还会看到早期的 zip 命名或兼容包，但当前维护版公开 release 已统一成 9 个主资产：6 个 Windows、2 个 macOS、1 个 Linux。普通用户直接按上面的表选即可。
+部分旧 tag 还会看到早期的 zip 命名或兼容包，但当前维护版公开 release 已统一成 11 个主资产：8 个 Windows、2 个 macOS、1 个 Linux。普通用户直接按上面的表选即可。
 
 ## Windows 安装
 
-### Windows 64 位安装器
+### Windows 64 位 OpenCL 免安装包（推荐）
 
-1. 下载 `windows64.with-katago.installer.exe`。
+1. 下载 `windows64.opencl.portable.zip`。
+2. 解压到普通目录，例如 `D:\LizzieYzy-Next`。
+3. 打开解压后的目录。
+4. 双击 `LizzieYzy Next OpenCL.exe`。
+
+这是当前最推荐给普通用户的 Windows 路径。
+OpenCL 免安装包也能直接打开 `KataGo 一键设置`，点一次“智能测速优化”，自动写入更合适的线程数。
+
+### Windows 64 位 OpenCL 安装器
+
+如果你更喜欢安装流程：
+
+1. 下载 `windows64.opencl.installer.exe`。
 2. 双击运行安装器。
 3. 按向导选择安装目录。
 4. 安装完成后，从桌面快捷方式或开始菜单打开程序。
 
-这是当前最推荐给普通用户的 Windows 路径。
-普通 Windows 整合包也能直接打开 `KataGo 一键设置`，点一次“智能测速优化”，自动写入更合适的线程数。
+### Windows 64 位 CPU 兜底包
+
+如果 OpenCL 在你的电脑上表现不稳定：
+
+1. 优先下载 `windows64.with-katago.portable.zip`。
+2. 解压后运行 `LizzieYzy Next.exe`。
+3. 如果你更喜欢安装流程，再改用 `windows64.with-katago.installer.exe`。
 
 ### Windows 64 位 NVIDIA 极速版
 
 如果你的电脑有 NVIDIA 显卡，而且你更在意分析速度：
 
+1. 优先下载 `windows64.nvidia.portable.zip`。
+2. 解压后运行 `LizzieYzy Next NVIDIA.exe`。
+3. 第一次启动时，程序会自动把需要的官方 NVIDIA 运行库准备到你的用户目录。
+4. 这个包内置的是官方 KataGo CUDA Windows 版本。想把线程数调到更合适，可以打开 `KataGo 一键设置`，点一次“智能测速优化”。
+
+如果你更喜欢安装流程：
+
 1. 下载 `windows64.nvidia.installer.exe`。
 2. 双击运行安装器。
 3. 安装完成后，从开始菜单或桌面打开程序。
-4. 第一次启动时，程序会自动把需要的官方 NVIDIA 运行库准备到你的用户目录。
-5. 这个包内置的是官方 KataGo CUDA Windows 版本。想把线程数调到更合适，可以打开 `KataGo 一键设置`，点一次“智能测速优化”。
-
-如果你想免安装：
-
-1. 下载 `windows64.nvidia.portable.zip`。
-2. 解压后运行 `LizzieYzy Next NVIDIA.exe`。
 
 注意：
 
 - 这个版本只适合 NVIDIA 显卡电脑。
-- 如果你不确定自己是不是 NVIDIA 显卡，直接下载普通的 `windows64.with-katago.installer.exe`。
-
-### Windows 64 位便携包
-
-1. 下载 `windows64.with-katago.portable.zip`。
-2. 解压到普通目录，例如 `D:\LizzieYzy-Next`。
-3. 打开解压后的目录。
-4. 双击 `LizzieYzy Next.exe`。
+- 如果你不确定自己是不是 NVIDIA 显卡，直接下载普通的 `windows64.opencl.portable.zip`。
 
 ### Windows 64 位无引擎包
 
-如果你想自己配引擎，但仍然想走正常安装流程：
+如果你想自己配引擎：
+
+1. 优先下载 `windows64.without.engine.portable.zip`。
+2. 解压后运行 `LizzieYzy Next.exe`。
+3. 这个包带程序和 Java，但不带 KataGo。
+4. 启动后请在软件里配置你自己的引擎。
+
+如果你仍然想走正常安装流程：
 
 1. 下载 `windows64.without.engine.installer.exe`。
 2. 双击运行安装器。
 3. 安装完成后，从开始菜单或桌面打开程序。
 4. 启动后在软件里配置你自己的引擎。
-
-如果你更想免安装：
-
-1. 下载 `windows64.without.engine.portable.zip`。
-2. 解压后运行 `LizzieYzy Next.exe`。
-3. 这个包带程序和 Java，但不带 KataGo。
-4. 启动后请在软件里配置你自己的引擎。
 
 ## macOS 安装
 

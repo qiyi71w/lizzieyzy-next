@@ -11,78 +11,90 @@ This guide answers four practical questions:
 
 | Platform | Recommended package | Bundled Java | Bundled KataGo | Best for |
 | --- | --- | --- | --- | --- |
-| Windows x64 | `<date>-windows64.with-katago.installer.exe` | Yes | Yes | Main recommendation for regular users |
-| Windows x64 | `<date>-windows64.nvidia.installer.exe` | Yes | Yes | NVIDIA GPU users who want higher analysis speed |
-| Windows x64 | `<date>-windows64.nvidia.portable.zip` | Yes | Yes | NVIDIA GPU users who do not want an installer |
-| Windows x64 | `<date>-windows64.with-katago.portable.zip` | Yes | Yes | No installer, unzip and run |
+| Windows x64 | `<date>-windows64.opencl.portable.zip` | Yes | Yes | Main recommendation for regular users, unzip and run |
+| Windows x64 | `<date>-windows64.opencl.installer.exe` | Yes | Yes | OpenCL users who prefer the installer flow |
+| Windows x64 | `<date>-windows64.with-katago.portable.zip` | Yes | Yes | CPU fallback when OpenCL behaves badly |
+| Windows x64 | `<date>-windows64.with-katago.installer.exe` | Yes | Yes | CPU fallback with an installer |
+| Windows x64 | `<date>-windows64.nvidia.portable.zip` | Yes | Yes | NVIDIA GPU users who want higher analysis speed without an installer |
+| Windows x64 | `<date>-windows64.nvidia.installer.exe` | Yes | Yes | NVIDIA GPU users who prefer an installer |
+| Windows x64 | `<date>-windows64.without.engine.portable.zip` | Yes | No | Custom engine setup without installation |
 | Windows x64 | `<date>-windows64.without.engine.installer.exe` | Yes | No | Installer flow with your own engine |
-| Windows x64 | `<date>-windows64.without.engine.portable.zip` | Yes | No | Custom engine setup |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` | App runtime | Yes | M-series Macs |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` | App runtime | Yes | Intel Macs |
 | Linux x64 | `<date>-linux64.with-katago.zip` | Yes | Yes | Linux desktop users |
 
 Quick rule:
 
-- choose `with-katago` if you want the shortest path
-- choose `windows64.nvidia.installer.exe` if your PC has an NVIDIA GPU and you want faster KataGo analysis
-- choose `without.engine.installer.exe` or `without.engine.portable.zip` on Windows if you plan to manage the engine yourself
-- on Windows, regular users should start with the installer build
+- choose `windows64.opencl.portable.zip` if you want the shortest path
+- choose `windows64.with-katago.portable.zip` if OpenCL behaves badly on your PC
+- choose `windows64.nvidia.portable.zip` if your PC has an NVIDIA GPU and you want faster KataGo analysis
+- choose `without.engine.portable.zip` or `without.engine.installer.exe` on Windows if you plan to manage the engine yourself
+- on Windows, regular users should start with the portable build and only switch to the installer if they want that flow
 
 ### Legacy tag note
 
-Some older tags still show transitional zip names or compatibility packages, but the current maintained release now centers on 9 primary assets: 6 Windows, 2 macOS, and 1 Linux package.
+Some older tags still show transitional zip names or compatibility packages, but the current maintained release now centers on 11 primary assets: 8 Windows, 2 macOS, and 1 Linux package.
 
 ## Windows
 
-### Windows x64 installer
+### Windows x64 OpenCL portable build
 
-1. Download `windows64.with-katago.installer.exe`.
+1. Download `windows64.opencl.portable.zip`.
+2. Extract it to a normal folder.
+3. Open the extracted folder.
+4. Run `LizzieYzy Next OpenCL.exe`.
+
+This is now the primary Windows path for regular users.
+The OpenCL bundle can also open `KataGo Auto Setup` and run `Smart Optimize` to write a better thread setting automatically.
+
+### Windows x64 OpenCL installer
+
+If you prefer the installer flow:
+
+1. Download `windows64.opencl.installer.exe`.
 2. Double-click the installer.
 3. Follow the setup wizard.
 4. Launch the app from the Start Menu or desktop shortcut.
 
-This is now the primary Windows path for regular users.
-The regular Windows bundle can also open `KataGo Auto Setup` and run `Smart Optimize` to write a better thread setting automatically.
+### Windows x64 CPU fallback
+
+If OpenCL behaves badly on your PC:
+
+1. Download `windows64.with-katago.portable.zip`.
+2. Extract it and run `LizzieYzy Next.exe`.
+3. If you prefer the installer flow, switch to `windows64.with-katago.installer.exe`.
 
 ### Windows x64 NVIDIA bundle
 
 If your PC has an NVIDIA GPU and you want higher analysis speed:
 
-1. Download `windows64.nvidia.installer.exe`.
-2. Double-click the installer.
-3. Finish setup.
-4. On first launch, the app automatically prepares the required official NVIDIA runtime files in your user folder.
-5. Launch `LizzieYzy Next NVIDIA` from the Start Menu or desktop shortcut.
-
-If you prefer a no-install package:
-
 1. Download `windows64.nvidia.portable.zip`.
 2. Extract it.
 3. Run `LizzieYzy Next NVIDIA.exe`.
+4. On first launch, the app automatically prepares the required official NVIDIA runtime files in your user folder.
 
-This bundle ships with the official KataGo CUDA Windows build. If you want to tune speed further, open `KataGo Auto Setup` once and run `Smart Optimize` to apply a benchmark-based thread setting automatically. If you are not sure whether your PC has an NVIDIA GPU, use the regular `windows64.with-katago.installer.exe` instead.
+If you prefer the installer flow:
 
-### Windows x64 portable build
+1. Download `windows64.nvidia.installer.exe`.
+2. Double-click the installer.
+3. Finish setup and launch `LizzieYzy Next NVIDIA`.
 
-1. Download `windows64.with-katago.portable.zip`.
-2. Extract it to a normal folder.
-3. Open the extracted folder.
-4. Run `LizzieYzy Next.exe`.
+This bundle ships with the official KataGo CUDA Windows build. If you want to tune speed further, open `KataGo Auto Setup` once and run `Smart Optimize` to apply a benchmark-based thread setting automatically. If you are not sure whether your PC has an NVIDIA GPU, use the regular `windows64.opencl.portable.zip` instead.
 
 ### Windows x64 no-engine build
 
-If you want the installer flow but prefer your own engine:
-
-1. Download `windows64.without.engine.installer.exe`.
-2. Double-click the installer.
-3. Finish setup and launch `LizzieYzy Next`.
-4. Configure your own engine after launch.
-
-If you prefer a no-install package:
+If you want your own engine without installation:
 
 1. Download `windows64.without.engine.portable.zip`.
 2. Extract it and run `LizzieYzy Next.exe`.
 3. This package includes the application runtime but not KataGo.
+4. Configure your own engine after launch.
+
+If you prefer the installer flow:
+
+1. Download `windows64.without.engine.installer.exe`.
+2. Double-click the installer.
+3. Finish setup and launch `LizzieYzy Next`.
 4. Configure your own engine after launch.
 
 ## macOS

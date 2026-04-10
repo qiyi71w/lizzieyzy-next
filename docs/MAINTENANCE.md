@@ -29,14 +29,16 @@
 
 当前发布包策略以“普通用户能快速选对并直接用”为核心。
 
-当前主推荐矩阵固定为 9 个公开资产：
+当前主推荐矩阵固定为 11 个公开资产：
 
-- Windows 64 位：`with-katago.installer.exe`
-- Windows 64 位：`nvidia.installer.exe`
-- Windows 64 位：`nvidia.portable.zip`
+- Windows 64 位：`opencl.portable.zip`
+- Windows 64 位：`opencl.installer.exe`
 - Windows 64 位：`with-katago.portable.zip`
-- Windows 64 位：`without.engine.installer.exe`
+- Windows 64 位：`with-katago.installer.exe`
+- Windows 64 位：`nvidia.portable.zip`
+- Windows 64 位：`nvidia.installer.exe`
 - Windows 64 位：`without.engine.portable.zip`
+- Windows 64 位：`without.engine.installer.exe`
 - macOS Apple Silicon：`.dmg`
 - macOS Intel：`.dmg`
 - Linux 64 位：`with-katago.zip`
@@ -87,7 +89,7 @@
 
 - 原版野狐棋谱同步已失效，这个维护版已修复
 - 输入野狐昵称即可获取最新公开棋谱，程序会自动找到账号
-- Windows 主推荐已经切到 `.exe` 安装器
+- Windows 主推荐已经切到免安装 `.portable.zip`
 
 ## 维护者建议遵守的检查项
 

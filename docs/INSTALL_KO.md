@@ -4,8 +4,8 @@
 
 ## 먼저 기억할 것
 
-1. 대부분의 Windows 사용자는 `windows64.with-katago.installer.exe` 를 선택하면 됩니다.
-2. NVIDIA 그래픽카드가 있고 더 빠른 분석을 원하면 `windows64.nvidia.installer.exe` 를 선택할 수 있습니다.
+1. 대부분의 Windows 사용자는 `windows64.opencl.portable.zip` 를 선택하면 됩니다.
+2. NVIDIA 그래픽카드가 있고 더 빠른 분석을 원하면 `windows64.nvidia.portable.zip` 를 선택할 수 있습니다.
 3. `with-katago` 패키지는 KataGo 와 기본 가중치를 포함합니다.
 4. Fox 기보를 가져올 때는 이제 **Fox 닉네임** 을 입력합니다.
 
@@ -13,42 +13,41 @@
 
 | 환경 | 추천 패키지 |
 | --- | --- |
-| Windows x64 | `<date>-windows64.with-katago.installer.exe` |
-| Windows x64, NVIDIA GPU, 더 빠른 분석 | `<date>-windows64.nvidia.installer.exe` |
-| Windows x64, NVIDIA GPU, 설치 없이 사용 | `<date>-windows64.nvidia.portable.zip` |
-| Windows x64, 설치 없이 사용 | `<date>-windows64.with-katago.portable.zip` |
-| Windows x64, 내 엔진 사용 + 설치형 | `<date>-windows64.without.engine.installer.exe` |
+| Windows x64 | `<date>-windows64.opencl.portable.zip` |
+| Windows x64, OpenCL 설치형 | `<date>-windows64.opencl.installer.exe` |
+| Windows x64, CPU 대안 | `<date>-windows64.with-katago.portable.zip` |
+| Windows x64, CPU 대안 설치형 | `<date>-windows64.with-katago.installer.exe` |
+| Windows x64, NVIDIA GPU, 더 빠른 분석 | `<date>-windows64.nvidia.portable.zip` |
+| Windows x64, NVIDIA GPU, 설치형 | `<date>-windows64.nvidia.installer.exe` |
 | Windows x64, 직접 엔진 설정 | `<date>-windows64.without.engine.portable.zip` |
+| Windows x64, 내 엔진 사용 + 설치형 | `<date>-windows64.without.engine.installer.exe` |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` |
 | Linux x64 | `<date>-linux64.with-katago.zip` |
 
 ## Windows
 
-1. `windows64.with-katago.installer.exe` 를 다운로드합니다.
-2. 설치 프로그램을 실행합니다.
-3. 설치가 끝나면 `LizzieYzy Next.exe` 를 실행합니다.
+1. 먼저 `windows64.opencl.portable.zip` 를 다운로드합니다.
+2. 압축을 풀고 `LizzieYzy Next OpenCL.exe` 를 실행합니다.
+3. 설치형 흐름이 필요하면 `windows64.opencl.installer.exe` 를 선택할 수 있습니다.
 
 일반 Windows 패키지도 `KataGo Auto Setup` 에서 `Smart Optimize` 를 한 번 실행하면 더 잘 맞는 스레드 수를 자동으로 저장할 수 있습니다.
 
 NVIDIA 그래픽카드가 있고 속도를 더 원한다면:
 
-1. `windows64.nvidia.installer.exe` 를 다운로드합니다.
-2. 설치 프로그램을 실행합니다.
-3. 처음 실행할 때 필요한 공식 NVIDIA 런타임을 사용자 폴더에 자동으로 준비합니다.
-4. `LizzieYzy Next NVIDIA.exe` 를 실행합니다.
-
-설치 없이 쓰고 싶다면:
-
 1. `windows64.nvidia.portable.zip` 를 다운로드합니다.
 2. 압축을 푼 뒤 `LizzieYzy Next NVIDIA.exe` 를 실행합니다.
+3. 처음 실행할 때 필요한 공식 NVIDIA 런타임을 사용자 폴더에 자동으로 준비합니다.
+4. 설치형이 필요하면 `windows64.nvidia.installer.exe` 를 선택할 수 있습니다.
 
-NVIDIA 그래픽카드인지 확실하지 않다면 일반 `windows64.with-katago.installer.exe` 를 선택하면 됩니다.
+OpenCL 이 잘 맞지 않다면 `windows64.with-katago.portable.zip` 를 쓰고, 설치형이 필요하면 `windows64.with-katago.installer.exe` 를 고르면 됩니다.
+
+NVIDIA 그래픽카드인지 확실하지 않다면 일반 `windows64.opencl.portable.zip` 를 선택하면 됩니다.
 
 직접 엔진을 쓰고 싶다면:
 
-1. `windows64.without.engine.installer.exe` 또는 `windows64.without.engine.portable.zip` 를 선택합니다.
-2. 설치형이면 설치를 완료하고, portable 이면 압축을 푼 뒤 `LizzieYzy Next.exe` 를 실행합니다.
+1. `windows64.without.engine.portable.zip` 또는 `windows64.without.engine.installer.exe` 를 선택합니다.
+2. portable 이면 압축을 푼 뒤 `LizzieYzy Next.exe` 를 실행하고, 설치형이면 설치를 완료합니다.
 3. 실행 후 자신의 엔진을 설정합니다.
 
 ## macOS

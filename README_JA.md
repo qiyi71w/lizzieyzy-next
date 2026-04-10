@@ -29,9 +29,9 @@
 
 > [!IMPORTANT]
 > まずはこの 5 点だけ見れば大丈夫です:
-> - Windows 利用者の多くは `windows64.opencl.installer.exe` を選べば始めやすいです。これは推奨の **OpenCL 版** です
-> - OpenCL の相性が悪い場合は `windows64.with-katago.installer.exe` を代わりに使えます
-> - NVIDIA GPU を使っていて、より速い解析を求めるなら `windows64.nvidia.installer.exe` を選べます
+> - Windows 利用者の多くは `windows64.opencl.portable.zip` を選べば始めやすいです。これは推奨の **OpenCL 版、インストール不要** です
+> - OpenCL の相性が悪い場合は `windows64.with-katago.portable.zip` を代わりに使えます
+> - NVIDIA GPU を使っていて、より速い解析を求めるなら `windows64.nvidia.portable.zip` を選べます
 > - 野狐棋譜取得では **野狐のニックネーム** を入力します。アプリが対応するアカウントを自動で見つけます
 > - 主な統合パッケージには KataGo が含まれており、初回起動では自動設定を優先します
 
@@ -55,10 +55,11 @@
 
 **Windows** を使っているなら:
 
-- 多くの人は **`windows64.opencl.installer.exe`**。これは速度優先の **OpenCL 版** です
-- OpenCL の相性が悪いなら **`windows64.with-katago.installer.exe`**。こちらは **CPU フォールバック版** です
-- NVIDIA GPU があり、速度を優先したいなら **`windows64.nvidia.installer.exe`**
+- 多くの人は **`windows64.opencl.portable.zip`**。これは速度優先の **OpenCL 非インストール版** です
+- OpenCL の相性が悪いなら **`windows64.with-katago.portable.zip`**。こちらは **CPU フォールバック版** です
+- NVIDIA GPU があり、速度を優先したいなら **`windows64.nvidia.portable.zip`**
 
+インストーラの流れがほしい場合は、対応する `installer.exe` を選べます。
 上の 3 つはそれぞれ OpenCL 推奨版、CPU フォールバック版、NVIDIA 高速版です。
 NVIDIA 版は初回起動時に必要な公式 NVIDIA ランタイムをユーザーフォルダへ自動で準備してから高速解析を使えるようにします。
 CPU 版、OpenCL 版、NVIDIA 版はいずれも `KataGo Auto Setup` の `Smart Optimize` を使えます。
@@ -73,34 +74,34 @@ CPU 版、OpenCL 版、NVIDIA 版はいずれも `KataGo Auto Setup` の `Smart 
 
 | あなたの環境 | まず選ぶもの |
 | --- | --- |
-| Windows x64、OpenCL 版、推奨 | `windows64.opencl.installer.exe` |
-| Windows x64、OpenCL 版、インストーラ不要 | `windows64.opencl.portable.zip` |
-| Windows x64、CPU 版、互換フォールバック | `windows64.with-katago.installer.exe` |
+| Windows x64、OpenCL 版、推奨、インストーラ不要 | `windows64.opencl.portable.zip` |
+| Windows x64、OpenCL 版、インストーラあり | `windows64.opencl.installer.exe` |
 | Windows x64、CPU 版、互換フォールバック、インストーラ不要 | `windows64.with-katago.portable.zip` |
-| Windows x64、NVIDIA GPU、より速い解析 | `windows64.nvidia.installer.exe` |
-| Windows x64、NVIDIA GPU、インストーラ不要 | `windows64.nvidia.portable.zip` |
-| Windows x64、自分でエンジンを設定したい、インストーラあり | `windows64.without.engine.installer.exe` |
+| Windows x64、CPU 版、互換フォールバック、インストーラあり | `windows64.with-katago.installer.exe` |
+| Windows x64、NVIDIA GPU、より速い解析、インストーラ不要 | `windows64.nvidia.portable.zip` |
+| Windows x64、NVIDIA GPU、インストーラあり | `windows64.nvidia.installer.exe` |
 | Windows x64、自分でエンジンを設定したい | `windows64.without.engine.portable.zip` |
+| Windows x64、自分でエンジンを設定したい、インストーラあり | `windows64.without.engine.installer.exe` |
 | macOS Apple Silicon | `mac-arm64.with-katago.dmg` |
 | macOS Intel | `mac-amd64.with-katago.dmg` |
 | Linux x64 | `linux64.with-katago.zip` |
 
 迷ったときの目安:
 
-- Windows: どれを選ぶべきかわからない場合は `windows64.opencl.installer.exe`
+- Windows: どれを選ぶべきかわからない場合は `windows64.opencl.portable.zip`
 - Mac: Apple Silicon か Intel かを先に確認
 - Linux: `with-katago.zip`
 
 ざっくり言うと:
 
-- `opencl.installer.exe` は Windows の推奨版
-- `with-katago.installer.exe` は OpenCL の相性が悪い環境向けの CPU フォールバック
-- `nvidia.installer.exe` は NVIDIA GPU 利用者向けの高速版
-- `opencl.portable.zip` は OpenCL 版の非インストール版
-- `nvidia.portable.zip` は NVIDIA GPU 利用者向けの非インストール版
-- `with-katago.portable.zip` は CPU フォールバック版の非インストール版
-- `without.engine.installer.exe` はインストーラ経由で自分のエンジンを使いたい人向け
+- `opencl.portable.zip` は Windows の推奨版
+- `with-katago.portable.zip` は OpenCL の相性が悪い環境向けの CPU フォールバック
+- `nvidia.portable.zip` は NVIDIA GPU 利用者向けの推奨高速版
+- `opencl.installer.exe` は OpenCL 版のインストーラ代替
+- `with-katago.installer.exe` は CPU フォールバックのインストーラ代替
+- `nvidia.installer.exe` は NVIDIA GPU 利用者向けインストーラ代替
 - `without.engine.portable.zip` は自分のエンジンを使い、インストールも省きたい人向け
+- `without.engine.installer.exe` はインストーラ経由で自分のエンジンを使いたい人向け
 
 ## このメンテ版で改善したこと
 

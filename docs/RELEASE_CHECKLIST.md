@@ -18,12 +18,14 @@
 
 新发布时，优先保留下面这组资产：
 
-- `windows64.with-katago.installer.exe`
+- `windows64.opencl.portable.zip`
+- `windows64.opencl.installer.exe`
 - `windows64.with-katago.portable.zip`
-- `windows64.nvidia.installer.exe`
+- `windows64.with-katago.installer.exe`
 - `windows64.nvidia.portable.zip`
-- `windows64.without.engine.installer.exe`
+- `windows64.nvidia.installer.exe`
 - `windows64.without.engine.portable.zip`
+- `windows64.without.engine.installer.exe`
 - `windows64.with-katago-install.txt`
 - `windows64.without.engine-install.txt`
 - `mac-arm64.with-katago.dmg`
@@ -65,8 +67,9 @@ GitHub Actions：
 发版前至少确认：
 
 - `README.md` 和 `README_EN.md` 的包名与计划上传的文件完全一致
-- 安装文档里的 Windows 主路径仍然是 `installer.exe`
+- 安装文档里的 Windows 主路径仍然是 `portable.zip`
 - 如果提供 NVIDIA 极速包，要同时核对 `nvidia.installer.exe` 和 `nvidia.portable.zip`
+- 如果提供 OpenCL 包，要同时核对 `opencl.installer.exe` 和 `opencl.portable.zip`
 - 如果提供 Windows 无引擎包，要同时核对 `without.engine.installer.exe` 和 `without.engine.portable.zip`
 - 界面里仍然写的是 `野狐棋谱（输入野狐昵称获取）`
 - 发布页最上面的中文说明里，要明确写“普通 Windows 包也支持智能优化”
@@ -164,7 +167,7 @@ gh workflow run update-release-notes.yml \
 
 1. 原版野狐棋谱同步已失效，这个维护版已修复
 2. 现在输入野狐昵称即可获取最新公开棋谱，程序会自动找到账号
-3. Windows 64 位优先下载 `installer.exe`，macOS 下载 `.dmg`，Linux 下载 `with-katago.zip`
+3. Windows 64 位优先下载 `portable.zip`，macOS 下载 `.dmg`，Linux 下载 `with-katago.zip`
 4. 普通 Windows 包也支持智能优化
 5. NVIDIA Windows 包首次需要时会自动准备官方运行库
 
@@ -182,7 +185,7 @@ gh workflow run update-release-notes.yml \
 至少逐项确认：
 
 - 文件名日期一致
-- Windows 主推荐资产确实是 `installer.exe`
+- Windows 主推荐资产确实是 `portable.zip`
 - Windows 无引擎包已经是 `.portable.zip`
 - macOS 同时有 `arm64` 与 `amd64` 的 `.dmg`
 - 发布目录里没有把 `.txt`、校验文件或历史兼容包混进公开资产
@@ -194,7 +197,7 @@ gh workflow run update-release-notes.yml \
 
 - release 页面第一屏能不能看懂该下哪个包
 - README 里的推荐包名在 release 页面能不能对上
-- Windows 用户会不会第一眼看到 `.exe` 安装器而不是历史 zip
+- Windows 用户会不会第一眼看到推荐的 `.portable.zip`
 - 中文说明是不是在最前面，而且信息足够醒目
 - “野狐昵称”和“首启自动配置”有没有被写清楚
 - “普通 Windows 包也支持智能优化”有没有写清楚

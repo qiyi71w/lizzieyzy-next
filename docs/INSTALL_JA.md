@@ -4,8 +4,8 @@
 
 ## まず覚えること
 
-1. Windows 利用者の多くは `windows64.with-katago.installer.exe` を選べば大丈夫です。
-2. NVIDIA GPU を使っていて、より速い解析を求めるなら `windows64.nvidia.installer.exe` を選べます。
+1. Windows 利用者の多くは `windows64.opencl.portable.zip` を選べば大丈夫です。
+2. NVIDIA GPU を使っていて、より速い解析を求めるなら `windows64.nvidia.portable.zip` を選べます。
 3. `with-katago` パッケージは KataGo と既定の重みを含みます。
 4. 野狐棋譜を取得するときは、いまは **野狐のニックネーム** を入力します。
 
@@ -13,42 +13,42 @@
 
 | 環境 | 推奨パッケージ |
 | --- | --- |
-| Windows x64 | `<date>-windows64.with-katago.installer.exe` |
-| Windows x64、NVIDIA GPU、高速解析向け | `<date>-windows64.nvidia.installer.exe` |
-| Windows x64、NVIDIA GPU、インストーラ不要 | `<date>-windows64.nvidia.portable.zip` |
-| Windows x64、インストーラ不要 | `<date>-windows64.with-katago.portable.zip` |
-| Windows x64、自分でエンジン設定、インストーラあり | `<date>-windows64.without.engine.installer.exe` |
+| Windows x64 | `<date>-windows64.opencl.portable.zip` |
+| Windows x64、OpenCL 版、インストーラあり | `<date>-windows64.opencl.installer.exe` |
+| Windows x64、CPU フォールバック | `<date>-windows64.with-katago.portable.zip` |
+| Windows x64、CPU フォールバック、インストーラあり | `<date>-windows64.with-katago.installer.exe` |
+| Windows x64、NVIDIA GPU、高速解析向け | `<date>-windows64.nvidia.portable.zip` |
+| Windows x64、NVIDIA GPU、インストーラあり | `<date>-windows64.nvidia.installer.exe` |
 | Windows x64、自分でエンジン設定 | `<date>-windows64.without.engine.portable.zip` |
+| Windows x64、自分でエンジン設定、インストーラあり | `<date>-windows64.without.engine.installer.exe` |
 | macOS Apple Silicon | `<date>-mac-arm64.with-katago.dmg` |
 | macOS Intel | `<date>-mac-amd64.with-katago.dmg` |
 | Linux x64 | `<date>-linux64.with-katago.zip` |
 
 ## Windows
 
-1. `windows64.with-katago.installer.exe` をダウンロードします。
-2. インストーラを実行します。
-3. インストール完了後、`LizzieYzy Next.exe` を起動します。
+1. まずは `windows64.opencl.portable.zip` をダウンロードします。
+2. 展開して `LizzieYzy Next OpenCL.exe` を起動します。
+3. インストーラの流れが必要なら `windows64.opencl.installer.exe` を選べます。
 
 通常の Windows パッケージでも `KataGo Auto Setup` から `Smart Optimize` を一度実行すると、より合いやすいスレッド数を自動で保存できます。
 
 NVIDIA GPU があり、速度を優先したい場合:
 
-1. `windows64.nvidia.installer.exe` をダウンロードします。
-2. インストーラを実行します。
-3. 初回起動時に、必要な公式 NVIDIA ランタイムがユーザーフォルダに自動で準備されます。
-4. `LizzieYzy Next NVIDIA.exe` を起動します。
-
-インストーラ不要なら:
-
 1. `windows64.nvidia.portable.zip` を選びます。
 2. 展開して `LizzieYzy Next NVIDIA.exe` を起動します。
+3. 初回起動時に、必要な公式 NVIDIA ランタイムがユーザーフォルダに自動で準備されます。
+4. インストーラが必要なら `windows64.nvidia.installer.exe` を選べます。
 
-NVIDIA GPU かどうかわからない場合は、通常の `windows64.with-katago.installer.exe` を選んでください。
+OpenCL の相性が悪い場合は、`windows64.with-katago.portable.zip` に切り替えてください。
+インストーラが必要なら `windows64.with-katago.installer.exe` も使えます。
+
+NVIDIA GPU かどうかわからない場合は、通常の `windows64.opencl.portable.zip` を選んでください。
 
 自分のエンジンを使いたい場合:
 
-1. `windows64.without.engine.installer.exe` または `windows64.without.engine.portable.zip` を選びます。
-2. インストーラ版ならそのままセットアップし、portable 版なら展開して `LizzieYzy Next.exe` を起動します。
+1. `windows64.without.engine.portable.zip` または `windows64.without.engine.installer.exe` を選びます。
+2. portable 版なら展開して `LizzieYzy Next.exe` を起動し、インストーラ版ならそのままセットアップします。
 3. 起動後に自分のエンジンを設定します。
 
 ## macOS
