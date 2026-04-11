@@ -6,7 +6,7 @@
 
 # 中文
 
-**这是一个继续维护 `lizzieyzy` 的版本，重点先把普通用户真正会用到的体验做好：野狐抓谱重新能抓、Windows 发布包更好选、KataGo 更容易直接跑起来。现在下载安装后，直接输入“野狐昵称”就能继续抓最近公开棋谱、分析和复盘。**
+**这是当前仍在维护的 `lizzieyzy` 维护版，也是一个面向普通用户的 `KataGo 围棋复盘 GUI`。这一版继续把最常用的链路做实：野狐抓谱重新能抓、Windows 免安装包更好选、KataGo 更容易开箱即用。现在下载安装后，直接输入“野狐昵称”就能继续抓最近公开棋谱、分析和复盘。**
 
 ![LizzieYzy Next 下载选择图](https://raw.githubusercontent.com/wimi321/lizzieyzy-next/main/assets/package-guide-zh.svg)
 
@@ -57,7 +57,7 @@
 
 # English
 
-**This maintained release keeps LizzieYzy practical for normal users again: Fox game fetch works again, downloads stay easy to choose, and KataGo is easier to get running well. Download it, open it, enter a Fox nickname, and keep reviewing.**
+**This is the actively maintained `LizzieYzy` fork and a practical `KataGo review GUI` for normal users. Fox game fetching works again, portable Windows downloads are easier to choose, and KataGo is easier to get running well. Download it, open it, enter a Fox nickname, and keep reviewing.**
 
 ## Download quick guide
 
@@ -85,7 +85,7 @@
 
 # 日本語
 
-**この保守版は、元の `lizzieyzy` をまだ使いたい利用者向けに、壊れていた野狐棋譜取得を復旧し、ダウンロード後すぐ使いやすい形に整えたリリースです。**
+**このリリースは、現在も保守されている `lizzieyzy` の保守版であり、普通の利用者向けの `KataGo 復盤 GUI` でもあります。壊れていた野狐棋譜取得を復旧し、ダウンロード後すぐ使いやすい形に整えています。**
 
 - Windows x64 は `portable.zip` を優先案内
 - NVIDIA GPU 向けには CUDA 版の専用パッケージも提供
@@ -96,7 +96,7 @@
 
 # 한국어
 
-**이 유지보수 릴리스는 아직 `lizzieyzy` 를 쓰고 싶은 사용자를 위해, 고장난 Fox 기보 가져오기를 복구하고 다운로드 후 바로 쓰기 쉬운 형태로 정리한 릴리스입니다.**
+**이 릴리스는 지금도 유지보수 중인 `lizzieyzy` 유지보수판이자, 일반 사용자를 위한 `KataGo 복기 GUI` 입니다. 고장난 Fox 기보 가져오기를 복구하고 다운로드 후 바로 쓰기 쉬운 형태로 정리했습니다.**
 
 - Windows x64 는 `portable.zip` 를 우선 안내
 - NVIDIA 그래픽카드용 CUDA 전용 패키지도 함께 제공

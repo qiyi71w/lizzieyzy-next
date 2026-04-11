@@ -197,7 +197,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
 
 ## 中文
 
-这是一个继续维护 `lizzieyzy` 的版本，重点先把普通用户真正会用到的体验做好：野狐棋谱重新能抓、Windows 安装包更好选、KataGo 更容易直接跑起来。下载安装后，直接输入 **野狐昵称**，就能继续抓最近公开棋谱、分析和复盘。
+这是当前仍在维护的 `lizzieyzy` 维护版，也是一个面向普通用户的 `KataGo 围棋复盘 GUI`。这一版继续把最常用的链路做实：野狐棋谱重新能抓、Windows 免安装包更好选、KataGo 更容易开箱即用。下载安装后，直接输入 **野狐昵称**，就能继续抓最近公开棋谱、分析和复盘。
 
 ### 下载前先看这几句
 
@@ -247,7 +247,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
 
 ## English
 
-This maintained release keeps LizzieYzy practical again for normal users: Fox game fetching works again, download choices stay easy to understand, and first launch needs less manual setup.
+This is the actively maintained `LizzieYzy` fork and a practical `KataGo review GUI` for normal users. Fox game fetching works again, portable Windows downloads are easier to choose, and first launch needs less manual setup.
 
 - Windows first choice: {windows_opencl_portable_en} for the recommended no-install OpenCL build
 - Windows CPU fallback: {windows_portable_en}
@@ -272,7 +272,7 @@ This maintained release keeps LizzieYzy practical again for normal users: Fox ga
 
 ## 日本語
 
-この保守版は、元の `lizzieyzy` をまだ使いたい利用者向けに、壊れていた野狐棋譜取得を復旧し、ダウンロード後すぐ使いやすい形に整えた継続保守版です。
+このリリースは、現在も保守されている `lizzieyzy` の保守版であり、普通の利用者向けの `KataGo 復盤 GUI` でもあります。壊れていた野狐棋譜取得を復旧し、ダウンロード後すぐ使いやすい形に整えています。
 
 - Windows 利用者の多くは {windows_opencl_portable_en} を選べば始めやすいです
 - OpenCL の相性が悪い場合は {windows_portable_en} を代わりに選べます
@@ -289,7 +289,7 @@ This maintained release keeps LizzieYzy practical again for normal users: Fox ga
 
 ## 한국어
 
-이 유지보수판은 아직 `lizzieyzy` 를 쓰고 싶은 사용자를 위해, 고장난 Fox 공개 기보 가져오기를 복구하고 다운로드 후 바로 쓰기 쉬운 형태로 정리한 지속 유지보수 포크입니다.
+이 릴리스는 지금도 유지보수 중인 `lizzieyzy` 유지보수판이자, 일반 사용자를 위한 `KataGo 복기 GUI` 입니다. 고장난 Fox 공개 기보 가져오기를 복구하고, 다운로드 후 바로 쓰기 쉬운 형태로 정리했습니다.
 
 - 대부분의 Windows 사용자는 {windows_opencl_portable_en} 를 먼저 받으면 가장 쉽습니다
 - OpenCL 이 잘 맞지 않는 PC 라면 {windows_portable_en} 를 대신 고를 수 있습니다
