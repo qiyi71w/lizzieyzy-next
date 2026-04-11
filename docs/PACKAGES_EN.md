@@ -6,6 +6,16 @@ This document answers three practical questions:
 2. what each package includes
 3. which one a regular user should download first
 
+## Quick Answer First
+
+This page describes the public release layout of the maintained `LizzieYzy Next` fork, not the older historical `lizzieyzy` release layout.
+
+- The maintained release page now centers on 11 primary user-facing assets
+- On Windows, the default recommendation is now `portable.zip`
+- Most regular users should start with `windows64.opencl.portable.zip`
+- If OpenCL behaves poorly, switch to `windows64.with-katago.portable.zip`
+- If you have an NVIDIA GPU and want more speed, switch to `windows64.nvidia.portable.zip`
+
 ## The 11 Primary Public Release Assets
 
 | Package type | Typical filename | Best for |

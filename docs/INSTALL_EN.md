@@ -7,6 +7,15 @@ This guide answers four practical questions:
 3. whether first launch auto-configures the engine
 4. how to fetch Fox games by nickname
 
+## Quick Answer First
+
+This installation guide is for the actively maintained `LizzieYzy Next` fork, which is the practical `LizzieYzy replacement / maintained fork` many users are actually looking for.
+
+- If you want a portable Windows `KataGo review software` package, start with `windows64.opencl.portable.zip`
+- If you are looking for a maintained `LizzieYzy` build that still works, this is the project to check first
+- If you want to enter a `Fox nickname`, fetch games, and review them right away, the maintained fork already supports that flow
+- If you are worried about first-launch setup, the recommended bundles already include KataGo and a default weight
+
 ## Pick The Right Package
 
 | Platform | Recommended package | Bundled Java | Bundled KataGo | Best for |

@@ -6,6 +6,16 @@
 2. 每个包里内置了什么
 3. 普通用户应该怎么选
 
+## 先直接看结论
+
+这份文档讲的是当前维护版 `LizzieYzy Next` 的公开发布格式，不是旧 `lizzieyzy` 的历史发布布局。
+
+- 当前维护版公开主推 11 个用户向主资产
+- Windows 默认优先推荐 `portable.zip`
+- 大多数普通用户先下 `windows64.opencl.portable.zip`
+- OpenCL 表现不好时改用 `windows64.with-katago.portable.zip`
+- 有 NVIDIA 显卡并且更在意速度时改用 `windows64.nvidia.portable.zip`
+
 如果你只想先看图再决定，先看这里：
 
 <p align="center">
