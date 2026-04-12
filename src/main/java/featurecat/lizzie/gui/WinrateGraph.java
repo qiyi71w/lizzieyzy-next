@@ -7,7 +7,6 @@ import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.util.Utils;
 import java.awt.*;
-import java.awt.geom.Point2D;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -55,6 +54,14 @@ public class WinrateGraph {
   private Color whiteColor = new Color(240, 240, 240);
   private boolean noC = false;
 
+  private Color getBlunderColor(double winrateDrop, double scoreDrop) {
+    if (scoreDrop > 5.0 || winrateDrop > 20.0) return new Color(235, 60, 60, 220);
+    if (scoreDrop > 2.0 || winrateDrop > 10.0) return new Color(230, 140, 40, 220);
+    if (scoreDrop > 1.0 || winrateDrop > 5.0) return new Color(230, 200, 50, 200);
+    if (scoreDrop > 0.3 || winrateDrop > 2.0) return new Color(150, 180, 80, 150);
+    return new Color(120, 120, 120, 50);
+  }
+
   public void draw(
       Graphics2D g,
       Graphics2D gBlunder,
@@ -69,23 +76,9 @@ public class WinrateGraph {
     if (Lizzie.frame.isTrying) node = Lizzie.board.getHistory().getMainEnd();
     else node = curMove;
     // draw background rectangle
-    int halfHeight = height / 2;
-    final Paint gradient =
-        new GradientPaint(
-            new Point2D.Float(posx, posy),
-            new Color(120, 120, 120, 180),
-            new Point2D.Float(posx, posy + halfHeight),
-            new Color(155, 155, 155, 185));
-    final Paint gradient2 =
-        new GradientPaint(
-            new Point2D.Float(posx, posy + halfHeight),
-            new Color(155, 155, 155, 185),
-            new Point2D.Float(posx, posy + height),
-            new Color(120, 120, 120, 180));
-    gBackground.setPaint(gradient);
-    gBackground.fillRect(posx, posy, width, halfHeight);
-    gBackground.setPaint(gradient2);
-    gBackground.fillRect(posx, posy + halfHeight, width, height - halfHeight);
+    final Paint customBackground = new Color(24, 28, 32, 235);
+    gBackground.setPaint(customBackground);
+    gBackground.fillRect(posx, posy, width, height);
 
     int strokeRadius = 1;
     // record parameters (before resizing) for calculating moveNumber
@@ -105,7 +98,7 @@ public class WinrateGraph {
         new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[] {4}, 0);
     gBackground.setStroke(dashed);
 
-    gBackground.setColor(Color.white);
+    gBackground.setColor(new Color(255, 255, 255, 30));
     int winRateGridLines = Lizzie.frame.winRateGridLines;
     for (int i = 1; i <= winRateGridLines; i++) {
       double percent = i * 100.0 / (winRateGridLines + 1);
@@ -206,8 +199,8 @@ public class WinrateGraph {
               + ((Lizzie.board.getHistory().getCurrentHistoryNode().getData().moveNumber - 1)
                   * width
                   / numMoves);
-      g.setStroke(dashed);
-      g.setColor(Color.white);
+      g.setStroke(new BasicStroke(2));
+      g.setColor(new Color(120, 220, 255, 200));
       // if (Lizzie.board.getHistory().getCurrentHistoryNode() !=
       // Lizzie.board.getHistory().getEnd())
       g.drawLine(x, posy, x, posy + height);
@@ -227,7 +220,7 @@ public class WinrateGraph {
         Font f =
             new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(12) : 12);
         g.setFont(f);
-        g.setColor(Color.BLACK);
+        g.setColor(Color.WHITE);
         int moveNum = Lizzie.board.getHistory().getCurrentHistoryNode().getData().moveNumber;
         if (moveNum < 10)
           g.drawString(
@@ -257,14 +250,10 @@ public class WinrateGraph {
           lastScore = score;
         }
         if (Lizzie.config.showBlunderBar) {
-          gBlunder.setColor(Lizzie.config.blunderBarColor);
           double lastMoveRate = Math.abs(lastWr - wr);
-          double lastMoveScoreRate =
-              Math.min(1.0, Math.abs(lastScore - score) / weightedMaxScoreBlunder);
-          int lastHeight = 0;
-          lastHeight =
-              Math.max((int) (lastMoveRate * height / 200), (int) (lastMoveScoreRate * height) / 2);
-          // int lastWidth = Math.abs(2 * width / numMoves);
+          double lastMoveScoreRate = Math.abs(lastScore - score);
+          gBlunder.setColor(getBlunderColor(lastMoveRate, lastMoveScoreRate));
+          int lastHeight = Math.min(15, Math.max(6, height / 12));
           int rectWidth =
               Math.max(
                   Lizzie.config.minimumBlunderBarWidth,
@@ -272,13 +261,14 @@ public class WinrateGraph {
           gBlunder.fillRect(
               posx + (int) ((movenum - 1) * width / numMoves),
               blunderBottom - lastHeight,
-              rectWidth,
+              rectWidth + 1,
               lastHeight);
         }
+
         lastOkMove = movenum - 2;
         if (Lizzie.config.showWinrateLine) {
           if (node.getData().blackToPlay) {
-            g.setColor(Color.BLACK);
+            g.setColor(new Color(100, 180, 255));
             g.drawLine(
                 posx + ((movenum - 2) * width / numMoves),
                 posy + height - (int) (lastWr * height / 100),
@@ -299,7 +289,7 @@ public class WinrateGraph {
               saveCurWr = wr;
             } else if (node == curMove.previous().get()) {
               if (node.getData().blackToPlay) {
-                g.setColor(Color.BLACK);
+                g.setColor(new Color(100, 180, 255));
                 g.fillOval(
                     posx + (movenum * width / numMoves) - DOT_RADIUS,
                     posy + height - (int) (wr * height / 100) - DOT_RADIUS,
@@ -395,7 +385,7 @@ public class WinrateGraph {
         xPos = Math.max(xPos, origParams[0]);
         xPos = Math.min(xPos, origParams[0] + origParams[2] - stringWidth);
         if (curMove.getData().blackToPlay) {
-          g.setColor(Color.BLACK);
+          g.setColor(new Color(100, 180, 255));
           g.fillOval(
               posx + (saveCurMovenum * width / numMoves) - DOT_RADIUS,
               posy + height - (int) (saveCurWr * height / 100) - DOT_RADIUS,
@@ -486,8 +476,8 @@ public class WinrateGraph {
               // Draw a vertical line at the current move
               Stroke previousStroke = g.getStroke();
               int x = posx + (movenum * width / numMoves);
-              g.setStroke(dashed);
-              g.setColor(Color.WHITE);
+              g.setStroke(new BasicStroke(2));
+              g.setColor(new Color(120, 220, 255, 200));
               g.drawLine(x, posy, x, posy + height);
               // Show move number
               String moveNumString = String.valueOf(node.getData().moveNumber);
@@ -499,7 +489,7 @@ public class WinrateGraph {
                     new Font(
                         Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(12) : 12);
                 g.setFont(f);
-                g.setColor(Color.BLACK);
+                g.setColor(Color.WHITE);
                 int moveNum = node.getData().moveNumber;
                 if (wr < 3) {
                   int fontHeight = g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent();
@@ -546,22 +536,16 @@ public class WinrateGraph {
             // wr = lastWr;
             // }
 
-            if (lastNodeOk) g.setColor(Lizzie.config.winrateLineColor);
+            if (lastNodeOk) g.setColor(new Color(100, 180, 255));
             // g.setColor(Color.BLACK);
             else g.setColor(Lizzie.config.winrateMissLineColor);
 
             if (lastOkMove > 0 && lastOkMove - movenum < 25) {
               if (Lizzie.config.showBlunderBar && canDrawBlunderBar) {
-                gBlunder.setColor(Lizzie.config.blunderBarColor);
                 double lastMoveRate = Math.abs(lastWr - wr);
-                double lastMoveScoreRate =
-                    Math.min(1.0, Math.abs(lastScore - score) / weightedMaxScoreBlunder);
-                int lastHeight = 0;
-                lastHeight =
-                    Math.max(
-                        (int) (lastMoveRate * height / 200),
-                        (int) (lastMoveScoreRate * height) / 2);
-                // int lastWidth = Math.abs(2 * width / numMoves);
+                double lastMoveScoreRate = Math.abs(lastScore - score);
+                gBlunder.setColor(getBlunderColor(lastMoveRate, lastMoveScoreRate));
+                int lastHeight = Math.min(15, Math.max(6, height / 12));
                 int rectWidth =
                     Math.max(
                         Lizzie.config.minimumBlunderBarWidth,
@@ -570,7 +554,7 @@ public class WinrateGraph {
                 gBlunder.fillRect(
                     posx + (int) (((movenum + lastOkMove - 1)) * width / numMoves / 2),
                     blunderBottom - lastHeight,
-                    rectWidth,
+                    rectWidth + 1,
                     lastHeight);
               }
               if (Lizzie.config.showWinrateLine) {
@@ -634,8 +618,8 @@ public class WinrateGraph {
               // Draw a vertical line at the current move
               Stroke previousStroke = g.getStroke();
               int x = posx + (movenum * width / numMoves);
-              g.setStroke(dashed);
-              g.setColor(Color.WHITE);
+              g.setStroke(new BasicStroke(2));
+              g.setColor(new Color(120, 220, 255, 200));
               g.drawLine(x, posy, x, posy + height);
               // Show move number
               if (!noC) {
@@ -645,7 +629,7 @@ public class WinrateGraph {
                         Config.sysDefaultFontName,
                         Font.BOLD,
                         largeEnough ? Utils.zoomOut(12) : 12));
-                g.setColor(Color.BLACK);
+                g.setColor(Color.WHITE);
                 int moveNum = node.getData().moveNumber;
                 if (moveNum < 10)
                   g.drawString(
@@ -673,7 +657,7 @@ public class WinrateGraph {
             int x = posx + (movenum * width / numMoves);
             g.setStroke(dashed);
 
-            g.setColor(Color.CYAN);
+            g.setColor(new Color(100, 200, 255, 180));
 
             g.drawLine(x, posy, x, posy + height);
             // Show move number
@@ -685,7 +669,7 @@ public class WinrateGraph {
                 new Font(
                     Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(12) : 12);
             g.setFont(f);
-            g.setColor(Color.BLACK);
+            g.setColor(Color.WHITE);
             int moveNum = node.getData().moveNumber;
             if (wr < 3) {
               int fontHeight = g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent();
@@ -745,8 +729,8 @@ public class WinrateGraph {
             // Stroke previousStroke = g.getStroke();
             Stroke previousStroke = g.getStroke();
             int x = posx + (movenum * width / numMoves);
-            g.setStroke(dashed);
-            g.setColor(Color.WHITE);
+            g.setStroke(new BasicStroke(2));
+            g.setColor(new Color(120, 220, 255, 200));
             if (curMove != Lizzie.board.getHistory().getEnd())
               g.drawLine(x, posy, x, posy + height);
 
@@ -766,7 +750,7 @@ public class WinrateGraph {
                   new Font(
                       Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(12) : 12);
               g.setFont(f);
-              g.setColor(Color.BLACK);
+              g.setColor(Color.WHITE);
               int moveNum = Lizzie.board.getHistory().getCurrentHistoryNode().getData().moveNumber;
               if (moveNum < 10)
                 g.drawString(
@@ -795,16 +779,10 @@ public class WinrateGraph {
 
             if (lastOkMove > 0 && Math.abs(movenum - lastOkMove) < 25) {
               if (Lizzie.config.showBlunderBar) {
-                gBlunder.setColor(Lizzie.config.blunderBarColor);
                 double lastMoveRate = Math.abs(lastWr - wr);
-                double lastMoveScoreRate =
-                    Math.min(1.0, Math.abs(lastScore - score) / weightedMaxScoreBlunder);
-                int lastHeight = 0;
-                lastHeight =
-                    Math.max(
-                        (int) (lastMoveRate * height / 200),
-                        (int) (lastMoveScoreRate * height) / 2);
-                // int lastWidth = Math.abs(2 * width / numMoves);
+                double lastMoveScoreRate = Math.abs(lastScore - score);
+                gBlunder.setColor(getBlunderColor(lastMoveRate, lastMoveScoreRate));
+                int lastHeight = Math.min(15, Math.max(6, height / 12));
                 int rectWidth =
                     Math.max(
                         Lizzie.config.minimumBlunderBarWidth,
@@ -813,11 +791,12 @@ public class WinrateGraph {
                 gBlunder.fillRect(
                     posx + (int) (((movenum + lastOkMove - 1)) * width / numMoves / 2),
                     blunderBottom - lastHeight,
-                    rectWidth,
+                    rectWidth + 1,
                     lastHeight);
               }
+
               //        if (isMain) {
-              g.setColor(Color.BLACK);
+              g.setColor(new Color(100, 180, 255));
               g.setStroke(new BasicStroke(Lizzie.config.winrateStrokeWidth));
               //              } else {
               //                g.setColor(Color.BLACK);
@@ -854,7 +833,7 @@ public class WinrateGraph {
                   || (curMove.previous().isPresent()
                       && node == curMove.previous().get()
                       && curMove.getData().getPlayouts() <= 0)) {
-                g.setColor(Color.BLACK);
+                g.setColor(new Color(100, 180, 255));
                 g.fillOval(
                     posx + (movenum * width / numMoves) - DOT_RADIUS,
                     posy + height - (int) (wr * height / 100) - DOT_RADIUS,
@@ -1269,7 +1248,7 @@ public class WinrateGraph {
           posy + height - (int) (mwr * height / 100) - DOT_RADIUS,
           DOT_RADIUS * 2,
           DOT_RADIUS * 2);
-      g.setColor(Color.BLACK);
+      g.setColor(Color.WHITE);
       Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
       g.setFont(f);
       oriMWrHeight = posy + (height - (int) (mwr * height / 100));
@@ -1331,7 +1310,7 @@ public class WinrateGraph {
     if (cwr >= 0) {
       Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
       g.setFont(f);
-      g.setColor(Color.BLACK);
+      g.setColor(Color.WHITE);
       oriWrHeight = posy + (height - (int) (cwr * height / 100));
       cwrHeight = oriWrHeight + (cwr < 10 ? -5 : (cwr > 90 ? 6 : -2) * DOT_RADIUS);
       winFontHeight = g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent();

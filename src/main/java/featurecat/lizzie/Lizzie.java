@@ -17,10 +17,12 @@ import featurecat.lizzie.util.MultiOutputStream;
 import featurecat.lizzie.util.Utils;
 import java.awt.Font;
 import java.awt.GraphicsEnvironment;
+import java.awt.Image;
 import java.awt.Window;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.net.InetAddress;
 import java.nio.file.Files;
@@ -29,6 +31,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.ResourceBundle;
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
 import org.jdesktop.swingx.util.OS;
@@ -54,6 +57,7 @@ public class Lizzie {
   public static Float javaScaleFactor = 1.0f;
   public static boolean isMultiScreen = false;
   public static String javaVersionString = "";
+  private static Image applicationIcon;
   public static Float sysScaleFactor =
       OS.isWindows() ? (java.awt.Toolkit.getDefaultToolkit().getScreenResolution() / 96.0f) : 1.0f;
 
@@ -95,6 +99,7 @@ public class Lizzie {
     } catch (Exception e) {
     }
     System.out.println("java version:" + javaVersionString);
+    installApplicationIcon();
     leelaz = new Leelaz("");
     isMultiScreen = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices().length > 1;
     AwareScaled awareScaled = new AwareScaled();
@@ -185,6 +190,87 @@ public class Lizzie {
     } catch (Exception e) {
       // Keep default behavior if we fail to switch directory.
       e.printStackTrace();
+    }
+  }
+
+  private static void installApplicationIcon() {
+    if (!System.getProperty("os.name", "").contains("Mac")) {
+      return;
+    }
+    Image icon = loadApplicationIcon();
+    if (icon == null) {
+      return;
+    }
+
+    if (!trySetTaskbarIcon(icon) && javaVersion <= 8) {
+      trySetAppleDockIcon(icon);
+    }
+  }
+
+  private static Image loadApplicationIcon() {
+    if (applicationIcon != null) {
+      return applicationIcon;
+    }
+    try (InputStream iconStream = Lizzie.class.getResourceAsStream("/assets/logo.png")) {
+      if (iconStream == null) {
+        return null;
+      }
+      applicationIcon = ImageIO.read(iconStream);
+      return applicationIcon;
+    } catch (IOException e) {
+      e.printStackTrace();
+      return null;
+    }
+  }
+
+  private static boolean trySetAppleDockIcon(Image icon) {
+    try {
+      Class<?> applicationClass = Class.forName("com.apple.eawt.Application");
+      Object application = applicationClass.getMethod("getApplication").invoke(null);
+      applicationClass.getMethod("setDockIconImage", Image.class).invoke(application, icon);
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  private static boolean trySetTaskbarIcon(Image icon) {
+    try {
+      Class<?> taskbarClass = Class.forName("java.awt.Taskbar");
+      boolean taskbarSupported =
+          Boolean.TRUE.equals(taskbarClass.getMethod("isTaskbarSupported").invoke(null));
+      if (!taskbarSupported) {
+        return false;
+      }
+
+      Object taskbar = taskbarClass.getMethod("getTaskbar").invoke(null);
+      Class<?> featureClass = Class.forName("java.awt.Taskbar$Feature");
+      Object iconImageFeature = null;
+      Object[] features = featureClass.getEnumConstants();
+      if (features != null) {
+        for (Object feature : features) {
+          if ("ICON_IMAGE".equals(String.valueOf(feature))) {
+            iconImageFeature = feature;
+            break;
+          }
+        }
+      }
+      if (iconImageFeature == null) {
+        return false;
+      }
+
+      boolean iconSupported =
+          Boolean.TRUE.equals(
+              taskbarClass
+                  .getMethod("isSupported", featureClass)
+                  .invoke(taskbar, iconImageFeature));
+      if (iconSupported) {
+        taskbarClass.getMethod("setIconImage", Image.class).invoke(taskbar, icon);
+        return true;
+      }
+      return false;
+    } catch (Exception e) {
+      return false;
     }
   }
 
