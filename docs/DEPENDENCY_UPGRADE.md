@@ -64,42 +64,43 @@
 | `jcefmaven` | 95.7.14.11 | **127.3.1** | Chromium从95升级到127，重大安全更新 |
 | `ganymed-ssh2` | build210 | **262** | SSH库更新 |
 
-### 未升级的依赖
+### 不升级的依赖
 
 | 依赖 | 当前版本 | 最新版本 | 原因 |
 |------|----------|----------|------|
-| `socket.io-client` | 1.0.0 | 2.1.2 | API不兼容，需要代码修改 |
+| `socket.io-client` | 1.0.0 | 2.1.2 | ⚠️ 服务器兼容性 - 不可升级 |
 
-### socket.io-client 升级注意事项
+### socket.io-client 版本说明
 
-socket.io-client 2.x版本与1.x版本存在API不兼容：
+#### 服务器版本确认
 
-**需要修改的代码位置**: `src/main/java/featurecat/lizzie/gui/OnlineDialog.java`
+| 服务器地址 | Socket.IO 版本 | 实现方式 |
+|------------|----------------|----------|
+| `rtgame.yikeweiqi.com` | 2.x | Netty-SocketIO 1.7.x |
+| `wshall.huanle.qq.com` | 2.x | Netty-SocketIO 1.7.x |
 
-**API变更**:
-- `Socket.EVENT_CONNECT` → `Socket.EVENT_CONNECT` (保持不变)
-- `Socket.EVENT_MESSAGE` → 私有化，需要使用其他方式
-- `Socket.EVENT_ERROR` → 需要使用字符串常量
-- `Socket.EVENT_PING` → 需要使用字符串常量
-- `Socket.EVENT_PONG` → 需要使用字符串常量
-- `Socket.EVENT_CONNECT_TIMEOUT` → 需要使用字符串常量
-- `Socket.EVENT_RECONNECT` → 需要使用字符串常量
-- `Socket.EVENT_RECONNECT_ATTEMPT` → 需要使用字符串常量
-- `Socket.EVENT_RECONNECT_FAILED` → 需要使用字符串常量
-- `Socket.EVENT_RECONNECT_ERROR` → 需要使用字符串常量
-- `Socket.EVENT_RECONNECTING` → 需要使用字符串常量
+#### 版本兼容性矩阵
 
-**升级代码示例**:
-```java
-// 旧代码 (1.x)
-socket.on(Socket.EVENT_CONNECT, args -> { ... });
-socket.on(Socket.EVENT_MESSAGE, args -> { ... });
+| 客户端版本 | 兼容的服务器版本 | 当前状态 |
+|------------|------------------|----------|
+| **1.x** (当前使用) | Socket.IO 2.x | ✅ 兼容 |
+| 2.x | Socket.IO 3.x/4.x | ❌ 不兼容 |
 
-// 新代码 (2.x)
-import io.socket.client.Socket;
-socket.on(Socket.EVENT_CONNECT, args -> { ... });
-socket.on("message", args -> { ... });  // 使用字符串常量
-```
+#### 结论
+
+**socket.io-client 保持 1.0.0 版本，不进行升级。**
+
+原因：
+1. 服务器运行 Socket.IO 2.x（Netty-SocketIO 1.7.x）
+2. socket.io-client 2.x 仅兼容 Socket.IO 3.x/4.x 服务器
+3. 升级客户端将导致无法连接服务器
+
+#### 未来升级路径
+
+如需升级 socket.io-client 到 2.x，需要：
+1. 服务器端先升级到 Socket.IO 3.x/4.x
+2. 修改 OnlineDialog.java 中的事件监听代码
+3. 全面测试连接功能
 
 ---
 
