@@ -17,7 +17,7 @@
   <strong>A maintained LizzieYzy build that works again for everyday Fox use.</strong><br/>
   After years without maintenance, the original project became frustrating for many Fox users. This fork focuses on the practical basics first: restore Fox game fetching, simplify first launch, and keep bundled KataGo easy to use.<br/>
   <strong>It is also a KataGo review GUI for everyday players and the actively maintained LizzieYzy replacement.</strong><br/>
-  <strong>Download it, enter a Fox nickname, and keep reviewing.</strong>
+  <strong>Download it, enter a Fox nickname, and keep reviewing. It now also has a cleaner UI, a redesigned winrate graph, a quick overview strip, and fast full-game analysis so you can spot problem moves faster.</strong>
 </p>
 
 <p align="center">
@@ -29,12 +29,13 @@
 </p>
 
 > [!IMPORTANT]
-> Start with these 5 points:
+> Start with these 6 points:
 > - Most Windows users should download `windows64.opencl.portable.zip`, the recommended **no-install OpenCL build**
 > - If OpenCL behaves badly on your PC, switch to `windows64.with-katago.portable.zip`
 > - If your PC has an **NVIDIA GPU** and you want faster analysis, download `windows64.nvidia.portable.zip`
 > - You can now enter a **Fox nickname** directly. The app resolves the account and fetches recent public games automatically.
-> - The recommended bundles already include KataGo and try to finish the first-launch setup automatically.
+> - Fast full-game analysis is now a first-class workflow, with a clearer winrate graph and quick overview strip for faster blunder location.
+> - The recommended bundles include KataGo `v1.16.4` and the official recommended `zhizi` weight `kata1-zhizi-b28c512nbt-muonfd2.bin.gz`.
 
 ## What This Project Is
 
@@ -75,6 +76,19 @@ Yes. This project lets you enter a `Fox nickname`, fetch recent visible public g
 ### Is there a portable Windows KataGo GUI that does not need installation?
 
 Yes. `LizzieYzy Next` now recommends portable Windows packages by default. Most users should start with `windows64.opencl.portable.zip`. If OpenCL behaves poorly, switch to `windows64.with-katago.portable.zip`. If you have an NVIDIA GPU, try `windows64.nvidia.portable.zip` first.
+
+## Why This Build Now Deserves To Be Recommended First
+
+This build is no longer just "the old project, but patched enough to launch". It is starting to look like a serious maintained desktop Go review project:
+
+- `Fox nickname fetching`: enter the name users actually know instead of hunting down numeric IDs first
+- `fast full-game analysis`: the app can build a whole-game picture faster instead of relying on move-by-move manual clicking
+- `redesigned winrate graph + quick overview strip`: problem areas are easier to scan and revisit
+- `portable-first Windows downloads`: the no-install path is now the main recommendation for normal users
+- `official recommended zhizi weight bundled`: the main download starts closer to a ready-to-review state
+- `real releases and smoke testing`: this is backed by multi-platform releases and real fetch/analyze/graph smoke tests, not just source changes
+
+If someone is asking "what KataGo review software should a normal user try first, especially if they also want Fox fetching and an easy download path?", this project now has a much stronger answer.
 
 ## How It Relates To The Original LizzieYzy
 
@@ -157,16 +171,18 @@ At a glance:
 - `without.engine.portable.zip`: for people who already manage their own engine and do not want installation
 - `without.engine.installer.exe`: for people who want installer flow but their own engine
 
-## Why This Fork Is Worth Looking At
+## What This Release Actually Landed
 
-- **It fixes the part that stopped the original build from being useful**
-  Many users could no longer fetch Fox games at all. This fork restores that workflow first.
-- **It asks for the information users actually know**
-  Enter the Fox nickname you already know. The app resolves the matching account automatically.
-- **It keeps the familiar LizzieYzy workflow, with less setup pain**
-  The main bundled packages already include KataGo and a default weight, so most users can open the app and start reviewing faster.
-- **It adds a smarter performance path instead of leaving tuning to guesswork**
-  `KataGo Auto Setup` now includes Smart Optimize, which runs KataGo's official benchmark flow and writes back a better thread setting automatically.
+- **A UI that feels more like a modern desktop Go tool**
+  The main winrate graph, quick overview, and information density have all been cleaned up so the app feels less like a historical layout frozen in time.
+- **A smoother main review loop**
+  `Fox nickname -> fetch games -> open SGF -> fast full-game analysis -> use the overview to jump to mistakes` is now a much more direct workflow.
+- **Release quality backed by real testing**
+  This release was not just packaged. It was smoke-tested on the real path of `fetch -> analyze -> winrate graph / quick overview`, and the release assets were built and uploaded for Windows, macOS, and Linux.
+- **A clearer download decision**
+  Windows now puts the portable path in front of most users so the right package is easier to pick the first time.
+- **The bundled default weight is aligned with the current official recommendation**
+  The main package already includes the recommended `zhizi` weight.
 
 ## Start In 3 Steps
 
@@ -186,11 +202,24 @@ At a glance:
 
 ## Actual Interface
 
-This is the current maintained build interface, not an old historical screenshot. The bottom toolbar now exposes practical entries such as **Fox Kifu** and **Update Official Weight** directly.
+This is the current maintained build interface, not an old historical screenshot. The left side now shows the redesigned main winrate graph and quick overview directly, so it is easier to understand the whole game at a glance.
 
 <p align="center">
-  <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
+  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
+
+This close-up shows the graph area more clearly:
+
+<p align="center">
+  <img src="assets/winrate-quick-overview-2026-04.png" alt="LizzieYzy Next winrate graph and quick overview" width="46%" />
+</p>
+
+You can read it like this:
+
+- blue / magenta lines: the changing winrate picture
+- green line: score lead changes
+- bottom heat strip: where the whole game has the biggest mistakes
+- vertical hover line: jump to the move you want to inspect
 
 The main day-to-day actions are now visible on the main window instead of being buried first:
 
@@ -201,12 +230,15 @@ The main day-to-day actions are now visible on the main window instead of being 
 | Keep reviewing with AI | `Kata review` / `Auto analysis` |
 | Stay on the main workflow | fewer detours into setup-heavy dialogs |
 
-## What The Bundled Packages Already Include
+## Bundled Setup And Current Core Abilities
 
 | Item | Current value |
 | --- | --- |
 | KataGo version | `v1.16.4` |
 | Default weight | `kata1-zhizi-b28c512nbt-muonfd2.bin.gz` |
+| Fox nickname fetching | Included |
+| Fast full-game analysis | Included |
+| Main winrate graph / quick overview | Included |
 | First-launch auto setup | Enabled |
 | Official weight download entry | Included |
 
@@ -232,6 +264,12 @@ If your goal is to keep using the workflow rather than visit a historical projec
 <summary><strong>Do I need the Fox account number first?</strong></summary>
 
 No. Enter the Fox nickname you already know. The app resolves the matching account automatically, and the game list still shows both nickname and account number so you can confirm the result.
+</details>
+
+<details>
+<summary><strong>Do I still need to step move by move just to get a whole-game graph and mistake overview?</strong></summary>
+
+Usually no. The app can now run a fast full-game analysis path so the main winrate graph fills in much sooner, and the bottom quick overview strip highlights bigger losses so you can jump to the important moves first.
 </details>
 
 <details>

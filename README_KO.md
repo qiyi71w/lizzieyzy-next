@@ -17,7 +17,7 @@
   <strong>아직 lizzieyzy를 쓰고 싶은 사람을 위해, 다시 계속 사용할 수 있게 만든 유지보수판입니다.</strong><br/>
   원래 프로젝트가 오래 관리되지 않으면서 Fox 기보 가져오기가 막힌 사용자가 많아졌습니다. 이 포크는 먼저 그 실사용 경로를 복구하고, 첫 실행과 내장 KataGo 사용도 더 쉽게 정리했습니다.<br/>
   <strong>이 프로젝트는 일반 사용자를 위한 KataGo 복기 GUI 이면서, 지금도 유지보수 중인 lizzieyzy 대체판이기도 합니다.</strong><br/>
-  <strong>다운로드하고, Fox 닉네임을 입력하고, 다시 기보를 가져와 분석과 복기를 이어갈 수 있습니다.</strong>
+  <strong>다운로드하고, Fox 닉네임을 입력하고, 다시 기보를 가져와 분석과 복기를 이어갈 수 있습니다. 이제 더 보기 좋은 승률 그래프, 하단 빠른 개요 막대, 빠른 전판 분석까지 갖춰서 문제수를 더 빨리 찾을 수 있습니다.</strong>
 </p>
 
 <p align="center">
@@ -29,12 +29,13 @@
 </p>
 
 > [!IMPORTANT]
-> 먼저 이 5가지만 보면 됩니다:
+> 먼저 이 6가지만 보면 됩니다:
 > - 대부분의 Windows 사용자는 `windows64.opencl.portable.zip` 를 받으면 가장 쉽습니다. 이것이 추천 **무설치 OpenCL 버전** 입니다
 > - OpenCL 이 잘 맞지 않으면 `windows64.with-katago.portable.zip` 로 바꿔서 쓸 수 있습니다
 > - PC 에 **NVIDIA 그래픽카드** 가 있고 더 빠른 분석을 원하면 `windows64.nvidia.portable.zip` 를 고르면 됩니다
 > - Fox 기보 가져오기는 이제 **Fox 닉네임** 을 입력하면 됩니다. 앱이 맞는 계정을 자동으로 찾습니다
-> - 주 추천 통합 패키지는 KataGo 를 포함하고 있고, 첫 실행에서는 자동 설정을 먼저 시도합니다
+> - 빠른 전판 분석과 새 승률 그래프 / 빠른 개요로 문제수를 더 빨리 찾을 수 있습니다
+> - 주 추천 통합 패키지에는 KataGo `v1.16.4` 와 공식 추천 `zhizi` 가중치 `kata1-zhizi-b28c512nbt-muonfd2.bin.gz` 가 포함됩니다
 
 ## 이 프로젝트가 무엇인지
 
@@ -75,6 +76,17 @@
 ### Windows 에서 설치 없이 쓸 수 있는 KataGo GUI 가 있나요?
 
 있습니다. `LizzieYzy Next` 는 Windows 사용자에게 기본적으로 `portable.zip` 무설치 패키지를 먼저 권합니다. 대부분의 사용자는 `windows64.opencl.portable.zip` 부터 시작하면 되고, OpenCL 이 잘 맞지 않으면 `windows64.with-katago.portable.zip` 으로 바꾸면 됩니다. NVIDIA GPU 가 있다면 `windows64.nvidia.portable.zip` 을 먼저 시도하면 됩니다.
+
+## 왜 지금 이 버전을 먼저 추천하기 쉬워졌는가
+
+이 버전은 단순히 "옛 프로젝트가 아직 뜬다" 수준이 아니라, 실제로 계속 다듬는 데스크톱 바둑 AI 프로젝트에 가까워지고 있습니다.
+
+- `Fox 닉네임 가져오기`: 사용자가 실제로 기억하는 이름에서 바로 시작
+- `빠른 전판 분석`: 한 수씩 수동으로 밀지 않아도 전체 흐름을 더 빨리 볼 수 있음
+- `승률 그래프 + 빠른 개요`: 큰 실수 구간을 한눈에 먼저 찾기 쉬움
+- `Windows 무설치 우선`: 일반 사용자가 첫 다운로드에서 덜 헷갈림
+- `공식 추천 zhizi 가중치 포함`: 다운로드 직후 바로 쓸 수 있는 상태에 더 가까움
+- `실제 릴리스 + 스모크 테스트`: Windows / macOS / Linux 릴리스와 실제 가져오기 / 분석 / 그래프 테스트로 뒷받침
 
 ## 원래 lizzieyzy 와의 관계
 
@@ -157,16 +169,18 @@ CPU 버전, OpenCL 버전, NVIDIA 버전 모두 `KataGo Auto Setup` 의 `Smart O
 - `without.engine.portable.zip` 는 이미 자기 엔진을 관리하고 설치도 원하지 않는 경우
 - `without.engine.installer.exe` 는 설치형을 원하지만 엔진은 직접 쓰려는 경우
 
-## 이 유지보수판이 해결한 것
+## 이번 릴리스에서 실제로 달라진 것
 
-- **Fox 기보 가져오기가 다시 됩니다**
-  원 프로젝트에서 멈춰 있던 공개 기보 가져오기 흐름을 다시 사용할 수 있게 복구했습니다.
-- **이제 먼저 숫자 계정 ID를 알 필요가 없습니다**
-  Fox 닉네임만 입력하면 앱이 해당 계정을 찾고 공개 기보를 가져옵니다.
-- **첫 실행이 더 편해졌습니다**
-  처음부터 수동 설정을 요구하기보다, 내장 분석 환경을 먼저 준비하도록 바꿨습니다.
-- **KataGo 속도 조정도 앱 안에서 더 쉽게 만들었습니다**
-  `KataGo Auto Setup` 에 `Smart Optimize` 를 추가해서, KataGo benchmark 결과를 바탕으로 더 맞는 스레드 수를 자동으로 저장할 수 있습니다.
+- **더 현대적으로 보이는 UI**
+  메인 승률 그래프, 빠른 개요, 정보 배치를 다시 정리해서 예전 레이아웃 느낌을 줄였습니다.
+- **기보 가져오기부터 복기까지 주 흐름이 더 짧아졌습니다**
+  `Fox 닉네임 -> 기보 가져오기 -> SGF 열기 -> 빠른 전판 분석 -> 개요에서 문제수로 이동` 흐름이 더 자연스러워졌습니다.
+- **릴리스 품질도 실측으로 확인했습니다**
+  이번 릴리스는 단순 포장만 한 것이 아니라, `가져오기 -> 분석 -> 승률 그래프 / 빠른 개요` 실사용 스모크 테스트와 Windows / macOS / Linux 배포까지 실제로 마쳤습니다.
+- **다운로드 선택이 더 쉬워졌습니다**
+  Windows 는 무설치 패키지를 기본 추천으로 앞세워서 일반 사용자가 덜 헷갈리게 했습니다.
+- **기본 가중치도 공식 추천에 맞췄습니다**
+  주요 통합 패키지는 추천 `zhizi` 가중치를 기본 포함합니다.
 
 ## 3단계로 시작
 
@@ -186,11 +200,22 @@ CPU 버전, OpenCL 버전, NVIDIA 버전 모두 `KataGo Auto Setup` 의 `Smart O
 
 ## 실제 화면
 
-아래 이미지는 지금 유지보수 중인 현재 버전의 실제 화면입니다. 하단에서 **野狐棋谱** 와 **공식 가중치 업데이트** 같은 실사용 버튼을 바로 볼 수 있습니다.
+아래 이미지는 지금 유지보수 중인 현재 버전의 실제 화면입니다. 왼쪽에는 새로 다듬은 메인 승률 그래프와 하단 빠른 개요가 바로 보입니다.
 
 <p align="center">
-  <img src="assets/interface-overview.png" alt="LizzieYzy Next actual interface" width="100%" />
+  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next actual interface" width="100%" />
 </p>
+
+그래프 부분만 보면 이렇게 읽으면 됩니다.
+
+<p align="center">
+  <img src="assets/winrate-quick-overview-2026-04.png" alt="LizzieYzy Next winrate graph and quick overview" width="46%" />
+</p>
+
+- 파란선 / 자홍선: 승률 흐름
+- 초록선: 집 차이 흐름
+- 아래 열지도 막대: 전판에서 큰 손해수가 몰린 구간
+- 세로 호버선: 보고 싶은 수로 빠르게 이동
 
 자주 쓰는 입구는 처음부터 메인 화면에서 바로 보이게 유지하고 있습니다.
 
@@ -200,12 +225,15 @@ CPU 버전, OpenCL 버전, NVIDIA 버전 모두 `KataGo Auto Setup` 의 `Smart O
 | 공식 KataGo 가중치 업데이트 | `更新官方权重` |
 | 바로 AI 복기 이어가기 | `Kata评估` / `自动分析` |
 
-## 통합 패키지에 이미 들어 있는 것
+## 통합 패키지와 현재 핵심 기능
 
 | 항목 | 현재 값 |
 | --- | --- |
 | KataGo 버전 | `v1.16.4` |
 | 기본 가중치 | `kata1-zhizi-b28c512nbt-muonfd2.bin.gz` |
+| Fox 닉네임 가져오기 | 포함 |
+| 빠른 전판 분석 | 포함 |
+| 메인 승률 그래프 / 빠른 개요 | 포함 |
 | 첫 실행 자동 설정 | 사용 |
 | 공식 가중치 다운로드 입구 | 포함 |
 
@@ -231,6 +259,12 @@ CPU 버전, OpenCL 버전, NVIDIA 버전 모두 `KataGo Auto Setup` 의 `Smart O
 <summary><strong>먼저 Fox 계정 번호를 알아야 하나요?</strong></summary>
 
 아니요. Fox 닉네임만 입력하면 됩니다. 앱이 맞는 계정을 자동으로 찾고, 결과 목록에는 닉네임과 계정 번호가 함께 표시됩니다.
+</details>
+
+<details>
+<summary><strong>전판 승률 그래프와 문제수 개요를 보려면 아직 한 수씩 분석해야 하나요?</strong></summary>
+
+대부분은 아닙니다. 이제 빠른 전판 분석 흐름을 통해 메인 승률 그래프가 더 빨리 채워지고, 하단 빠른 개요 막대가 큰 손해 구간을 먼저 보여 줍니다.
 </details>
 
 <details>
