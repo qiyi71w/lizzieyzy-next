@@ -47,13 +47,10 @@ public class Theme {
     File file = new File(this.path + this.configFile);
     boolean canReadFile = file.canRead();
     if (canReadFile) {
-      FileInputStream fp;
-      try {
-        fp = new FileInputStream(file);
+      try (FileInputStream fp = new FileInputStream(file)) {
         config = new JSONObject(new JSONTokener(fp));
-        fp.close();
-      } catch (IOException e) {
-      } catch (JSONException e) {
+      } catch (IOException | JSONException e) {
+        e.printStackTrace();
       }
     }
     return canReadFile;
@@ -101,13 +98,10 @@ public class Theme {
     this.path = Theme.pathPrefix + (themeName.isEmpty() ? "" : themeName + separator);
     File file = new File(this.path + this.configFile);
     if (file.canRead()) {
-      FileInputStream fp;
-      try {
-        fp = new FileInputStream(file);
+      try (FileInputStream fp = new FileInputStream(file)) {
         config = new JSONObject(new JSONTokener(fp));
-        fp.close();
-      } catch (IOException e) {
-      } catch (JSONException e) {
+      } catch (IOException | JSONException e) {
+        e.printStackTrace();
       }
     }
   }
@@ -380,22 +374,18 @@ public class Theme {
       File file = new File(this.path + this.configFile);
       file.createNewFile();
 
-      FileOutputStream fp = new FileOutputStream(file);
-      OutputStreamWriter writer = new OutputStreamWriter(fp);
-
-      Iterator<String> keys = config.keys();
-      while (keys.hasNext()) {
-        String key = keys.next();
-        Object value = config.get(key);
-        if (value == null || (value instanceof String && ((String) value).trim().isEmpty())) {
-          keys.remove();
+      try (FileOutputStream fp = new FileOutputStream(file);
+          OutputStreamWriter writer = new OutputStreamWriter(fp)) {
+        Iterator<String> keys = config.keys();
+        while (keys.hasNext()) {
+          String key = keys.next();
+          Object value = config.get(key);
+          if (value == null || (value instanceof String && ((String) value).trim().isEmpty())) {
+            keys.remove();
+          }
         }
+        writer.write(config.toString(2));
       }
-
-      writer.write(config.toString(2));
-
-      writer.close();
-      fp.close();
     } catch (IOException e) {
       e.printStackTrace();
     }

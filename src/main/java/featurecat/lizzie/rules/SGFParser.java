@@ -58,16 +58,16 @@ public class SGFParser {
     }
 
     String encoding = EncodingDetector.detect(filename);
-    FileInputStream fp = new FileInputStream(file);
-    if (encoding == "WINDOWS-1252") encoding = "GB18030";
-    InputStreamReader reader = new InputStreamReader(fp, encoding);
-    StringBuilder builder = new StringBuilder();
-    while (reader.ready()) {
-      builder.append((char) reader.read());
+    String value;
+    try (FileInputStream fp = new FileInputStream(file);
+        InputStreamReader reader =
+            new InputStreamReader(fp, encoding.equals("WINDOWS-1252") ? "GB18030" : encoding)) {
+      StringBuilder builder = new StringBuilder();
+      while (reader.ready()) {
+        builder.append((char) reader.read());
+      }
+      value = builder.toString();
     }
-    reader.close();
-    fp.close();
-    String value = builder.toString();
     if (value.isEmpty()) {
       Lizzie.board.isLoadingFile = false;
       return false;
@@ -2749,17 +2749,13 @@ public class SGFParser {
       return "";
     }
     String encoding = EncodingDetector.detect(filename);
-    FileInputStream fp;
-    try {
-      fp = new FileInputStream(file);
-      if (encoding == "WINDOWS-1252") encoding = "GB18030";
-      InputStreamReader reader = new InputStreamReader(fp, encoding);
+    try (FileInputStream fp = new FileInputStream(file);
+        InputStreamReader reader =
+            new InputStreamReader(fp, encoding.equals("WINDOWS-1252") ? "GB18030" : encoding)) {
       StringBuilder builder = new StringBuilder();
       while (reader.ready()) {
         builder.append((char) reader.read());
       }
-      reader.close();
-      fp.close();
       String value = builder.toString();
       if (value.isEmpty()) {
         Lizzie.board.isLoadingFile = false;
@@ -2767,7 +2763,6 @@ public class SGFParser {
       }
       return parseResult(value);
     } catch (Exception e) {
-      // TODO Auto-generated catch block
       e.printStackTrace();
     }
     return "";
