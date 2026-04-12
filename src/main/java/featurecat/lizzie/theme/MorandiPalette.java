@@ -57,6 +57,19 @@ public class MorandiPalette {
   public static final Color SCROLLBAR_TRACK = new Color(168, 162, 155, 40);
   public static final Color SCROLLBAR_THUMB = new Color(148, 143, 136, 120);
 
+  // Toolbar & Menu colors
+  public static final Color TOOLBAR_BG = new Color(225, 220, 213);
+  public static final Color TOOLBAR_BORDER = new Color(195, 190, 183);
+  public static final Color TOOLBAR_BUTTON_BG = new Color(238, 233, 226);
+  public static final Color TOOLBAR_BUTTON_HOVER = new Color(218, 213, 206);
+  public static final Color TOOLBAR_BUTTON_PRESSED = new Color(205, 200, 193);
+  public static final Color TOOLBAR_BUTTON_BORDER = new Color(200, 195, 188);
+  public static final Color TOOLBAR_TEXT = new Color(72, 68, 65);
+  public static final Color MENU_ITEM_HOVER = new Color(210, 205, 198);
+  public static final Color MENU_ITEM_SELECTED = new Color(195, 190, 183);
+  public static final Color MENU_ITEM_TEXT = new Color(62, 58, 57);
+  public static final Color TOOLBAR_SEPARATOR = new Color(205, 200, 193);
+
   public static final Color TEXT_PRIMARY = CHARCOAL;
   public static final Color TEXT_SECONDARY = new Color(120, 115, 108);
   public static final Color TEXT_ON_DARK = CREAM_WHITE;

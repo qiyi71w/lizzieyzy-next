@@ -689,6 +689,10 @@ public class LizzieFrame extends JFrame {
         });
     topPanel.setLayout(new ModifiedFlowLayout(FlowLayout.LEFT, 0, -2));
     topPanel.setFloatable(false);
+    topPanel.setBackground(MorandiPalette.TOOLBAR_BG);
+    topPanel.setOpaque(true);
+    topPanel.setBorder(
+        javax.swing.BorderFactory.createMatteBorder(0, 0, 1, 0, MorandiPalette.TOOLBAR_BORDER));
     listDataModel = getTableModel();
     listTable = new JTable(listDataModel);
     TableCellRenderer tcr = new ColorTableCellRenderer();
