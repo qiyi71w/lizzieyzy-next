@@ -310,7 +310,7 @@ public class Theme {
     array.ifPresent(
         m -> {
           blunderWinrateThresholds = Optional.of(new ArrayList<Double>());
-          m.forEach(a -> blunderWinrateThresholds.get().add(new Double(a.toString())));
+          m.forEach(a -> blunderWinrateThresholds.get().add(Double.valueOf(a.toString())));
         });
     return blunderWinrateThresholds;
   }

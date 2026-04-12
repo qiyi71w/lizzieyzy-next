@@ -592,8 +592,8 @@ public class LizzieFrame extends JFrame {
     tempGameScrollPanel.getVerticalScrollBar().setUnitIncrement(16);
     tempGameScrollPanel.getVerticalScrollBar().setUI(new DemoScrollBarUI());
 
-    tempGamePanelAll.add(tempGamePanelTop, new Integer(2));
-    tempGamePanelAll.add(tempGameScrollPanel, new Integer(1));
+    tempGamePanelAll.add(tempGamePanelTop, Integer.valueOf(2));
+    tempGamePanelAll.add(tempGameScrollPanel, Integer.valueOf(1));
 
     varTreePane =
         new JPanel() {
@@ -1567,16 +1567,16 @@ public class LizzieFrame extends JFrame {
     } else basePanel.setBackground(Color.GRAY);
     getContentPane().add(basePanel);
     basePanel.setLayout(null);
-    basePanel.add(commentBlunderControlPane, new Integer(10));
-    basePanel.add(tempGamePanelAll, new Integer(9));
-    basePanel.add(varTreeScrollPane, new Integer(8));
-    basePanel.add(listScrollpane, new Integer(7));
-    basePanel.add(blunderContentPane, new Integer(6));
-    basePanel.add(commentEditPane, new Integer(5));
-    basePanel.add(commentScrollPane, new Integer(4));
-    basePanel.add(topPanel, new Integer(3));
-    basePanel.add(toolbar, new Integer(2));
-    basePanel.add(mainPanel, new Integer(1));
+    basePanel.add(commentBlunderControlPane, Integer.valueOf(10));
+    basePanel.add(tempGamePanelAll, Integer.valueOf(9));
+    basePanel.add(varTreeScrollPane, Integer.valueOf(8));
+    basePanel.add(listScrollpane, Integer.valueOf(7));
+    basePanel.add(blunderContentPane, Integer.valueOf(6));
+    basePanel.add(commentEditPane, Integer.valueOf(5));
+    basePanel.add(commentScrollPane, Integer.valueOf(4));
+    basePanel.add(topPanel, Integer.valueOf(3));
+    basePanel.add(toolbar, Integer.valueOf(2));
+    basePanel.add(mainPanel, Integer.valueOf(1));
     mainPanel.setVisible(false);
     commentScrollPane.setVisible(false);
     blunderContentPane.setVisible(false);

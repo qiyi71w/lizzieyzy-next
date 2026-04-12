@@ -228,10 +228,10 @@ public class ReadBoard {
       System.out.println("Board synchronization tool process ended.");
       if (!javaReadBoard && !isLoaded) {
         try {
-          Runtime.getRuntime().exec("powershell /c start readboard\\readboard.bat");
+          new ProcessBuilder("powershell", "/c", "start", "readboard\\readboard.bat").start();
         } catch (IOException e) {
           try {
-            Runtime.getRuntime().exec("powershell /c start readboard\\readboard.exe");
+            new ProcessBuilder("powershell", "/c", "start", "readboard\\readboard.exe").start();
           } catch (Exception s) {
             s.printStackTrace();
           }

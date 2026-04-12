@@ -2,7 +2,6 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.theme.MorandiPalette;
-import java.awt.Color;
 import java.awt.Font;
 import javax.swing.JMenuItem;
 

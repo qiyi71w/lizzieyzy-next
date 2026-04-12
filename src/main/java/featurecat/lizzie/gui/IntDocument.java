@@ -34,7 +34,7 @@ public class IntDocument extends PlainDocument {
     //		}
     // 校验是否是有效数字
     try {
-      new Integer(numStr);
+      Integer.parseInt(numStr);
     } catch (NumberFormatException e1) {
       return;
     }

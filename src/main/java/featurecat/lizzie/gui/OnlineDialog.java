@@ -559,7 +559,7 @@ public class OnlineDialog extends JDialog {
     new Thread() {
       public void run() {
         try {
-          URL url = new URL(ajaxUrl);
+          URL url = URI.create(ajaxUrl).toURL();
           HttpURLConnection con = (HttpURLConnection) url.openConnection();
 
           con.setRequestMethod("GET");
