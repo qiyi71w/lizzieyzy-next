@@ -664,8 +664,7 @@ public class ReadBoard {
         needRefresh = true;
       } else {
         if (!played && !needRefresh) {
-          SyncConflictTracker.Decision conflictDecision =
-              conflictTracker.evaluate(snapshotCodes, false);
+          SyncConflictTracker.Decision conflictDecision = conflictTracker.evaluate(snapshotCodes);
           if (conflictDecision == SyncConflictTracker.Decision.HOLD) {
             isSyncing = false;
             return;

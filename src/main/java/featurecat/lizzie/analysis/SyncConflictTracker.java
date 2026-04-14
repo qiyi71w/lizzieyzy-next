@@ -4,7 +4,6 @@ import java.util.Arrays;
 
 final class SyncConflictTracker {
   enum Decision {
-    APPLY,
     HOLD,
     REBUILD
   }
@@ -12,11 +11,7 @@ final class SyncConflictTracker {
   private int[] pendingSnapshot = new int[0];
   private boolean pendingConflict = false;
 
-  Decision evaluate(int[] snapshot, boolean canApplyIncrementally) {
-    if (canApplyIncrementally) {
-      clear();
-      return Decision.APPLY;
-    }
+  Decision evaluate(int[] snapshot) {
     if (!pendingConflict || !Arrays.equals(pendingSnapshot, snapshot)) {
       pendingSnapshot = Arrays.copyOf(snapshot, snapshot.length);
       pendingConflict = true;
