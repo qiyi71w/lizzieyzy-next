@@ -19,6 +19,8 @@ import java.awt.Point;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -36,7 +38,9 @@ import javax.swing.JPanel;
 import javax.swing.border.EmptyBorder;
 
 public class DrawPainting extends JDialog {
+  private static final BasicStroke PEN_STROKE = new BasicStroke(3);
   private BufferedImage cachedImage;
+  private boolean canvasDirty = true;
   private List<DrawPoint> list = new ArrayList<DrawPoint>();
   private List<List<DrawPoint>> drawlist = new ArrayList<List<DrawPoint>>();
   private JPanel mainPanel;
@@ -129,17 +133,19 @@ public class DrawPainting extends JDialog {
         new MouseMotionListener() {
           @Override
           public void mouseDragged(MouseEvent e) {
-            // TODO Auto-generated method stub
-            //  System.out.println("1");
             DrawPoint p1 = new DrawPoint((e.getX()), (e.getY()), colorIndex);
             list.add(p1);
-            draw();
+            drawLatestSegment();
           }
 
           @Override
-          public void mouseMoved(MouseEvent arg0) {
-            // TODO Auto-generated method stub
-
+          public void mouseMoved(MouseEvent arg0) {}
+        });
+    addComponentListener(
+        new ComponentAdapter() {
+          @Override
+          public void componentResized(ComponentEvent e) {
+            rebuildCanvas();
           }
         });
     btnPanel = new JPanel();
@@ -249,7 +255,7 @@ public class DrawPainting extends JDialog {
           public void actionPerformed(ActionEvent e) {
             if (drawlist.size() > 0) {
               drawlist.remove(drawlist.size() - 1);
-              draw();
+              rebuildCanvas();
             }
           }
         });
@@ -264,7 +270,7 @@ public class DrawPainting extends JDialog {
           public void actionPerformed(ActionEvent e) {
             list.clear();
             drawlist.clear();
-            draw();
+            rebuildCanvas();
           }
         });
 
@@ -282,6 +288,7 @@ public class DrawPainting extends JDialog {
             dispose();
           }
         });
+    rebuildCanvas();
   }
 
   protected void saveLastColor() {
@@ -321,37 +328,75 @@ public class DrawPainting extends JDialog {
     }
   }
 
-  private void draw() {
-    cachedImage =
-        new BufferedImage(Utils.zoomOut(totalWidth), Utils.zoomOut(totalHeight), TYPE_INT_ARGB);
-    Graphics2D g0 = (Graphics2D) cachedImage.getGraphics();
-    g0.setBackground(backgroundColor);
-    g0.clearRect(0, 0, cachedImage.getWidth(), cachedImage.getHeight());
-    g0.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
-    g0.setStroke(new BasicStroke(3));
-
-    for (int s = 0; s < drawlist.size(); s++) {
-      List<DrawPoint> list = drawlist.get(s);
-
-      for (int i = 1; i < list.size(); i++) {
-        int x0 = list.get(i - 1).x;
-        int y0 = list.get(i - 1).y;
-        int x1 = list.get(i).x;
-        int y1 = list.get(i).y;
-        setColor(list.get(i).color, g0);
-        g0.drawLine(x1, y1, x0, y0);
-      }
+  private void drawLatestSegment() {
+    ensureCanvasSize();
+    if (canvasDirty) {
+      redrawCanvasImage();
+      repaint();
+      return;
     }
-    for (int i = 1; i < list.size(); i++) {
-      int x0 = list.get(i - 1).x;
-      int y0 = list.get(i - 1).y;
-      int x1 = list.get(i).x;
-      int y1 = list.get(i).y;
-      setColor(list.get(i).color, g0);
-      g0.drawLine(x1, y1, x0, y0);
+    if (cachedImage == null || list.size() < 2) {
+      repaint();
+      return;
     }
+    Graphics2D g0 = createCanvasGraphics();
+    drawSegment(g0, list.get(list.size() - 2), list.get(list.size() - 1));
     g0.dispose();
     repaint();
+  }
+
+  private void rebuildCanvas() {
+    ensureCanvasSize();
+    if (cachedImage == null) return;
+    redrawCanvasImage();
+    repaint();
+  }
+
+  private void redrawCanvasImage() {
+    if (cachedImage == null) return;
+    Graphics2D g0 = createCanvasGraphics();
+    clearCanvas(g0);
+    for (List<DrawPoint> stroke : drawlist) {
+      drawStroke(g0, stroke);
+    }
+    drawStroke(g0, list);
+    g0.dispose();
+    canvasDirty = false;
+  }
+
+  private void ensureCanvasSize() {
+    int canvasWidth = Math.max(1, Utils.zoomOut(getWidth()));
+    int canvasHeight = Math.max(1, Utils.zoomOut(getHeight()));
+    if (cachedImage != null
+        && cachedImage.getWidth() == canvasWidth
+        && cachedImage.getHeight() == canvasHeight) {
+      return;
+    }
+    cachedImage = new BufferedImage(canvasWidth, canvasHeight, TYPE_INT_ARGB);
+    canvasDirty = true;
+  }
+
+  private Graphics2D createCanvasGraphics() {
+    Graphics2D g0 = (Graphics2D) cachedImage.getGraphics();
+    g0.setBackground(backgroundColor);
+    g0.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
+    g0.setStroke(PEN_STROKE);
+    return g0;
+  }
+
+  private void clearCanvas(Graphics2D g0) {
+    g0.clearRect(0, 0, cachedImage.getWidth(), cachedImage.getHeight());
+  }
+
+  private void drawStroke(Graphics2D g0, List<DrawPoint> stroke) {
+    for (int i = 1; i < stroke.size(); i++) {
+      drawSegment(g0, stroke.get(i - 1), stroke.get(i));
+    }
+  }
+
+  private void drawSegment(Graphics2D g0, DrawPoint start, DrawPoint end) {
+    setColor(end.color, g0);
+    g0.drawLine(end.x, end.y, start.x, start.y);
   }
 
   private void setColor(PEN_COLOR color, Graphics2D g0) {
@@ -371,12 +416,18 @@ public class DrawPainting extends JDialog {
 
   @Override
   public void paint(Graphics g) {
-    super.paint(g);
-    // ((Graphics2D) g).setComposite(AlphaComposite.getInstance(AlphaComposite.SRC));
-    if (cachedImage != null) {
-      g.drawImage(cachedImage, 0, 0, this);
+    ensureCanvasSize();
+    if (canvasDirty) {
+      redrawCanvasImage();
     }
-    btnPanel.repaint();
+    super.paint(g);
+    if (cachedImage != null) {
+      Graphics2D g2 = (Graphics2D) g.create();
+      int clipTop = btnPanel == null ? 0 : btnPanel.getHeight();
+      g2.clipRect(0, clipTop, getWidth(), Math.max(0, getHeight() - clipTop));
+      g2.drawImage(cachedImage, 0, 0, this);
+      g2.dispose();
+    }
   }
 
   public class DrawPoint {

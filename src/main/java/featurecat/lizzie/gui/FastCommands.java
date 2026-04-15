@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.util.ResourceImageCache;
 import java.awt.BorderLayout;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -21,7 +22,6 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.List;
-import javax.imageio.ImageIO;
 import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
@@ -42,7 +42,7 @@ public class FastCommands extends JDialog {
     super(owner);
     initComponents();
     try {
-      this.setIconImage(ImageIO.read(getClass().getResourceAsStream("/assets/logo.png")));
+      this.setIconImage(ResourceImageCache.getImage("/assets/logo.png"));
     } catch (IOException e) {
       e.printStackTrace();
     }

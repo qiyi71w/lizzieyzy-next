@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.util.ResourceImageCache;
 import java.awt.BorderLayout;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
@@ -8,8 +9,6 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
-import javax.imageio.ImageIO;
-import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -79,12 +78,9 @@ public class CaptureTsumeGoFrame extends JFrame {
     buttonPane.add(lblTip, BorderLayout.CENTER);
 
     try {
-      capture1.setIcon(
-          new ImageIcon(ImageIO.read(getClass().getResourceAsStream("/assets/capture1.png"))));
-      capture2.setIcon(
-          new ImageIcon(ImageIO.read(getClass().getResourceAsStream("/assets/capture2.png"))));
-      capture3.setIcon(
-          new ImageIcon(ImageIO.read(getClass().getResourceAsStream("/assets/capture3.png"))));
+      capture1.setIcon(ResourceImageCache.getIcon("/assets/capture1.png"));
+      capture2.setIcon(ResourceImageCache.getIcon("/assets/capture2.png"));
+      capture3.setIcon(ResourceImageCache.getIcon("/assets/capture3.png"));
     } catch (IOException e1) {
       // TODO Auto-generated catch block
       e1.printStackTrace();
@@ -103,7 +99,7 @@ public class CaptureTsumeGoFrame extends JFrame {
     pack();
     setAlwaysOnTop(true);
     try {
-      setIconImage(ImageIO.read(getClass().getResourceAsStream("/assets/logo.png")));
+      setIconImage(ResourceImageCache.getImage("/assets/logo.png"));
     } catch (IOException e) {
       e.printStackTrace();
     }

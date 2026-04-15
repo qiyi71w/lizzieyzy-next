@@ -24,7 +24,6 @@ import java.awt.FontFormatException;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
-import java.awt.Image;
 import java.awt.Insets;
 import java.awt.Paint;
 import java.awt.RadialGradientPaint;
@@ -55,6 +54,7 @@ import java.util.ResourceBundle;
 import java.util.Vector;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
+import javax.swing.AbstractButton;
 import javax.swing.AbstractCellEditor;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -89,6 +89,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.Border;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -117,7 +119,23 @@ public class ConfigDialog2 extends JDialog {
   private PanelWithToolTips aboutTab;
   private JButton okButton;
 
+  private static final int PREVIEW_TIMER_DELAY_MS = 100;
+  private static final int PREVIEW_MARGIN = 30;
+  private static final int PREVIEW_GRID_ORIGIN = 60;
+  private static final int PREVIEW_SQUARE_LENGTH = 30;
+  private static final int PREVIEW_BLACK_STONE_X = 2;
+  private static final int PREVIEW_BLACK_STONE_Y = 3;
+  private static final int PREVIEW_WHITE_STONE_X = 1;
+  private static final int PREVIEW_WHITE_STONE_Y = 2;
+  private static final float PREVIEW_TOP_SHADOW_RATIO = 0.2f;
+  private static final float PREVIEW_FAR_SHADOW_RATIO = 0.17f;
+
   javax.swing.Timer timer;
+  private boolean themeTabInitialized;
+  private boolean suppressPreviewRefresh;
+  private boolean previewDirty = true;
+  private String previewCacheKey = "";
+  private BufferedImage previewCacheImage;
   // UI Tab
   private JFormattedTextField txtMaxAnalyzeTime;
   private JFormattedTextField txtMaxGameThinkingTime;
@@ -1965,13 +1983,125 @@ public class ConfigDialog2 extends JDialog {
     addWindowListener(
         new WindowAdapter() {
           public void windowClosing(WindowEvent e) {
-            if (timer != null) timer.stop();
+            stopPreviewTimer();
           }
         });
   }
 
+  @Override
+  public void setVisible(boolean visible) {
+    if (!visible) {
+      stopPreviewTimer();
+    }
+    super.setVisible(visible);
+    if (visible) {
+      schedulePreviewRefresh();
+      updatePreviewTimerState();
+    }
+  }
+
+  private void initPreviewTimer() {
+    if (timer != null) return;
+    timer =
+        new javax.swing.Timer(
+            PREVIEW_TIMER_DELAY_MS,
+            new ActionListener() {
+              public void actionPerformed(ActionEvent evt) {
+                refreshPreviewNow();
+              }
+            });
+  }
+
+  private void stopPreviewTimer() {
+    if (timer != null && timer.isRunning()) {
+      timer.stop();
+    }
+  }
+
+  private void updatePreviewTimerState() {
+    if (timer == null) return;
+    if (isPreviewActive()) {
+      if (!timer.isRunning()) timer.start();
+      return;
+    }
+    stopPreviewTimer();
+  }
+
+  private boolean isPreviewActive() {
+    return pnlBoardPreview != null
+        && tabbedPane != null
+        && tabbedPane.getSelectedIndex() == 1
+        && isVisible();
+  }
+
+  private void schedulePreviewRefresh() {
+    previewDirty = true;
+    if (suppressPreviewRefresh) return;
+    if (isPreviewActive()) refreshPreviewNow();
+    updatePreviewTimerState();
+  }
+
+  private void refreshPreviewNow() {
+    if (!isPreviewActive()) {
+      updatePreviewTimerState();
+      return;
+    }
+    if (syncPreviewCache()) pnlBoardPreview.repaint();
+  }
+
+  private boolean syncPreviewCache() {
+    if (pnlBoardPreview == null) return false;
+    int width = pnlBoardPreview.getWidth();
+    int height = pnlBoardPreview.getHeight();
+    if (width <= 0 || height <= 0) return false;
+    String nextKey = buildPreviewCacheKey(width, height);
+    if (!previewDirty && nextKey.equals(previewCacheKey)) return false;
+    previewCacheImage = buildPreviewImage(width, height);
+    previewCacheKey = nextKey;
+    previewDirty = false;
+    return true;
+  }
+
+  private String buildPreviewCacheKey(int width, int height) {
+    StringBuilder key = new StringBuilder();
+    appendPreviewKey(key, width + "x" + height);
+    appendPreviewKey(key, cmbThemes == null ? -1 : cmbThemes.getSelectedIndex());
+    appendPreviewKey(key, cmbThemes == null ? "" : cmbThemes.getSelectedItem());
+    appendPreviewKey(key, txtBackgroundPath == null ? "" : txtBackgroundPath.getText().trim());
+    appendPreviewKey(key, txtBoardPath == null ? "" : txtBoardPath.getText().trim());
+    appendPreviewKey(key, txtBlackStonePath == null ? "" : txtBlackStonePath.getText().trim());
+    appendPreviewKey(key, txtWhiteStonePath == null ? "" : txtWhiteStonePath.getText().trim());
+    appendPreviewKey(key, chkPureBackground != null && chkPureBackground.isSelected());
+    appendPreviewKey(key, chkPureBoard != null && chkPureBoard.isSelected());
+    appendPreviewKey(key, chkPureStone != null && chkPureStone.isSelected());
+    appendPreviewKey(key, chkShowStoneShaow != null && chkShowStoneShaow.isSelected());
+    appendPreviewKey(key, spnShadowSize == null ? "" : spnShadowSize.getValue());
+    appendPreviewKey(key, colorKey(lblPureBackgroundColor));
+    appendPreviewKey(key, colorKey(lblPureBoardColor));
+    return key.toString();
+  }
+
+  private void appendPreviewKey(StringBuilder key, Object value) {
+    key.append('|').append(value == null ? "" : value);
+  }
+
+  private String colorKey(ColorLabel colorLabel) {
+    if (colorLabel == null || colorLabel.getColor() == null) return "";
+    Color color = colorLabel.getColor();
+    return color.getRGB() + ":" + color.getAlpha();
+  }
+
   private void loadThemeTab() {
-    if (tabbedPane.getSelectedIndex() != 1) return;
+    if (tabbedPane.getSelectedIndex() != 1) {
+      updatePreviewTimerState();
+      return;
+    }
+    if (themeTabInitialized) {
+      schedulePreviewRefresh();
+      updatePreviewTimerState();
+      return;
+    }
+    themeTabInitialized = true;
     // TODO Auto-generated method stub
     File themeFolder = new File(Theme.pathPrefix);
     File[] themes =
@@ -2041,6 +2171,7 @@ public class ConfigDialog2 extends JDialog {
     cmbThemes.addItemListener(
         new ItemListener() {
           public void itemStateChanged(ItemEvent e) {
+            if (e.getStateChange() != ItemEvent.SELECTED) return;
             readThemeValues();
             if (cmbThemes.getSelectedIndex() == 0) btnDeleteTheme.setEnabled(false);
             else btnDeleteTheme.setEnabled(true);
@@ -2465,10 +2596,7 @@ public class ConfigDialog2 extends JDialog {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             String ip = getImagePath();
-            if (!ip.isEmpty()) {
-              txtBackgroundPath.setText(ip);
-              pnlBoardPreview.repaint();
-            }
+            if (!ip.isEmpty()) txtBackgroundPath.setText(ip);
           }
         });
     btnBackgroundPath.setBounds(759, 223, 40, 26);
@@ -2479,10 +2607,7 @@ public class ConfigDialog2 extends JDialog {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             String ip = getImagePath();
-            if (!ip.isEmpty()) {
-              txtBoardPath.setText(ip);
-              pnlBoardPreview.repaint();
-            }
+            if (!ip.isEmpty()) txtBoardPath.setText(ip);
           }
         });
     btnBoardPath.setBounds(759, 253, 40, 26);
@@ -2493,10 +2618,7 @@ public class ConfigDialog2 extends JDialog {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             String ip = getImagePath();
-            if (!ip.isEmpty()) {
-              txtBlackStonePath.setText(ip);
-              pnlBoardPreview.repaint();
-            }
+            if (!ip.isEmpty()) txtBlackStonePath.setText(ip);
           }
         });
     btnBlackStonePath.setBounds(759, 283, 40, 26);
@@ -2507,10 +2629,7 @@ public class ConfigDialog2 extends JDialog {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             String ip = getImagePath();
-            if (!ip.isEmpty()) {
-              txtWhiteStonePath.setText(ip);
-              pnlBoardPreview.repaint();
-            }
+            if (!ip.isEmpty()) txtWhiteStonePath.setText(ip);
           }
         });
     btnWhiteStonePath.setBounds(759, 313, 40, 26);
@@ -2584,220 +2703,273 @@ public class ConfigDialog2 extends JDialog {
         new JPanel() {
           @Override
           public void paintComponent(Graphics g) {
+            super.paintComponent(g);
             if (tabbedPane.getSelectedIndex() != 1) return;
-            if (g instanceof Graphics2D) {
-              int width = getWidth();
-              int height = getHeight();
-              Graphics2D bsGraphics = (Graphics2D) g;
-              Paint originalPaint = bsGraphics.getPaint();
-              bsGraphics.setRenderingHint(
-                  RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-              bsGraphics.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
-
-              BufferedImage backgroundImage = null;
-              try {
-                if (cmbThemes.getSelectedIndex() <= 0) {
-                  backgroundImage =
-                      ImageIO.read(getClass().getResourceAsStream(txtBackgroundPath.getText()));
-                } else {
-                  backgroundImage =
-                      ImageIO.read(
-                          new File(theme == null ? "" : theme.path + txtBackgroundPath.getText()));
-                }
-                TexturePaint paint =
-                    new TexturePaint(
-                        backgroundImage,
-                        new Rectangle(
-                            0, 0, backgroundImage.getWidth(), backgroundImage.getHeight()));
-                if (chkPureBackground.isSelected()) g.setColor(lblPureBackgroundColor.getColor());
-                else bsGraphics.setPaint(paint);
-                int drawWidth = max(backgroundImage.getWidth(), width);
-                int drawHeight = max(backgroundImage.getHeight(), height);
-                bsGraphics.fill(new Rectangle(0, 0, drawWidth, drawHeight));
-                bsGraphics.setPaint(originalPaint);
-              } catch (IOException e0) {
-              }
-              BufferedImage boardImage = null;
-              try {
-                if (cmbThemes.getSelectedIndex() <= 0) {
-                  boardImage = ImageIO.read(getClass().getResourceAsStream(txtBoardPath.getText()));
-                } else {
-                  boardImage =
-                      ImageIO.read(
-                          new File(theme == null ? "" : theme.path + txtBoardPath.getText()));
-                }
-                TexturePaint paint =
-                    new TexturePaint(
-                        boardImage,
-                        new Rectangle(0, 0, boardImage.getWidth(), boardImage.getHeight()));
-                if (chkPureBoard.isSelected()) g.setColor(lblPureBoardColor.getColor());
-                else bsGraphics.setPaint(paint);
-                int drawWidth = max(boardImage.getWidth(), width);
-                int drawHeight = max(boardImage.getHeight(), height);
-                bsGraphics.fill(new Rectangle(30, 30, drawWidth, drawHeight));
-                bsGraphics.setPaint(originalPaint);
-              } catch (IOException e0) {
-              }
-              // Draw the lines
-              int x = 60;
-              int y = 60;
-              int squareLength = 30;
-              int stoneRadius = squareLength < 4 ? 1 : squareLength / 2 - 1;
-              int size = stoneRadius * 2 + 1;
-              double r = stoneRadius * (int) spnShadowSize.getValue() / 100;
-              int shadowSize = (int) (r * 0.2) == 0 ? 1 : (int) (r * 0.2);
-              int fartherShadowSize = (int) (r * 0.17) == 0 ? 1 : (int) (r * 0.17);
-              int stoneX = x + squareLength * 2;
-              int stoneY = y + squareLength * 3;
-
-              g.setColor(Color.BLACK);
-              for (int i = 0; i < Board.boardWidth; i++) {
-                g.drawLine(x, y + squareLength * i, height, y + squareLength * i);
-              }
-              for (int i = 0; i < Board.boardHeight; i++) {
-                g.drawLine(x + squareLength * i, y, x + squareLength * i, width);
-              }
-
-              BufferedImage blackStoneImage = null;
-              try {
-                if (cmbThemes.getSelectedIndex() <= 0) {
-                  blackStoneImage =
-                      ImageIO.read(getClass().getResourceAsStream(txtBlackStonePath.getText()));
-                } else {
-                  blackStoneImage =
-                      ImageIO.read(
-                          new File(theme == null ? "" : theme.path + txtBlackStonePath.getText()));
-                }
-                BufferedImage stoneImage = new BufferedImage(size, size, TYPE_INT_ARGB);
-                if (chkShowStoneShaow.isSelected()) {
-                  RadialGradientPaint TOP_GRADIENT_PAINT =
-                      new RadialGradientPaint(
-                          new Point2D.Float(stoneX, stoneY),
-                          stoneRadius + shadowSize,
-                          new float[] {0.3f, 1.0f},
-                          new Color[] {new Color(50, 50, 50, 150), new Color(0, 0, 0, 0)});
-                  RadialGradientPaint LOWER_RIGHT_GRADIENT_PAINT =
-                      new RadialGradientPaint(
-                          new Point2D.Float(stoneX + shadowSize, stoneY + shadowSize),
-                          stoneRadius + fartherShadowSize,
-                          new float[] {0.6f, 1.0f},
-                          new Color[] {new Color(0, 0, 0, 140), new Color(0, 0, 0, 0)});
-                  originalPaint = bsGraphics.getPaint();
-
-                  bsGraphics.setPaint(TOP_GRADIENT_PAINT);
-                  bsGraphics.fillOval(
-                      stoneX - stoneRadius - shadowSize,
-                      stoneY - stoneRadius - shadowSize,
-                      2 * (stoneRadius + shadowSize) + 1,
-                      2 * (stoneRadius + shadowSize) + 1);
-                  bsGraphics.setPaint(LOWER_RIGHT_GRADIENT_PAINT);
-                  bsGraphics.fillOval(
-                      stoneX + shadowSize - stoneRadius - fartherShadowSize,
-                      stoneY + shadowSize - stoneRadius - fartherShadowSize,
-                      2 * (stoneRadius + fartherShadowSize) + 1,
-                      2 * (stoneRadius + fartherShadowSize) + 1);
-                  bsGraphics.setPaint(originalPaint);
-                }
-                if (chkPureStone.isSelected()) {
-                  drawStoneSimple(bsGraphics, stoneX, stoneY, true, stoneRadius);
-                } else {
-                  Image img = blackStoneImage;
-                  Graphics2D g2 = stoneImage.createGraphics();
-                  g2.setRenderingHint(
-                      RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                  g2.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
-                  g2.drawImage(
-                      img.getScaledInstance(size, size, java.awt.Image.SCALE_SMOOTH), 0, 0, null);
-                  g2.dispose();
-                  bsGraphics.drawImage(
-                      stoneImage, stoneX - stoneRadius, stoneY - stoneRadius, null);
-                }
-              } catch (IOException e0) {
-              }
-
-              stoneX = x + squareLength * 1;
-              stoneY = y + squareLength * 2;
-
-              BufferedImage whiteStoneImage = null;
-              try {
-                if (cmbThemes.getSelectedIndex() <= 0) {
-                  whiteStoneImage =
-                      ImageIO.read(getClass().getResourceAsStream(txtWhiteStonePath.getText()));
-                } else {
-                  whiteStoneImage =
-                      ImageIO.read(
-                          new File(theme == null ? "" : theme.path + txtWhiteStonePath.getText()));
-                }
-                BufferedImage stoneImage = new BufferedImage(size, size, TYPE_INT_ARGB);
-                if (chkShowStoneShaow.isSelected()) {
-                  RadialGradientPaint TOP_GRADIENT_PAINT =
-                      new RadialGradientPaint(
-                          new Point2D.Float(stoneX, stoneY),
-                          stoneRadius + shadowSize,
-                          new float[] {0.3f, 1.0f},
-                          new Color[] {new Color(50, 50, 50, 150), new Color(0, 0, 0, 0)});
-                  RadialGradientPaint LOWER_RIGHT_GRADIENT_PAINT =
-                      new RadialGradientPaint(
-                          new Point2D.Float(stoneX + shadowSize, stoneY + shadowSize),
-                          stoneRadius + fartherShadowSize,
-                          new float[] {0.6f, 1.0f},
-                          new Color[] {new Color(0, 0, 0, 140), new Color(0, 0, 0, 0)});
-                  originalPaint = bsGraphics.getPaint();
-
-                  bsGraphics.setPaint(TOP_GRADIENT_PAINT);
-                  bsGraphics.fillOval(
-                      stoneX - stoneRadius - shadowSize,
-                      stoneY - stoneRadius - shadowSize,
-                      2 * (stoneRadius + shadowSize) + 1,
-                      2 * (stoneRadius + shadowSize) + 1);
-                  bsGraphics.setPaint(LOWER_RIGHT_GRADIENT_PAINT);
-                  bsGraphics.fillOval(
-                      stoneX + shadowSize - stoneRadius - fartherShadowSize,
-                      stoneY + shadowSize - stoneRadius - fartherShadowSize,
-                      2 * (stoneRadius + fartherShadowSize) + 1,
-                      2 * (stoneRadius + fartherShadowSize) + 1);
-                  bsGraphics.setPaint(originalPaint);
-                }
-                if (chkPureStone.isSelected()) {
-                  drawStoneSimple(bsGraphics, stoneX, stoneY, false, stoneRadius);
-                } else {
-                  Image img = whiteStoneImage;
-                  Graphics2D g2 = stoneImage.createGraphics();
-                  g2.setRenderingHint(
-                      RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                  g2.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
-                  g2.drawImage(
-                      img.getScaledInstance(size, size, java.awt.Image.SCALE_SMOOTH), 0, 0, null);
-                  g2.dispose();
-                  bsGraphics.drawImage(
-                      stoneImage, stoneX - stoneRadius, stoneY - stoneRadius, null);
-                }
-              } catch (IOException e0) {
-              }
-            }
+            if (previewCacheImage != null) g.drawImage(previewCacheImage, 0, 0, null);
           }
         };
     pnlBoardPreview.setBounds(530, 11, 200, 200);
     themeTab.add(pnlBoardPreview);
     Utils.changeFontRecursive(themeTab, Config.sysDefaultFontName);
+    installPreviewInputListeners();
+    initPreviewTimer();
 
     cmbThemes.setSelectedItem(
         Lizzie.config.uiConfig.optString(
             "theme", resourceBundle.getString("LizzieConfig.title.defaultTheme")));
     if (cmbThemes.getSelectedIndex() == 0) btnDeleteTheme.setEnabled(false);
     else btnDeleteTheme.setEnabled(true);
-    timer =
-        new javax.swing.Timer(
-            100,
-            new ActionListener() {
-              public void actionPerformed(ActionEvent evt) {
-                if (tabbedPane.getSelectedIndex() == 1) {
-                  pnlBoardPreview.repaint();
-                  tabbedPane.repaint();
-                }
+    schedulePreviewRefresh();
+    updatePreviewTimerState();
+  }
+
+  private void installPreviewInputListeners() {
+    addPreviewListener(chkShowStoneShaow);
+    addPreviewListener(chkPureBackground);
+    addPreviewListener(chkPureBoard);
+    addPreviewListener(chkPureStone);
+    addPreviewListener(txtBackgroundPath);
+    addPreviewListener(txtBoardPath);
+    addPreviewListener(txtBlackStonePath);
+    addPreviewListener(txtWhiteStonePath);
+    spnShadowSize.addChangeListener(
+        new ChangeListener() {
+          public void stateChanged(ChangeEvent e) {
+            schedulePreviewRefresh();
+          }
+        });
+  }
+
+  private void addPreviewListener(AbstractButton button) {
+    button.addActionListener(
+        new ActionListener() {
+          public void actionPerformed(ActionEvent e) {
+            schedulePreviewRefresh();
+          }
+        });
+  }
+
+  private void addPreviewListener(JTextField field) {
+    field
+        .getDocument()
+        .addDocumentListener(
+            new DocumentListener() {
+              public void insertUpdate(DocumentEvent e) {
+                schedulePreviewRefresh();
+              }
+
+              public void removeUpdate(DocumentEvent e) {
+                schedulePreviewRefresh();
+              }
+
+              public void changedUpdate(DocumentEvent e) {
+                schedulePreviewRefresh();
               }
             });
-    timer.start();
+  }
+
+  private BufferedImage buildPreviewImage(int width, int height) {
+    BufferedImage previewImage = new BufferedImage(width, height, TYPE_INT_ARGB);
+    Graphics2D graphics = previewImage.createGraphics();
+    try {
+      graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+      graphics.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
+      drawPreviewSurface(
+          graphics,
+          resolveBackgroundPreviewImage(),
+          chkPureBackground.isSelected(),
+          lblPureBackgroundColor.getColor(),
+          0,
+          0,
+          width,
+          height);
+      drawPreviewSurface(
+          graphics,
+          resolveBoardPreviewImage(),
+          chkPureBoard.isSelected(),
+          lblPureBoardColor.getColor(),
+          PREVIEW_MARGIN,
+          PREVIEW_MARGIN,
+          max(width - PREVIEW_MARGIN, 0),
+          max(height - PREVIEW_MARGIN, 0));
+      drawPreviewGrid(graphics, width, height);
+      drawPreviewStones(graphics);
+    } finally {
+      graphics.dispose();
+    }
+    return previewImage;
+  }
+
+  private void drawPreviewSurface(
+      Graphics2D graphics,
+      BufferedImage image,
+      boolean usePureColor,
+      Color pureColor,
+      int x,
+      int y,
+      int width,
+      int height) {
+    if (width <= 0 || height <= 0) return;
+    if (usePureColor) {
+      graphics.setColor(pureColor);
+      graphics.fillRect(x, y, width, height);
+      return;
+    }
+    if (image == null) return;
+    Paint originalPaint = graphics.getPaint();
+    graphics.setPaint(
+        new TexturePaint(image, new Rectangle(0, 0, image.getWidth(), image.getHeight())));
+    graphics.fillRect(x, y, width, height);
+    graphics.setPaint(originalPaint);
+  }
+
+  private void drawPreviewGrid(Graphics2D graphics, int width, int height) {
+    graphics.setColor(Color.BLACK);
+    for (int i = 0; i < Board.boardWidth; i++) {
+      int y = PREVIEW_GRID_ORIGIN + PREVIEW_SQUARE_LENGTH * i;
+      graphics.drawLine(PREVIEW_GRID_ORIGIN, y, width, y);
+    }
+    for (int i = 0; i < Board.boardHeight; i++) {
+      int x = PREVIEW_GRID_ORIGIN + PREVIEW_SQUARE_LENGTH * i;
+      graphics.drawLine(x, PREVIEW_GRID_ORIGIN, x, height);
+    }
+  }
+
+  private void drawPreviewStones(Graphics2D graphics) {
+    int stoneRadius = PREVIEW_SQUARE_LENGTH < 4 ? 1 : PREVIEW_SQUARE_LENGTH / 2 - 1;
+    double shadowRadiusBase = stoneRadius * ((Integer) spnShadowSize.getValue()) / 100.0;
+    int shadowSize = Math.max(1, (int) (shadowRadiusBase * PREVIEW_TOP_SHADOW_RATIO));
+    int fartherShadowSize = Math.max(1, (int) (shadowRadiusBase * PREVIEW_FAR_SHADOW_RATIO));
+    drawPreviewStone(
+        graphics,
+        resolveBlackStonePreviewImage(),
+        PREVIEW_GRID_ORIGIN + PREVIEW_SQUARE_LENGTH * PREVIEW_BLACK_STONE_X,
+        PREVIEW_GRID_ORIGIN + PREVIEW_SQUARE_LENGTH * PREVIEW_BLACK_STONE_Y,
+        true,
+        stoneRadius,
+        shadowSize,
+        fartherShadowSize);
+    drawPreviewStone(
+        graphics,
+        resolveWhiteStonePreviewImage(),
+        PREVIEW_GRID_ORIGIN + PREVIEW_SQUARE_LENGTH * PREVIEW_WHITE_STONE_X,
+        PREVIEW_GRID_ORIGIN + PREVIEW_SQUARE_LENGTH * PREVIEW_WHITE_STONE_Y,
+        false,
+        stoneRadius,
+        shadowSize,
+        fartherShadowSize);
+  }
+
+  private void drawPreviewStone(
+      Graphics2D graphics,
+      BufferedImage stoneImage,
+      int centerX,
+      int centerY,
+      boolean isBlack,
+      int stoneRadius,
+      int shadowSize,
+      int fartherShadowSize) {
+    if (chkShowStoneShaow.isSelected()) {
+      drawStoneShadow(graphics, centerX, centerY, stoneRadius, shadowSize, fartherShadowSize);
+    }
+    if (chkPureStone.isSelected() || stoneImage == null) {
+      drawStoneSimple(graphics, centerX, centerY, isBlack, stoneRadius);
+      return;
+    }
+    int diameter = stoneRadius * 2 + 1;
+    graphics.drawImage(
+        stoneImage, centerX - stoneRadius, centerY - stoneRadius, diameter, diameter, null);
+  }
+
+  private void drawStoneShadow(
+      Graphics2D graphics,
+      int centerX,
+      int centerY,
+      int stoneRadius,
+      int shadowSize,
+      int fartherShadowSize) {
+    Paint originalPaint = graphics.getPaint();
+    graphics.setPaint(
+        new RadialGradientPaint(
+            new Point2D.Float(centerX, centerY),
+            stoneRadius + shadowSize,
+            new float[] {0.3f, 1.0f},
+            new Color[] {new Color(50, 50, 50, 150), new Color(0, 0, 0, 0)}));
+    graphics.fillOval(
+        centerX - stoneRadius - shadowSize,
+        centerY - stoneRadius - shadowSize,
+        2 * (stoneRadius + shadowSize) + 1,
+        2 * (stoneRadius + shadowSize) + 1);
+    graphics.setPaint(
+        new RadialGradientPaint(
+            new Point2D.Float(centerX + shadowSize, centerY + shadowSize),
+            stoneRadius + fartherShadowSize,
+            new float[] {0.6f, 1.0f},
+            new Color[] {new Color(0, 0, 0, 140), new Color(0, 0, 0, 0)}));
+    graphics.fillOval(
+        centerX + shadowSize - stoneRadius - fartherShadowSize,
+        centerY + shadowSize - stoneRadius - fartherShadowSize,
+        2 * (stoneRadius + fartherShadowSize) + 1,
+        2 * (stoneRadius + fartherShadowSize) + 1);
+    graphics.setPaint(originalPaint);
+  }
+
+  private BufferedImage resolveBackgroundPreviewImage() {
+    if (shouldUseThemePreviewImage(
+        txtBackgroundPath.getText(), theme == null ? null : theme.backgroundPath()))
+      return theme.background();
+    return loadPreviewImage(txtBackgroundPath.getText());
+  }
+
+  private BufferedImage resolveBoardPreviewImage() {
+    if (shouldUseThemePreviewImage(
+        txtBoardPath.getText(), theme == null ? null : theme.boardPath())) return theme.board();
+    return loadPreviewImage(txtBoardPath.getText());
+  }
+
+  private BufferedImage resolveBlackStonePreviewImage() {
+    if (shouldUseThemePreviewImage(
+        txtBlackStonePath.getText(), theme == null ? null : theme.blackStonePath()))
+      return theme.blackStone();
+    return loadPreviewImage(txtBlackStonePath.getText());
+  }
+
+  private BufferedImage resolveWhiteStonePreviewImage() {
+    if (shouldUseThemePreviewImage(
+        txtWhiteStonePath.getText(), theme == null ? null : theme.whiteStonePath()))
+      return theme.whiteStone();
+    return loadPreviewImage(txtWhiteStonePath.getText());
+  }
+
+  private boolean shouldUseThemePreviewImage(String currentPath, String themePath) {
+    return cmbThemes != null
+        && cmbThemes.getSelectedIndex() > 0
+        && theme != null
+        && currentPath != null
+        && currentPath.trim().equals(themePath);
+  }
+
+  private BufferedImage loadPreviewImage(String imagePath) {
+    if (imagePath == null || imagePath.trim().isEmpty()) return null;
+    try {
+      if (cmbThemes != null && cmbThemes.getSelectedIndex() <= 0)
+        return loadBundledPreviewImage(imagePath);
+      return loadThemePreviewImage(imagePath);
+    } catch (IOException e) {
+      return null;
+    }
+  }
+
+  private BufferedImage loadBundledPreviewImage(String imagePath) throws IOException {
+    if (getClass().getResource(imagePath) == null) return null;
+    return ImageIO.read(getClass().getResource(imagePath));
+  }
+
+  private BufferedImage loadThemePreviewImage(String imagePath) throws IOException {
+    File imageFile = new File(imagePath);
+    if (!imageFile.isAbsolute()) imageFile = new File(theme == null ? "" : theme.path + imagePath);
+    if (!imageFile.canRead()) return null;
+    return ImageIO.read(imageFile);
   }
 
   public void setChkSuggestionInfo() {
@@ -2956,6 +3128,7 @@ public class ConfigDialog2 extends JDialog {
       if (useAplha) curColor = c;
       else curColor = Utils.getNoneAlphaColor(c);
       setBackground(curColor);
+      schedulePreviewRefresh();
     }
 
     public Color getColor() {
@@ -3328,74 +3501,80 @@ public class ConfigDialog2 extends JDialog {
   }
 
   private void readThemeValues() {
-    if (cmbThemes.getSelectedIndex() <= 0) {
-      // Default
-      readDefaultTheme();
-    } else {
-      // Read the Theme
-      String themeName = (String) cmbThemes.getSelectedItem();
-      if (themeName == null || themeName.isEmpty()) {
+    suppressPreviewRefresh = true;
+    try {
+      if (cmbThemes.getSelectedIndex() <= 0) {
+        theme = null;
         readDefaultTheme();
       } else {
-        theme = new Theme(themeName);
-        chkPureStone.setSelected(theme.usePureStone(false));
-        chkPureBackground.setSelected(theme.usePureBackground(false));
-        lblPureBackgroundColor.setColor(theme.pureBackgroundColor());
-        chkShowStoneShaow.setSelected(theme.showStoneShadow(false));
-        spnShadowSize.setEnabled(chkShowStoneShaow.isSelected());
-        chkPureBoard.setSelected(theme.usePureBoard(false));
-        lblPureBoardColor.setColor(theme.pureBoardColor());
-        spnWinrateStrokeWidth.setValue(theme.winrateStrokeWidth());
-        spnScoreLeadStrokeWidth.setValue(theme.scoreLeadStrokeWidth());
-        spnMinimumBlunderBarWidth.setValue(theme.minimumBlunderBarWidth());
-        spnShadowSize.setValue(theme.shadowSize());
-        setFontValue(cmbFontName, theme.fontName());
-        setFontValue(cmbUiFontName, theme.uiFontName());
-        setFontValue(cmbWinrateFontName, theme.winrateFontName());
-        btnBackgroundPath.setEnabled(!chkPureBackground.isSelected());
-        txtBackgroundPath.setEnabled(!chkPureBackground.isSelected());
-        txtBackgroundFilter.setEnabled(!chkPureBackground.isSelected());
-        txtBackgroundPath.setText(theme.backgroundPath());
-        btnBoardPath.setEnabled(!chkPureBoard.isSelected());
-        txtBoardPath.setEnabled(!chkPureBoard.isSelected());
-        txtBoardPath.setText(theme.boardPath());
-        txtBlackStonePath.setText(theme.blackStonePath());
-        btnBlackStonePath.setEnabled(!chkPureStone.isSelected());
-        btnWhiteStonePath.setEnabled(!chkPureStone.isSelected());
-        txtBlackStonePath.setEnabled(!chkPureStone.isSelected());
-        txtWhiteStonePath.setEnabled(!chkPureStone.isSelected());
-        txtWhiteStonePath.setText(theme.whiteStonePath());
-        lblWinrateLineColor.setColor(theme.winrateLineColor());
-        lblWinrateMissLineColor.setColor(theme.winrateMissLineColor());
-        lblBlunderBarColor.setColor(theme.blunderBarColor());
-        lblScoreMeanLineColor.setColor(theme.scoreMeanLineColor());
-        setStoneIndicatorType(theme.stoneIndicatorType());
-        chkShowCommentNodeColor.setSelected(theme.showCommentNodeColor(false));
-        chkUseScoreDiff.setSelected(theme.useScoreDiffInVariationTree(false));
-        txtPercentScoreDiff.setText(
-            String.valueOf(theme.scoreDiffInVariationTreeFactor(false) * 100));
-        txtPercentScoreDiff.setEnabled(chkUseScoreDiff.isSelected());
-        lblCommentNodeColor.setColor(theme.commentNodeColor());
-        lblCommentBackgroundColor.setColor(theme.commentBackgroundColor());
-        lblCommentFontColor.setColor(theme.commentFontColor());
-        Color BestCl = theme.bestMoveColor();
-        lblBestMoveColor.setColor(
-            new Color(BestCl.getRed(), BestCl.getGreen(), BestCl.getBlue(), 240));
-        txtCommentFontSize.setText(String.valueOf(theme.commentFontSize()));
-        txtBackgroundFilter.setText(String.valueOf(theme.backgroundFilter()));
-        tblBlunderNodes.setModel(
-            new BlunderNodeTableModel(
-                theme.blunderWinrateThresholds().orElse(null),
-                theme.blunderNodeColors().orElse(null),
-                columsBlunderNodes));
-        TableColumn colorCol = tblBlunderNodes.getColumnModel().getColumn(1);
-        colorCol.setCellRenderer(new ColorRenderer(false));
-        colorCol.setCellEditor(new ColorEditor(this));
+        String themeName = (String) cmbThemes.getSelectedItem();
+        if (themeName == null || themeName.isEmpty()) {
+          theme = null;
+          readDefaultTheme();
+        } else {
+          applyThemeValues(new Theme(themeName));
+        }
       }
+    } finally {
+      suppressPreviewRefresh = false;
     }
-    if (this.pnlBoardPreview != null) {
-      tabbedPane.repaint();
-    }
+    schedulePreviewRefresh();
+  }
+
+  private void applyThemeValues(Theme selectedTheme) {
+    theme = selectedTheme;
+    chkPureStone.setSelected(theme.usePureStone(false));
+    chkPureBackground.setSelected(theme.usePureBackground(false));
+    lblPureBackgroundColor.setColor(theme.pureBackgroundColor());
+    chkShowStoneShaow.setSelected(theme.showStoneShadow(false));
+    spnShadowSize.setEnabled(chkShowStoneShaow.isSelected());
+    chkPureBoard.setSelected(theme.usePureBoard(false));
+    lblPureBoardColor.setColor(theme.pureBoardColor());
+    spnWinrateStrokeWidth.setValue(theme.winrateStrokeWidth());
+    spnScoreLeadStrokeWidth.setValue(theme.scoreLeadStrokeWidth());
+    spnMinimumBlunderBarWidth.setValue(theme.minimumBlunderBarWidth());
+    spnShadowSize.setValue(theme.shadowSize());
+    setFontValue(cmbFontName, theme.fontName());
+    setFontValue(cmbUiFontName, theme.uiFontName());
+    setFontValue(cmbWinrateFontName, theme.winrateFontName());
+    btnBackgroundPath.setEnabled(!chkPureBackground.isSelected());
+    txtBackgroundPath.setEnabled(!chkPureBackground.isSelected());
+    txtBackgroundFilter.setEnabled(!chkPureBackground.isSelected());
+    txtBackgroundPath.setText(theme.backgroundPath());
+    btnBoardPath.setEnabled(!chkPureBoard.isSelected());
+    txtBoardPath.setEnabled(!chkPureBoard.isSelected());
+    txtBoardPath.setText(theme.boardPath());
+    txtBlackStonePath.setText(theme.blackStonePath());
+    btnBlackStonePath.setEnabled(!chkPureStone.isSelected());
+    btnWhiteStonePath.setEnabled(!chkPureStone.isSelected());
+    txtBlackStonePath.setEnabled(!chkPureStone.isSelected());
+    txtWhiteStonePath.setEnabled(!chkPureStone.isSelected());
+    txtWhiteStonePath.setText(theme.whiteStonePath());
+    lblWinrateLineColor.setColor(theme.winrateLineColor());
+    lblWinrateMissLineColor.setColor(theme.winrateMissLineColor());
+    lblBlunderBarColor.setColor(theme.blunderBarColor());
+    lblScoreMeanLineColor.setColor(theme.scoreMeanLineColor());
+    setStoneIndicatorType(theme.stoneIndicatorType());
+    chkShowCommentNodeColor.setSelected(theme.showCommentNodeColor(false));
+    chkUseScoreDiff.setSelected(theme.useScoreDiffInVariationTree(false));
+    txtPercentScoreDiff.setText(String.valueOf(theme.scoreDiffInVariationTreeFactor(false) * 100));
+    txtPercentScoreDiff.setEnabled(chkUseScoreDiff.isSelected());
+    lblCommentNodeColor.setColor(theme.commentNodeColor());
+    lblCommentBackgroundColor.setColor(theme.commentBackgroundColor());
+    lblCommentFontColor.setColor(theme.commentFontColor());
+    Color bestColor = theme.bestMoveColor();
+    lblBestMoveColor.setColor(
+        new Color(bestColor.getRed(), bestColor.getGreen(), bestColor.getBlue(), 240));
+    txtCommentFontSize.setText(String.valueOf(theme.commentFontSize()));
+    txtBackgroundFilter.setText(String.valueOf(theme.backgroundFilter()));
+    tblBlunderNodes.setModel(
+        new BlunderNodeTableModel(
+            theme.blunderWinrateThresholds().orElse(null),
+            theme.blunderNodeColors().orElse(null),
+            columsBlunderNodes));
+    TableColumn colorCol = tblBlunderNodes.getColumnModel().getColumn(1);
+    colorCol.setCellRenderer(new ColorRenderer(false));
+    colorCol.setCellEditor(new ColorEditor(this));
   }
 
   private void writeThemeValues() {

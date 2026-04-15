@@ -7,10 +7,13 @@ import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.util.Utils;
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 public class WinrateGraph {
@@ -39,6 +42,146 @@ public class WinrateGraph {
     }
   }
 
+  private static class QuickOverviewPathCache {
+    final BoardHistoryNode endNode;
+    final List<BoardHistoryNode> pathNodes;
+    final List<QuickOverviewMove> moves;
+    final long dataSignature;
+    final double maxSwing;
+    final double maxWinrateSpread;
+
+    QuickOverviewPathCache(
+        BoardHistoryNode endNode,
+        List<BoardHistoryNode> pathNodes,
+        List<QuickOverviewMove> moves,
+        long dataSignature,
+        double maxSwing,
+        double maxWinrateSpread) {
+      this.endNode = endNode;
+      this.pathNodes = pathNodes;
+      this.moves = moves;
+      this.dataSignature = dataSignature;
+      this.maxSwing = maxSwing;
+      this.maxWinrateSpread = maxWinrateSpread;
+    }
+  }
+
+  private static class QuickOverviewLayout {
+    final int drawX;
+    final int drawY;
+    final int imageWidth;
+    final int imageHeight;
+    final int innerX;
+    final int innerY;
+    final int innerWidth;
+    final int innerHeight;
+    final int centerY;
+    final int dotSize;
+    final int barWidth;
+
+    QuickOverviewLayout(int posx, int width, int numMoves, int[] origParams, int dotRadius) {
+      int overviewHeight = Math.max(42, Math.min(68, origParams[3] / 5));
+      int innerPadding = Math.max(4, overviewHeight / 8);
+      this.drawX = posx - 2;
+      this.drawY = origParams[1] + origParams[3] - overviewHeight - 4;
+      this.imageWidth = width + 4;
+      this.imageHeight = overviewHeight;
+      this.innerX = 2 + innerPadding;
+      this.innerY = innerPadding;
+      this.innerWidth = Math.max(10, width - innerPadding * 2);
+      this.innerHeight = Math.max(10, overviewHeight - innerPadding * 2);
+      this.centerY = innerY + innerHeight / 2;
+      this.dotSize = Math.max(4, dotRadius * 2);
+      this.barWidth = Math.max(2, (int) Math.ceil(innerWidth / Math.max(70.0, numMoves)));
+    }
+
+    int toAbsoluteX(int localX) {
+      return drawX + localX;
+    }
+
+    int toAbsoluteY(int localY) {
+      return drawY + localY;
+    }
+  }
+
+  private static class QuickOverviewBitmapKey {
+    final int imageWidth;
+    final int imageHeight;
+    final int innerWidth;
+    final int innerHeight;
+    final int numMoves;
+    final long dataSignature;
+    final long issueThresholdBits;
+    final int lineColorRgb;
+    final int strokeWidthBits;
+
+    QuickOverviewBitmapKey(
+        QuickOverviewLayout layout,
+        int numMoves,
+        long dataSignature,
+        double issueThreshold,
+        Color lineColor,
+        float strokeWidth) {
+      this.imageWidth = layout.imageWidth;
+      this.imageHeight = layout.imageHeight;
+      this.innerWidth = layout.innerWidth;
+      this.innerHeight = layout.innerHeight;
+      this.numMoves = numMoves;
+      this.dataSignature = dataSignature;
+      this.issueThresholdBits = Double.doubleToLongBits(issueThreshold);
+      this.lineColorRgb = lineColor.getRGB();
+      this.strokeWidthBits = Float.floatToIntBits(strokeWidth);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) return true;
+      if (!(obj instanceof QuickOverviewBitmapKey)) return false;
+      QuickOverviewBitmapKey other = (QuickOverviewBitmapKey) obj;
+      return imageWidth == other.imageWidth
+          && imageHeight == other.imageHeight
+          && innerWidth == other.innerWidth
+          && innerHeight == other.innerHeight
+          && numMoves == other.numMoves
+          && dataSignature == other.dataSignature
+          && issueThresholdBits == other.issueThresholdBits
+          && lineColorRgb == other.lineColorRgb
+          && strokeWidthBits == other.strokeWidthBits;
+    }
+
+    @Override
+    public int hashCode() {
+      int result = imageWidth;
+      result = 31 * result + imageHeight;
+      result = 31 * result + innerWidth;
+      result = 31 * result + innerHeight;
+      result = 31 * result + numMoves;
+      result = 31 * result + Long.hashCode(dataSignature);
+      result = 31 * result + Long.hashCode(issueThresholdBits);
+      result = 31 * result + lineColorRgb;
+      result = 31 * result + strokeWidthBits;
+      return result;
+    }
+  }
+
+  private static class QuickOverviewRenderCache {
+    final QuickOverviewBitmapKey key;
+    final BufferedImage backgroundImage;
+    final BufferedImage blunderImage;
+    final BufferedImage lineImage;
+
+    QuickOverviewRenderCache(
+        QuickOverviewBitmapKey key,
+        BufferedImage backgroundImage,
+        BufferedImage blunderImage,
+        BufferedImage lineImage) {
+      this.key = key;
+      this.backgroundImage = backgroundImage;
+      this.blunderImage = blunderImage;
+      this.lineImage = lineImage;
+    }
+  }
+
   private int DOT_RADIUS = 3;
   private int[] origParams = {0, 0, 0, 0};
   private int[] params = {0, 0, 0, 0, 0};
@@ -53,6 +196,9 @@ public class WinrateGraph {
   private boolean scoreAjustBelow;
   private Color whiteColor = new Color(240, 240, 240);
   private boolean noC = false;
+  private final Map<String, Font> fontCache = new HashMap<>();
+  private QuickOverviewPathCache quickOverviewPathCache;
+  private QuickOverviewRenderCache quickOverviewRenderCache;
 
   private Color getBlunderColor(double winrateDrop, double scoreDrop) {
     if (scoreDrop > 5.0 || winrateDrop > 20.0) return new Color(235, 60, 60, 220);
@@ -148,8 +294,7 @@ public class WinrateGraph {
     //      numMoves = this.numMovesOfPlayed;
     //    }
     if (!Lizzie.config.showBlunderBar && width >= 150) {
-      gBackground.setFont(
-          new Font(Config.sysDefaultFontName, Font.PLAIN, largeEnough ? Utils.zoomOut(11) : 11));
+      gBackground.setFont(getGraphFont(Font.PLAIN, largeEnough ? Utils.zoomOut(11) : 11));
       gBackground.setColor(new Color(200, 200, 200));
       if (numMoves <= 63) {
         for (int i = 1; i <= (numMoves / 10); i++)
@@ -217,8 +362,7 @@ public class WinrateGraph {
       //      }
       g.setColor(Color.WHITE);
       if (Lizzie.board.getHistory().getCurrentHistoryNode() != Lizzie.board.getHistory().getEnd()) {
-        Font f =
-            new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(12) : 12);
+        Font f = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(12) : 12);
         g.setFont(f);
         g.setColor(Color.WHITE);
         int moveNum = Lizzie.board.getHistory().getCurrentHistoryNode().getData().moveNumber;
@@ -391,8 +535,7 @@ public class WinrateGraph {
               posy + height - (int) (saveCurWr * height / 100) - DOT_RADIUS,
               DOT_RADIUS * 2,
               DOT_RADIUS * 2);
-          Font f =
-              new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
+          Font f = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
           g.setFont(f);
           if (saveCurWr > 50) {
             if (saveCurWr > 90) {
@@ -426,8 +569,7 @@ public class WinrateGraph {
               posy + height - (int) (saveCurWr * height / 100) - DOT_RADIUS,
               DOT_RADIUS * 2,
               DOT_RADIUS * 2);
-          Font f =
-              new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
+          Font f = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
           g.setFont(f);
           g.setColor(Color.WHITE);
           if (saveCurWr > 50) {
@@ -1249,7 +1391,7 @@ public class WinrateGraph {
           DOT_RADIUS * 2,
           DOT_RADIUS * 2);
       g.setColor(Color.WHITE);
-      Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
+      Font f = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
       g.setFont(f);
       oriMWrHeight = posy + (height - (int) (mwr * height / 100));
       mwrHeight = oriMWrHeight + (mwr < 10 ? -5 : (mwr > 90 ? 6 : -2) * DOT_RADIUS);
@@ -1273,7 +1415,7 @@ public class WinrateGraph {
       //          numMoves = this.numMovesOfPlayed;
       //        }
       g.setColor(Color.YELLOW);
-      Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(14) : 14);
+      Font f = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(14) : 14);
       g.setFont(f);
       double scoreHeight = convertScoreLead(drawmSoreMean) * height / 2 / maxScoreLead;
       int mScoreHeight = posy + height / 2 - (int) scoreHeight - 3;
@@ -1308,7 +1450,7 @@ public class WinrateGraph {
     int oriWrHeight = -1;
     noC = false;
     if (cwr >= 0) {
-      Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
+      Font f = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
       g.setFont(f);
       g.setColor(Color.WHITE);
       oriWrHeight = posy + (height - (int) (cwr * height / 100));
@@ -1329,7 +1471,7 @@ public class WinrateGraph {
     }
     if (curScoreMoveNum >= 0 && !noC) {
       g.setColor(Color.YELLOW);
-      Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(14) : 14);
+      Font f = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(14) : 14);
       g.setFont(f);
       double scoreHeight = convertScoreLead(drawCurSoreMean) * height / 2 / maxScoreLead;
       int cScoreHeight = posy + height / 2 - (int) scoreHeight - 3;
@@ -1392,144 +1534,292 @@ public class WinrateGraph {
       int numMoves) {
     if (origParams[2] < 180 || origParams[3] < 120 || width < 140 || numMoves < 2) return;
 
-    List<QuickOverviewMove> moves = buildQuickOverviewMoves(curMove);
-    if (moves.size() < 2) return;
+    QuickOverviewPathCache pathCache = getQuickOverviewPathCache(curMove);
+    if (pathCache.moves.size() < 2) return;
 
-    int overviewHeight = Math.max(42, Math.min(68, origParams[3] / 5));
-    int overviewY = origParams[1] + origParams[3] - overviewHeight - 4;
-    int overviewX = posx;
-    int overviewWidth = width;
-    int innerPadding = Math.max(4, overviewHeight / 8);
-    int innerX = overviewX + innerPadding;
-    int innerY = overviewY + innerPadding;
-    int innerWidth = Math.max(10, overviewWidth - innerPadding * 2);
-    int innerHeight = Math.max(10, overviewHeight - innerPadding * 2);
-    int centerY = innerY + innerHeight / 2;
-    int dotSize = Math.max(4, DOT_RADIUS * 2);
-    int barWidth = Math.max(2, (int) Math.ceil(innerWidth / Math.max(70.0, numMoves)));
+    QuickOverviewLayout layout =
+        new QuickOverviewLayout(posx, width, numMoves, origParams, DOT_RADIUS);
     double issueThreshold =
         Lizzie.config.blunderWinThreshold > 0 ? Lizzie.config.blunderWinThreshold : 3.0;
-    double maxSwing = issueThreshold;
-    double maxWinrateSpread = 10;
+    double winrateScale = Math.max(10.0, Math.ceil(pathCache.maxWinrateSpread / 5.0) * 5.0);
+    QuickOverviewRenderCache renderCache =
+        getQuickOverviewRenderCache(layout, pathCache, numMoves, issueThreshold);
 
-    for (QuickOverviewMove move : moves) {
-      if (move.hasAnalysis) {
-        maxSwing = Math.max(maxSwing, move.swing);
-        maxWinrateSpread = Math.max(maxWinrateSpread, Math.abs(move.winrate - 50.0));
-      }
-    }
+    gBackground.drawImage(renderCache.backgroundImage, layout.drawX, layout.drawY, null);
+    gBlunder.drawImage(renderCache.blunderImage, layout.drawX, layout.drawY, null);
+    g.drawImage(renderCache.lineImage, layout.drawX, layout.drawY, null);
 
-    double winrateScale = Math.max(10.0, Math.ceil(maxWinrateSpread / 5.0) * 5.0);
-    double swingScale = Math.max(issueThreshold, Math.ceil(maxSwing / 5.0) * 5.0);
-    Color overviewLineColor =
-        Lizzie.config.winrateLineColor != null
-            ? Lizzie.config.winrateLineColor.brighter()
-            : new Color(255, 208, 84);
-    Stroke previousStroke = g.getStroke();
-
-    gBackground.setColor(new Color(15, 20, 28, 205));
-    gBackground.fillRoundRect(overviewX - 2, overviewY, overviewWidth + 4, overviewHeight, 12, 12);
-    gBackground.setColor(new Color(255, 255, 255, 65));
-    gBackground.drawRoundRect(overviewX - 2, overviewY, overviewWidth + 4, overviewHeight, 12, 12);
-    gBackground.setColor(new Color(255, 255, 255, 40));
-    gBackground.drawLine(innerX, centerY, innerX + innerWidth, centerY);
-
-    QuickOverviewMove lastMove = null;
-    int lastX = -1;
-    int lastY = -1;
-    for (QuickOverviewMove move : moves) {
-      int x = innerX + (move.moveNumber - 1) * innerWidth / numMoves;
-      int y =
-          centerY
-              - (int) Math.round((move.winrate - 50.0) * (innerHeight / 2.0 - 2) / winrateScale);
-
-      if (move.hasAnalysis && move.swing >= issueThreshold) {
-        int barHeight = Math.max(3, (int) Math.round(move.swing * innerHeight * 0.75 / swingScale));
-        gBlunder.setColor(quickOverviewBarColor(move.swing, issueThreshold, swingScale));
-        gBlunder.fillRoundRect(
-            x - barWidth / 2, innerY + innerHeight - barHeight, barWidth, barHeight, 4, 4);
-      }
-
-      if (lastMove != null) {
-        g.setColor(
-            lastMove.hasAnalysis && move.hasAnalysis
-                ? overviewLineColor
-                : new Color(180, 180, 180, 140));
-        g.setStroke(new BasicStroke(Math.max(1.6f, (float) Lizzie.config.winrateStrokeWidth)));
-        g.drawLine(lastX, lastY, x, y);
-      }
-      lastMove = move;
-      lastX = x;
-      lastY = y;
-    }
-    g.setStroke(previousStroke);
-
-    QuickOverviewMove currentMove = findQuickOverviewMove(moves, curMove);
-    QuickOverviewMove hoverMove = findQuickOverviewMove(moves, mouseOverNode);
+    QuickOverviewMove currentMove = findQuickOverviewMove(pathCache.moves, curMove);
+    QuickOverviewMove hoverMove = findQuickOverviewMove(pathCache.moves, mouseOverNode);
 
     if (currentMove != null) {
-      int x = innerX + (currentMove.moveNumber - 1) * innerWidth / numMoves;
+      int x =
+          layout.toAbsoluteX(
+              layout.innerX + (currentMove.moveNumber - 1) * layout.innerWidth / numMoves);
       int y =
-          centerY
-              - (int)
-                  Math.round((currentMove.winrate - 50.0) * (innerHeight / 2.0 - 2) / winrateScale);
+          layout.toAbsoluteY(
+              layout.centerY
+                  - (int)
+                      Math.round(
+                          (currentMove.winrate - 50.0)
+                              * (layout.innerHeight / 2.0 - 2)
+                              / winrateScale));
       g.setColor(new Color(255, 255, 255, 170));
-      g.drawLine(x, innerY, x, innerY + innerHeight);
-      g.fillOval(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
+      g.drawLine(
+          x,
+          layout.toAbsoluteY(layout.innerY),
+          x,
+          layout.toAbsoluteY(layout.innerY + layout.innerHeight));
+      g.fillOval(x - layout.dotSize / 2, y - layout.dotSize / 2, layout.dotSize, layout.dotSize);
     }
 
     if (hoverMove != null) {
-      int x = innerX + (hoverMove.moveNumber - 1) * innerWidth / numMoves;
+      int x =
+          layout.toAbsoluteX(
+              layout.innerX + (hoverMove.moveNumber - 1) * layout.innerWidth / numMoves);
       int y =
-          centerY
-              - (int)
-                  Math.round((hoverMove.winrate - 50.0) * (innerHeight / 2.0 - 2) / winrateScale);
+          layout.toAbsoluteY(
+              layout.centerY
+                  - (int)
+                      Math.round(
+                          (hoverMove.winrate - 50.0)
+                              * (layout.innerHeight / 2.0 - 2)
+                              / winrateScale));
       g.setColor(new Color(61, 204, 255, 230));
-      g.drawLine(x, innerY, x, innerY + innerHeight);
-      g.fillOval(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
-      drawQuickOverviewLabel(g, hoverMove, x, overviewY, innerX, innerX + innerWidth);
+      g.drawLine(
+          x,
+          layout.toAbsoluteY(layout.innerY),
+          x,
+          layout.toAbsoluteY(layout.innerY + layout.innerHeight));
+      g.fillOval(x - layout.dotSize / 2, y - layout.dotSize / 2, layout.dotSize, layout.dotSize);
+      drawQuickOverviewLabel(
+          g,
+          hoverMove,
+          x,
+          layout.drawY,
+          layout.toAbsoluteX(layout.innerX),
+          layout.toAbsoluteX(layout.innerX + layout.innerWidth));
     }
   }
 
-  private List<QuickOverviewMove> buildQuickOverviewMoves(BoardHistoryNode curMove) {
-    ArrayList<BoardHistoryNode> path = new ArrayList<>();
-    ArrayList<QuickOverviewMove> moves = new ArrayList<>();
-    BoardHistoryNode node = curMove;
-    double lastWinrate = 50;
-
-    while (node.next().isPresent()) {
-      node = node.next().get();
+  private QuickOverviewPathCache getQuickOverviewPathCache(BoardHistoryNode curMove) {
+    BoardHistoryNode endNode = curMove;
+    while (endNode.next().isPresent()) {
+      endNode = endNode.next().get();
     }
-    path.add(node);
+    if (quickOverviewPathCache == null || quickOverviewPathCache.endNode != endNode) {
+      List<BoardHistoryNode> pathNodes = buildQuickOverviewPathNodes(endNode);
+      quickOverviewPathCache = buildQuickOverviewPathCache(endNode, pathNodes);
+      quickOverviewRenderCache = null;
+      return quickOverviewPathCache;
+    }
+
+    long dataSignature = computeQuickOverviewDataSignature(quickOverviewPathCache.pathNodes);
+    if (dataSignature != quickOverviewPathCache.dataSignature) {
+      quickOverviewPathCache =
+          buildQuickOverviewPathCache(
+              quickOverviewPathCache.endNode, quickOverviewPathCache.pathNodes);
+      quickOverviewRenderCache = null;
+    }
+    return quickOverviewPathCache;
+  }
+
+  private List<BoardHistoryNode> buildQuickOverviewPathNodes(BoardHistoryNode endNode) {
+    ArrayList<BoardHistoryNode> pathNodes = new ArrayList<>();
+    BoardHistoryNode node = endNode;
+    pathNodes.add(node);
     while (node.previous().isPresent()) {
       node = node.previous().get();
-      path.add(node);
+      pathNodes.add(node);
     }
-    Collections.reverse(path);
+    Collections.reverse(pathNodes);
+    return pathNodes;
+  }
 
-    for (BoardHistoryNode pathNode : path) {
+  private QuickOverviewPathCache buildQuickOverviewPathCache(
+      BoardHistoryNode endNode, List<BoardHistoryNode> pathNodes) {
+    ArrayList<QuickOverviewMove> moves = new ArrayList<>(Math.max(0, pathNodes.size() - 1));
+    double lastWinrate = 50;
+    double maxSwing = 0;
+    double maxWinrateSpread = 10;
+
+    for (BoardHistoryNode pathNode : pathNodes) {
       if (!pathNode.previous().isPresent()) continue;
 
       double previousWinrate = lastWinrate;
       double currentWinrate = resolveQuickOverviewWinrate(pathNode, previousWinrate);
       lastWinrate = currentWinrate;
-      String moveName =
-          pathNode.getData().lastMove.isPresent()
-              ? Board.convertCoordinatesToName(
-                  pathNode.getData().lastMove.get()[0], pathNode.getData().lastMove.get()[1])
-              : "PASS";
       boolean hasAnalysis = pathNode.getData().getPlayouts() > 0;
       double swing = resolveQuickOverviewSwing(pathNode, previousWinrate, currentWinrate);
+      maxSwing = Math.max(maxSwing, swing);
+      if (hasAnalysis) {
+        maxWinrateSpread = Math.max(maxWinrateSpread, Math.abs(currentWinrate - 50.0));
+      }
       moves.add(
           new QuickOverviewMove(
               pathNode,
               pathNode.getData().moveNumber,
-              moveName,
+              resolveQuickOverviewMoveName(pathNode),
               currentWinrate,
               swing,
               hasAnalysis));
     }
-    return moves;
+
+    return new QuickOverviewPathCache(
+        endNode,
+        pathNodes,
+        moves,
+        computeQuickOverviewDataSignature(pathNodes),
+        maxSwing,
+        maxWinrateSpread);
+  }
+
+  private long computeQuickOverviewDataSignature(List<BoardHistoryNode> pathNodes) {
+    long signature = 17L;
+    for (BoardHistoryNode pathNode : pathNodes) {
+      signature = 31L * signature + pathNode.getData().moveNumber;
+      signature = 31L * signature + (pathNode.getData().blackToPlay ? 1L : 0L);
+      signature = appendQuickOverviewMoveLabelSignature(signature, pathNode);
+      signature = 31L * signature + pathNode.getData().getPlayouts();
+      signature = 31L * signature + Double.doubleToLongBits(pathNode.getData().winrate);
+      signature = 31L * signature + Double.doubleToLongBits(pathNode.getData().scoreMean);
+      if (pathNode.nodeInfo != null) {
+        signature = 31L * signature + pathNode.nodeInfo.moveNum;
+        signature = 31L * signature + (pathNode.nodeInfo.analyzed ? 1L : 0L);
+        signature = 31L * signature + Double.doubleToLongBits(pathNode.nodeInfo.diffWinrate);
+      }
+    }
+    return signature;
+  }
+
+  private long appendQuickOverviewMoveLabelSignature(long signature, BoardHistoryNode pathNode) {
+    if (!pathNode.getData().lastMove.isPresent()) {
+      return 31L * signature + 1L;
+    }
+    int[] lastMove = pathNode.getData().lastMove.get();
+    signature = 31L * signature + 2L;
+    signature = 31L * signature + lastMove[0];
+    signature = 31L * signature + lastMove[1];
+    return signature;
+  }
+
+  private QuickOverviewRenderCache getQuickOverviewRenderCache(
+      QuickOverviewLayout layout,
+      QuickOverviewPathCache pathCache,
+      int numMoves,
+      double issueThreshold) {
+    Color lineColor =
+        Lizzie.config.winrateLineColor != null
+            ? Lizzie.config.winrateLineColor.brighter()
+            : new Color(255, 208, 84);
+    float strokeWidth = Math.max(1.6f, (float) Lizzie.config.winrateStrokeWidth);
+    QuickOverviewBitmapKey key =
+        new QuickOverviewBitmapKey(
+            layout, numMoves, pathCache.dataSignature, issueThreshold, lineColor, strokeWidth);
+    if (quickOverviewRenderCache != null && key.equals(quickOverviewRenderCache.key)) {
+      return quickOverviewRenderCache;
+    }
+
+    double winrateScale = Math.max(10.0, Math.ceil(pathCache.maxWinrateSpread / 5.0) * 5.0);
+    double swingScale = Math.max(issueThreshold, Math.ceil(pathCache.maxSwing / 5.0) * 5.0);
+    BufferedImage backgroundImage =
+        new BufferedImage(layout.imageWidth, layout.imageHeight, BufferedImage.TYPE_INT_ARGB);
+    BufferedImage blunderImage =
+        new BufferedImage(layout.imageWidth, layout.imageHeight, BufferedImage.TYPE_INT_ARGB);
+    BufferedImage lineImage =
+        new BufferedImage(layout.imageWidth, layout.imageHeight, BufferedImage.TYPE_INT_ARGB);
+
+    paintQuickOverviewBackground(backgroundImage, layout);
+    paintQuickOverviewBlunders(
+        blunderImage, layout, pathCache.moves, numMoves, issueThreshold, swingScale);
+    paintQuickOverviewLines(
+        lineImage, layout, pathCache.moves, numMoves, winrateScale, lineColor, strokeWidth);
+
+    quickOverviewRenderCache =
+        new QuickOverviewRenderCache(key, backgroundImage, blunderImage, lineImage);
+    return quickOverviewRenderCache;
+  }
+
+  private void paintQuickOverviewBackground(BufferedImage image, QuickOverviewLayout layout) {
+    Graphics2D graphics = createOverviewGraphics(image);
+    graphics.setColor(new Color(15, 20, 28, 205));
+    graphics.fillRoundRect(0, 0, layout.imageWidth, layout.imageHeight, 12, 12);
+    graphics.setColor(new Color(255, 255, 255, 65));
+    graphics.drawRoundRect(0, 0, layout.imageWidth - 1, layout.imageHeight - 1, 12, 12);
+    graphics.setColor(new Color(255, 255, 255, 40));
+    graphics.drawLine(
+        layout.innerX, layout.centerY, layout.innerX + layout.innerWidth, layout.centerY);
+    graphics.dispose();
+  }
+
+  private void paintQuickOverviewBlunders(
+      BufferedImage image,
+      QuickOverviewLayout layout,
+      List<QuickOverviewMove> moves,
+      int numMoves,
+      double issueThreshold,
+      double swingScale) {
+    Graphics2D graphics = createOverviewGraphics(image);
+    for (QuickOverviewMove move : moves) {
+      if (!move.hasAnalysis || move.swing < issueThreshold) continue;
+      int x = layout.innerX + (move.moveNumber - 1) * layout.innerWidth / numMoves;
+      int barHeight =
+          Math.max(3, (int) Math.round(move.swing * layout.innerHeight * 0.75 / swingScale));
+      graphics.setColor(quickOverviewBarColor(move.swing, issueThreshold, swingScale));
+      graphics.fillRoundRect(
+          x - layout.barWidth / 2,
+          layout.innerY + layout.innerHeight - barHeight,
+          layout.barWidth,
+          barHeight,
+          4,
+          4);
+    }
+    graphics.dispose();
+  }
+
+  private void paintQuickOverviewLines(
+      BufferedImage image,
+      QuickOverviewLayout layout,
+      List<QuickOverviewMove> moves,
+      int numMoves,
+      double winrateScale,
+      Color lineColor,
+      float strokeWidth) {
+    Graphics2D graphics = createOverviewGraphics(image);
+    graphics.setStroke(new BasicStroke(strokeWidth));
+
+    QuickOverviewMove lastMove = null;
+    int lastX = -1;
+    int lastY = -1;
+    for (QuickOverviewMove move : moves) {
+      int x = layout.innerX + (move.moveNumber - 1) * layout.innerWidth / numMoves;
+      int y =
+          layout.centerY
+              - (int)
+                  Math.round((move.winrate - 50.0) * (layout.innerHeight / 2.0 - 2) / winrateScale);
+      if (lastMove != null) {
+        graphics.setColor(
+            lastMove.hasAnalysis && move.hasAnalysis ? lineColor : new Color(180, 180, 180, 140));
+        graphics.drawLine(lastX, lastY, x, y);
+      }
+      lastMove = move;
+      lastX = x;
+      lastY = y;
+    }
+    graphics.dispose();
+  }
+
+  private Graphics2D createOverviewGraphics(BufferedImage image) {
+    Graphics2D graphics = image.createGraphics();
+    graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+    graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+    return graphics;
+  }
+
+  private String resolveQuickOverviewMoveName(BoardHistoryNode node) {
+    if (!node.getData().lastMove.isPresent()) return "PASS";
+    int[] lastMove = node.getData().lastMove.get();
+    return Board.convertCoordinatesToName(lastMove[0], lastMove[1]);
   }
 
   private double resolveQuickOverviewWinrate(BoardHistoryNode node, double fallback) {
@@ -1564,8 +1854,7 @@ public class WinrateGraph {
   private void drawQuickOverviewLabel(
       Graphics2D g, QuickOverviewMove move, int x, int overviewY, int minX, int maxX) {
     Font previousFont = g.getFont();
-    Font font =
-        new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(11) : 11);
+    Font font = getGraphFont(Font.BOLD, largeEnough ? Utils.zoomOut(11) : 11);
     g.setFont(font);
 
     String label =
@@ -1591,6 +1880,16 @@ public class WinrateGraph {
     g.setColor(Color.WHITE);
     g.drawString(label, labelX + paddingX, labelY + paddingY + metrics.getAscent() - 1);
     g.setFont(previousFont);
+  }
+
+  private Font getGraphFont(int style, int size) {
+    String key = style + ":" + size + ":" + Config.sysDefaultFontName;
+    Font font = fontCache.get(key);
+    if (font == null) {
+      font = new Font(Config.sysDefaultFontName, style, size);
+      fontCache.put(key, font);
+    }
+    return font;
   }
 
   private Color quickOverviewBarColor(double swing, double threshold, double swingScale) {
@@ -1631,6 +1930,8 @@ public class WinrateGraph {
   public void clearParames() {
     origParams = new int[] {0, 0, 0, 0};
     params = new int[] {0, 0, 0, 0, 0};
+    quickOverviewRenderCache = null;
+    quickOverviewPathCache = null;
   }
 
   public int moveNumber(int x, int y) {

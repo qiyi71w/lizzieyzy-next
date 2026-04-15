@@ -2,6 +2,7 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.util.MultiOutputStream;
+import featurecat.lizzie.util.ResourceImageCache;
 import featurecat.lizzie.util.Utils;
 import java.awt.*;
 import java.awt.event.*;
@@ -13,7 +14,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
-import javax.imageio.ImageIO;
 import javax.swing.*;
 import me.friwi.jcefmaven.*;
 import org.cef.CefApp;
@@ -54,7 +54,7 @@ public class BrowserFrame extends JFrame {
     this.isYike = yike;
     this.setTitle(title);
     try {
-      setIconImage(ImageIO.read(getClass().getResourceAsStream("/assets/logo.png")));
+      setIconImage(ResourceImageCache.getImage("/assets/logo.png"));
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -238,14 +238,12 @@ public class BrowserFrame extends JFrame {
     toolbar.setFloatable(false);
     // toolbarPanel.setLayout(new BorderLayout(0, 0));
 
-    ImageIcon iconLeft = new ImageIcon();
+    JButton back = new JButton();
     try {
-      iconLeft.setImage(ImageIO.read(getClass().getResourceAsStream("/assets/left.png")));
+      back.setIcon(ResourceImageCache.getIcon("/assets/left.png"));
     } catch (IOException e) {
-      // TODO Auto-generated catch block
       e.printStackTrace();
     }
-    JButton back = new JButton(iconLeft);
     back.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
@@ -253,6 +251,7 @@ public class BrowserFrame extends JFrame {
           }
         });
     back.setFocusable(false);
+    toolbar.add(back);
 
     JButton load = new JButton(Lizzie.resourceBundle.getString("LizzieFrame.onLoad")); // ("加载");
     load.setFocusable(false);

@@ -88,6 +88,9 @@ public class FloatBoardRenderer {
 
   private BufferedImage branchStonesImage = emptyImage;
   private BufferedImage branchStonesShadowImage;
+  private static final long INVALID_OVERLAY_KEY = Long.MIN_VALUE;
+  private long cachedBranchOverlayKey = INVALID_OVERLAY_KEY;
+  private long cachedEstimateOverlayKey = INVALID_OVERLAY_KEY;
 
   // private boolean lastInScoreMode = false;
 
@@ -475,6 +478,7 @@ public class FloatBoardRenderer {
   }
 
   public void removeKataEstimateImage() {
+    cachedEstimateOverlayKey = INVALID_OVERLAY_KEY;
     kataEstimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
   }
 
@@ -683,18 +687,10 @@ public class FloatBoardRenderer {
         && Lizzie.config.showKataGoEstimate
         && Lizzie.config.showKataGoEstimateOnMainbord) {
       if (estimateArray != null) {
-        if (Lizzie.config.showKataGoEstimateBySize) {
-          drawKataEstimateBySize(estimateArray, estimateBlackToPlay);
-        } else {
-          drawKataEstimateByTransparent(estimateArray, estimateBlackToPlay, false);
-        }
+        refreshEstimateOverlay(estimateArray, estimateBlackToPlay, false);
         hasDraw = true;
       } else if (preEstimateArray != null) {
-        if (Lizzie.config.showKataGoEstimateBySize) {
-          drawKataEstimateBySize(preEstimateArray, estimateBlackToPlay);
-        } else {
-          drawKataEstimateByTransparent(preEstimateArray, estimateBlackToPlay, false);
-        }
+        refreshEstimateOverlay(preEstimateArray, estimateBlackToPlay, false);
         hasDraw = true;
       }
     }
@@ -818,16 +814,11 @@ public class FloatBoardRenderer {
     variationOpt = Optional.of(variation);
     showingBranch = true;
     isShowingBranch = true;
-
-    if (Lizzie.config.noRefreshOnMouseMove) {
-      if (variation == cachedVariation
-          && displayedBranchLength == cachedDisplayedBranchLengthFroBranch) return;
-    } else {
-      if (compareVariationListEquals(variation, cachedVariation)
-          && displayedBranchLength == cachedDisplayedBranchLengthFroBranch) return;
-    }
+    long branchOverlayKey = buildBranchOverlayKey(variation, branch.data.zobrist.hashCode());
     cachedVariation = variation;
     cachedDisplayedBranchLengthFroBranch = displayedBranchLength;
+    if (branchOverlayKey == cachedBranchOverlayKey) return;
+    cachedBranchOverlayKey = branchOverlayKey;
 
     BufferedImage tempBranchStonesImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
     BufferedImage tempBranchStonesShadowImage =
@@ -2784,6 +2775,81 @@ public class FloatBoardRenderer {
   public void clearBranch() {
     isShowingBranch = false;
     showingBranch = false;
+    cachedBranchOverlayKey = INVALID_OVERLAY_KEY;
+  }
+
+  private void refreshEstimateOverlay(
+      ArrayList<Double> currentEstimate, boolean blackToPlay, boolean fromRawNet) {
+    long estimateOverlayKey =
+        buildEstimateOverlayKey(currentEstimate, blackToPlay, fromRawNet);
+    if (estimateOverlayKey == cachedEstimateOverlayKey) return;
+    cachedEstimateOverlayKey = estimateOverlayKey;
+    if (Lizzie.config.showKataGoEstimateBySize) {
+      drawKataEstimateBySize(currentEstimate, blackToPlay);
+      return;
+    }
+    drawKataEstimateByTransparent(currentEstimate, blackToPlay, fromRawNet);
+  }
+
+  private long buildBranchOverlayKey(List<String> currentVariation, int branchZobristHash) {
+    long key = INVALID_OVERLAY_KEY + 1;
+    key = mixOverlayKey(key, boardWidth);
+    key = mixOverlayKey(key, boardHeight);
+    key = mixOverlayKey(key, squareWidth);
+    key = mixOverlayKey(key, squareHeight);
+    key = mixOverlayKey(key, stoneRadius);
+    key = mixOverlayKey(key, displayedBranchLength);
+    key = mixOverlayKey(key, maxBranchMoves(false));
+    key = mixOverlayKey(key, editMode ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.board.getData().zobrist.hashCode());
+    key = mixOverlayKey(key, branchZobristHash);
+    key = mixOverlayKey(key, Lizzie.config.usePureStone ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.removeDeadChainInVariation ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showStoneShadow ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.shadowSize);
+    return mixOverlayKey(key, listSignature(currentVariation));
+  }
+
+  private long buildEstimateOverlayKey(
+      List<Double> currentEstimate, boolean blackToPlay, boolean fromRawNet) {
+    long key = INVALID_OVERLAY_KEY + 1;
+    key = mixOverlayKey(key, boardWidth);
+    key = mixOverlayKey(key, boardHeight);
+    key = mixOverlayKey(key, squareWidth);
+    key = mixOverlayKey(key, squareHeight);
+    key = mixOverlayKey(key, stoneRadius);
+    key = mixOverlayKey(key, Lizzie.board.getHistory().getData().zobrist.hashCode());
+    key = mixOverlayKey(key, editMode ? 1 : 0);
+    key = mixOverlayKey(key, blackToPlay ? 1 : 0);
+    key = mixOverlayKey(key, fromRawNet ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showKataGoEstimateBySize ? 1 : 0);
+    key = mixOverlayKey(key, shouldShowCountBlockBig() ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showKataGoEstimateSmall ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showKataGoEstimateNotOnlive ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showPureEstimateNotOnlive ? 1 : 0);
+    return mixOverlayKey(key, doubleListSignature(currentEstimate));
+  }
+
+  private long listSignature(List<String> values) {
+    long key = 1L;
+    if (values == null) return key;
+    for (String value : values) {
+      key = mixOverlayKey(key, value == null ? 0 : value.hashCode());
+    }
+    return key;
+  }
+
+  private long doubleListSignature(List<Double> values) {
+    long key = 1L;
+    if (values == null) return key;
+    for (Double value : values) {
+      key = mixOverlayKey(key, value == null ? 0L : Double.doubleToLongBits(value));
+    }
+    return key;
+  }
+
+  private long mixOverlayKey(long seed, long value) {
+    return seed * 31L + value;
   }
 
   public boolean isInside(int x1, int y1) {

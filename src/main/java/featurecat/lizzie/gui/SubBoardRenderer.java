@@ -70,6 +70,10 @@ public class SubBoardRenderer {
   private Zobrist cachedZhash = new Zobrist(); // defaults to an empty board
 
   private BufferedImage cachedHeatImage = emptyImage;
+  private static final long INVALID_OVERLAY_KEY = Long.MIN_VALUE;
+  private long cachedBranchOverlayKey = INVALID_OVERLAY_KEY;
+  private long cachedEstimateOverlayKey = INVALID_OVERLAY_KEY;
+  private long cachedHeatOverlayKey = INVALID_OVERLAY_KEY;
 
   private BufferedImage branchStonesImage = emptyImage;
   //  private BufferedImage branchStonesShadowImage;
@@ -197,18 +201,10 @@ public class SubBoardRenderer {
         && Lizzie.config.showKataGoEstimate
         && Lizzie.config.showKataGoEstimateOnSubbord) {
       if (estimateArray != null) {
-        if (Lizzie.config.showKataGoEstimateBySize) {
-          drawKataEstimateBySize(estimateArray, false);
-        } else {
-          drawKataEstimateByTransparent(estimateArray, false, false);
-        }
+        refreshEstimateOverlay(estimateArray, false, false);
         hasDraw = true;
       } else if (preEstimateArray != null) {
-        if (Lizzie.config.showKataGoEstimateBySize) {
-          drawKataEstimateBySize(preEstimateArray, true);
-        } else {
-          drawKataEstimateByTransparent(preEstimateArray, true, false);
-        }
+        refreshEstimateOverlay(preEstimateArray, true, false);
         hasDraw = true;
       }
     }
@@ -274,6 +270,7 @@ public class SubBoardRenderer {
   }
 
   public void clearBranch() {
+    cachedBranchOverlayKey = INVALID_OVERLAY_KEY;
     branchStonesImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
   }
 
@@ -472,6 +469,7 @@ public class SubBoardRenderer {
   }
 
   public void removeKataEstimateImage() {
+    cachedEstimateOverlayKey = INVALID_OVERLAY_KEY;
     try {
       kataEstimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
     } catch (Exception ex) {
@@ -637,6 +635,7 @@ public class SubBoardRenderer {
   }
 
   public void removeHeat() {
+    cachedHeatOverlayKey = INVALID_OVERLAY_KEY;
     heatimage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
   }
 
@@ -759,24 +758,14 @@ public class SubBoardRenderer {
   /** Draw the 'ghost stones' which show a variationOpt Leelaz is thinking about */
   private void drawBranch() {
     showingBranch = false;
-    BufferedImage newImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
-    // branchStonesImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
-    // branchStonesShadowImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
     branchOpt = Optional.empty();
-
-    //    if (Lizzie.frame.isPlayingAgainstLeelaz) {
-    //      branchStonesImage = newImage;
-    //      return;
-    //    }
-
-    // Leela Zero isn't connected yet
     if (Lizzie.leelaz == null) {
-      branchStonesImage = newImage;
+      long emptyBranchKey = buildBranchOverlayKey(0, 0, 0L, 0L, false);
+      if (emptyBranchKey == cachedBranchOverlayKey) return;
+      cachedBranchOverlayKey = emptyBranchKey;
+      branchStonesImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
       return;
     }
-    // calculate best moves and branch
-    //  if (Lizzie.frame.toolbar.isEnginePk && Lizzie.frame.toolbar.isGenmove) {
-    // reverseBestmoves = false;
     if (!isMouseOver) {
       BoardHistoryNode bestMoveNode;
       if (!Lizzie.board.getHistory().getCurrentHistoryNode().getData().bestMoves.isEmpty()) {
@@ -803,26 +792,25 @@ public class SubBoardRenderer {
     }
 
     variationOpt = Optional.empty();
-
-    Graphics2D g = (Graphics2D) newImage.getGraphics();
-    g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-    //  Graphics2D gShadow = (Graphics2D) branchStonesShadowImage.getGraphics();
-    //   gShadow.setRenderingHint(RenderingHints.KEY_RENDERING,
-    // RenderingHints.VALUE_RENDER_QUALITY);
-
     Optional<MoveData> suggestedMove = getBestMove();
     if (Lizzie.config.useMovesOwnership) {
       ArrayList<Double> array = getEstimateArray();
       if (array != null) estimateArray = array;
     }
     if (!suggestedMove.isPresent()) {
+      long emptyBranchKey =
+          buildBranchOverlayKey(bestmovesNum + 1, 1, stoneArraySignature(stonesTemp), 0L, false);
+      if (emptyBranchKey == cachedBranchOverlayKey) return;
+      cachedBranchOverlayKey = emptyBranchKey;
+      BufferedImage newImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
+      Graphics2D g = (Graphics2D) newImage.getGraphics();
       g.setColor(new Color(0, 0, 0, 255));
       g.setFont(new Font(Config.sysDefaultFontName, Font.BOLD, stoneRadius * 3 / 2));
       g.drawString(
           "" + (this.bestmovesNum + 1),
           boardWidth - stoneRadius * 9 / 5,
           boardHeight - stoneRadius * 1 / 5);
-
+      g.dispose();
       branchStonesImage = newImage;
       return;
     }
@@ -853,36 +841,24 @@ public class SubBoardRenderer {
             stonesTemp,
             false,
             null);
-    //    mouseOverCoords = suggestedMove.get().coordinate;
     branchOpt = Optional.of(branch);
     variationOpt = Optional.of(variation);
-
-    //
-    //    List<String> variation = suggestedMove.get().variation;
-    //    Branch branch = null;
-    //    if (Lizzie.frame.toolbar.isEnginePk && Lizzie.frame.toolbar.isGenmove)
-    //      branch =
-    //          new Branch(
-    //              Lizzie.board,
-    //              variation,
-    //              true,
-    //              this.displayedBranchLength > 0 ? displayedBranchLength : 199);
-    //    else
-    //      branch =
-    //          new Branch(
-    //              Lizzie.board,
-    //              variation,
-    //              reverseBestmoves,
-    //              this.displayedBranchLength > 0 ? displayedBranchLength : 199);
-    //    branchOpt = Optional.of(branch);
-    //    variationOpt = Optional.of(variation);
     showingBranch = true;
-
+    long branchOverlayKey =
+        buildBranchOverlayKey(
+            bestmovesNum + 1,
+            branch.data.zobrist.hashCode(),
+            stoneArraySignature(stonesTemp),
+            listSignature(variation),
+            true);
+    if (branchOverlayKey == cachedBranchOverlayKey) return;
+    cachedBranchOverlayKey = branchOverlayKey;
+    BufferedImage newImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
+    Graphics2D g = (Graphics2D) newImage.getGraphics();
+    g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
     g.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
-
     for (int i = 0; i < Board.boardWidth; i++) {
       for (int j = 0; j < Board.boardHeight; j++) {
-        // Display latest stone for ghost dead stone
         int index = Board.getIndex(i, j);
         Stone stone = branch.data.stones[index];
         if (stonesTemp != null && stonesTemp[index] != Stone.EMPTY) {
@@ -918,10 +894,7 @@ public class SubBoardRenderer {
         } else drawStone(g, stoneX, stoneY, stone.unGhosted(), i, j);
       }
     }
-    g = (Graphics2D) newImage.getGraphics();
     g.setColor(new Color(0, 0, 0, 255));
-    // g.setFont(new Font("幼圆", Font.BOLD, stoneRadius * 5 / 4));
-    //  g.drawString("变化", boardWidth - stoneRadius * 14 / 3, boardWidth - stoneRadius * 2 / 7);
     g.setFont(new Font(Config.sysDefaultFontName, Font.BOLD, stoneRadius * 3 / 2));
     g.drawString(
         String.valueOf(this.bestmovesNum + 1),
@@ -1102,11 +1075,12 @@ public class SubBoardRenderer {
    * Draw all of Leelaz's suggestions as colored stones with winrate/playout statistics overlayed
    */
   private void drawLeelazSuggestions() {
-
+    bestMoves = Lizzie.board.getHistory().getData().bestMoves;
+    long heatOverlayKey = buildHeatOverlayKey(bestMoves);
+    if (heatOverlayKey == cachedHeatOverlayKey) return;
+    cachedHeatOverlayKey = heatOverlayKey;
     heatimage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
     Graphics2D g = heatimage.createGraphics();
-
-    bestMoves = Lizzie.board.getHistory().getData().bestMoves;
     if (bestMoves != null && !bestMoves.isEmpty()) {
 
       // Collections.sort(bestMoves);
@@ -1199,6 +1173,116 @@ public class SubBoardRenderer {
     }
     g.dispose();
     //   }
+  }
+
+  private void refreshEstimateOverlay(
+      ArrayList<Double> currentEstimate, boolean reverse, boolean fromRawNet) {
+    long estimateOverlayKey = buildEstimateOverlayKey(currentEstimate, reverse, fromRawNet);
+    if (estimateOverlayKey == cachedEstimateOverlayKey) return;
+    cachedEstimateOverlayKey = estimateOverlayKey;
+    if (Lizzie.config.showKataGoEstimateBySize) {
+      drawKataEstimateBySize(currentEstimate, reverse);
+      return;
+    }
+    drawKataEstimateByTransparent(currentEstimate, reverse, fromRawNet);
+  }
+
+  private long buildBranchOverlayKey(
+      int labelIndex, int branchZobristHash, long baseStoneSignature, long variationSignature,
+      boolean branchPresent) {
+    long key = INVALID_OVERLAY_KEY + 1;
+    key = mixOverlayKey(key, boardWidth);
+    key = mixOverlayKey(key, boardHeight);
+    key = mixOverlayKey(key, squareWidth);
+    key = mixOverlayKey(key, squareHeight);
+    key = mixOverlayKey(key, stoneRadius);
+    key = mixOverlayKey(key, displayedBranchLength);
+    key = mixOverlayKey(key, maxBranchMoves());
+    key = mixOverlayKey(key, labelIndex);
+    key = mixOverlayKey(key, branchPresent ? 1 : 0);
+    key = mixOverlayKey(key, variationBlackToPlay ? 1 : 0);
+    key = mixOverlayKey(key, branchZobristHash);
+    key = mixOverlayKey(key, baseStoneSignature);
+    key = mixOverlayKey(key, Lizzie.config.removeDeadChainInVariation ? 1 : 0);
+    return mixOverlayKey(key, variationSignature);
+  }
+
+  private long buildEstimateOverlayKey(
+      List<Double> currentEstimate, boolean reverse, boolean fromRawNet) {
+    long key = INVALID_OVERLAY_KEY + 1;
+    key = mixOverlayKey(key, boardWidth);
+    key = mixOverlayKey(key, boardHeight);
+    key = mixOverlayKey(key, squareWidth);
+    key = mixOverlayKey(key, squareHeight);
+    key = mixOverlayKey(key, stoneRadius);
+    key = mixOverlayKey(key, Lizzie.board.getData().zobrist.hashCode());
+    key = mixOverlayKey(key, Lizzie.board.getHistory().isBlacksTurn() ? 1 : 0);
+    key = mixOverlayKey(key, reverse ? 1 : 0);
+    key = mixOverlayKey(key, fromRawNet ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showKataGoEstimateBySize ? 1 : 0);
+    key = mixOverlayKey(key, shouldShowCountBlockBig() ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showKataGoEstimateSmall ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showKataGoEstimateNotOnlive ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.showPureEstimateNotOnlive ? 1 : 0);
+    return mixOverlayKey(key, doubleListSignature(currentEstimate));
+  }
+
+  private long buildHeatOverlayKey(List<MoveData> currentMoves) {
+    long key = INVALID_OVERLAY_KEY + 1;
+    key = mixOverlayKey(key, boardWidth);
+    key = mixOverlayKey(key, boardHeight);
+    key = mixOverlayKey(key, squareWidth);
+    key = mixOverlayKey(key, squareHeight);
+    key = mixOverlayKey(key, showHeat ? 1 : 0);
+    key = mixOverlayKey(key, showHeatAfterCalc ? 1 : 0);
+    key = mixOverlayKey(key, Lizzie.config.leelaversion);
+    key = mixOverlayKey(key, Lizzie.config.showlcbcolor ? 1 : 0);
+    return mixOverlayKey(key, moveListSignature(currentMoves));
+  }
+
+  private long moveListSignature(List<MoveData> moves) {
+    long key = 1L;
+    if (moves == null) return key;
+    for (MoveData move : moves) {
+      key = mixOverlayKey(key, move == null ? 0 : move.coordinate == null ? 0 : move.coordinate.hashCode());
+      if (move == null) continue;
+      key = mixOverlayKey(key, move.playouts);
+      key = mixOverlayKey(key, Double.doubleToLongBits(move.policy));
+      key = mixOverlayKey(key, Double.doubleToLongBits(move.lcb));
+      key = mixOverlayKey(key, Double.doubleToLongBits(move.winrate));
+    }
+    return key;
+  }
+
+  private long listSignature(List<String> values) {
+    long key = 1L;
+    if (values == null) return key;
+    for (String value : values) {
+      key = mixOverlayKey(key, value == null ? 0 : value.hashCode());
+    }
+    return key;
+  }
+
+  private long doubleListSignature(List<Double> values) {
+    long key = 1L;
+    if (values == null) return key;
+    for (Double value : values) {
+      key = mixOverlayKey(key, value == null ? 0L : Double.doubleToLongBits(value));
+    }
+    return key;
+  }
+
+  private long stoneArraySignature(Stone[] stones) {
+    long key = 1L;
+    if (stones == null) return key;
+    for (Stone stone : stones) {
+      key = mixOverlayKey(key, stone == null ? -1 : stone.ordinal());
+    }
+    return key;
+  }
+
+  private long mixOverlayKey(long seed, long value) {
+    return seed * 31L + value;
   }
 
   private void drawWoodenBoard(Graphics2D g) {

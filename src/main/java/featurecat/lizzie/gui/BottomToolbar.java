@@ -8,6 +8,7 @@ import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Movelist;
 import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.theme.MorandiPalette;
+import featurecat.lizzie.util.ResourceImageCache;
 import featurecat.lizzie.util.Utils;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -31,7 +32,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Random;
 import java.util.ResourceBundle;
-import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -337,20 +337,13 @@ public class BottomToolbar extends JPanel {
     autoPlay =
         new JFontButton(Lizzie.resourceBundle.getString("BottomToolbar.autoPlay")); // ("自动播放");
 
-    iconUp = new ImageIcon();
-
     try {
-      iconUp.setImage(ImageIO.read(getClass().getResourceAsStream("/assets/up.png")));
+      iconUp = ResourceImageCache.getIcon("/assets/up.png");
+      iconDown = ResourceImageCache.getIcon("/assets/down.png");
     } catch (IOException e) {
-      // TODO Auto-generated catch block
       e.printStackTrace();
-    }
-    iconDown = new ImageIcon();
-    try {
-      iconDown.setImage(ImageIO.read(getClass().getResourceAsStream("/assets/down.png")));
-    } catch (IOException e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
+      iconUp = new ImageIcon();
+      iconDown = new ImageIcon();
     }
     detail = new JButton("");
     detail.setBackground(MorandiPalette.TOOLBAR_BUTTON_BG);

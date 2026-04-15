@@ -26,10 +26,9 @@ import java.awt.event.WindowEvent;
 import java.awt.event.WindowStateListener;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.ResourceBundle;
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -37,13 +36,16 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellRenderer;
-import javax.swing.table.TableModel;
 import org.json.JSONArray;
 
 public class AnalysisFrame extends JFrame {
+  private static final int STANDARD_COLUMN_COUNT = 7;
+  private static final int EXTENDED_COLUMN_COUNT = 9;
+  private static final int TABLE_REFRESH_INTERVAL_MS = 100;
+
   private final ResourceBundle resourceBundle = Lizzie.resourceBundle;
   ;
-  TableModel dataModel;
+  AnalysisTableModel dataModel;
   JScrollPane scrollpane;
   JPanel topPanel;
   JPanel bottomPanel;
@@ -95,15 +97,7 @@ public class AnalysisFrame extends JFrame {
     winrateFont = new Font(Lizzie.config.uiFontName, Font.BOLD, Math.max(Config.frameFontSize, 14));
     headFont = new Font(Lizzie.config.uiFontName, Font.PLAIN, Math.max(Config.frameFontSize, 13));
 
-    table.getTableHeader().setFont(headFont);
-    table.getTableHeader().setReorderingAllowed(false);
-    table.setFont(winrateFont);
-    table.setRowHeight(Config.menuHeight);
-    TableCellRenderer tcr = new ColorTableCellRenderer();
-    table.setDefaultRenderer(Object.class, tcr);
-
-    ((DefaultTableCellRenderer) table.getTableHeader().getDefaultRenderer())
-        .setHorizontalAlignment(JLabel.CENTER);
+    configureTableAppearance();
     scrollpane = new JScrollPane(table);
     topPanel = new JPanel(new BorderLayout());
     topPanel.add(scrollpane);
@@ -233,35 +227,19 @@ public class AnalysisFrame extends JFrame {
 
     timer =
         new Timer(
-            100,
+            TABLE_REFRESH_INTERVAL_MS,
             new ActionListener() {
               public void actionPerformed(ActionEvent evt) {
-                dataModel.getColumnCount();
-                repaint();
-                // table.validate();
-                // table.updateUI();
+                refreshAnalysisView();
               }
             });
     timer.start();
 
-    table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-    table.setFillsViewportHeight(true);
-    table.getColumnModel().getColumn(0).setPreferredWidth(35);
-    table.getColumnModel().getColumn(1).setPreferredWidth(20);
-    table.getColumnModel().getColumn(2).setPreferredWidth(40);
-    table.getColumnModel().getColumn(3).setPreferredWidth(70);
-    table.getColumnModel().getColumn(4).setPreferredWidth(35);
-    table.getColumnModel().getColumn(5).setPreferredWidth(50);
-    table.getColumnModel().getColumn(6).setPreferredWidth(35);
-    if (table.getColumnCount() == 9) {
-      table.getColumnModel().getColumn(7).setPreferredWidth(70);
-      table.getColumnModel().getColumn(8).setPreferredWidth(35);
-    }
     boolean persisted = Lizzie.config.persistedUi != null;
 
     if (persisted) {
 
-      if (table.getColumnCount() == 9) {
+      if (table.getColumnCount() == EXTENDED_COLUMN_COUNT) {
         if (Lizzie.config.persistedUi.optJSONArray("suggestions-list-position-9") != null
             && Lizzie.config.persistedUi.optJSONArray("suggestions-list-position-9").length()
                 == 13) {
@@ -480,6 +458,45 @@ public class AnalysisFrame extends JFrame {
     if (this.isAlwaysOnTop())
       setTitle(Lizzie.resourceBundle.getString("Lizzie.alwaysOnTopTitle") + oriTitle);
     else setTitle(oriTitle);
+  }
+
+  private void refreshAnalysisView() {
+    AnalysisTableModel.RefreshResult result = dataModel.refreshSnapshot();
+    if (!result.isChanged()) {
+      return;
+    }
+    if (result.isStructureChanged()) {
+      configureTableAppearance();
+    }
+    repaint();
+  }
+
+  private void configureTableAppearance() {
+    table.getTableHeader().setFont(headFont);
+    table.getTableHeader().setReorderingAllowed(false);
+    table.setFont(winrateFont);
+    table.setRowHeight(Config.menuHeight);
+    TableCellRenderer cellRenderer = new ColorTableCellRenderer();
+    table.setDefaultRenderer(Object.class, cellRenderer);
+    ((DefaultTableCellRenderer) table.getTableHeader().getDefaultRenderer())
+        .setHorizontalAlignment(JLabel.CENTER);
+    table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+    table.setFillsViewportHeight(true);
+    configureTableColumnWidths();
+  }
+
+  private void configureTableColumnWidths() {
+    table.getColumnModel().getColumn(0).setPreferredWidth(35);
+    table.getColumnModel().getColumn(1).setPreferredWidth(20);
+    table.getColumnModel().getColumn(2).setPreferredWidth(40);
+    table.getColumnModel().getColumn(3).setPreferredWidth(70);
+    table.getColumnModel().getColumn(4).setPreferredWidth(35);
+    table.getColumnModel().getColumn(5).setPreferredWidth(50);
+    table.getColumnModel().getColumn(6).setPreferredWidth(35);
+    if (table.getColumnCount() == EXTENDED_COLUMN_COUNT) {
+      table.getColumnModel().getColumn(7).setPreferredWidth(70);
+      table.getColumnModel().getColumn(8).setPreferredWidth(35);
+    }
   }
 
   private void paintBottomPanel(Graphics g0, int width, int height) {
@@ -754,314 +771,540 @@ public class AnalysisFrame extends JFrame {
     }
   }
 
-  public AbstractTableModel getTableModel() {
-    return new AbstractTableModel() {
-      ArrayList<MoveData> data2 = new ArrayList<MoveData>();
-      List<MoveData> bestMoves;
+  public AnalysisTableModel getTableModel() {
+    return new AnalysisTableModel();
+  }
 
-      public int getColumnCount() {
-        Leelaz leelaz = null;
-        if (index == 1) {
-          leelaz = Lizzie.leelaz;
-        } else if (index == 2) {
-          leelaz = Lizzie.leelaz2;
-        }
-        if (leelaz != null && (leelaz.isKatago || leelaz.isSai)) return 9;
-        else if (index == 1
-            ? Lizzie.board.isContainsKataData()
-            : Lizzie.board.isContainsKataData2()) return 9;
-        else return 7;
+  class AnalysisTableModel extends AbstractTableModel {
+    private TableSnapshot snapshot = buildSnapshot();
+
+    RefreshResult refreshSnapshot() {
+      TableSnapshot nextSnapshot = buildSnapshot();
+      if (snapshot.equals(nextSnapshot)) {
+        return RefreshResult.UNCHANGED;
       }
+      boolean structureChanged = snapshot.getColumnCount() != nextSnapshot.getColumnCount();
+      snapshot = nextSnapshot;
+      if (structureChanged) {
+        fireTableStructureChanged();
+        return RefreshResult.STRUCTURE_CHANGED;
+      }
+      fireTableDataChanged();
+      return RefreshResult.DATA_CHANGED;
+    }
 
-      public int getRowCount() {
-        data2 = new ArrayList<MoveData>();
-        if (index == 1) {
-          if (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame) {
-            if (Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent())
-              if ((bestMoves = Lizzie.leelaz.getBestMoves()).isEmpty())
-                bestMoves =
-                    Lizzie.board
-                        .getHistory()
-                        .getCurrentHistoryNode()
-                        .previous()
-                        .get()
-                        .getData()
-                        .bestMoves;
+    @Override
+    public int getColumnCount() {
+      return snapshot.getColumnCount();
+    }
 
-          } else bestMoves = Lizzie.board.getHistory().getCurrentHistoryNode().getData().bestMoves;
-          if (bestMoves != null)
-            for (int i = 0; i < bestMoves.size(); i++) {
-              // if (!Lizzie.board.getData().bestMoves.get(i).coordinate.contains("ass"))
-              data2.add(bestMoves.get(i));
-            }
-        } else if (index == 2) {
-          if (Lizzie.board.getData().bestMoves2 != null) {
-            for (int i = 0; i < Lizzie.board.getData().bestMoves2.size(); i++) {
-              // if (!Lizzie.board.getData().bestMoves2.get(i).coordinate.contains("ass"))
-              data2.add(Lizzie.board.getData().bestMoves2.get(i));
-            }
+    @Override
+    public int getRowCount() {
+      return snapshot.getRows().size();
+    }
+
+    @Override
+    public String getColumnName(int column) {
+      if (column == 0) return resourceBundle.getString("AnalysisFrame.column1");
+      if (column == 1) return resourceBundle.getString("AnalysisFrame.column2");
+      if (column == 2) return resourceBundle.getString("AnalysisFrame.column3");
+      if (column == 3) return resourceBundle.getString("AnalysisFrame.column4");
+      if (column == 4) return resourceBundle.getString("AnalysisFrame.column5");
+      if (column == 5) return resourceBundle.getString("AnalysisFrame.column6");
+      if (column == 6) return resourceBundle.getString("AnalysisFrame.column7");
+      if (column == 7) return resourceBundle.getString("AnalysisFrame.column8");
+      if (column == 8) return resourceBundle.getString("AnalysisFrame.column9");
+      return "";
+    }
+
+    @Override
+    public Object getValueAt(int row, int col) {
+      RowSnapshot data = snapshot.getRows().get(row);
+      switch (col) {
+        case 0:
+          if (data.order == -100) {
+            return "\n" + resourceBundle.getString("AnalysisFrame.actual") + "\n";
           }
-        }
-        if (Lizzie.config.anaFrameShowNext
-            && Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent()) {
-          BoardHistoryNode next = Lizzie.board.getHistory().getCurrentHistoryNode().next().get();
-          if (next.getData().lastMove.isPresent()) {
-            int[] coords = next.getData().lastMove.get();
-            boolean hasData = false;
-            for (MoveData move : data2) {
-              if (Board.convertNameToCoordinates(move.coordinate)[0] == coords[0]
-                  && Board.convertNameToCoordinates(move.coordinate)[1] == coords[1]) {
-                if (move.order == 0) {
-                  move.winrate = data2.get(0).winrate;
-                  move.isNextMove = true;
-                  move.bestWinrate = data2.get(0).winrate;
-                  move.bestScoreMean = data2.get(0).scoreMean;
-                } else {
-                  if (index == 1) {
-                    if (data2.size() > 0
-                        && !hasData
-                        && !next.getData().bestMoves.isEmpty()
-                        && next.getData().getPlayouts() > move.playouts) {
-                      MoveData curMove = new MoveData();
-                      curMove.playouts = next.getData().getPlayouts();
-                      curMove.coordinate = Board.convertCoordinatesToName(coords[0], coords[1]);
-                      curMove.winrate = 100.0 - next.getData().winrate;
-                      curMove.policy = move.policy;
-                      curMove.scoreMean = -next.getData().scoreMean;
-                      curMove.scoreStdev = next.getData().scoreStdev;
-                      curMove.order = move.order;
-                      curMove.isNextMove = true;
-                      curMove.lcb = -10000;
-                      curMove.bestWinrate = data2.get(0).winrate;
-                      curMove.bestScoreMean = data2.get(0).scoreMean;
-                      data2.add(0, curMove);
-                      hasData = true;
-                      break;
-                    }
-                  } else {
-                    if (data2.size() > 0
-                        && !hasData
-                        && !next.getData().bestMoves2.isEmpty()
-                        && next.getData().getPlayouts2() > move.playouts) {
-                      MoveData curMove = new MoveData();
-                      curMove.playouts = next.getData().getPlayouts2();
-                      curMove.coordinate = Board.convertCoordinatesToName(coords[0], coords[1]);
-                      curMove.winrate = 100.0 - next.getData().winrate2;
-                      curMove.policy = move.policy;
-                      curMove.scoreMean = -next.getData().scoreMean2;
-                      curMove.scoreStdev = next.getData().scoreStdev2;
-                      curMove.order = move.order;
-                      curMove.isNextMove = true;
-                      curMove.lcb = -10000;
-                      curMove.bestWinrate = data2.get(0).winrate;
-                      curMove.bestScoreMean = data2.get(0).scoreMean;
-                      data2.add(0, curMove);
-                      hasData = true;
-                      break;
-                    }
-                  }
-                  MoveData curMove = new MoveData();
-                  curMove.order = move.order;
-                  curMove.playouts = move.playouts;
-                  curMove.coordinate = move.coordinate;
-                  curMove.winrate = move.winrate;
-                  curMove.policy = move.policy;
-                  curMove.scoreMean = move.scoreMean;
-                  curMove.scoreStdev = move.scoreStdev;
-                  curMove.order = move.order;
-                  curMove.isNextMove = true;
-                  curMove.lcb = move.lcb;
-                  curMove.bestWinrate = data2.get(0).winrate;
-                  curMove.bestScoreMean = data2.get(0).scoreMean;
-                  data2.add(0, curMove);
-                }
-                hasData = true;
-                break;
-              }
-            }
-            if (index == 1) {
-              if (data2.size() > 0 && !hasData && !next.getData().bestMoves.isEmpty()) {
-                MoveData curMove = new MoveData();
-                curMove.playouts = 0;
-                curMove.coordinate = Board.convertCoordinatesToName(coords[0], coords[1]);
-                curMove.winrate = 100.0 - next.getData().winrate;
-                curMove.policy = -10000;
-                curMove.scoreMean = -next.getData().scoreMean;
-                curMove.scoreStdev = next.getData().scoreStdev;
-                curMove.order = -100;
-                curMove.isNextMove = true;
-                curMove.lcb = -10000;
-                curMove.bestWinrate = data2.get(0).winrate;
-                curMove.bestScoreMean = data2.get(0).scoreMean;
-                data2.add(0, curMove);
-              }
-            } else {
-              if (data2.size() > 0 && !hasData && !next.getData().bestMoves2.isEmpty()) {
-                MoveData curMove = new MoveData();
-                curMove.playouts = 0;
-                curMove.coordinate = Board.convertCoordinatesToName(coords[0], coords[1]);
-                curMove.winrate = 100.0 - next.getData().winrate2;
-                curMove.policy = -10000;
-                curMove.scoreMean = -next.getData().scoreMean2;
-                curMove.scoreStdev = next.getData().scoreStdev2;
-                curMove.order = -100;
-                curMove.isNextMove = true;
-                curMove.lcb = -10000;
-                curMove.bestWinrate = data2.get(0).winrate;
-                curMove.bestScoreMean = data2.get(0).scoreMean;
-                data2.add(0, curMove);
-              }
-            }
+          if (data.isNextMove) {
+            return data.order + 1 + "(" + resourceBundle.getString("AnalysisFrame.actual") + ")";
           }
-        }
-
-        if (Lizzie.frame.isInPlayMode()) return 0;
-
-        return data2.size();
+          return data.order + 1;
+        case 1:
+          return Board.maybeConvertNormalCoordsToOther(data.coordinate);
+        case 2:
+          if (data.isNextMove && data.lcb < -1000) return "--";
+          return String.format(Locale.ENGLISH, "%.1f", data.lcb);
+        case 3:
+          if (data.isNextMove && data.order != 0) {
+            double diff = data.winrate - data.bestWinrate;
+            return (diff > 0 ? "↑" : "↓")
+                + String.format(Locale.ENGLISH, "%.1f", diff)
+                + "("
+                + String.format(Locale.ENGLISH, "%.1f", data.winrate)
+                + ")";
+          }
+          return String.format(Locale.ENGLISH, "%.1f", data.winrate);
+        case 4:
+          if (data.order == -100) return resourceBundle.getString("AnalysisFrame.exclude");
+          return Utils.getPlayoutsString(data.playouts);
+        case 5:
+          return String.format(
+              Locale.ENGLISH, "%.1f", (double) data.playouts * 100 / snapshot.getTotalPlayouts());
+        case 6:
+          if (data.isNextMove && data.policy < -1000) return "--";
+          return String.format(Locale.ENGLISH, "%.2f", data.policy);
+        case 7:
+          double score = snapshot.adjustScore(data.scoreMean);
+          if (data.isNextMove && data.order != 0) {
+            double diff = data.scoreMean - data.bestScoreMean;
+            return (diff > 0 ? "↑" : "↓")
+                + String.format(Locale.ENGLISH, "%.1f", diff)
+                + "("
+                + String.format(Locale.ENGLISH, "%.1f", score)
+                + ")";
+          }
+          return String.format(Locale.ENGLISH, "%.1f", score);
+        case 8:
+          return String.format(Locale.ENGLISH, "%.1f", data.scoreStdev);
+        default:
+          return "";
       }
+    }
 
-      public String getColumnName(int column) {
-        if (column == 0) return resourceBundle.getString("AnalysisFrame.column1"); // "序号";
-        if (column == 1) return resourceBundle.getString("AnalysisFrame.column2"); // "坐标";
-        if (column == 2) return resourceBundle.getString("AnalysisFrame.column3"); // "Lcb(%)";
-        if (column == 3) return resourceBundle.getString("AnalysisFrame.column4"); // "胜率(%)";
-        if (column == 4) return resourceBundle.getString("AnalysisFrame.column5"); // "计算量";
-        if (column == 5) return resourceBundle.getString("AnalysisFrame.column6"); // "占比(%)";
-        if (column == 6) return resourceBundle.getString("AnalysisFrame.column7"); // "策略网络(%)";
-        if (column == 7) return resourceBundle.getString("AnalysisFrame.column8"); // "目差";
-        if (column == 8) return resourceBundle.getString("AnalysisFrame.column9"); // "局面复杂度";
-        return "";
+    private TableSnapshot buildSnapshot() {
+      int columnCount = determineColumnCount();
+      ScoreDisplayState scoreState =
+          new ScoreDisplayState(
+              Lizzie.board.getHistory().isBlacksTurn(),
+              EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove,
+              Lizzie.config.showKataGoScoreLeadWithKomi,
+              Lizzie.board.getData().getKomi());
+      if (Lizzie.frame.isInPlayMode()) {
+        return TableSnapshot.fromMoves(new ArrayList<MoveData>(), sortnum, columnCount, scoreState);
       }
+      return TableSnapshot.fromMoves(collectMoves(), sortnum, columnCount, scoreState);
+    }
 
-      public Object getValueAt(int row, int col) {
+    private int determineColumnCount() {
+      Leelaz leelaz = index == 1 ? Lizzie.leelaz : Lizzie.leelaz2;
+      if (leelaz != null && (leelaz.isKatago || leelaz.isSai)) {
+        return EXTENDED_COLUMN_COUNT;
+      }
+      boolean containsKataData =
+          index == 1 ? Lizzie.board.isContainsKataData() : Lizzie.board.isContainsKataData2();
+      return containsKataData ? EXTENDED_COLUMN_COUNT : STANDARD_COLUMN_COUNT;
+    }
 
-        // Collections.sort(data2) ;
-        Collections.sort(
-            data2,
-            new Comparator<MoveData>() {
+    private List<MoveData> collectMoves() {
+      List<MoveData> moves = copyMoves(resolveBestMoves());
+      addNextMoveIfNeeded(moves);
+      return moves;
+    }
 
-              @Override
-              public int compare(MoveData s1, MoveData s2) {
-                // 降序
-                //            	  if (sortnum == 0) {
-                //                      if (s1.order > s2.order) return 1;
-                //                      if (s1.order < s2.order) return -1;
-                //                    }
-                if (sortnum == 2) {
-                  if (s1.lcb < s2.lcb) return 1;
-                  if (s1.lcb > s2.lcb) return -1;
-                }
-                if (sortnum == 3) {
-                  if (s1.winrate < s2.winrate) return 1;
-                  if (s1.winrate > s2.winrate) return -1;
-                }
-                if (sortnum == 4) {
-                  if (s1.playouts < s2.playouts) return 1;
-                  if (s1.playouts > s2.playouts) return -1;
-                }
-                if (sortnum == 5) {
-                  if (s1.playouts < s2.playouts) return 1;
-                  if (s1.playouts > s2.playouts) return -1;
-                }
-                if (sortnum == 6) {
-                  if (s1.policy < s2.policy) return 1;
-                  if (s1.policy > s2.policy) return -1;
-                }
-                if (sortnum == 7) {
-                  if (s1.scoreMean < s2.scoreMean) return 1;
-                  if (s1.scoreMean > s2.scoreMean) return -1;
-                }
-                if (sortnum == 8) {
-                  if (s1.scoreStdev < s2.scoreStdev) return 1;
-                  if (s1.scoreStdev > s2.scoreStdev) return -1;
-                }
-                return 0;
-              }
-            });
+    private List<MoveData> resolveBestMoves() {
+      if (index == 1) {
+        return resolveMainEngineBestMoves();
+      }
+      return Lizzie.board.getData().bestMoves2;
+    }
 
-        // featurecat.lizzie.analysis.MoveDataSorter MoveDataSorter = new
-        // MoveDataSorter(data2);
-        // ArrayList sortedMoveData = MoveDataSorter.getSortedMoveDataByPolicy();
-        //   double maxlcb = 0;
-        int totalPlayouts = 0;
-        for (MoveData move : data2) {
-          totalPlayouts = totalPlayouts + move.playouts;
+    private List<MoveData> resolveMainEngineBestMoves() {
+      if (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame) {
+        if (Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent()) {
+          List<MoveData> currentBestMoves = Lizzie.leelaz.getBestMoves();
+          if (currentBestMoves.isEmpty()) {
+            return Lizzie.board
+                .getHistory()
+                .getCurrentHistoryNode()
+                .previous()
+                .get()
+                .getData()
+                .bestMoves;
+          }
+          return currentBestMoves;
         }
-        MoveData data = data2.get(row);
-        switch (col) {
-          case 0:
-            if (data.order == -100)
-              return "\n" + resourceBundle.getString("AnalysisFrame.actual") + "\n";
-            else if (data.isNextMove)
-              return data.order + 1 + "(" + resourceBundle.getString("AnalysisFrame.actual") + ")";
-            else return data.order + 1;
-          case 1:
-            //
-            // if(Lizzie.board.convertNameToCoordinates(data.coordinate)[0]==Lizzie.frame.suggestionclick[0]&&Lizzie.board.convertNameToCoordinates(data.coordinate)[1]==Lizzie.frame.suggestionclick[1])
-            // {return "*"+data.coordinate;}
-            // else
-            return Board.maybeConvertNormalCoordsToOther(data.coordinate);
-          case 2:
-            if (data.isNextMove && data.lcb < -1000) return "--";
-            return String.format(Locale.ENGLISH, "%.1f", data.lcb);
-          case 3:
-            if (data.isNextMove) {
-              if (data.order != 0) {
-                double diff = data.winrate - data.bestWinrate;
-                return (diff > 0 ? "↑" : "↓")
-                    + String.format(Locale.ENGLISH, "%.1f", diff)
-                    + "("
-                    + String.format(Locale.ENGLISH, "%.1f", data.winrate)
-                    + ")";
-              }
-            }
-            return String.format(Locale.ENGLISH, "%.1f", data.winrate);
-          case 4:
-            if (data.order == -100) return resourceBundle.getString("AnalysisFrame.exclude");
-            else return Utils.getPlayoutsString(data.playouts);
-          case 5:
-            return String.format(
-                Locale.ENGLISH, "%.1f", (double) data.playouts * 100 / totalPlayouts);
-          case 6:
-            if (data.isNextMove && data.policy < -1000) return "--";
-            return String.format(Locale.ENGLISH, "%.2f", data.policy);
-          case 7:
-            double score = data.scoreMean;
-            if (EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove) {
-              if (!Lizzie.board.getHistory().isBlacksTurn()) {
-                if (Lizzie.config.showKataGoScoreLeadWithKomi) {
-                  score = score + Lizzie.board.getData().getKomi();
-                }
-              } else {
-                if (Lizzie.config.showKataGoScoreLeadWithKomi) {
-                  score = score - Lizzie.board.getData().getKomi();
-                }
-              }
-            } else {
-              if (Lizzie.board.getHistory().isBlacksTurn()) {
-                if (Lizzie.config.showKataGoScoreLeadWithKomi) {
-                  score = score + Lizzie.board.getData().getKomi();
-                }
-              } else {
-                if (Lizzie.config.showKataGoScoreLeadWithKomi) {
-                  score = score - Lizzie.board.getData().getKomi();
-                }
-              }
-            }
-            if (data.isNextMove && data.order != 0) {
-              double diff = data.scoreMean - data.bestScoreMean;
-              return (diff > 0 ? "↑" : "↓")
-                  + String.format(Locale.ENGLISH, "%.1f", diff)
-                  + "("
-                  + String.format(Locale.ENGLISH, "%.1f", score)
-                  + ")";
-            } else return String.format(Locale.ENGLISH, "%.1f", score);
-          case 8:
-            return String.format(Locale.ENGLISH, "%.1f", data.scoreStdev);
-          default:
-            return "";
+        return null;
+      }
+      return Lizzie.board.getHistory().getCurrentHistoryNode().getData().bestMoves;
+    }
+
+    private void addNextMoveIfNeeded(List<MoveData> moves) {
+      if (!Lizzie.config.anaFrameShowNext
+          || !Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent()
+          || moves.isEmpty()) {
+        return;
+      }
+      BoardHistoryNode next = Lizzie.board.getHistory().getCurrentHistoryNode().next().get();
+      if (!next.getData().lastMove.isPresent()) {
+        return;
+      }
+      int[] coords = next.getData().lastMove.get();
+      MoveData matchingMove = findMatchingMove(moves, coords);
+      if (matchingMove == null) {
+        prependMissingNextMove(moves, next, coords);
+        return;
+      }
+      if (matchingMove.order == 0) {
+        markTopMoveAsNext(matchingMove, moves.get(0));
+        return;
+      }
+      if (!prependUpgradedNextMove(moves, matchingMove, next, coords)) {
+        moves.add(0, createCopiedNextMove(matchingMove, moves.get(0)));
+      }
+    }
+
+    private MoveData findMatchingMove(List<MoveData> moves, int[] coords) {
+      for (MoveData move : moves) {
+        int[] moveCoords = Board.convertNameToCoordinates(move.coordinate);
+        if (moveCoords[0] == coords[0] && moveCoords[1] == coords[1]) {
+          return move;
         }
       }
-    };
+      return null;
+    }
+
+    private void markTopMoveAsNext(MoveData move, MoveData bestMove) {
+      move.winrate = bestMove.winrate;
+      move.isNextMove = true;
+      move.bestWinrate = bestMove.winrate;
+      move.bestScoreMean = bestMove.scoreMean;
+    }
+
+    private boolean prependUpgradedNextMove(
+        List<MoveData> moves, MoveData matchingMove, BoardHistoryNode next, int[] coords) {
+      MoveData bestMove = moves.get(0);
+      if (index == 1
+          && !next.getData().bestMoves.isEmpty()
+          && next.getData().getPlayouts() > matchingMove.playouts) {
+        moves.add(0, createUpdatedNextMove(next, coords, matchingMove, bestMove));
+        return true;
+      }
+      if (index == 2
+          && !next.getData().bestMoves2.isEmpty()
+          && next.getData().getPlayouts2() > matchingMove.playouts) {
+        moves.add(0, createUpdatedNextMove(next, coords, matchingMove, bestMove));
+        return true;
+      }
+      return false;
+    }
+
+    private void prependMissingNextMove(List<MoveData> moves, BoardHistoryNode next, int[] coords) {
+      if (index == 1 && !next.getData().bestMoves.isEmpty()) {
+        moves.add(0, createMissingNextMove(next, coords, moves.get(0)));
+      } else if (index == 2 && !next.getData().bestMoves2.isEmpty()) {
+        moves.add(0, createMissingNextMove(next, coords, moves.get(0)));
+      }
+    }
+
+    enum RefreshResult {
+      UNCHANGED(false, false),
+      DATA_CHANGED(true, false),
+      STRUCTURE_CHANGED(true, true);
+
+      private final boolean changed;
+      private final boolean structureChanged;
+
+      RefreshResult(boolean changed, boolean structureChanged) {
+        this.changed = changed;
+        this.structureChanged = structureChanged;
+      }
+
+      boolean isChanged() {
+        return changed;
+      }
+
+      boolean isStructureChanged() {
+        return structureChanged;
+      }
+    }
+  }
+
+  private static List<MoveData> copyMoves(List<MoveData> bestMoves) {
+    List<MoveData> copies = new ArrayList<MoveData>();
+    if (bestMoves == null) {
+      return copies;
+    }
+    for (MoveData move : bestMoves) {
+      copies.add(copyMove(move));
+    }
+    return copies;
+  }
+
+  private static MoveData copyMove(MoveData move) {
+    MoveData copy = new MoveData();
+    copy.coordinate = move.coordinate;
+    copy.playouts = move.playouts;
+    copy.winrate = move.winrate;
+    copy.lcb = move.lcb;
+    copy.policy = move.policy;
+    copy.scoreMean = move.scoreMean;
+    copy.scoreStdev = move.scoreStdev;
+    copy.order = move.order;
+    copy.isNextMove = move.isNextMove;
+    copy.bestWinrate = move.bestWinrate;
+    copy.bestScoreMean = move.bestScoreMean;
+    return copy;
+  }
+
+  private MoveData createCopiedNextMove(MoveData move, MoveData bestMove) {
+    MoveData nextMove = copyMove(move);
+    nextMove.isNextMove = true;
+    nextMove.bestWinrate = bestMove.winrate;
+    nextMove.bestScoreMean = bestMove.scoreMean;
+    return nextMove;
+  }
+
+  private MoveData createUpdatedNextMove(
+      BoardHistoryNode next, int[] coords, MoveData move, MoveData bestMove) {
+    MoveData nextMove = new MoveData();
+    nextMove.playouts = index == 1 ? next.getData().getPlayouts() : next.getData().getPlayouts2();
+    nextMove.coordinate = Board.convertCoordinatesToName(coords[0], coords[1]);
+    nextMove.winrate =
+        index == 1 ? 100.0 - next.getData().winrate : 100.0 - next.getData().winrate2;
+    nextMove.policy = move.policy;
+    nextMove.scoreMean = index == 1 ? -next.getData().scoreMean : -next.getData().scoreMean2;
+    nextMove.scoreStdev = index == 1 ? next.getData().scoreStdev : next.getData().scoreStdev2;
+    nextMove.order = move.order;
+    nextMove.isNextMove = true;
+    nextMove.lcb = -10000;
+    nextMove.bestWinrate = bestMove.winrate;
+    nextMove.bestScoreMean = bestMove.scoreMean;
+    return nextMove;
+  }
+
+  private MoveData createMissingNextMove(BoardHistoryNode next, int[] coords, MoveData bestMove) {
+    MoveData nextMove = new MoveData();
+    nextMove.playouts = 0;
+    nextMove.coordinate = Board.convertCoordinatesToName(coords[0], coords[1]);
+    nextMove.winrate =
+        index == 1 ? 100.0 - next.getData().winrate : 100.0 - next.getData().winrate2;
+    nextMove.policy = -10000;
+    nextMove.scoreMean = index == 1 ? -next.getData().scoreMean : -next.getData().scoreMean2;
+    nextMove.scoreStdev = index == 1 ? next.getData().scoreStdev : next.getData().scoreStdev2;
+    nextMove.order = -100;
+    nextMove.isNextMove = true;
+    nextMove.lcb = -10000;
+    nextMove.bestWinrate = bestMove.winrate;
+    nextMove.bestScoreMean = bestMove.scoreMean;
+    return nextMove;
+  }
+
+  static final class TableSnapshot {
+    private final int columnCount;
+    private final List<RowSnapshot> rows;
+    private final int totalPlayouts;
+    private final ScoreDisplayState scoreState;
+
+    static TableSnapshot fromMoves(
+        List<MoveData> moves, int sortColumn, int columnCount, ScoreDisplayState scoreState) {
+      List<RowSnapshot> rows = new ArrayList<RowSnapshot>();
+      for (MoveData move : moves) {
+        rows.add(RowSnapshot.fromMove(move));
+      }
+      if (sortColumn != -1) {
+        rows.sort((left, right) -> compareRows(left, right, sortColumn));
+      }
+      return new TableSnapshot(columnCount, rows, calculateTotalPlayouts(rows), scoreState);
+    }
+
+    static TableSnapshot fromMoves(
+        List<MoveData> moves,
+        int sortColumn,
+        int columnCount,
+        boolean blacksTurn,
+        boolean engineGameGenmove,
+        boolean showScoreLeadWithKomi,
+        double komi) {
+      return fromMoves(
+          moves,
+          sortColumn,
+          columnCount,
+          new ScoreDisplayState(blacksTurn, engineGameGenmove, showScoreLeadWithKomi, komi));
+    }
+
+    private TableSnapshot(
+        int columnCount, List<RowSnapshot> rows, int totalPlayouts, ScoreDisplayState scoreState) {
+      this.columnCount = columnCount;
+      this.rows = List.copyOf(rows);
+      this.totalPlayouts = totalPlayouts;
+      this.scoreState = scoreState;
+    }
+
+    int getColumnCount() {
+      return columnCount;
+    }
+
+    List<RowSnapshot> getRows() {
+      return rows;
+    }
+
+    int getTotalPlayouts() {
+      return totalPlayouts;
+    }
+
+    double adjustScore(double scoreMean) {
+      return scoreState.adjustScore(scoreMean);
+    }
+
+    private static int calculateTotalPlayouts(List<RowSnapshot> rows) {
+      int total = 0;
+      for (RowSnapshot row : rows) {
+        total += row.playouts;
+      }
+      return total;
+    }
+
+    private static int compareRows(RowSnapshot left, RowSnapshot right, int sortColumn) {
+      if (sortColumn == 2) return Double.compare(right.lcb, left.lcb);
+      if (sortColumn == 3) return Double.compare(right.winrate, left.winrate);
+      if (sortColumn == 4 || sortColumn == 5) return Integer.compare(right.playouts, left.playouts);
+      if (sortColumn == 6) return Double.compare(right.policy, left.policy);
+      if (sortColumn == 7) return Double.compare(right.scoreMean, left.scoreMean);
+      if (sortColumn == 8) return Double.compare(right.scoreStdev, left.scoreStdev);
+      return 0;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (!(other instanceof TableSnapshot)) return false;
+      TableSnapshot that = (TableSnapshot) other;
+      return columnCount == that.columnCount
+          && totalPlayouts == that.totalPlayouts
+          && rows.equals(that.rows)
+          && scoreState.equals(that.scoreState);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(columnCount, rows, totalPlayouts, scoreState);
+    }
+  }
+
+  static final class RowSnapshot {
+    final String coordinate;
+    final int playouts;
+    final double winrate;
+    final double lcb;
+    final double policy;
+    final double scoreMean;
+    final double scoreStdev;
+    final int order;
+    final boolean isNextMove;
+    final double bestWinrate;
+    final double bestScoreMean;
+
+    private RowSnapshot(
+        String coordinate,
+        int playouts,
+        double winrate,
+        double lcb,
+        double policy,
+        double scoreMean,
+        double scoreStdev,
+        int order,
+        boolean isNextMove,
+        double bestWinrate,
+        double bestScoreMean) {
+      this.coordinate = coordinate;
+      this.playouts = playouts;
+      this.winrate = winrate;
+      this.lcb = lcb;
+      this.policy = policy;
+      this.scoreMean = scoreMean;
+      this.scoreStdev = scoreStdev;
+      this.order = order;
+      this.isNextMove = isNextMove;
+      this.bestWinrate = bestWinrate;
+      this.bestScoreMean = bestScoreMean;
+    }
+
+    static RowSnapshot fromMove(MoveData move) {
+      return new RowSnapshot(
+          move.coordinate,
+          move.playouts,
+          move.winrate,
+          move.lcb,
+          move.policy,
+          move.scoreMean,
+          move.scoreStdev,
+          move.order,
+          move.isNextMove,
+          move.bestWinrate,
+          move.bestScoreMean);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (!(other instanceof RowSnapshot)) return false;
+      RowSnapshot that = (RowSnapshot) other;
+      return playouts == that.playouts
+          && Double.compare(winrate, that.winrate) == 0
+          && Double.compare(lcb, that.lcb) == 0
+          && Double.compare(policy, that.policy) == 0
+          && Double.compare(scoreMean, that.scoreMean) == 0
+          && Double.compare(scoreStdev, that.scoreStdev) == 0
+          && order == that.order
+          && isNextMove == that.isNextMove
+          && Double.compare(bestWinrate, that.bestWinrate) == 0
+          && Double.compare(bestScoreMean, that.bestScoreMean) == 0
+          && Objects.equals(coordinate, that.coordinate);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(
+          coordinate,
+          playouts,
+          winrate,
+          lcb,
+          policy,
+          scoreMean,
+          scoreStdev,
+          order,
+          isNextMove,
+          bestWinrate,
+          bestScoreMean);
+    }
+  }
+
+  static final class ScoreDisplayState {
+    private final boolean blacksTurn;
+    private final boolean engineGameGenmove;
+    private final boolean showScoreLeadWithKomi;
+    private final double komi;
+
+    private ScoreDisplayState(
+        boolean blacksTurn, boolean engineGameGenmove, boolean showScoreLeadWithKomi, double komi) {
+      this.blacksTurn = blacksTurn;
+      this.engineGameGenmove = engineGameGenmove;
+      this.showScoreLeadWithKomi = showScoreLeadWithKomi;
+      this.komi = komi;
+    }
+
+    double adjustScore(double scoreMean) {
+      if (!showScoreLeadWithKomi) {
+        return scoreMean;
+      }
+      boolean addKomi = engineGameGenmove ? !blacksTurn : blacksTurn;
+      return addKomi ? scoreMean + komi : scoreMean - komi;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (!(other instanceof ScoreDisplayState)) return false;
+      ScoreDisplayState that = (ScoreDisplayState) other;
+      return blacksTurn == that.blacksTurn
+          && engineGameGenmove == that.engineGameGenmove
+          && showScoreLeadWithKomi == that.showScoreLeadWithKomi
+          && Double.compare(komi, that.komi) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(blacksTurn, engineGameGenmove, showScoreLeadWithKomi, komi);
+    }
   }
 }

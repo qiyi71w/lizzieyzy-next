@@ -10,6 +10,7 @@ import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.NodeInfo;
+import featurecat.lizzie.util.ResourceImageCache;
 import featurecat.lizzie.util.Utils;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -39,7 +40,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -287,7 +287,7 @@ public class MoveListFrame extends JFrame {
       else setBounds(737, 0, Lizzie.config.isChinese ? 856 : 996, 565);
     }
     try {
-      setIconImage(ImageIO.read(MoveListFrame.class.getResourceAsStream("/assets/logo.png")));
+      setIconImage(ResourceImageCache.getImage("/assets/logo.png"));
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -759,23 +759,15 @@ public class MoveListFrame extends JFrame {
     detail = new JButton("");
     hideMove = new JButton("");
     hideMove.setPreferredSize(new Dimension(20, 20));
-    iconUp = new ImageIcon();
     try {
-      iconUp.setImage(ImageIO.read(getClass().getResourceAsStream("/assets/up.png")));
+      iconUp = ResourceImageCache.getIcon("/assets/up.png");
+      iconDown = ResourceImageCache.getIcon("/assets/down.png");
+      iconSettings = ResourceImageCache.getIcon("/assets/settings.png");
     } catch (IOException e) {
       e.printStackTrace();
-    }
-    iconDown = new ImageIcon();
-    try {
-      iconDown.setImage(ImageIO.read(getClass().getResourceAsStream("/assets/down.png")));
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
-    iconSettings = new ImageIcon();
-    try {
-      iconSettings.setImage(ImageIO.read(getClass().getResourceAsStream("/assets/settings.png")));
-    } catch (IOException e) {
-      e.printStackTrace();
+      iconUp = new ImageIcon();
+      iconDown = new ImageIcon();
+      iconSettings = new ImageIcon();
     }
 
     if (isShowingWinrateGraph) detail.setIcon(iconDown);
