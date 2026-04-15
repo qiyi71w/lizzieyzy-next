@@ -478,4 +478,8 @@ public class AnalysisEngine {
       e.printStackTrace();
     }
   }
+
+  public synchronized boolean isAnalysisInProgress() {
+    return analyzeMap.size() > 0 && resultCount < analyzeMap.size();
+  }
 }
