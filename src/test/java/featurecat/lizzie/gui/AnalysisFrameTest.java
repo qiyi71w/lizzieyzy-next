@@ -84,7 +84,8 @@ public class AnalysisFrameTest {
     BoardData next = boardData("Q16", Stone.BLACK, false, 61.5, 40, 2.5, 0.6);
     next.bestMoves = Arrays.asList(move("Q16", 40, 38.5, 37.0, 8.0, -2.5, 0));
 
-    try (TestEnvironment environment = installEnvironment(historyWithCurrentAndNext(current, next))) {
+    try (TestEnvironment environment =
+        installEnvironment(historyWithCurrentAndNext(current, next))) {
       AnalysisFrame.AnalysisTableModel model = newTableModel(1);
       AnalysisFrame.RowSnapshot actualMove = snapshotOf(model).getRows().get(0);
 
@@ -107,13 +108,13 @@ public class AnalysisFrameTest {
     BoardData current = boardData(null, Stone.EMPTY, true, 50.0, 0, 0.0, 0.0);
     current.bestMoves =
         Arrays.asList(
-            move("D4", 120, 55.0, 54.0, 12.0, 1.5, 0),
-            move("Q16", 80, 48.0, 47.0, 9.0, 0.5, 2));
+            move("D4", 120, 55.0, 54.0, 12.0, 1.5, 0), move("Q16", 80, 48.0, 47.0, 9.0, 0.5, 2));
 
     BoardData next = boardData("Q16", Stone.BLACK, false, 63.0, 240, 1.8, 0.7);
     next.bestMoves = Arrays.asList(move("Q16", 200, 37.0, 36.5, 9.0, -1.8, 0));
 
-    try (TestEnvironment environment = installEnvironment(historyWithCurrentAndNext(current, next))) {
+    try (TestEnvironment environment =
+        installEnvironment(historyWithCurrentAndNext(current, next))) {
       AnalysisFrame.AnalysisTableModel model = newTableModel(1);
       AnalysisFrame.RowSnapshot actualMove = snapshotOf(model).getRows().get(0);
 
@@ -186,7 +187,9 @@ public class AnalysisFrameTest {
       double scoreStdev) {
     BoardData data = BoardData.empty(19, 19);
     data.lastMove =
-        coordinate == null ? Optional.empty() : Optional.of(Board.convertNameToCoordinates(coordinate));
+        coordinate == null
+            ? Optional.empty()
+            : Optional.of(Board.convertNameToCoordinates(coordinate));
     data.lastMoveColor = lastMoveColor;
     data.blackToPlay = blackToPlay;
     data.winrate = winrate;

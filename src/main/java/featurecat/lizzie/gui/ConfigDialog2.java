@@ -1992,12 +1992,11 @@ public class ConfigDialog2 extends JDialog {
   public void setVisible(boolean visible) {
     if (!visible) {
       stopPreviewTimer();
+      super.setVisible(false);
+      return;
     }
-    super.setVisible(visible);
-    if (visible) {
-      schedulePreviewRefresh();
-      updatePreviewTimerState();
-    }
+    prepareThemePreviewForShow();
+    super.setVisible(true);
   }
 
   private void initPreviewTimer() {
@@ -2032,6 +2031,28 @@ public class ConfigDialog2 extends JDialog {
         && tabbedPane != null
         && tabbedPane.getSelectedIndex() == 1
         && isVisible();
+  }
+
+  private void prepareThemePreviewForShow() {
+    if (!isThemeTabSelected()) return;
+    loadThemeTab();
+    previewDirty = true;
+    final boolean previewReady = syncPreviewCache();
+    SwingUtilities.invokeLater(
+        new Runnable() {
+          public void run() {
+            if (!isVisible() || !isThemeTabSelected()) return;
+            if (!previewReady || previewCacheImage == null) {
+              schedulePreviewRefresh();
+              return;
+            }
+            updatePreviewTimerState();
+          }
+        });
+  }
+
+  private boolean isThemeTabSelected() {
+    return tabbedPane != null && tabbedPane.getSelectedIndex() == 1;
   }
 
   private void schedulePreviewRefresh() {

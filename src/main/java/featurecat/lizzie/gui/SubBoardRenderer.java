@@ -1188,7 +1188,10 @@ public class SubBoardRenderer {
   }
 
   private long buildBranchOverlayKey(
-      int labelIndex, int branchZobristHash, long baseStoneSignature, long variationSignature,
+      int labelIndex,
+      int branchZobristHash,
+      long baseStoneSignature,
+      long variationSignature,
       boolean branchPresent) {
     long key = INVALID_OVERLAY_KEY + 1;
     key = mixOverlayKey(key, boardWidth);
@@ -1244,7 +1247,9 @@ public class SubBoardRenderer {
     long key = 1L;
     if (moves == null) return key;
     for (MoveData move : moves) {
-      key = mixOverlayKey(key, move == null ? 0 : move.coordinate == null ? 0 : move.coordinate.hashCode());
+      key =
+          mixOverlayKey(
+              key, move == null ? 0 : move.coordinate == null ? 0 : move.coordinate.hashCode());
       if (move == null) continue;
       key = mixOverlayKey(key, move.playouts);
       key = mixOverlayKey(key, Double.doubleToLongBits(move.policy));

@@ -2780,8 +2780,7 @@ public class FloatBoardRenderer {
 
   private void refreshEstimateOverlay(
       ArrayList<Double> currentEstimate, boolean blackToPlay, boolean fromRawNet) {
-    long estimateOverlayKey =
-        buildEstimateOverlayKey(currentEstimate, blackToPlay, fromRawNet);
+    long estimateOverlayKey = buildEstimateOverlayKey(currentEstimate, blackToPlay, fromRawNet);
     if (estimateOverlayKey == cachedEstimateOverlayKey) return;
     cachedEstimateOverlayKey = estimateOverlayKey;
     if (Lizzie.config.showKataGoEstimateBySize) {

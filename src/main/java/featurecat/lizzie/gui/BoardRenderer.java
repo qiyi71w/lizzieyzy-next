@@ -1610,10 +1610,7 @@ public class BoardRenderer {
             : Lizzie.frame.mouseOverCoordinate;
     long branchOverlayKey =
         buildBranchOverlayKey(
-            variation,
-            branch.data.zobrist.hashCode(),
-            hoverCoordinate[0],
-            hoverCoordinate[1]);
+            variation, branch.data.zobrist.hashCode(), hoverCoordinate[0], hoverCoordinate[1]);
     cachedVariation = variation;
     cachedDisplayedBranchLengthFroBranch = displayedBranchLength;
     if (!changedSize && branchOverlayKey == cachedBranchOverlayKey) return;
@@ -4477,8 +4474,10 @@ public class BoardRenderer {
     key = mixOverlayKey(key, Lizzie.config.showStoneShadow ? 1 : 0);
     key = mixOverlayKey(key, Lizzie.config.shadowSize);
     key = mixOverlayKey(key, Lizzie.config.showHoverGlow ? 1 : 0);
-    key = mixOverlayKey(key, hoverX);
-    key = mixOverlayKey(key, hoverY);
+    if (!Lizzie.config.noRefreshOnMouseMove) {
+      key = mixOverlayKey(key, hoverX);
+      key = mixOverlayKey(key, hoverY);
+    }
     return mixOverlayKey(key, listSignature(currentVariation));
   }
 
