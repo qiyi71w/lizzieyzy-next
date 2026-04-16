@@ -75,6 +75,21 @@ public class SyncHistoryJumpTrackerTest {
   }
 
   @Test
+  void clearsPendingRewindsOnClear() {
+    SyncHistoryJumpTracker tracker = new SyncHistoryJumpTracker();
+    BoardHistoryNode root = createNode();
+    BoardHistoryNode previousNode = root.add(createNode());
+    BoardHistoryNode syncEndNode = previousNode.add(createNode());
+
+    tracker.remember(previousNode, syncEndNode);
+    tracker.clear();
+    Optional<BoardHistoryNode> restoreTarget =
+        tracker.consumeStableSnapshotTarget(previousNode, () -> syncEndNode);
+
+    assertFalse(restoreTarget.isPresent());
+  }
+
+  @Test
   void clearsPendingRewindWhenCurrentNodeChangedOutsideTrackedRewind() {
     SyncHistoryJumpTracker tracker = new SyncHistoryJumpTracker();
     BoardHistoryNode root = createNode();

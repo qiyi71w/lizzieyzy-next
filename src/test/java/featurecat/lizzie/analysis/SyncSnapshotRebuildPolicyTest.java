@@ -95,6 +95,52 @@ public class SyncSnapshotRebuildPolicyTest {
   }
 
   @Test
+  void returnsEmptyWhenSnapshotContainsMultipleMarkers() {
+    SyncSnapshotRebuildPolicy policy = new SyncSnapshotRebuildPolicy(BOARD_WIDTH);
+    BoardHistoryNode root = createNode(new Stone[BOARD_AREA], Optional.empty(), Stone.EMPTY);
+    BoardHistoryNode previousNode =
+        root.add(
+            createNode(
+                stones(placement(1, 1, Stone.BLACK)), Optional.of(new int[] {1, 1}), Stone.BLACK));
+    BoardHistoryNode currentNode =
+        previousNode.add(
+            createNode(
+                stones(placement(1, 1, Stone.BLACK), placement(0, 0, Stone.WHITE)),
+                Optional.of(new int[] {0, 0}),
+                Stone.WHITE));
+    int[] snapshot =
+        snapshot(previousNode.getData().stones, Optional.of(new int[] {1, 1}), 3);
+    snapshot[0] = 4;
+
+    Optional<BoardHistoryNode> matchedNode =
+        policy.findMatchingHistoryNode(currentNode, snapshot);
+
+    assertFalse(matchedNode.isPresent());
+  }
+
+  @Test
+  void returnsEmptyWhenSnapshotMarkerColorDoesNotMatchHistory() {
+    SyncSnapshotRebuildPolicy policy = new SyncSnapshotRebuildPolicy(BOARD_WIDTH);
+    BoardHistoryNode root = createNode(new Stone[BOARD_AREA], Optional.empty(), Stone.EMPTY);
+    BoardHistoryNode previousNode =
+        root.add(
+            createNode(
+                stones(placement(1, 1, Stone.BLACK)), Optional.of(new int[] {1, 1}), Stone.BLACK));
+    BoardHistoryNode currentNode =
+        previousNode.add(
+            createNode(
+                stones(placement(1, 1, Stone.BLACK), placement(0, 0, Stone.WHITE)),
+                Optional.of(new int[] {0, 0}),
+                Stone.WHITE));
+
+    Optional<BoardHistoryNode> matchedNode =
+        policy.findMatchingHistoryNode(
+            currentNode, snapshot(previousNode.getData().stones, Optional.of(new int[] {1, 1}), 4));
+
+    assertFalse(matchedNode.isPresent());
+  }
+
+  @Test
   void rebuildsImmediatelyWhenCurrentPositionHasNoHistory() {
     SyncSnapshotRebuildPolicy policy = new SyncSnapshotRebuildPolicy(BOARD_WIDTH);
     BoardHistoryNode currentNode = createNode(new Stone[BOARD_AREA], Optional.empty(), Stone.EMPTY);
