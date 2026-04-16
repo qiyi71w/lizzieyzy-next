@@ -278,7 +278,6 @@ public class BrowserFrame extends JFrame {
             }
           }
         });
-    toolbar.add(back);
     toolbar.add(address_);
     toolbar.add(load);
     toolbar.add(stop);
