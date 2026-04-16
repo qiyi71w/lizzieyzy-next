@@ -14,11 +14,14 @@ import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.Stone;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import javax.swing.JTable;
 import javax.swing.event.TableModelEvent;
+import javax.swing.table.DefaultTableModel;
 import org.junit.jupiter.api.Test;
 import sun.misc.Unsafe;
 
@@ -157,6 +160,43 @@ public class AnalysisFrameTest {
     }
   }
 
+  @Test
+  void handleTableClickRepaintsTableWhenOnlySelectionStateChanges() throws Exception {
+    AnalysisFrame frame = (AnalysisFrame) UNSAFE.allocateInstance(AnalysisFrame.class);
+    frame.clickOrder = -1;
+    frame.selectedorder = -1;
+    frame.currentRow = -1;
+    TrackingTable table =
+        new TrackingTable(
+            new DefaultTableModel(new Object[][] {{"1", "D4"}}, new Object[] {"order", "coord"}));
+    table.repaintCalls = 0;
+    frame.table = table;
+
+    Config previousConfig = Lizzie.config;
+    LizzieFrame previousFrame = Lizzie.frame;
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    Config config = (Config) UNSAFE.allocateInstance(Config.class);
+    config.useIinCoordsName = false;
+    config.useFoxStyleCoords = false;
+    TestLizzieFrame testFrame = (TestLizzieFrame) UNSAFE.allocateInstance(TestLizzieFrame.class);
+    testFrame.suggestionclick = LizzieFrame.outOfBoundCoordinate;
+    testFrame.mouseOverCoordinate = LizzieFrame.outOfBoundCoordinate;
+    Lizzie.config = config;
+    Lizzie.frame = testFrame;
+    LizzieFrame.boardRenderer = (BoardRenderer) UNSAFE.allocateInstance(BoardRenderer.class);
+
+    try {
+      invokeHandleTableClick(frame, 0, 0);
+
+      assertEquals(1, testFrame.refreshCalls);
+      assertTrue(table.repaintCalls > 0);
+    } finally {
+      Lizzie.config = previousConfig;
+      Lizzie.frame = previousFrame;
+      LizzieFrame.boardRenderer = previousRenderer;
+    }
+  }
+
   private static MoveData move(
       String coordinate,
       int playouts,
@@ -226,6 +266,13 @@ public class AnalysisFrameTest {
     return (AnalysisFrame.TableSnapshot) snapshotField.get(model);
   }
 
+  private static void invokeHandleTableClick(AnalysisFrame frame, int row, int column)
+      throws Exception {
+    Method method = AnalysisFrame.class.getDeclaredMethod("handleTableClick", int.class, int.class);
+    method.setAccessible(true);
+    method.invoke(frame, row, column);
+  }
+
   private static TestEnvironment installEnvironment(BoardHistoryList history) throws Exception {
     Config config = (Config) UNSAFE.allocateInstance(Config.class);
     config.anaFrameShowNext = true;
@@ -282,6 +329,28 @@ public class AnalysisFrameTest {
       Lizzie.leelaz = previousLeelaz;
       Lizzie.leelaz2 = previousLeelaz2;
       EngineManager.isEngineGame = previousEngineGame;
+    }
+  }
+
+  private static final class TrackingTable extends JTable {
+    private int repaintCalls;
+
+    private TrackingTable(DefaultTableModel model) {
+      super(model);
+    }
+
+    @Override
+    public void repaint() {
+      repaintCalls++;
+    }
+  }
+
+  private static class TestLizzieFrame extends LizzieFrame {
+    private int refreshCalls;
+
+    @Override
+    public void refresh() {
+      refreshCalls++;
     }
   }
 }

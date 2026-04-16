@@ -318,6 +318,7 @@ public class AnalysisFrame extends JFrame {
                 currentRow = -1;
                 clickOrder = -1;
                 Lizzie.frame.refresh();
+                repaintInteractionState();
               }
               return;
             }
@@ -336,6 +337,7 @@ public class AnalysisFrame extends JFrame {
               Lizzie.frame.mouseOverCoordinate = coords;
               Lizzie.frame.suggestionclick = coords;
               Lizzie.frame.refresh();
+              repaintInteractionState();
             }
           }
         });
@@ -369,6 +371,7 @@ public class AnalysisFrame extends JFrame {
               selectedorder = -1;
               currentRow = -1;
               Lizzie.frame.refresh();
+              repaintInteractionState();
             }
           }
 
@@ -469,6 +472,12 @@ public class AnalysisFrame extends JFrame {
       configureTableAppearance();
     }
     repaint();
+  }
+
+  private void repaintInteractionState() {
+    if (table != null) {
+      table.repaint();
+    }
   }
 
   private void configureTableAppearance() {
@@ -742,6 +751,7 @@ public class AnalysisFrame extends JFrame {
       clickOrder = -1;
       currentRow = -1;
       Lizzie.frame.refresh();
+      repaintInteractionState();
     } else {
 
       clickOrder = row;
@@ -751,6 +761,7 @@ public class AnalysisFrame extends JFrame {
       Lizzie.frame.mouseOverCoordinate = coords;
       Lizzie.frame.suggestionclick = coords;
       Lizzie.frame.refresh();
+      repaintInteractionState();
     }
   }
 
@@ -762,12 +773,14 @@ public class AnalysisFrame extends JFrame {
       int[] coords = Board.convertNameToCoordinates(coordsName);
       Lizzie.frame.suggestionclick = coords;
       Lizzie.frame.mouseOverCoordinate = LizzieFrame.outOfBoundCoordinate;
-      Lizzie.frame.refresh();
       selectedorder = row;
+      Lizzie.frame.refresh();
+      repaintInteractionState();
     } else {
       Lizzie.frame.suggestionclick = LizzieFrame.outOfBoundCoordinate;
-      Lizzie.frame.refresh();
       selectedorder = -1;
+      Lizzie.frame.refresh();
+      repaintInteractionState();
     }
   }
 
