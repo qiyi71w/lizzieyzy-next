@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
@@ -20,6 +20,8 @@ TOKEN_URL = 'https://openapi.baidu.com/oauth/2.0/token'
 GITHUB_API_URL = 'https://api.github.com'
 XPAN_FILE_URL = 'https://pan.baidu.com/rest/2.0/xpan/file'
 SLICE_SIZE = 4 * 1024 * 1024
+HTTP_TIMEOUT = 180
+MAX_NETWORK_RETRIES = 5
 CURRENT_VERSION_FILENAME = '当前版本.txt'
 EXPECTED_ASSET_SUFFIXES = (
     'windows64.opencl.portable.zip',
@@ -93,18 +95,34 @@ def post_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
         headers={'Content-Type': 'application/x-www-form-urlencoded'},
         method='POST',
     )
-    with urlopen(request) as response:
-        return json.load(response)
+    return urlopen_json_with_retry(request, timeout=HTTP_TIMEOUT, label=url)
 
 
 def request_json(url: str, *, headers: dict[str, str] | None = None) -> dict[str, Any]:
     request = Request(url, headers=headers or {}, method='GET')
-    try:
-        with urlopen(request) as response:
-            return json.load(response)
-    except HTTPError as exc:
-        raw = exc.read().decode('utf-8', errors='replace')
-        raise RuntimeError(f'HTTP {exc.code} for {url}: {raw}') from exc
+    return urlopen_json_with_retry(request, timeout=HTTP_TIMEOUT, label=url)
+
+
+def urlopen_json_with_retry(request: Request, *, timeout: int, label: str) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_NETWORK_RETRIES + 1):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            raw = exc.read().decode('utf-8', errors='replace')
+            raise RuntimeError(f'HTTP {exc.code} for {label}: {raw}') from exc
+        except (TimeoutError, URLError, OSError) as exc:
+            last_error = exc
+            if attempt == MAX_NETWORK_RETRIES:
+                break
+            wait_seconds = min(30, attempt * 3)
+            print(
+                f'Network retry {attempt}/{MAX_NETWORK_RETRIES} for {label}: {exc}. '
+                f'Waiting {wait_seconds}s...'
+            )
+            time.sleep(wait_seconds)
+    raise RuntimeError(f'Network request failed for {label}: {last_error}')
 
 
 def refresh_access_token(app_key: str, app_secret: str, refresh_token: str) -> dict[str, Any]:
@@ -228,12 +246,7 @@ class BaiduPanClient:
             body = urlencode(normalized).encode('utf-8')
             request_headers.setdefault('Content-Type', 'application/x-www-form-urlencoded')
         request = Request(request_url, data=body, headers=request_headers, method=method)
-        try:
-            with urlopen(request) as response:
-                payload = json.load(response)
-        except HTTPError as exc:
-            raw = exc.read().decode('utf-8', errors='replace')
-            raise RuntimeError(f'Baidu API HTTP {exc.code}: {raw}') from exc
+        payload = urlopen_json_with_retry(request, timeout=HTTP_TIMEOUT, label=request_url)
         errno = payload.get('errno')
         if errno not in (None, 0):
             raise RuntimeError(f'Baidu API error: {json.dumps(payload, ensure_ascii=False)}')
@@ -396,12 +409,7 @@ class BaiduPanClient:
             headers={'Content-Type': f'multipart/form-data; boundary={boundary}'},
             method='POST',
         )
-        try:
-            with urlopen(request) as response:
-                payload = json.load(response)
-        except HTTPError as exc:
-            raw = exc.read().decode('utf-8', errors='replace')
-            raise RuntimeError(f'Baidu upload HTTP {exc.code}: {raw}') from exc
+        payload = urlopen_json_with_retry(request, timeout=HTTP_TIMEOUT, label=upload_url)
         errno = payload.get('errno')
         if errno not in (None, 0):
             raise RuntimeError(f'Baidu upload error: {json.dumps(payload, ensure_ascii=False)}')
