@@ -630,16 +630,48 @@ public class Menu extends JMenuBar {
     viewMenu.addSeparator();
 
     final JFontCheckBoxMenuItem toggleAppleStyle = new JFontCheckBoxMenuItem("Apple 风格 UI");
+    final JFontCheckBoxMenuItem toggleClassicColors =
+        new JFontCheckBoxMenuItem("经典配色 (原版 lizzieyzy)");
     toggleAppleStyle.setSelected(Lizzie.config.isAppleStyle);
     toggleAppleStyle.addActionListener(
         e -> {
           Lizzie.config.isAppleStyle = toggleAppleStyle.isSelected();
           Lizzie.config.uiConfig.put("is-apple-style", Lizzie.config.isAppleStyle);
+          if (Lizzie.config.isAppleStyle && !Lizzie.config.useMorandiColors) {
+            Lizzie.config.useMorandiColors = true;
+            Lizzie.config.uiConfig.put("use-morandi-colors", true);
+            toggleClassicColors.setSelected(false);
+          }
           persistUiSettings();
           Lizzie.resetLookAndFeel();
           AppleStyleSupport.refreshMainChrome();
+          Lizzie.frame.refreshPanelColors();
+          Utils.showMsgNoModal("部分图标颜色需重启应用后生效");
         });
     viewMenu.add(toggleAppleStyle);
+
+    toggleClassicColors.setSelected(!Lizzie.config.useMorandiColors);
+    toggleClassicColors.addActionListener(
+        e -> {
+          boolean classic = toggleClassicColors.isSelected();
+          Lizzie.config.useMorandiColors = !classic;
+          Lizzie.config.uiConfig.put("use-morandi-colors", Lizzie.config.useMorandiColors);
+          if (classic && Lizzie.config.isAppleStyle) {
+            Lizzie.config.isAppleStyle = false;
+            Lizzie.config.uiConfig.put("is-apple-style", false);
+            toggleAppleStyle.setSelected(false);
+          }
+          persistUiSettings();
+          Lizzie.resetLookAndFeel();
+          AppleStyleSupport.refreshMainChrome();
+          Lizzie.frame.refreshPanelColors();
+          if (LizzieFrame.toolbar != null) {
+            LizzieFrame.toolbar.refreshComponentStyles();
+            LizzieFrame.toolbar.repaint();
+          }
+          Utils.showMsgNoModal("部分图标颜色需重启应用后生效");
+        });
+    viewMenu.add(toggleClassicColors);
 
     final JFontMenuItem setCustomBoard = new JFontMenuItem("设置自定义棋盘背景...");
     setCustomBoard.addActionListener(
@@ -649,16 +681,6 @@ public class Menu extends JMenuBar {
     final JFontMenuItem clearCustomBoard = new JFontMenuItem("恢复默认棋盘背景");
     clearCustomBoard.addActionListener(e -> clearCustomImage(Theme.CUSTOM_BOARD_IMAGE_KEY, true));
     viewMenu.add(clearCustomBoard);
-
-    final JFontMenuItem setCustomBackground = new JFontMenuItem("设置自定义窗口背景...");
-    setCustomBackground.addActionListener(
-        e -> chooseAndApplyCustomImage(Theme.CUSTOM_BACKGROUND_IMAGE_KEY, false));
-    viewMenu.add(setCustomBackground);
-
-    final JFontMenuItem clearCustomBackground = new JFontMenuItem("恢复默认窗口背景");
-    clearCustomBackground.addActionListener(
-        e -> clearCustomImage(Theme.CUSTOM_BACKGROUND_IMAGE_KEY, false));
-    viewMenu.add(clearCustomBackground);
     viewMenu.addSeparator();
 
     final JFontCheckBoxMenuItem noMoveNum =
@@ -4975,56 +4997,6 @@ public class Menu extends JMenuBar {
     helpMenu.setFont(baseMenuFont);
     // helpMenu.setFont(headFont);
     this.add(helpMenu);
-
-    final JFontMenuItem checkUpdate =
-        new JFontMenuItem(resourceBundle.getString("Menu.checkUpdate")); // ("检查更新");
-    helpMenu.add(checkUpdate);
-
-    checkUpdate.addActionListener(
-        new ActionListener() {
-          public void actionPerformed(ActionEvent e) {
-            CheckVersion checkVersion = new CheckVersion(false, "", "");
-            checkVersion.setVisible(true);
-            //            Runnable runnable =
-            //                new Runnable() {
-            //                  public void run() {
-            //                    SocketCheckVersion socketCheckVersion = new SocketCheckVersion();
-            //                    socketCheckVersion.SocketCheckVersion(false);
-            //                  }
-            //                };
-            //            Thread thread = new Thread(runnable);
-            //            thread.start();
-          }
-        });
-
-    final JFontMenuItem introduction =
-        new JFontMenuItem(resourceBundle.getString("Menu.introduction")); // ("简介");
-    helpMenu.add(introduction);
-
-    introduction.addActionListener(
-        new ActionListener() {
-          public void actionPerformed(ActionEvent e) {
-            Lizzie.frame.openHelp();
-          }
-        });
-
-    final JFontMenuItem introductionJpn =
-        new JFontMenuItem(resourceBundle.getString("Menu.introductionJpn"));
-    helpMenu.add(introduction);
-
-    introductionJpn.addActionListener(
-        new ActionListener() {
-          public void actionPerformed(ActionEvent e) {
-            try {
-              URI uri = new URI("https://www.h-eba.com/Lizzie/LizzieYzy/manual.html");
-              java.awt.Desktop.getDesktop().browse(uri);
-            } catch (Exception e1) {
-              // TODO Auto-generated catch block
-              e1.printStackTrace();
-            }
-          }
-        });
-    helpMenu.add(introductionJpn);
 
     final JFontMenuItem about =
         new JFontMenuItem(resourceBundle.getString("Menu.about")); // ("关于");

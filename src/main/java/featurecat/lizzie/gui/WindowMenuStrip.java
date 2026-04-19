@@ -62,6 +62,13 @@ public class WindowMenuStrip extends JPanel {
     repaint();
   }
 
+  public void refreshColors() {
+    Color fg = AppleStyleSupport.dialogTextColor();
+    for (MenuButton b : menuButtons) {
+      b.setForeground(fg);
+    }
+  }
+
   @Override
   public Dimension getPreferredSize() {
     Dimension size = super.getPreferredSize();
@@ -178,7 +185,7 @@ public class WindowMenuStrip extends JPanel {
       this.menu = menu;
       ensurePopupListener(menu);
       setFont(menu.getFont().deriveFont(Font.BOLD, Math.max(Config.frameFontSize, 12)));
-      setForeground(Color.WHITE);
+      setForeground(AppleStyleSupport.dialogTextColor());
       setOpaque(false);
       setContentAreaFilled(false);
       setBorderPainted(false);

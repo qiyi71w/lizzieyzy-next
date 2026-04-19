@@ -304,6 +304,13 @@ public class BottomToolbar extends JPanel {
   @Override
   protected void paintComponent(Graphics g) {
     super.paintComponent(g);
+    if (!Lizzie.config.useMorandiColors) {
+      Graphics2D g2 = (Graphics2D) g.create();
+      g2.setColor(new Color(232, 232, 232));
+      g2.fillRect(0, 0, getWidth(), getHeight());
+      g2.dispose();
+      return;
+    }
     Graphics2D g2 = (Graphics2D) g.create();
     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
     g2.setColor(new Color(15, 18, 22, 248));
@@ -324,7 +331,7 @@ public class BottomToolbar extends JPanel {
 
   public void refreshComponentStyles() {
     setOpaque(false);
-    setForeground(MorandiPalette.TOOLBAR_TEXT);
+    setForeground(Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.BLACK);
     if (buttonPane != null) {
       buttonPane.setOpaque(false);
       AppleStyleSupport.applyPanelStyle(buttonPane);
@@ -580,7 +587,8 @@ public class BottomToolbar extends JPanel {
   }
 
   public BottomToolbar() {
-    this.setBackground(MorandiPalette.TOOLBAR_BG);
+    this.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_BG : new Color(232, 232, 232));
     this.setOpaque(false);
 
     setLayout(null);
@@ -661,18 +669,21 @@ public class BottomToolbar extends JPanel {
     }
     detail = new JButton("");
     detail.setBackground(new Color(0, 0, 0, 10));
-    detail.setForeground(MorandiPalette.TOOLBAR_TEXT);
+    detail.setForeground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.BLACK);
     detail.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
     detail.setOpaque(true);
     detail.setContentAreaFilled(true);
     detail.setFocusPainted(false);
     rightMove.setBackground(new Color(0, 0, 0, 10));
-    rightMove.setForeground(MorandiPalette.TOOLBAR_TEXT);
+    rightMove.setForeground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.BLACK);
     rightMove.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
     rightMove.setOpaque(true);
     rightMove.setContentAreaFilled(true);
     leftMove.setBackground(new Color(0, 0, 0, 10));
-    leftMove.setForeground(MorandiPalette.TOOLBAR_TEXT);
+    leftMove.setForeground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.BLACK);
     leftMove.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
     leftMove.setOpaque(true);
     leftMove.setContentAreaFilled(true);
@@ -683,7 +694,8 @@ public class BottomToolbar extends JPanel {
 
     buttonPane = new PanelWithToolTips();
     buttonPane.setLayout(null);
-    buttonPane.setBackground(MorandiPalette.TOOLBAR_BG);
+    buttonPane.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_BG : new Color(232, 232, 232));
     buttonPane.setOpaque(false);
     this.add(buttonPane);
 
@@ -870,7 +882,8 @@ public class BottomToolbar extends JPanel {
               checkMove();
               txtMoveNumber.setFocusable(false);
               txtMoveNumber.setFocusable(true);
-              txtMoveNumber.setBackground(MorandiPalette.TOOLBAR_TEXT);
+              txtMoveNumber.setBackground(
+                  Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.WHITE);
               txtMoveNumber.setText("");
               if (changeMoveNumber != 0) Lizzie.board.goToMoveNumberBeyondBranch(changeMoveNumber);
             }
@@ -1344,7 +1357,8 @@ public class BottomToolbar extends JPanel {
             if (EngineManager.isEngineGame) return;
             checkMove();
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
-            txtMoveNumber.setBackground(MorandiPalette.TOOLBAR_TEXT);
+            txtMoveNumber.setBackground(
+                Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.WHITE);
             txtMoveNumber.setText("");
             // Lizzie.board.savelist(changeMoveNumber);
             // Lizzie.board.setlist();
@@ -2149,7 +2163,8 @@ public class BottomToolbar extends JPanel {
     lblengineBlack.setBounds(75, 0, 15, 20);
     UI ui = new UI();
     enginePkBlack.setUI(ui);
-    enginePkBlack.setBackground(MorandiPalette.TOOLBAR_TEXT);
+    enginePkBlack.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.WHITE);
     ((Popup) ui.getPopup()).setDisplaySize(200, 200);
 
     lblenginePkResult = new JLabel("0:0");
@@ -2163,7 +2178,8 @@ public class BottomToolbar extends JPanel {
 
     UI ui2 = new UI();
     enginePkWhite.setUI(ui2);
-    enginePkWhite.setBackground(MorandiPalette.TOOLBAR_TEXT);
+    enginePkWhite.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.WHITE);
     ((Popup) ui2.getPopup()).setDisplaySize(200, 200);
 
     lblengineWhite = new JLabel("白:");

@@ -465,9 +465,12 @@ public class LizzieFrame extends JFrame {
   public boolean isAutoReplying = false;
   public boolean isBatchAnalysisMode = false;
   // int testFontSize = 12;
-  private Color blunderBackground = MorandiPalette.BG_SECONDARY;
-  private Color blunderForeground = MorandiPalette.TEXT_PRIMARY;
-  private Color listTableBackground = MorandiPalette.TABLE_ROW_ODD;
+  private Color blunderBackground =
+      Lizzie.config.useMorandiColors ? MorandiPalette.BG_SECONDARY : new Color(225, 225, 225);
+  private Color blunderForeground =
+      Lizzie.config.useMorandiColors ? MorandiPalette.TEXT_PRIMARY : Color.BLACK;
+  private Color listTableBackground =
+      Lizzie.config.useMorandiColors ? MorandiPalette.TABLE_ROW_ODD : new Color(0, 0, 0, 10);
   public boolean isAutoAnalyzingDiffNode = false;
 
   public boolean isInScoreMode = false;
@@ -579,7 +582,8 @@ public class LizzieFrame extends JFrame {
     tempGamePanelAll.setVisible(false);
     tempGamePanelAll.setFocusable(false);
     tempGamePanelAll.enableInputMethods(false);
-    tempGamePanelAll.setBackground(MorandiPalette.BG_PRIMARY);
+    tempGamePanelAll.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.BG_PRIMARY : new Color(100, 100, 100));
     tempGamePanel = new JPanel();
     tempGameScrollPanel = new JScrollPane(tempGamePanel);
     tempGameScrollPanel.setVisible(false);
@@ -590,10 +594,12 @@ public class LizzieFrame extends JFrame {
     tempGamePanelTop.setLayout(null);
     tempGamePanelTop.setFocusable(false);
     tempGamePanelTop.enableInputMethods(false);
-    tempGamePanelTop.setBackground(MorandiPalette.BG_PRIMARY);
+    tempGamePanelTop.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.BG_PRIMARY : new Color(100, 100, 100));
     tempGameScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
 
-    tempGamePanel.setBackground(MorandiPalette.BG_PRIMARY);
+    tempGamePanel.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.BG_PRIMARY : new Color(100, 100, 100));
     tempGamePanel.setFocusable(false);
     tempGamePanel.enableInputMethods(false);
     tempGameScrollPanel.getVerticalScrollBar().setUnitIncrement(16);
@@ -661,7 +667,7 @@ public class LizzieFrame extends JFrame {
     commentEditTextPane = new JIMSendTextPane(true);
     commentEditTextPane.setBorder(BorderFactory.createEmptyBorder());
     commentEditTextPane.setBackground(Color.LIGHT_GRAY);
-    commentEditTextPane.setForeground(Color.BLACK);
+    commentEditTextPane.setForeground(AppleStyleSupport.dialogTextColor());
     commentEditPane = new JScrollPane(commentEditTextPane);
     commentEditPane.setBorder(BorderFactory.createEmptyBorder());
     commentEditPane.getVerticalScrollBar().setUI(new DemoScrollBarUI());
@@ -694,7 +700,8 @@ public class LizzieFrame extends JFrame {
             }
           }
         });
-    topPanel.setBackground(MorandiPalette.TOOLBAR_BG);
+    topPanel.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_BG : new Color(232, 232, 232));
     topPanel.setOpaque(false);
     topPanel.setBorder(BorderFactory.createEmptyBorder());
     listDataModel = getTableModel();
@@ -718,8 +725,10 @@ public class LizzieFrame extends JFrame {
     listTable.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
     DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer();
     DefaultTableCellRenderer cellRenderer2 = new DefaultTableCellRenderer();
-    cellRenderer.setBackground(MorandiPalette.TABLE_ROW_EVEN);
-    cellRenderer2.setBackground(MorandiPalette.TABLE_ROW_ODD);
+    cellRenderer.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TABLE_ROW_EVEN : new Color(208, 208, 208));
+    cellRenderer2.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.TABLE_ROW_ODD : new Color(178, 178, 178));
     cellRenderer.setHorizontalAlignment(SwingConstants.CENTER);
     cellRenderer2.setHorizontalAlignment(SwingConstants.CENTER);
     /** 循环修改表头列 */
@@ -729,7 +738,10 @@ public class LizzieFrame extends JFrame {
       else column.setHeaderRenderer(cellRenderer2);
     }
     listScrollpane = new JScrollPane(listTable);
-    listScrollpane.getViewport().setBackground(MorandiPalette.CREAM_WHITE);
+    listScrollpane
+        .getViewport()
+        .setBackground(
+            Lizzie.config.useMorandiColors ? MorandiPalette.CREAM_WHITE : new Color(243, 243, 243));
     varTreePane.addMouseMotionListener(
         new MouseAdapter() {
           public void mouseMoved(MouseEvent e) {
@@ -751,7 +763,8 @@ public class LizzieFrame extends JFrame {
     listScrollpane.setVerticalScrollBarPolicy(
         javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
     listScrollpane.getVerticalScrollBar().setUI(new DemoScrollBarUI2(false));
-    listScrollpane.setBackground(MorandiPalette.BG_SECONDARY);
+    listScrollpane.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.BG_SECONDARY : new Color(235, 235, 235));
     hiddenColumn(1, listTable);
     listTable.getColumnModel().getColumn(0).setPreferredWidth(10);
     listTable.getColumnModel().getColumn(2).setPreferredWidth(30);
@@ -1367,11 +1380,13 @@ public class LizzieFrame extends JFrame {
     tablePanelMinWhite.add(minScrollpaneWhite);
     blunderContentPane.add(tablePanelMinBlack);
     blunderContentPane.add(tablePanelMinWhite);
-    minScrollpaneBlack.setBackground(MorandiPalette.COOL_GRAY);
+    minScrollpaneBlack.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.COOL_GRAY : new Color(158, 158, 158));
     minScrollpaneBlack.getVerticalScrollBar().setUI(new DemoScrollBarUI2(true));
     //    minScrollpaneBlack.setVerticalScrollBarPolicy(
     //        javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-    minScrollpaneWhite.setBackground(MorandiPalette.COOL_GRAY);
+    minScrollpaneWhite.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.COOL_GRAY : new Color(158, 158, 158));
     minScrollpaneWhite.getVerticalScrollBar().setUI(new DemoScrollBarUI2(true));
     //    minScrollpaneWhite.setVerticalScrollBarPolicy(
     //        javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
@@ -1800,9 +1815,11 @@ public class LizzieFrame extends JFrame {
     ////        .setHorizontalAlignment(JLabel.CENTER);
 
     DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer();
-    cellRenderer.setBackground(MorandiPalette.WARM_GRAY);
+    cellRenderer.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.WARM_GRAY : new Color(178, 178, 178));
     DefaultTableCellRenderer cellRenderer2 = new DefaultTableCellRenderer();
-    cellRenderer2.setBackground(MorandiPalette.COOL_GRAY);
+    cellRenderer2.setBackground(
+        Lizzie.config.useMorandiColors ? MorandiPalette.COOL_GRAY : new Color(158, 158, 158));
     cellRenderer.setHorizontalAlignment(SwingConstants.CENTER);
     cellRenderer2.setHorizontalAlignment(SwingConstants.CENTER);
     /** 循环修改表头列 */
@@ -5036,6 +5053,46 @@ public class LizzieFrame extends JFrame {
     if (Lizzie.config.isFloatBoardMode()) this.paintMianPanel(mainPanel.getGraphics());
   }
 
+  public void refreshPanelColors() {
+    boolean useMorandi = Lizzie.config.useMorandiColors;
+    blunderBackground = useMorandi ? MorandiPalette.BG_SECONDARY : new Color(225, 225, 225);
+    blunderForeground = useMorandi ? MorandiPalette.TEXT_PRIMARY : Color.BLACK;
+    listTableBackground = useMorandi ? MorandiPalette.TABLE_ROW_ODD : new Color(0, 0, 0, 10);
+    if (tempGamePanelAll != null)
+      tempGamePanelAll.setBackground(
+          useMorandi ? MorandiPalette.BG_PRIMARY : new Color(100, 100, 100));
+    if (tempGamePanelTop != null)
+      tempGamePanelTop.setBackground(
+          useMorandi ? MorandiPalette.BG_PRIMARY : new Color(100, 100, 100));
+    if (tempGamePanel != null)
+      tempGamePanel.setBackground(
+          useMorandi ? MorandiPalette.BG_PRIMARY : new Color(100, 100, 100));
+    if (topPanel != null)
+      topPanel.setBackground(useMorandi ? MorandiPalette.TOOLBAR_BG : new Color(232, 232, 232));
+    if (listScrollpane != null) {
+      listScrollpane.setBackground(
+          useMorandi ? MorandiPalette.BG_SECONDARY : new Color(235, 235, 235));
+      if (listScrollpane.getViewport() != null)
+        listScrollpane
+            .getViewport()
+            .setBackground(useMorandi ? MorandiPalette.CREAM_WHITE : new Color(243, 243, 243));
+    }
+    if (minScrollpaneBlack != null)
+      minScrollpaneBlack.setBackground(
+          useMorandi ? MorandiPalette.COOL_GRAY : new Color(158, 158, 158));
+    if (minScrollpaneWhite != null)
+      minScrollpaneWhite.setBackground(
+          useMorandi ? MorandiPalette.COOL_GRAY : new Color(158, 158, 158));
+    if (commentEditTextPane != null)
+      commentEditTextPane.setForeground(AppleStyleSupport.dialogTextColor());
+    if (windowMenuStrip != null) {
+      windowMenuStrip.refreshColors();
+      windowMenuStrip.repaint();
+    }
+    refresh();
+    repaint();
+  }
+
   public void refresh() {
     // 分开各部分刷新,1代表来自info move的刷新
     redrawWinratePaneOnly = false;
@@ -5358,13 +5415,15 @@ public class LizzieFrame extends JFrame {
     //        cachedBackground.getSubimage(commandsX, commandsY, boxWidth, boxHeight), result);
     //    g.drawImage(result, commandsX, commandsY, null);
 
-    g.setColor(MorandiPalette.CONTROLS_OVERLAY);
+    g.setColor(
+        Lizzie.config.useMorandiColors ? MorandiPalette.CONTROLS_OVERLAY : new Color(0, 0, 0, 130));
     g.fillRect(commandsX, commandsY, boxWidth, boxHeight);
     int strokeRadius = 1;
     g.setStroke(new BasicStroke(strokeRadius == 1 ? strokeRadius : 2 * strokeRadius));
 
     int verticalLineX = (int) (commandsX + boxWidth * 0.3);
-    g.setColor(MorandiPalette.CONTROLS_BORDER);
+    g.setColor(
+        Lizzie.config.useMorandiColors ? MorandiPalette.CONTROLS_BORDER : new Color(0, 0, 0, 60));
     g.drawLine(
         verticalLineX,
         commandsY + 2 * strokeRadius,
@@ -12528,7 +12587,12 @@ public class LizzieFrame extends JFrame {
     setExtendedState(JFrame.ICONIFIED);
     if (captureTsumeGoFrame != null && captureTsumeGoFrame.isVisible())
       captureTsumeGoFrame.setVisible(false);
-    new CaptureTsumeGo();
+    try {
+      new CaptureTsumeGo();
+    } catch (Throwable t) {
+      setExtendedState(JFrame.NORMAL);
+      t.printStackTrace();
+    }
   }
 
   public void openCaptureTsumego() {

@@ -58,6 +58,10 @@ public final class AppleStyleSupport {
     return Lizzie.config != null && Lizzie.config.isAppleStyle;
   }
 
+  public static boolean isClassicEnabled() {
+    return Lizzie.config != null && !Lizzie.config.useMorandiColors;
+  }
+
   private static boolean isInsideTopHeader(Component component) {
     Container parent = component != null ? component.getParent() : null;
     while (parent != null) {
@@ -437,6 +441,11 @@ public final class AppleStyleSupport {
     if (isAppleStyleEnabled()) {
       return new Color(255, 255, 255, pressed ? 64 : hover ? 44 : 28);
     }
+    if (isClassicEnabled()) {
+      return pressed
+          ? new Color(200, 200, 200)
+          : hover ? new Color(220, 220, 220) : new Color(238, 238, 238);
+    }
     return pressed
         ? MorandiPalette.TOOLBAR_BUTTON_PRESSED
         : hover ? MorandiPalette.TOOLBAR_BUTTON_HOVER : MorandiPalette.TOOLBAR_BUTTON_BG;
@@ -454,27 +463,33 @@ public final class AppleStyleSupport {
   }
 
   private static Color topStripColor() {
-    return isAppleStyleEnabled() ? new Color(18, 20, 24, 225) : MorandiPalette.TOOLBAR_BG;
+    if (isAppleStyleEnabled()) return new Color(18, 20, 24, 225);
+    return isClassicEnabled() ? new Color(232, 232, 232) : MorandiPalette.TOOLBAR_BG;
   }
 
   private static Color bottomStripColor() {
-    return isAppleStyleEnabled() ? new Color(33, 36, 42, 215) : MorandiPalette.TOOLBAR_BG;
+    if (isAppleStyleEnabled()) return new Color(33, 36, 42, 215);
+    return isClassicEnabled() ? new Color(232, 232, 232) : MorandiPalette.TOOLBAR_BG;
   }
 
   private static Color dialogSurfaceColor() {
-    return isAppleStyleEnabled() ? new Color(30, 33, 38) : MorandiPalette.CREAM_WHITE;
+    if (isAppleStyleEnabled()) return new Color(30, 33, 38);
+    return isClassicEnabled() ? new Color(238, 238, 238) : MorandiPalette.CREAM_WHITE;
   }
 
   private static Color popupSurfaceColor() {
-    return isAppleStyleEnabled() ? new Color(38, 41, 47) : MorandiPalette.CREAM_WHITE;
+    if (isAppleStyleEnabled()) return new Color(38, 41, 47);
+    return isClassicEnabled() ? Color.WHITE : MorandiPalette.CREAM_WHITE;
   }
 
   private static Color popupSelectionColor() {
-    return isAppleStyleEnabled() ? accentFillColor(180) : MorandiPalette.MENU_ITEM_SELECTED;
+    if (isAppleStyleEnabled()) return accentFillColor(180);
+    return isClassicEnabled() ? new Color(184, 207, 229) : MorandiPalette.MENU_ITEM_SELECTED;
   }
 
   private static Color fieldBackgroundColor() {
-    return isAppleStyleEnabled() ? new Color(255, 255, 255, 22) : MorandiPalette.CREAM_WHITE;
+    if (isAppleStyleEnabled()) return new Color(255, 255, 255, 22);
+    return isClassicEnabled() ? Color.WHITE : MorandiPalette.CREAM_WHITE;
   }
 
   public static Color validFieldBackground() {
@@ -502,8 +517,13 @@ public final class AppleStyleSupport {
     return img;
   }
 
+  public static Color dialogTextColor() {
+    return controlTextColor();
+  }
+
   private static Color controlTextColor() {
-    return isAppleStyleEnabled() ? new Color(244, 247, 251) : MorandiPalette.MENU_ITEM_TEXT;
+    if (isAppleStyleEnabled()) return new Color(244, 247, 251);
+    return isClassicEnabled() ? Color.BLACK : MorandiPalette.MENU_ITEM_TEXT;
   }
 
   private static Color controlBorderColor() {
@@ -512,7 +532,7 @@ public final class AppleStyleSupport {
           ? Lizzie.config.theme.glassPanelBorderColor()
           : new Color(255, 255, 255, 40);
     }
-    return MorandiPalette.TOOLBAR_BUTTON_BORDER;
+    return isClassicEnabled() ? new Color(180, 180, 180) : MorandiPalette.TOOLBAR_BUTTON_BORDER;
   }
 
   private static Color accentFillColor(int alpha) {
