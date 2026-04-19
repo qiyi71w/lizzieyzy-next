@@ -3533,7 +3533,8 @@ public class ConfigDialog2 extends JDialog {
     btnWhiteStonePath.setEnabled(false);
     txtWhiteStonePath.setText("/assets/white0.png");
     lblWinrateLineColor.setColor(
-        Theme.array2Color(Lizzie.config.uiConfig.optJSONArray("winrate-line-color"), Color.green));
+        Theme.array2Color(
+            Lizzie.config.uiConfig.optJSONArray("winrate-line-color"), new Color(100, 180, 255)));
     lblWinrateMissLineColor.setColor(
         Theme.array2Color(
             Lizzie.config.uiConfig.optJSONArray("winrate-miss-line-color"), Color.blue.darker()));

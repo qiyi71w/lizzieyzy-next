@@ -72,6 +72,7 @@ public class Utils {
   private static boolean alertedNoByoyomiSoundFile = false;
   private static final int MAX_AUTO_KATAGO_THREADS = 16;
   private static final String GTP_CONSOLE_MIGRATION_KEY = "migrated-hide-gtp-console-default-v2";
+  private static final String APPLE_STYLE_MIGRATION_KEY = "migrated-apple-style-default-v1";
   private static final String SOUND_RESOURCE_ROOT = "/assets/sound";
 
   public static void ajustScale(Graphics g) {
@@ -118,6 +119,9 @@ public class Utils {
 
   public static void applyMaintainedDefaultSettings() {
     boolean changed = false;
+    if (enableAppleStyleByDefaultOnce()) {
+      changed = true;
+    }
     if (hideGtpConsoleByDefaultOnce()) {
       changed = true;
     }
@@ -421,6 +425,24 @@ public class Utils {
     Lizzie.config.persistedUi.put("gtp-console-opened", false);
     Lizzie.config.uiConfig.put(GTP_CONSOLE_MIGRATION_KEY, true);
     persistUiStateQuietly();
+    return true;
+  }
+
+  private static boolean enableAppleStyleByDefaultOnce() {
+    if (Lizzie.config == null
+        || Lizzie.config.uiConfig == null
+        || Lizzie.config.uiConfig.optBoolean(APPLE_STYLE_MIGRATION_KEY, false)) {
+      return false;
+    }
+    // Only enable if the user has never explicitly set is-apple-style.
+    // If the key already exists in config, the user made a conscious choice — respect it.
+    if (Lizzie.config.uiConfig.has("is-apple-style")) {
+      Lizzie.config.uiConfig.put(APPLE_STYLE_MIGRATION_KEY, true);
+      return false;
+    }
+    Lizzie.config.isAppleStyle = true;
+    Lizzie.config.uiConfig.put("is-apple-style", true);
+    Lizzie.config.uiConfig.put(APPLE_STYLE_MIGRATION_KEY, true);
     return true;
   }
 

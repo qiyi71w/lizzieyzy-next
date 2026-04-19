@@ -337,7 +337,7 @@ public class ScoreResult extends JDialog {
       scoreResult.setBackground(Color.BLACK);
       scoreResult.setForeground(Color.WHITE);
     } else {
-      scoreResult.setBackground(Color.WHITE);
+      scoreResult.setBackground(AppleStyleSupport.validFieldBackground());
       scoreResult.setForeground(Color.BLACK);
     }
     setLblRule();

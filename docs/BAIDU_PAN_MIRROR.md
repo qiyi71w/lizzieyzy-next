@@ -7,7 +7,13 @@
 - 百度网盘账号：个人网盘 / PCS
 - 分享方式：手动创建一次固定共享文件夹
 - 自动化：GitHub release 完成后，工作流自动上传 2 个 Windows 免安装主资产
+- 手动兜底：如果 Actions 侧同步太慢或大文件不稳定，可以先把 2 个目标包下载到本机，再用同一套脚本本地上传
 - README / release notes：后续统一展示固定百度网盘链接和提取码
+
+当前已经生效的固定公开入口：
+
+- 分享链接：`https://pan.baidu.com/s/1wthaL8YwGMxy_u0U7Mabpw?pwd=3i8w`
+- 提取码：`3i8w`
 
 ## 一、你现在需要准备什么
 
@@ -164,18 +170,21 @@ python3 scripts/sync_baidu_pan.py \
 - `当前版本.txt` 内容正确
 - 提取码可用
 
-## 七、README 什么时候接百度入口
+## 七、README 现在怎么接百度入口
 
-只有在这两件事都已经固定之后，再改 README：
-
-- 固定共享链接已经确认不会再换
-- 固定提取码已经确认不会再换
-
-然后再把：
+这件事现在已经完成，当前做法固定为：
 
 - `README.md`
 - `README_EN.md`
 - `README_JA.md`
 - `README_KO.md`
 
-统一接上稳定百度镜像入口。
+统一展示同一个固定百度网盘链接和提取码。
+
+后续如果分享链接或提取码发生变化，需要同时更新：
+
+- README 顶部入口文案
+- GitHub Actions secrets 里的 `BAIDU_SHARE_URL` / `BAIDU_SHARE_CODE`
+- GitHub Actions secrets 里的 `CHINA_MIRROR_URL` / `CHINA_MIRROR_CODE`
+- 当前 release notes
+- `最新版本/当前版本.txt`

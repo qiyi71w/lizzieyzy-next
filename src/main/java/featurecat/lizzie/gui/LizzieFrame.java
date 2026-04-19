@@ -160,6 +160,8 @@ public class LizzieFrame extends JFrame {
   public static WinrateGraph winrateGraph;
   public static Menu menu;
   public static BottomToolbar toolbar;
+  public WindowMenuStrip windowMenuStrip;
+  private int windowMenuHeight = Config.menuHeight;
   // public static EditToolbar editToolbar;
   public Optional<List<String>> variationOpt;
 
@@ -284,7 +286,7 @@ public class LizzieFrame extends JFrame {
   private int[] startcoords = new int[2];
   private int[] draggedCoords;
   public JPanel mainPanel;
-  public JToolBar topPanel;
+  public TopHeaderPanel topPanel;
   // private JPanel listPanel;
   private boolean canShowBigBoardImage = true;
   private boolean oriShowListPane;
@@ -512,8 +514,9 @@ public class LizzieFrame extends JFrame {
     variationTreeBig = new VariationTreeBig();
     winrateGraph = new WinrateGraph();
     toolbar = new BottomToolbar();
-    topPanel = new JToolBar();
+    topPanel = new TopHeaderPanel();
     menu = new Menu();
+    windowMenuStrip = new WindowMenuStrip(menu);
     RightClickMenu = new RightClickMenu();
     RightClickMenu2 = new RightClickMenu2();
     openInVisibleFrame();
@@ -691,12 +694,9 @@ public class LizzieFrame extends JFrame {
             }
           }
         });
-    topPanel.setLayout(new ModifiedFlowLayout(FlowLayout.LEFT, 0, -2));
-    topPanel.setFloatable(false);
     topPanel.setBackground(MorandiPalette.TOOLBAR_BG);
-    topPanel.setOpaque(true);
-    topPanel.setBorder(
-        javax.swing.BorderFactory.createMatteBorder(0, 0, 1, 0, MorandiPalette.TOOLBAR_BORDER));
+    topPanel.setOpaque(false);
+    topPanel.setBorder(BorderFactory.createEmptyBorder());
     listDataModel = getTableModel();
     listTable = new JTable(listDataModel);
     TableCellRenderer tcr = new ColorTableCellRenderer();
@@ -901,7 +901,7 @@ public class LizzieFrame extends JFrame {
               }
             });
     tableTimer.start();
-    setJMenuBar(menu);
+    setJMenuBar(null);
     if (Lizzie.config.isDoubleEngineMode()) {
       boardRenderer2 = new BoardRenderer(false);
       boardRenderer2.setOrder(1);
@@ -982,7 +982,7 @@ public class LizzieFrame extends JFrame {
         });
 
     mainPanel.setFocusable(true);
-    this.getJMenuBar().setBorder(new EmptyBorder(0, 0, 0, 0));
+    menu.setBorder(new EmptyBorder(0, 0, 0, 0));
     if (this.toolbarHeight == 0) toolbar.setVisible(false);
 
     htmlKit = new HtmlKit();
@@ -1577,6 +1577,7 @@ public class LizzieFrame extends JFrame {
     basePanel.add(varTreeScrollPane, Integer.valueOf(8));
     basePanel.add(listScrollpane, Integer.valueOf(7));
     basePanel.add(sidebarPanel, Integer.valueOf(6));
+    basePanel.add(windowMenuStrip, Integer.valueOf(4));
     basePanel.add(topPanel, Integer.valueOf(3));
     basePanel.add(toolbar, Integer.valueOf(2));
     basePanel.add(mainPanel, Integer.valueOf(1));
@@ -2775,12 +2776,8 @@ public class LizzieFrame extends JFrame {
     if (!Lizzie.config.showWinrateGraph) Lizzie.config.toggleShowWinrate();
     if (Lizzie.config.showLargeWinrateOnly()) Lizzie.config.toggleLargeWinrate();
     if (!Lizzie.config.showLargeSubBoard()) Lizzie.config.toggleLargeSubBoard();
-    if (!Lizzie.config.showComment) Lizzie.config.toggleShowComment();
+    if (Lizzie.config.showComment) Lizzie.config.toggleShowComment();
     if (!Lizzie.config.showCaptured) Lizzie.config.toggleShowCaptured();
-    //    if (!Lizzie.config.changedStatus && Lizzie.config.showStatus)
-    //      Lizzie.config.toggleShowStatus(true);
-    // if (!Lizzie.config.showVariationGraph) Lizzie.config.toggleShowVariationGraph();
-    // if (Lizzie.frame.getWidth() - Lizzie.frame.getHeight() < 485)
     LizzieFrame.subBoardRenderer.showHeat = Lizzie.config.showHeat;
     LizzieFrame.subBoardRenderer.showHeatAfterCalc = Lizzie.config.showHeatAfterCalc;
     try {
@@ -4188,6 +4185,10 @@ public class LizzieFrame extends JFrame {
           boolean noBasic = !Lizzie.config.showCaptured;
           boolean noWinrate = !Lizzie.config.showWinrateGraph;
           boolean noComment = !Lizzie.config.showComment;
+          if (noComment) {
+            sidebarPanel.setVisible(false);
+            sidebarPanel.setBounds(0, 0, 0, 0);
+          }
 
           boolean noVariation = !Lizzie.config.showVariationGraph;
           boolean noListPane = !Lizzie.config.showListPane();
@@ -4397,6 +4398,10 @@ public class LizzieFrame extends JFrame {
           //  boolean noBasic = !Lizzie.config.showCaptured;
           boolean noSubBoard = !Lizzie.config.showSubBoard;
           boolean noComment = !Lizzie.config.showComment;
+          if (noComment) {
+            sidebarPanel.setVisible(false);
+            sidebarPanel.setBounds(0, 0, 0, 0);
+          }
           boolean isLargeSubboard =
               Lizzie.config.showLargeSubBoard() && !Lizzie.config.largeWinrateGraph;
           // board
@@ -4466,7 +4471,8 @@ public class LizzieFrame extends JFrame {
                               - ponderingSize * (Lizzie.config.userKnownX ? 1.15 : 0.75)));
 
           // subboard
-          int subBoardY = gry + grh;
+          int subBoardGap = 0;
+          int subBoardY = gry + grh + subBoardGap;
           int subBoardWidth = grw;
           int subBoardHeight = ponderingY - subBoardY;
           int subBoardLength = min(subBoardWidth, subBoardHeight);
@@ -4626,6 +4632,7 @@ public class LizzieFrame extends JFrame {
                 treeh = treeh + vh / 2 - subBoardLength;
                 if (noVariation) subBoardY = subBoardY + vh - subBoardLength;
                 else subBoardY = subBoardY + vh / 2 - subBoardLength;
+                subBoardY = Math.max(subBoardY, vy);
               }
             }
             if (backgroundG.isPresent()) {
@@ -7406,7 +7413,7 @@ public class LizzieFrame extends JFrame {
     w = Utils.zoomIn(w);
     h = Utils.zoomIn(h);
 
-    int sidebarY = y + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0);
+    int sidebarY = y + windowMenuHeight + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0);
     if (x != sidebarPanel.getX()
         || sidebarY != sidebarPanel.getY()
         || w != sidebarPanel.getWidth()
@@ -9040,15 +9047,13 @@ public class LizzieFrame extends JFrame {
     } else if (!listScrollpane.isVisible()) {
       listScrollpane.setVisible(true);
     }
+    int overlayY = windowMenuHeight + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0);
     if (listScrollpane.getX() != vx
-        || listScrollpane.getY() != vy + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0)
+        || listScrollpane.getY() != vy + overlayY
         || listScrollpane.getWidth() != vw
         || listScrollpane.getHeight() != vh)
       listScrollpane.setBounds(
-          Utils.zoomIn(vx),
-          Utils.zoomIn(vy) + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0),
-          Utils.zoomIn(vw),
-          Utils.zoomIn(vh));
+          Utils.zoomIn(vx), Utils.zoomIn(vy) + overlayY, Utils.zoomIn(vw), Utils.zoomIn(vh));
   }
 
   public void setHideListScrollpane(boolean visible) {
@@ -9172,7 +9177,9 @@ public class LizzieFrame extends JFrame {
               varTreePane.updateUI();
               varTreeScrollPane.setBounds(
                   Utils.zoomIn(vx),
-                  Utils.zoomIn(vy) + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0),
+                  Utils.zoomIn(vy)
+                      + windowMenuHeight
+                      + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0),
                   Utils.zoomIn(vw),
                   Utils.zoomIn(vh));
 
@@ -9611,21 +9618,42 @@ public class LizzieFrame extends JFrame {
         new Thread() {
           public void run() {
             int width = getWidth() - getInsets().left - getInsets().right;
+            windowMenuStrip.rebuild();
+            windowMenuHeight =
+                windowMenuStrip.getPreferredSize().height > 0
+                    ? windowMenuStrip.getPreferredSize().height
+                    : Config.menuHeight;
+            windowMenuStrip.setBounds(0, 0, width, windowMenuHeight);
+            windowMenuStrip.setPreferredSize(new Dimension(width, windowMenuHeight));
+            windowMenuStrip.invalidate();
+            windowMenuStrip.revalidate();
+            windowMenuStrip.doLayout();
+            windowMenuStrip.repaint();
+            windowMenuStrip.setVisible(true);
             if (Lizzie.config.showTopToolBar) {
               if (Lizzie.config.autoWrapToolBar) {
+                // To allow FlowLayout wrapping properly, let it take its preferred height
+                // based on the actual layout, rather than blindly assuming Config.menuHeight.
                 topPanel.setBounds(
-                    0, 0, width, Config.menuHeight + (Lizzie.config.useJavaLooks ? 1 : 0));
-                int curHeight = topPanel.getPreferredSize().height + 8;
-                topPanelHeight = Config.menuHeight;
-                if (curHeight / Config.menuHeight > 1) {
-                  topPanelHeight = (curHeight / Config.menuHeight) * Config.menuHeight;
-                  topPanel.setBounds(
-                      0, 0, width, topPanelHeight + (Lizzie.config.useJavaLooks ? 1 : 0));
-                }
+                    0, windowMenuHeight, width, 9999); // give it space to calculate preferred size
+                topPanel.invalidate();
+                topPanel.doLayout();
+                int curHeight = topPanel.getPreferredSize().height;
+                topPanelHeight = curHeight > 0 ? curHeight : Config.menuHeight;
+
+                // Adjust bounds with actual wrapped height
+                topPanel.setBounds(
+                    0,
+                    windowMenuHeight,
+                    width,
+                    topPanelHeight + (Lizzie.config.useJavaLooks ? 1 : 0));
                 topPanel.revalidate();
               } else {
                 topPanel.setBounds(
-                    0, 0, 9999, Config.menuHeight + (Lizzie.config.useJavaLooks ? 1 : 0));
+                    0,
+                    windowMenuHeight,
+                    9999,
+                    Config.menuHeight + (Lizzie.config.useJavaLooks ? 1 : 0));
                 topPanelHeight = Config.menuHeight;
               }
             } else {
@@ -9634,19 +9662,18 @@ public class LizzieFrame extends JFrame {
             }
             mainPanel.setBounds(
                 0,
-                (Lizzie.config.showDoubleMenu ? topPanelHeight : 0),
+                windowMenuHeight + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0),
                 Utils.zoomOut(width),
                 Utils.zoomOut(
                     Lizzie.frame.getHeight()
-                        - Lizzie.frame.getJMenuBar().getHeight()
                         - Lizzie.frame.getInsets().top
                         - Lizzie.frame.getInsets().bottom
+                        - windowMenuHeight
                         - toolbarHeight
                         - (Lizzie.config.showDoubleMenu ? topPanelHeight : 0)));
             toolbar.setBounds(
                 0,
                 Lizzie.frame.getHeight()
-                    - Lizzie.frame.getJMenuBar().getHeight()
                     - Lizzie.frame.getInsets().top
                     - Lizzie.frame.getInsets().bottom
                     - toolbarHeight,
@@ -10888,12 +10915,12 @@ public class LizzieFrame extends JFrame {
             - 12;
     tempGamePanelAll.setBounds(
         0,
-        Lizzie.config.showDoubleMenu ? topPanelHeight : 0,
+        windowMenuHeight + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0),
         Lizzie.frame.getWidth() - Lizzie.frame.getInsets().left - Lizzie.frame.getInsets().right,
         Lizzie.frame.getHeight()
-            - Lizzie.frame.getJMenuBar().getHeight()
             - Lizzie.frame.getInsets().top
             - Lizzie.frame.getInsets().bottom
+            - windowMenuHeight
             - toolbarHeight
             - (Lizzie.config.showDoubleMenu ? topPanelHeight : 0));
 
@@ -10908,9 +10935,9 @@ public class LizzieFrame extends JFrame {
         0,
         Lizzie.frame.getWidth() - Lizzie.frame.getInsets().left - Lizzie.frame.getInsets().right,
         Lizzie.frame.getHeight()
-            - Lizzie.frame.getJMenuBar().getHeight()
             - Lizzie.frame.getInsets().top
             - Lizzie.frame.getInsets().bottom
+            - windowMenuHeight
             - toolbarHeight
             - (Lizzie.config.showDoubleMenu ? topPanelHeight : 0));
     tempGamePanelAll.setVisible(true);

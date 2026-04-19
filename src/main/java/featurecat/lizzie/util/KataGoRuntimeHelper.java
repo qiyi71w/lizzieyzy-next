@@ -2,6 +2,7 @@ package featurecat.lizzie.util;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadCancelledException;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadSession;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.ProgressListener;
@@ -81,6 +82,14 @@ public final class KataGoRuntimeHelper {
   private static final int BENCHMARK_POSITIONS = 4;
   private static final int BENCHMARK_MIN_TIME_SECONDS = 2;
   private static final int BENCHMARK_MAX_TIME_SECONDS = 8;
+  private static final int APPLE_AUTO_OPTIMIZE_VERSION = 1;
+  private static final int APPLE_AUTO_OPTIMIZE_DELAY_MILLIS = 2500;
+  private static final int MAX_APPLE_ANALYSIS_THREADS = 8;
+  private static final String BENCHMARK_SIGNATURE_KEY = "katago-benchmark-signature";
+  private static final String APPLE_AUTO_OPTIMIZE_VERSION_KEY =
+      "katago-apple-auto-optimize-version";
+  private static final Object APPLE_AUTO_OPTIMIZE_LOCK = new Object();
+  private static volatile boolean appleAutoOptimizeRunning = false;
 
   private KataGoRuntimeHelper() {}
 
@@ -129,6 +138,16 @@ public final class KataGoRuntimeHelper {
       this.backendLabel = backendLabel;
       this.summary = summary;
       this.completedAtMillis = completedAtMillis;
+    }
+  }
+
+  private static final class AnalysisThreadProfile {
+    public final int numAnalysisThreads;
+    public final int numSearchThreadsPerAnalysisThread;
+
+    private AnalysisThreadProfile(int numAnalysisThreads, int numSearchThreadsPerAnalysisThread) {
+      this.numAnalysisThreads = numAnalysisThreads;
+      this.numSearchThreadsPerAnalysisThread = numSearchThreadsPerAnalysisThread;
     }
   }
 
@@ -526,8 +545,12 @@ public final class KataGoRuntimeHelper {
   public static BenchmarkResult runBenchmarkAndApply(
       SetupSnapshot snapshot, ProgressListener listener, DownloadSession session)
       throws IOException {
+    if (snapshot == null) {
+      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+    }
     BenchmarkResult result = runBenchmark(snapshot, listener, session);
     applyBenchmarkResult(result);
+    rememberBenchmarkContext(snapshot, result);
     return result;
   }
 
@@ -547,6 +570,106 @@ public final class KataGoRuntimeHelper {
     Lizzie.config.uiConfig.put("katago-benchmark-summary", result.summary);
     Lizzie.config.uiConfig.put("katago-benchmark-updated-at", result.completedAtMillis);
     Lizzie.config.save();
+  }
+
+  public static void applyBenchmarkResultToRunningEngines(BenchmarkResult result) {
+    if (result == null || result.recommendedThreads <= 0) {
+      return;
+    }
+    try {
+      if (Lizzie.leelaz != null && Lizzie.leelaz.isLoaded() && Lizzie.leelaz.isKatago) {
+        Lizzie.leelaz.sendCommand("kata-set-param numSearchThreads " + result.recommendedThreads);
+      }
+    } catch (Exception e) {
+    }
+    restartIdlePreloadedAnalysisEngine();
+  }
+
+  public static void startAppleSiliconAutoOptimizationAsync() {
+    if (!isAppleSiliconHost() || Lizzie.config == null || Lizzie.config.uiConfig == null) {
+      return;
+    }
+    synchronized (APPLE_AUTO_OPTIMIZE_LOCK) {
+      if (appleAutoOptimizeRunning) {
+        return;
+      }
+      appleAutoOptimizeRunning = true;
+    }
+
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                try {
+                  Thread.sleep(APPLE_AUTO_OPTIMIZE_DELAY_MILLIS);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  return;
+                }
+
+                SetupSnapshot snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+                if (!shouldRunAppleSiliconAutoBenchmark(snapshot)) {
+                  return;
+                }
+
+                System.out.println(
+                    "Running Apple Silicon KataGo benchmark in background for automatic tuning...");
+                BenchmarkResult result = runBenchmarkAndApply(snapshot, null, null);
+                applyBenchmarkResultToRunningEngines(result);
+                System.out.println(
+                    "Apple Silicon KataGo tuning applied: " + formatBenchmarkResult(result));
+              } catch (Exception e) {
+                System.err.println(
+                    "Apple Silicon KataGo auto benchmark failed: " + e.getLocalizedMessage());
+                e.printStackTrace();
+              } finally {
+                synchronized (APPLE_AUTO_OPTIMIZE_LOCK) {
+                  appleAutoOptimizeRunning = false;
+                }
+              }
+            },
+            "katago-apple-auto-optimize");
+    worker.setDaemon(true);
+    worker.start();
+  }
+
+  public static String optimizeAnalysisEngineCommand(
+      String engineCommand, int maxVisits, boolean isBatchAnalysisMode) {
+    if (engineCommand == null || engineCommand.trim().isEmpty()) {
+      return engineCommand;
+    }
+
+    List<String> commandParts = Utils.splitCommand(engineCommand);
+    if (commandParts.isEmpty()) {
+      return engineCommand;
+    }
+
+    boolean hasSearchThreadOverride =
+        hasOverrideConfigKey(commandParts, "numSearchThreadsPerAnalysisThread")
+            || hasOverrideConfigKey(commandParts, "numSearchThreads");
+    boolean hasAnalysisThreadOverride = hasOverrideConfigKey(commandParts, "numAnalysisThreads");
+
+    if (shouldUseAppleSiliconAnalysisProfile(engineCommand)) {
+      AnalysisThreadProfile profile =
+          resolveAppleSiliconAnalysisProfile(maxVisits, isBatchAnalysisMode);
+      if (!hasAnalysisThreadOverride) {
+        appendOverrideConfig(commandParts, "numAnalysisThreads=" + profile.numAnalysisThreads);
+      }
+      if (!hasSearchThreadOverride) {
+        appendOverrideConfig(
+            commandParts,
+            "numSearchThreadsPerAnalysisThread=" + profile.numSearchThreadsPerAnalysisThread);
+      }
+      return buildCommandLine(commandParts);
+    }
+
+    if (maxVisits <= 36 && !hasSearchThreadOverride) {
+      appendOverrideConfig(
+          commandParts, "numSearchThreadsPerAnalysisThread=" + Math.max(1, maxVisits / 10));
+      return buildCommandLine(commandParts);
+    }
+
+    return engineCommand;
   }
 
   private static void installNvidiaRuntimeWithDialog(
@@ -681,6 +804,58 @@ public final class KataGoRuntimeHelper {
     processBuilder.environment().put("PATH", rebuilt.toString());
   }
 
+  private static boolean shouldUseAppleSiliconAnalysisProfile(String engineCommand) {
+    if (!isAppleSiliconHost()) {
+      return false;
+    }
+    String normalized = engineCommand == null ? "" : engineCommand.toLowerCase(Locale.ROOT);
+    if (!normalized.contains(" analysis")) {
+      return false;
+    }
+    return Config.isBundledKataGoCommand(engineCommand);
+  }
+
+  private static AnalysisThreadProfile resolveAppleSiliconAnalysisProfile(
+      int maxVisits, boolean isBatchAnalysisMode) {
+    int totalThreadBudget = Math.max(4, Math.min(16, Utils.getRecommendedKataGoThreads()));
+    int effectiveVisits = Math.max(1, maxVisits);
+    int perAnalysisThread;
+    int maxParallelAnalyses;
+
+    if (effectiveVisits <= 8) {
+      perAnalysisThread = 1;
+      maxParallelAnalyses = MAX_APPLE_ANALYSIS_THREADS;
+    } else if (effectiveVisits <= 36) {
+      perAnalysisThread = 2;
+      maxParallelAnalyses = 6;
+    } else if (effectiveVisits <= 100) {
+      perAnalysisThread = 2;
+      maxParallelAnalyses = 5;
+    } else if (effectiveVisits <= 220) {
+      perAnalysisThread = 3;
+      maxParallelAnalyses = 4;
+    } else {
+      perAnalysisThread = Math.min(4, Math.max(2, totalThreadBudget / 3));
+      maxParallelAnalyses = 3;
+    }
+
+    if (isBatchAnalysisMode && effectiveVisits >= 100) {
+      perAnalysisThread = Math.max(perAnalysisThread, 3);
+      maxParallelAnalyses = Math.min(maxParallelAnalyses, 4);
+    }
+
+    int numAnalysisThreads =
+        Math.max(
+            2, Math.min(maxParallelAnalyses, Math.max(1, totalThreadBudget / perAnalysisThread)));
+
+    if (effectiveVisits <= 12 && totalThreadBudget >= 6) {
+      numAnalysisThreads =
+          Math.max(numAnalysisThreads, Math.min(MAX_APPLE_ANALYSIS_THREADS, totalThreadBudget));
+    }
+
+    return new AnalysisThreadProfile(numAnalysisThreads, perAnalysisThread);
+  }
+
   private static Path getBundledHomeDataDir() {
     if (Lizzie.config == null) {
       return null;
@@ -722,6 +897,177 @@ public final class KataGoRuntimeHelper {
 
     command.add("-override-config");
     command.add(keyValue);
+  }
+
+  private static boolean hasOverrideConfigKey(List<String> command, String key) {
+    if (command == null || key == null || key.trim().isEmpty()) {
+      return false;
+    }
+    String normalizedKey = key.trim().toLowerCase(Locale.ROOT);
+    for (int i = 0; i < command.size(); i++) {
+      if (!"-override-config".equals(command.get(i)) || i + 1 >= command.size()) {
+        continue;
+      }
+      String overrideValue = command.get(i + 1);
+      if (overrideValue == null || overrideValue.trim().isEmpty()) {
+        continue;
+      }
+      for (String entry : overrideValue.split(",")) {
+        String trimmed = entry == null ? "" : entry.trim();
+        if (trimmed.isEmpty()) {
+          continue;
+        }
+        int eqIndex = trimmed.indexOf('=');
+        String entryKey = eqIndex >= 0 ? trimmed.substring(0, eqIndex).trim() : trimmed.trim();
+        if (entryKey.toLowerCase(Locale.ROOT).equals(normalizedKey)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private static String buildCommandLine(List<String> commands) {
+    StringBuilder builder = new StringBuilder();
+    for (int i = 0; i < commands.size(); i++) {
+      if (i > 0) {
+        builder.append(' ');
+      }
+      builder.append(quoteCommandToken(commands.get(i)));
+    }
+    return builder.toString();
+  }
+
+  private static String quoteCommandToken(String token) {
+    if (token == null) {
+      return "\"\"";
+    }
+    String trimmed = token.trim();
+    if (trimmed.isEmpty()) {
+      return "\"\"";
+    }
+    if (trimmed.indexOf(' ') >= 0 || trimmed.indexOf('\t') >= 0 || trimmed.indexOf('"') >= 0) {
+      return "\"" + trimmed.replace("\"", "\\\"") + "\"";
+    }
+    return trimmed;
+  }
+
+  private static boolean isAppleSiliconHost() {
+    String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+    String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+    return (osName.contains("mac") || osName.contains("darwin"))
+        && (arch.contains("arm64") || arch.contains("aarch64"));
+  }
+
+  private static boolean shouldRunAppleSiliconAutoBenchmark(SetupSnapshot snapshot) {
+    if (!isAppleSiliconOptimizationEligible(snapshot)) {
+      return false;
+    }
+    BenchmarkResult benchmarkResult = getStoredBenchmarkResult();
+    if (benchmarkResult == null || benchmarkResult.recommendedThreads <= 0) {
+      return true;
+    }
+    String backend = benchmarkResult.backendLabel == null ? "" : benchmarkResult.backendLabel;
+    if (!backend.toLowerCase(Locale.ROOT).contains("metal")) {
+      return true;
+    }
+    String expectedSignature = buildBenchmarkSignature(snapshot);
+    String storedSignature =
+        Lizzie.config == null || Lizzie.config.uiConfig == null
+            ? ""
+            : Lizzie.config.uiConfig.optString(BENCHMARK_SIGNATURE_KEY, "").trim();
+    if (!expectedSignature.equals(storedSignature)) {
+      return true;
+    }
+    int storedVersion =
+        Lizzie.config == null || Lizzie.config.uiConfig == null
+            ? 0
+            : Lizzie.config.uiConfig.optInt(APPLE_AUTO_OPTIMIZE_VERSION_KEY, 0);
+    return storedVersion < APPLE_AUTO_OPTIMIZE_VERSION;
+  }
+
+  private static boolean isAppleSiliconOptimizationEligible(SetupSnapshot snapshot) {
+    if (!isAppleSiliconHost() || snapshot == null) {
+      return false;
+    }
+    if (!snapshot.hasEngine() || !snapshot.hasConfigs() || !snapshot.hasWeight()) {
+      return false;
+    }
+    String enginePath =
+        snapshot.enginePath.toAbsolutePath().normalize().toString().toLowerCase(Locale.ROOT);
+    return enginePath.contains("macos-arm64");
+  }
+
+  private static void rememberBenchmarkContext(SetupSnapshot snapshot, BenchmarkResult result) {
+    if (!isAppleSiliconOptimizationEligible(snapshot)
+        || result == null
+        || result.recommendedThreads <= 0
+        || Lizzie.config == null
+        || Lizzie.config.uiConfig == null) {
+      return;
+    }
+    Lizzie.config.uiConfig.put(BENCHMARK_SIGNATURE_KEY, buildBenchmarkSignature(snapshot));
+    Lizzie.config.uiConfig.put(APPLE_AUTO_OPTIMIZE_VERSION_KEY, APPLE_AUTO_OPTIMIZE_VERSION);
+    try {
+      Lizzie.config.save();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+  }
+
+  private static String buildBenchmarkSignature(SetupSnapshot snapshot) {
+    if (snapshot == null) {
+      return "";
+    }
+    StringBuilder builder = new StringBuilder();
+    appendPathFingerprint(builder, snapshot.enginePath);
+    appendPathFingerprint(builder, snapshot.gtpConfigPath);
+    appendPathFingerprint(builder, snapshot.analysisConfigPath);
+    appendPathFingerprint(builder, snapshot.activeWeightPath);
+    return builder.toString();
+  }
+
+  private static void appendPathFingerprint(StringBuilder builder, Path path) {
+    if (path == null) {
+      builder.append("|missing");
+      return;
+    }
+    Path normalized = path.toAbsolutePath().normalize();
+    builder.append('|').append(normalized);
+    try {
+      builder.append(':').append(Files.size(normalized));
+      builder.append(':').append(Files.getLastModifiedTime(normalized).toMillis());
+    } catch (IOException e) {
+      builder.append(":0:0");
+    }
+  }
+
+  private static void restartIdlePreloadedAnalysisEngine() {
+    if (Lizzie.config == null
+        || !Lizzie.config.analysisEnginePreLoad
+        || Lizzie.frame == null
+        || Lizzie.frame.analysisEngine == null) {
+      return;
+    }
+    AnalysisEngine currentEngine = Lizzie.frame.analysisEngine;
+    if (currentEngine == null || currentEngine.isAnalysisInProgress()) {
+      return;
+    }
+    SwingUtilities.invokeLater(
+        () -> {
+          try {
+            if (Lizzie.frame == null || Lizzie.frame.analysisEngine == null) {
+              return;
+            }
+            if (Lizzie.frame.analysisEngine.isAnalysisInProgress()) {
+              return;
+            }
+            Lizzie.frame.destroyAnalysisEngine();
+            Lizzie.frame.analysisEngine = new AnalysisEngine(true);
+          } catch (IOException e) {
+            e.printStackTrace();
+          }
+        });
   }
 
   private static List<Path> collectRuntimeSearchDirs(Path enginePath, Path runtimeDir) {

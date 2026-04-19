@@ -4,6 +4,7 @@ import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.KataEstimate;
 import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.gui.AppleStyleSupport;
 import featurecat.lizzie.gui.AwareScaled;
 import featurecat.lizzie.gui.FirstUseSettings;
 import featurecat.lizzie.gui.GtpConsolePane;
@@ -13,6 +14,7 @@ import featurecat.lizzie.gui.Message;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.SetupSnapshot;
+import featurecat.lizzie.util.KataGoRuntimeHelper;
 import featurecat.lizzie.util.MultiOutputStream;
 import featurecat.lizzie.util.Utils;
 import java.awt.Font;
@@ -436,6 +438,7 @@ public class Lizzie {
                 e.printStackTrace();
               }
             }
+            KataGoRuntimeHelper.startAppleSiliconAutoOptimizationAsync();
           }
         });
     //    if (config.autoCheckVersion) {
@@ -453,7 +456,10 @@ public class Lizzie {
       if (System.getProperty("os.name").contains("Mac")) {
         if (config.useJavaLooks)
           setUIFont(new javax.swing.plaf.FontUIResource(Config.sysDefaultFontName, Font.PLAIN, 12));
-        else System.setProperty("apple.laf.useScreenMenuBar", "true");
+        else {
+          // Keep the app menu visible inside the main window.
+          System.setProperty("apple.laf.useScreenMenuBar", "false");
+        }
       } else {
         setUIFont(new javax.swing.plaf.FontUIResource(Config.sysDefaultFontName, Font.PLAIN, 12));
       }
@@ -471,6 +477,7 @@ public class Lizzie {
         // String lookAndFeel = "com.sun.java.swing.plaf.windows.WindowsClassicLookAndFeel";
         UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
       }
+      AppleStyleSupport.applyUiDefaults();
     } catch (IllegalAccessException e) {
       e.printStackTrace();
     } catch (ClassNotFoundException e) {
@@ -491,6 +498,7 @@ public class Lizzie {
         String lookAndFeel = UIManager.getSystemLookAndFeelClassName();
         UIManager.setLookAndFeel(lookAndFeel);
       }
+      AppleStyleSupport.applyUiDefaults();
     } catch (IllegalAccessException e) {
       e.printStackTrace();
     } catch (ClassNotFoundException e) {

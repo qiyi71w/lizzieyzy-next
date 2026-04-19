@@ -58,7 +58,7 @@ public class Config {
   public boolean showSuggestionMaxRed = true;
   public boolean showStatus = true;
   public boolean isClassicMode = false;
-  public boolean isAppleStyle = false;
+  public boolean isAppleStyle = true;
   // public boolean changedStatus = false;
   public boolean showBranch = true;
   public boolean showBestMoves = true;
@@ -1377,7 +1377,7 @@ public class Config {
     allowMoveNumber = uiConfig.optInt("allow-move-number", allowMoveNumber);
     newMoveNumberInBranch = uiConfig.optBoolean("new-move-number-in-branch", true);
     isClassicMode = uiConfig.optBoolean("is-classic-mode", false);
-    isAppleStyle = uiConfig.optBoolean("is-apple-style", false);
+    isAppleStyle = uiConfig.optBoolean("is-apple-style", true);
     showStatus = isClassicMode ? false : uiConfig.getBoolean("show-status");
     // changedStatus = uiConfig.optBoolean("changed-status", false);
     showBranch = uiConfig.getBoolean("show-leelaz-variation");
@@ -2547,7 +2547,7 @@ public class Config {
     // ui.put("min-playout-ratio-for-stats", 0.0);
     ui.put("theme", "default");
     ui.put("only-last-move-number", 1);
-    ui.put("is-apple-style", false);
+    ui.put("is-apple-style", true);
     ui.put("new-move-number-in-branch", true);
     ui.put("append-winrate-to-comment", true);
     ui.put("replay-branch-interval-seconds", 0.9);

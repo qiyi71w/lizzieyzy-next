@@ -1,7 +1,6 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
-import java.awt.Color;
 import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.Insets;
@@ -57,7 +56,7 @@ public class CheckVersion extends JDialog {
     // getContentPane().add(scrollPane);
 
     JTextPane textPane = new JTextPane();
-    textPane.setBackground(Color.WHITE);
+    textPane.setBackground(AppleStyleSupport.validFieldBackground());
     newVersionDis = newVersionDis.replaceAll("\\\\r\\\\n", "\r\n");
     textPane.setText(resourceBundle.getString("CheckVersion.newVersion") + newVersionDis);
     scrollPane.setViewportView(textPane);

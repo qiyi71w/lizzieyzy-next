@@ -583,13 +583,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void applyBenchmarkToRunningEngine(KataGoRuntimeHelper.BenchmarkResult result) {
-    if (result == null || result.recommendedThreads <= 0 || Lizzie.leelaz == null) {
-      return;
-    }
-    try {
-      Lizzie.leelaz.sendCommand("kata-set-param numSearchThreads " + result.recommendedThreads);
-    } catch (Exception e) {
-    }
+    KataGoRuntimeHelper.applyBenchmarkResultToRunningEngines(result);
   }
 
   private void setBusy(boolean busy, String statusText, long downloadedBytes, long totalBytes) {

@@ -102,6 +102,17 @@ def urlopen_json_with_retry(request: Request, *, timeout: int, label: str) -> di
                 return json.load(response)
         except HTTPError as exc:
             raw = exc.read().decode('utf-8', errors='replace')
+            if exc.code in (408, 409, 425, 429, 500, 502, 503, 504):
+                last_error = RuntimeError(f'HTTP {exc.code} for {label}: {raw}')
+                if attempt == MAX_NETWORK_RETRIES:
+                    break
+                wait_seconds = min(30, attempt * 3)
+                print(
+                    f'HTTP retry {attempt}/{MAX_NETWORK_RETRIES} for {label}: '
+                    f'{exc.code}. Waiting {wait_seconds}s...'
+                )
+                time.sleep(wait_seconds)
+                continue
             raise RuntimeError(f'HTTP {exc.code} for {label}: {raw}') from exc
         except (TimeoutError, URLError, OSError) as exc:
             last_error = exc
