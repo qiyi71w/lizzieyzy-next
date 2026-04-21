@@ -40,13 +40,13 @@ public class BoardHistoryList {
   public void moveNumber(int moveNumber) {
     synchronized (this) {
       BoardData data = this.getData();
-      if (data.lastMove.isPresent()) {
+      if (data.isMoveNode()) {
         int[] moveNumberList = this.getMoveNumberList();
         moveNumberList[Board.getIndex(data.lastMove.get()[0], data.lastMove.get()[1])] = moveNumber;
         Optional<BoardHistoryNode> node = this.getCurrentHistoryNode().previous();
         while (node.isPresent() && node.get().numberOfChildren() <= 1) {
           BoardData nodeData = node.get().getData();
-          if (nodeData.lastMove.isPresent() && nodeData.moveNumber >= moveNumber) {
+          if (nodeData.isMoveNode() && nodeData.moveNumber >= moveNumber) {
             moveNumber = (moveNumber > 1) ? moveNumber - 1 : 0;
             moveNumberList[Board.getIndex(nodeData.lastMove.get()[0], nodeData.lastMove.get()[1])] =
                 moveNumber;
@@ -251,8 +251,15 @@ public class BoardHistoryList {
   }
 
   public boolean noStoneBoard() {
-    if (!head.previous().isPresent() && !Lizzie.board.hasStartStone) return true;
-    else return false;
+    if (head.previous().isPresent() || Lizzie.board.hasStartStone) {
+      return false;
+    }
+    for (Stone stone : head.getData().stones) {
+      if (!stone.isEmpty()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   //  public BoardHistoryNode getRecentAnalyzedNode() {
@@ -411,7 +418,7 @@ public class BoardHistoryList {
 
       // check to see if this move is being replayed in history
       if (!addLast
-          && this.getNext().map(n -> !n.lastMove.isPresent()).orElse(false)
+          && this.getNext().map(BoardHistoryList::isReplayablePass).orElse(false)
           && !newBranch) {
         // this is the next move in history. Just increment history so that we don't
         // erase the
@@ -433,9 +440,8 @@ public class BoardHistoryList {
               : curNode.getData().moveNumberList.clone();
       // build the new game state
       BoardData newState =
-          new BoardData(
+          BoardData.pass(
               stones,
-              Optional.empty(),
               color,
               color.equals(Stone.WHITE),
               zobrist,
@@ -451,6 +457,10 @@ public class BoardHistoryList {
       if (addLast) head.getLast().addAtLast(newState);
       else this.addOrGoto(newState, newBranch);
     }
+  }
+
+  private static boolean isReplayablePass(BoardData data) {
+    return data != null && data.isPassNode() && !data.dummy;
   }
 
   public void place(int x, int y, Stone color) {
@@ -535,9 +545,9 @@ public class BoardHistoryList {
       if (color.isBlack()) bc += capturedStones;
       else wc += capturedStones;
       BoardData newState =
-          new BoardData(
+          BoardData.move(
               stones,
-              lastMove,
+              lastMove.get(),
               color,
               color.equals(Stone.WHITE),
               zobrist,
@@ -617,6 +627,7 @@ public class BoardHistoryList {
       stones[Board.getIndex(x, y)] = Stone.EMPTY;
       zobrist.toggleStone(x, y, oriColor);
       data.moveNumberList[Board.getIndex(x, y)] = 0;
+      head.setRemovedStone();
 
       Lizzie.frame.refresh();
     }
@@ -630,7 +641,7 @@ public class BoardHistoryList {
 
     head =
         new BoardHistoryNode(
-            new BoardData(
+            BoardData.snapshot(
                 stones,
                 Optional.empty(),
                 Stone.EMPTY,
@@ -675,6 +686,11 @@ public class BoardHistoryList {
     }
     // Compare
     BoardHistoryNode newNode = newList.getCurrentHistoryNode();
+    BoardHistoryNode newPrev = newNode.previous().map(p -> p).orElse(null);
+    while (newPrev != null) {
+      newNode = newPrev;
+      newPrev = newNode.previous().map(p -> p).orElse(null);
+    }
 
     while (newNode != null) {
       if (node == null) {
@@ -694,6 +710,7 @@ public class BoardHistoryList {
           node.sync(newNode);
           break;
         }
+        node.syncVariations(newNode);
       }
       prev = node;
       node = node.next(true).map(n -> n).orElse(null);

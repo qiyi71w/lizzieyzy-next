@@ -10,10 +10,12 @@ import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.util.EncodingDetector;
 import featurecat.lizzie.util.Utils;
 import java.io.*;
+import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -26,19 +28,16 @@ import javax.swing.SwingUtilities;
 
 public class SGFParser {
   private static final SimpleDateFormat SGF_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
+  private static final int DEFAULT_BOARD_SIZE = 19;
+  private static final Pattern BOARD_SIZE_PATTERN =
+      Pattern.compile("(?s).*?SZ\\[([\\d:]+)\\](?s).*");
+  private static final Pattern RECT_BOARD_SIZE_PATTERN = Pattern.compile("([\\d]+):([\\d]+)");
   private static final String alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
   private static final String[] listProps =
       new String[] {"LB", "CR", "SQ", "MA", "TR", "AB", "AW", "AE"};
   private static final String[] markupProps = new String[] {"LB", "CR", "SQ", "MA", "TR"};
-  private static String[] lines;
-  private static String[] line1;
-  private static boolean islzFirst = false;
-  private static boolean islzFirst2 = true;
-  private static boolean islzloaded = false;
-
-  private static boolean islz2First = false;
-  private static boolean islz2First2 = true;
-  private static boolean islz2loaded = false;
+  private static final Field BLACK_ZOBRIST_FIELD = resolveZobristField("blackZobrist");
+  private static final Field WHITE_ZOBRIST_FIELD = resolveZobristField("whiteZobrist");
 
   private static boolean isExtraMode2 = false;
 
@@ -46,9 +45,6 @@ public class SGFParser {
 
   public static boolean load(String filename, boolean showHint) throws IOException {
     // Clear the board
-    islzFirst = false;
-    islzFirst2 = true;
-    islzloaded = false;
     isExtraMode2 = false;
     Lizzie.board.isLoadingFile = true;
     Lizzie.board.clear(false);
@@ -199,48 +195,6 @@ public class SGFParser {
     }
   }
 
-  private static void saveLz(String[] liness, String[] line1s) {
-    lines = liness;
-    line1 = line1s;
-    islzloaded = true;
-  }
-
-  private static void saveLz2(String[] liness, String[] line1s) {
-    islz2loaded = true;
-  }
-
-  private static void loadLz() {
-    String line2 = "";
-    if (lines.length > 1) {
-      line2 = lines[1];
-    }
-    //  String versionNumber = line1[0];
-    String engname = line1[0];
-    Lizzie.board.getData().engineName = engname;
-    Lizzie.board.getData().winrate = 100 - Double.parseDouble(line1[1]);
-    int numPlayouts =
-        Integer.parseInt(
-            line1[2].replaceAll("k", "00").replaceAll("m", "00000").replaceAll("[^0-9]", ""));
-    if (line1.length >= 4) {
-      double scoreMean = Double.parseDouble(line1[3]);
-      Lizzie.board.getData().setScoreMean(scoreMean);
-      Lizzie.board.getData().isKataData = true;
-      if (line1.length >= 5) {
-        double scoreStdev = Double.parseDouble(line1[4]);
-        if (scoreStdev > 0) Lizzie.board.getData().scoreStdev = scoreStdev;
-      }
-      if (line1.length >= 6) {
-        double pda = Double.parseDouble(line1[5]);
-        Lizzie.board.getData().pda = pda;
-        // Lizzie.board.getData().isPDA = true;
-      }
-    }
-    if (numPlayouts > 0 && !line2.isEmpty()) {
-      parseInfofromfile(line2, Lizzie.board.getData().scoreStdev);
-    }
-    islzloaded = false;
-  }
-
   public static boolean isSGF(String value) {
     final Pattern SGF_PATTERN = Pattern.compile("(?s).*?(\\(\\s*;{0,1}.*\\))(?s).*?");
     Matcher sgfMatcher = SGF_PATTERN.matcher(value);
@@ -272,23 +226,8 @@ public class SGFParser {
       }
     }
 
-    // Determine the SZ property
-    Pattern szPattern = Pattern.compile("(?s).*?SZ\\[([\\d:]+)\\](?s).*");
-    Matcher szMatcher = szPattern.matcher(value);
-    if (szMatcher.matches()) {
-      String sizeStr = szMatcher.group(1);
-      Pattern sizePattern = Pattern.compile("([\\d]+):([\\d]+)");
-      Matcher sizeMatcher = sizePattern.matcher(sizeStr);
-      if (sizeMatcher.matches()) {
-        Lizzie.board.reopen(
-            Integer.parseInt(sizeMatcher.group(1)), Integer.parseInt(sizeMatcher.group(2)));
-      } else {
-        int boardSize = Integer.parseInt(sizeStr);
-        Lizzie.board.reopen(boardSize, boardSize);
-      }
-    } else {
-      Lizzie.board.reopen(19, 19);
-    }
+    int[] boardSize = parseBoardSize(value);
+    Lizzie.board.reopen(boardSize[0], boardSize[1]);
 
     int subTreeDepth = 0;
     // Save the variation step count
@@ -298,12 +237,17 @@ public class SGFParser {
     // Game properties
     Map<String, String> gameProperties = new HashMap<String, String>();
     Map<String, String> pendingProps = new HashMap<String, String>();
+    PendingSetupMetadata pendingSetupMetadata = new PendingSetupMetadata();
     boolean inTag = false,
         isMultiGo = false,
         escaping = false,
         moveStart = false,
-        startNewBranch = true;
+        currentNodeHasMove = false,
+        addPassForMove = true,
+        currentNodeHasSetupSnapshot = false;
     boolean inProp = false;
+    int topLevelNodeCount = 0;
+    boolean allowRootSetupOnCurrentNode = false;
 
     String tag = "";
     StringBuilder tagBuilder = new StringBuilder();
@@ -334,10 +278,13 @@ public class SGFParser {
       switch (c) {
         case '(':
           if (!inTag) {
+            flushPendingSetupMetadataToCurrentNode(Lizzie.board.getHistory(), pendingSetupMetadata);
             subTreeDepth += 1;
             // Initialize the step count
             subTreeStepMap.put(subTreeDepth, Lizzie.board.getHistory().getCurrentHistoryNode());
-            startNewBranch = true;
+            addPassForMove = true;
+            currentNodeHasSetupSnapshot = false;
+            currentNodeHasMove = false;
             pendingProps = new HashMap<String, String>();
           } else {
             if (i > 0) {
@@ -348,6 +295,7 @@ public class SGFParser {
           break;
         case ')':
           if (!inTag) {
+            flushPendingSetupMetadataToCurrentNode(Lizzie.board.getHistory(), pendingSetupMetadata);
             if (isMultiGo) {
               // Restore to the variation node
               // int varStep = subTreeStepMap.get(subTreeDepth);
@@ -400,7 +348,7 @@ public class SGFParser {
           } else if (tag.equals("B") || tag.equals("W")) {
 
             moveStart = true;
-            startNewBranch = true;
+            addPassForMove = !currentNodeHasSetupSnapshot;
             int[] move = convertSgfPosToCoord(tagContent);
             // Save the step count
             //  subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
@@ -453,240 +401,86 @@ public class SGFParser {
                     true;
               } else Lizzie.board.getHistory().place(move[0], move[1], color, newBranch);
             }
+            currentNodeHasMove = true;
             if (newBranch) {
               processPendingPros(Lizzie.board.getHistory(), pendingProps);
             }
-            if (islzFirst) {
-              if (islzloaded) {
-                loadLz();
-              }
-            }
-            if (islz2First) {
-              if (islz2loaded) {
-                loadLz();
-              }
-            }
           } else if (tag.equals("C")) {
             // Support comment
-            if (!moveStart) {
+            boolean rootSetupContext =
+                isRootSetupContext(
+                    Lizzie.board.getHistory(), moveStart, allowRootSetupOnCurrentNode);
+            if (rootSetupContext) {
               headComment = tagContent;
+            } else if (shouldBufferLeadingSetupMetadata(
+                currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext, tag)) {
+              bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
             } else {
-              Lizzie.board.comment(tagContent);
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(
+                      Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+              target.getData().comment = tagContent;
             }
-          } else if (tag.equals("LZ")) {
-            // Content contains data for Lizzie to read
-            if (islzFirst2) {
-              if (Lizzie.board.getData().moveNumber < 1) {
-                islzFirst = true;
-              }
-              islzFirst2 = false;
+          } else if (isAnalysisTag(tag)) {
+            if (isSecondaryEngineAnalysisTag(tag)) {
+              isExtraMode2 = true;
             }
-            if (islzFirst) {
-              String[] lines = tagContent.split("\n");
-              String[] line1 = lines[0].split(" ");
-              saveLz(lines, line1);
+            boolean rootSetupContext =
+                isRootSetupContext(
+                    Lizzie.board.getHistory(), moveStart, allowRootSetupOnCurrentNode);
+            if (shouldBufferLeadingSetupAnalysis(
+                currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext)) {
+              bufferLeadingSetupAnalysis(pendingSetupMetadata, tag, tagContent);
             } else {
-              String[] lines = tagContent.split("\n");
-              String[] line1 = lines[0].split(" ");
-              String line2 = "";
-              if (lines.length > 1) {
-                line2 = lines[1];
-              }
-              String engineName = line1[0];
-              Lizzie.board.getData().engineName = engineName;
-              try {
-                Lizzie.board.getData().winrate = 100 - Double.parseDouble(line1[1]);
-              } catch (java.lang.NumberFormatException e) {
-                e.printStackTrace();
-              }
-              int numPlayouts = 0;
-              try {
-                numPlayouts =
-                    Integer.parseInt(
-                        line1[2]
-                            .replaceAll("k", "00")
-                            .replaceAll("m", "00000")
-                            .replaceAll("[^0-9]", ""));
-              } catch (Exception e) {
-                e.printStackTrace();
-                Lizzie.board.isLoadingFile = false;
-              }
-              if (line1.length >= 4) {
-                double scoreMean = Double.parseDouble(line1[3]);
-                Lizzie.board.getData().setScoreMean(scoreMean);
-                Lizzie.board.getData().isKataData = true;
-                if (line1.length >= 5) {
-                  double scoreStdev = Double.parseDouble(line1[4]);
-                  if (scoreStdev > 0) Lizzie.board.getData().scoreStdev = scoreStdev;
-                }
-                if (line1.length >= 6) {
-                  double pda = Double.parseDouble(line1[5]);
-                  Lizzie.board.getData().pda = pda;
-                  //  Lizzie.board.getData().isPDA = true;
-                }
-              }
-              if (numPlayouts > 0 && !line2.isEmpty()) {
-                parseInfofromfile(line2, Lizzie.board.getData().scoreStdev);
-              }
-            }
-          } else if (tag.equals("LZ2")) {
-            // Content contains data for Lizzie to read
-            isExtraMode2 = true;
-            if (islz2First2) {
-              if (Lizzie.board.getData().moveNumber < 1) {
-                islz2First = true;
-              }
-              islz2First2 = false;
-            }
-            if (islz2First) {
-              String[] lines = tagContent.split("\n");
-              String[] line1 = lines[0].split(" ");
-              saveLz2(lines, line1);
-            } else {
-              String[] lines = tagContent.split("\n");
-              String[] line1 = lines[0].split(" ");
-              String line2 = "";
-              if (lines.length > 1) {
-                line2 = lines[1];
-              }
-              String engname = line1[0];
-              Lizzie.board.getData().engineName2 = engname;
-              Lizzie.board.getData().winrate2 = 100 - Double.parseDouble(line1[1]);
-              int numPlayouts =
-                  Integer.parseInt(
-                      line1[2]
-                          .replaceAll("k", "00")
-                          .replaceAll("m", "00000")
-                          .replaceAll("[^0-9]", ""));
-              if (line1.length >= 4) {
-                double scoreMean = Double.parseDouble(line1[3]);
-                Lizzie.board.getData().setScoreMean2(scoreMean);
-                Lizzie.board.getData().isKataData2 = true;
-                if (line1.length >= 5) {
-                  double scoreStdev = Double.parseDouble(line1[4]);
-                  if (scoreStdev > 0) Lizzie.board.getData().scoreStdev2 = scoreStdev;
-                }
-                if (line1.length >= 6) {
-                  double pda = Double.parseDouble(line1[5]);
-                  Lizzie.board.getData().pda2 = pda;
-                  //   Lizzie.board.getData().isPDA2 = true;
-                }
-              }
-              if (numPlayouts > 0 && !line2.isEmpty()) {
-                parseInfofromfile2(line2, Lizzie.board.getData().scoreStdev2);
-              }
-            }
-          } else if (tag.equals("LZOP")) {
-            // Content contains data for Lizzie to read
-            if (!Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent()) {
-              String[] lines = tagContent.split("\n");
-              String[] line1 = lines[0].split(" ");
-              String line2 = "";
-              if (lines.length > 1) {
-                line2 = lines[1];
-              }
-              String engineName = line1[0];
-              Lizzie.board.getData().engineName = engineName;
-              Lizzie.board.getData().winrate = 100 - Double.parseDouble(line1[1]);
-              int numPlayouts = 0;
-              try {
-                numPlayouts =
-                    Integer.parseInt(
-                        line1[2]
-                            .replaceAll("k", "00")
-                            .replaceAll("m", "00000")
-                            .replaceAll("[^0-9]", ""));
-              } catch (Exception e) {
-                e.printStackTrace();
-                Lizzie.board.isLoadingFile = false;
-              }
-              if (line1.length >= 4) {
-                double scoreMean = Double.parseDouble(line1[3]);
-                Lizzie.board.getData().setScoreMean(scoreMean);
-                Lizzie.board.getData().isKataData = true;
-                if (line1.length >= 5) {
-                  double scoreStdev = Double.parseDouble(line1[4]);
-                  if (scoreStdev > 0) Lizzie.board.getData().scoreStdev = scoreStdev;
-                }
-                if (line1.length >= 6) {
-                  double pda = Double.parseDouble(line1[5]);
-                  Lizzie.board.getData().pda = pda;
-                  //  Lizzie.board.getData().isPDA = true;
-                }
-              }
-              if (numPlayouts > 0 && !line2.isEmpty()) {
-                parseInfofromfile(line2, Lizzie.board.getData().scoreStdev);
-              }
-            }
-          } else if (tag.equals("LZOP2")) {
-            // Content contains data for Lizzie to read
-            if (!Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent()) {
-              {
-                String[] lines = tagContent.split("\n");
-                String[] line1 = lines[0].split(" ");
-                String line2 = "";
-                if (lines.length > 1) {
-                  line2 = lines[1];
-                }
-                String engname = line1[0];
-                Lizzie.board.getData().engineName2 = engname;
-                Lizzie.board.getData().winrate2 = 100 - Double.parseDouble(line1[1]);
-                int numPlayouts =
-                    Integer.parseInt(
-                        line1[2]
-                            .replaceAll("k", "00")
-                            .replaceAll("m", "00000")
-                            .replaceAll("[^0-9]", ""));
-                if (line1.length >= 4) {
-                  double scoreMean = Double.parseDouble(line1[3]);
-                  Lizzie.board.getData().setScoreMean2(scoreMean);
-                  Lizzie.board.getData().isKataData2 = true;
-                  if (line1.length >= 5) {
-                    double scoreStdev = Double.parseDouble(line1[4]);
-                    if (scoreStdev > 0) Lizzie.board.getData().scoreStdev2 = scoreStdev;
-                  }
-                  if (line1.length >= 6) {
-                    double pda = Double.parseDouble(line1[5]);
-                    Lizzie.board.getData().pda2 = pda;
-                    //   Lizzie.board.getData().isPDA2 = true;
-                  }
-                }
-                if (numPlayouts > 0 && !line2.isEmpty()) {
-                  parseInfofromfile2(line2, Lizzie.board.getData().scoreStdev2);
-                }
-              }
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(
+                      Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+              applyAnalysisTagOnDetachedHistory(target.getData(), tag, tagContent);
             }
           } else if (tag.equals("AB") || tag.equals("AW")) {
             int[] move = convertSgfPosToCoord(tagContent);
             Stone color = tag.equals("AB") ? Stone.BLACK : Stone.WHITE;
-            if (moveStart) {
-              Lizzie.board.addNodeProperty(tag, tagContent);
-              if (startNewBranch) {
-                //   subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
-                boolean newBranch = true;
-                Lizzie.board
-                    .getHistory()
-                    .pass(Lizzie.board.getHistory().getLastMoveColor(), newBranch, false);
-                if (newBranch) {
-                  processPendingPros(Lizzie.board.getHistory(), pendingProps);
-                }
-                startNewBranch = false;
-              }
-              Lizzie.board.addNodeProperty(tag, tagContent);
-              if (move != null) {
-                Lizzie.board.getHistory().addExtraStone(move[0], move[1], color);
-              }
+            if (isRootSetupContext(
+                Lizzie.board.getHistory(), moveStart, allowRootSetupOnCurrentNode)) {
+              applyRootSetupProperty(Lizzie.board.getHistory(), tag, tagContent, move, color);
             } else {
-              if (move == null) {
-                Lizzie.board.getHistory().pass(color);
-              } else {
-                Lizzie.board.getHistory().place(move[0], move[1], color);
+              if (addPassForMove) {
+                boolean newBranch =
+                    Lizzie.board.getHistory().getCurrentHistoryNode().hasVariations();
+                appendSetupSnapshot(
+                    Lizzie.board.getHistory(), newBranch, pendingProps, currentNodeHasMove);
+                addPassForMove = false;
+                currentNodeHasSetupSnapshot = true;
               }
-              if (!moveStart) {
-                Lizzie.board.hasStartStone = true;
-                Lizzie.board.addStartList();
-                Lizzie.board.getHistory().flatten();
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(
+                      Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+              movePendingSetupMetadataToTarget(
+                  Lizzie.board.getHistory(), target, pendingSetupMetadata);
+              addNodePropertyOnNode(Lizzie.board.getHistory(), target, tag, tagContent);
+              if (move != null) {
+                addExtraStoneOnNode(Lizzie.board.getHistory(), target, move[0], move[1], color);
               }
+            }
+          } else if (tag.equals("PL")) {
+            if (isRootSetupContext(
+                Lizzie.board.getHistory(), moveStart, allowRootSetupOnCurrentNode)) {
+              applyRootPlayerProperty(Lizzie.board.getHistory(), tagContent);
+            } else {
+              if (addPassForMove) {
+                boolean newBranch =
+                    Lizzie.board.getHistory().getCurrentHistoryNode().hasVariations();
+                appendSetupSnapshot(
+                    Lizzie.board.getHistory(), newBranch, pendingProps, currentNodeHasMove);
+                addPassForMove = false;
+                currentNodeHasSetupSnapshot = true;
+              }
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(
+                      Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+              movePendingSetupMetadataToTarget(
+                  Lizzie.board.getHistory(), target, pendingSetupMetadata);
+              applyCurrentPlayerPropertyOnNode(Lizzie.board.getHistory(), target, tagContent);
             }
           } else if (tag.equals("PB")) {
             blackPlayer = tagContent;
@@ -744,28 +538,33 @@ public class SGFParser {
               // Other SGF node properties
               if ("AE".equals(tag)) {
                 // remove a stone
-                if (startNewBranch) {
-                  // Save the step count
-                  //    subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
-                  Stone color =
-                      Lizzie.board.getHistory().getLastMoveColor() == Stone.WHITE
-                          ? Stone.BLACK
-                          : Stone.WHITE;
+                if (addPassForMove) {
                   boolean newBranch =
                       Lizzie.board.getHistory().getCurrentHistoryNode().hasVariations();
-                  //  Lizzie.board.pass(color, newBranch, true);
-                  Lizzie.board.getHistory().pass(color, newBranch, false);
-                  if (newBranch) {
-                    processPendingPros(Lizzie.board.getHistory(), pendingProps);
-                  }
-                  startNewBranch = false;
+                  appendSetupSnapshot(
+                      Lizzie.board.getHistory(), newBranch, pendingProps, currentNodeHasMove);
+                  addPassForMove = false;
+                  currentNodeHasSetupSnapshot = true;
                 }
-                Lizzie.board.addNodeProperty(tag, tagContent);
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(
+                        Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+                movePendingSetupMetadataToTarget(
+                    Lizzie.board.getHistory(), target, pendingSetupMetadata);
+                addNodePropertyOnNode(Lizzie.board.getHistory(), target, tag, tagContent);
                 int[] move = convertSgfPosToCoord(tagContent);
                 if (move != null) {
-                  Lizzie.board.removeStone(
-                      move[0], move[1], tag.equals("AB") ? Stone.BLACK : Stone.WHITE);
+                  removeStoneOnNode(
+                      Lizzie.board.getHistory(), target, move[0], move[1], Stone.EMPTY);
                 }
+              } else if (currentNodeHasSetupSnapshot) {
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(
+                        Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+                addNodePropertyOnNode(Lizzie.board.getHistory(), target, tag, tagContent);
+              } else if (shouldBufferLeadingSetupMetadata(
+                  currentNodeHasMove, currentNodeHasSetupSnapshot, false, tag)) {
+                bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
               } else if (!"FIT".equals(tag)) {
                 boolean firstProp =
                     Lizzie.board.getHistory().getCurrentHistoryNode().hasVariations();
@@ -773,12 +572,53 @@ public class SGFParser {
                 if (firstProp) {
                   addProperty(pendingProps, tag, tagContent);
                 } else {
-                  Lizzie.board.addNodeProperty(tag, tagContent);
+                  addNodePropertyOnNode(
+                      Lizzie.board.getHistory(),
+                      Lizzie.board.getHistory().getCurrentHistoryNode(),
+                      tag,
+                      tagContent);
                 }
               }
             } else {
-              if ("N".equals(tag) && headComment.isEmpty()) headComment = tagContent;
-              else addProperty(gameProperties, tag, tagContent);
+              boolean rootSetupContext =
+                  isRootSetupContext(
+                      Lizzie.board.getHistory(), moveStart, allowRootSetupOnCurrentNode);
+              if ("AE".equals(tag) && rootSetupContext) {
+                int[] move = convertSgfPosToCoord(tagContent);
+                applyRootSetupProperty(
+                    Lizzie.board.getHistory(), tag, tagContent, move, Stone.EMPTY);
+              } else if (rootSetupContext) {
+                if ("N".equals(tag) && headComment.isEmpty()) headComment = tagContent;
+                else addProperty(gameProperties, tag, tagContent);
+              } else if ("AE".equals(tag)) {
+                if (addPassForMove) {
+                  boolean newBranch =
+                      Lizzie.board.getHistory().getCurrentHistoryNode().hasVariations();
+                  appendSetupSnapshot(
+                      Lizzie.board.getHistory(), newBranch, pendingProps, currentNodeHasMove);
+                  addPassForMove = false;
+                  currentNodeHasSetupSnapshot = true;
+                }
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(
+                        Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+                movePendingSetupMetadataToTarget(
+                    Lizzie.board.getHistory(), target, pendingSetupMetadata);
+                addNodePropertyOnNode(Lizzie.board.getHistory(), target, tag, tagContent);
+                int[] move = convertSgfPosToCoord(tagContent);
+                if (move != null) {
+                  removeStoneOnNode(
+                      Lizzie.board.getHistory(), target, move[0], move[1], Stone.EMPTY);
+                }
+              } else if (shouldBufferLeadingSetupMetadata(
+                  currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext, tag)) {
+                bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
+              } else {
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(
+                        Lizzie.board.getHistory(), currentNodeHasSetupSnapshot);
+                addNodePropertyOnNode(Lizzie.board.getHistory(), target, tag, tagContent);
+              }
             }
           }
           break;
@@ -786,6 +626,13 @@ public class SGFParser {
           if (inProp) {
             // support C[a;b;c;]
             tagContentBuilder.append(c);
+          } else if (!(subTreeDepth > 1 && !isMultiGo)) {
+            flushPendingSetupMetadataToCurrentNode(Lizzie.board.getHistory(), pendingSetupMetadata);
+            topLevelNodeCount += 1;
+            allowRootSetupOnCurrentNode = topLevelNodeCount == 1;
+            addPassForMove = true;
+            currentNodeHasSetupSnapshot = false;
+            currentNodeHasMove = false;
           }
           break;
         default:
@@ -806,6 +653,7 @@ public class SGFParser {
           }
       }
     }
+    flushPendingSetupMetadataToCurrentNode(Lizzie.board.getHistory(), pendingSetupMetadata);
     if (Lizzie.config.readKomi) {
       //      if (!hasHandicap && komi == 0) {
       //        if (isChineseRule) komi = 7.5;
@@ -840,6 +688,7 @@ public class SGFParser {
     if (gameProperties.size() > 0) {
       Lizzie.board.addNodeProperties(gameProperties);
     }
+    stabilizeRootSetupSideToPlay(Lizzie.board.getHistory());
     Lizzie.config.playSound = oriPlaySound;
     return true;
   }
@@ -896,18 +745,20 @@ public class SGFParser {
     long blackPlayouts = 0;
     long whitePlayouts = 0;
     while (node.next().isPresent()) {
-      if (node.getData().lastMove.isPresent() && node.getData().lastMoveColor.equals(Stone.WHITE)) {
+      if (node.getData().isHistoryActionNode()
+          && node.getData().lastMoveColor.equals(Stone.WHITE)) {
         blackPlayouts += node.getData().getPlayouts();
       }
-      if (node.getData().lastMove.isPresent() && node.getData().lastMoveColor.equals(Stone.BLACK)) {
+      if (node.getData().isHistoryActionNode()
+          && node.getData().lastMoveColor.equals(Stone.BLACK)) {
         whitePlayouts += node.getData().getPlayouts();
       }
       node = node.next().get();
     }
-    if (node.getData().lastMove.isPresent() && node.getData().lastMoveColor.equals(Stone.WHITE)) {
+    if (node.getData().isHistoryActionNode() && node.getData().lastMoveColor.equals(Stone.WHITE)) {
       blackPlayouts += node.getData().getPlayouts();
     }
-    if (node.getData().lastMove.isPresent() && node.getData().lastMoveColor.equals(Stone.BLACK)) {
+    if (node.getData().isHistoryActionNode() && node.getData().lastMoveColor.equals(Stone.BLACK)) {
       whitePlayouts += node.getData().getPlayouts();
     }
     node = Lizzie.board.getHistory().getStart();
@@ -1042,116 +893,49 @@ public class SGFParser {
       boolean mainTrunkOnly,
       boolean stripRootMetadata)
       throws IOException {
-    // collect game info
-
     BoardHistoryList history = board.getHistory().shallowCopy();
-    GameInfo gameInfo = history.getGameInfo();
-    String playerB = gameInfo.getPlayerBlack();
-    String playerW = gameInfo.getPlayerWhite();
-    String result = gameInfo.getResult();
-    Double komi = gameInfo.getKomi();
-    Integer handicap = gameInfo.getHandicap();
-    String date = SGF_DATE_FORMAT.format(gameInfo.getDate());
+    int[] historyBoardSize = resolveHistoryBoardSize(history);
+    int historyBoardWidth = historyBoardSize[0];
+    int historyBoardHeight = historyBoardSize[1];
+    String boardSizeTag = formatBoardSizeTag(historyBoardWidth, historyBoardHeight);
+    ParseBoardContext boardContext = captureParseBoardContext();
+    boolean switchedBoardContext =
+        boardContext.boardWidth != historyBoardWidth
+            || boardContext.boardHeight != historyBoardHeight;
+    try {
+      if (switchedBoardContext) {
+        applyParseBoardContext(historyBoardWidth, historyBoardHeight);
+      }
 
-    // add SGF header
-    StringBuilder builder = new StringBuilder("(;");
-    StringBuilder generalProps = new StringBuilder("");
-    if (handicap != 0) generalProps.append(String.format(Locale.ENGLISH, "HA[%s]", handicap));
-    if (LizzieFrame.isSavingRaw) {
-      generalProps.append(
-          String.format(
-              "KM[%s]PW[%s]PB[%s]DT[%s]RE[%s]SZ[%s]CA[UTF-8]",
-              komi,
-              playerW,
-              playerB,
-              date,
-              result,
-              Board.boardWidth
-                  + (Board.boardWidth != Board.boardHeight ? ":" + Board.boardHeight : "")));
-    } else {
-      if (EngineManager.isEngineGame || EngineManager.isSaveingEngineSGF) {
-        Lizzie.board.updateWinrate();
-        SGFParser.appendTime();
-        if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-            .isKatago) {
-          String rules = "";
-          boolean usingSpecificRues = false;
-          switch (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-              .usingSpecificRules) {
-            case 1:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
-              usingSpecificRues = true;
-              break;
-            case 2:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
-              usingSpecificRues = true;
-              break;
-            case 3:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
-              usingSpecificRues = true;
-              break;
-            case 4:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
-              usingSpecificRues = true;
-              break;
-            case 5:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
-              usingSpecificRues = true;
-              break;
-          }
+      // collect game info
+      GameInfo gameInfo = history.getGameInfo();
+      String playerB = gameInfo.getPlayerBlack();
+      String playerW = gameInfo.getPlayerWhite();
+      String result = gameInfo.getResult();
+      Double komi = gameInfo.getKomi();
+      Integer handicap = gameInfo.getHandicap();
+      String date = SGF_DATE_FORMAT.format(gameInfo.getDate());
 
-          if (usingSpecificRues) {
-            if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
-              Lizzie.board.getHistory().getStart().getData().comment +=
-                  Lizzie.resourceBundle.getString("SGFParse.blackRules") + rules;
-            else
-              Lizzie.board.getHistory().getStart().getData().comment +=
-                  "\n" + Lizzie.resourceBundle.getString("SGFParse.blackRules") + rules;
-          }
-        }
-        if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-            .isKatago) {
-          String rules = "";
-          boolean usingSpecificRues = false;
-          switch (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-              .usingSpecificRules) {
-            case 1:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
-              usingSpecificRues = true;
-              break;
-            case 2:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
-              usingSpecificRues = true;
-              break;
-            case 3:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
-              usingSpecificRues = true;
-              break;
-            case 4:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
-              usingSpecificRues = true;
-              break;
-            case 5:
-              rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
-              usingSpecificRues = true;
-              break;
-          }
-
-          if (usingSpecificRues) {
-            if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
-              Lizzie.board.getHistory().getStart().getData().comment +=
-                  Lizzie.resourceBundle.getString("SGFParse.whiteRules") + rules;
-            else
-              Lizzie.board.getHistory().getStart().getData().comment +=
-                  "\n" + Lizzie.resourceBundle.getString("SGFParse.whiteRules") + rules;
-          }
-        }
+      // add SGF header
+      StringBuilder builder = new StringBuilder("(;");
+      StringBuilder generalProps = new StringBuilder("");
+      if (handicap != 0) generalProps.append(String.format(Locale.ENGLISH, "HA[%s]", handicap));
+      if (LizzieFrame.isSavingRaw) {
+        generalProps.append(
+            String.format(
+                "KM[%s]PW[%s]PB[%s]DT[%s]RE[%s]SZ[%s]CA[UTF-8]",
+                komi, playerW, playerB, date, result, boardSizeTag));
       } else {
-        if (Lizzie.leelaz.isKatago && !fromAutoSave) {
-          String rules = "";
-          boolean usingSpecificRues = false;
-          if (Lizzie.leelaz.isKatago) {
-            switch (Lizzie.leelaz.usingSpecificRules) {
+        if (EngineManager.isEngineGame || EngineManager.isSaveingEngineSGF) {
+          Lizzie.board.updateWinrate();
+          SGFParser.appendTime();
+          if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
+              .isKatago) {
+            String rules = "";
+            boolean usingSpecificRues = false;
+            switch (Lizzie.engineManager.engineList.get(
+                    EngineManager.engineGameInfo.blackEngineIndex)
+                .usingSpecificRules) {
               case 1:
                 rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
                 usingSpecificRues = true;
@@ -1173,223 +957,278 @@ public class SGFParser {
                 usingSpecificRues = true;
                 break;
             }
+
+            if (usingSpecificRues) {
+              if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
+                Lizzie.board.getHistory().getStart().getData().comment +=
+                    Lizzie.resourceBundle.getString("SGFParse.blackRules") + rules;
+              else
+                Lizzie.board.getHistory().getStart().getData().comment +=
+                    "\n" + Lizzie.resourceBundle.getString("SGFParse.blackRules") + rules;
+            }
           }
-          if (usingSpecificRues) {
-            if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
-              Lizzie.board.getHistory().getStart().getData().comment +=
-                  Lizzie.resourceBundle.getString("SGFParse.rules") + rules;
-            else if (!Lizzie.board
-                .getHistory()
-                .getStart()
-                .getData()
-                .comment
-                .contains(Lizzie.resourceBundle.getString("SGFParse.rules")))
-              Lizzie.board.getHistory().getStart().getData().comment =
-                  Lizzie.resourceBundle.getString("SGFParse.rules")
-                      + rules
-                      + "\n\n"
-                      + Lizzie.board.getHistory().getStart().getData().comment;
-            else {
-              String oldComment = Lizzie.board.getHistory().getStart().getData().comment;
-              int leftIndex =
-                  oldComment.indexOf(
-                      "\n", oldComment.indexOf(Lizzie.resourceBundle.getString("SGFParse.rules")));
-              Lizzie.board.getHistory().getStart().getData().comment =
-                  oldComment.substring(
-                          0, oldComment.indexOf(Lizzie.resourceBundle.getString("SGFParse.rules")))
-                      + Lizzie.resourceBundle.getString("SGFParse.rules")
-                      + rules
-                      + (leftIndex > 0 ? oldComment.substring(leftIndex) : "");
+          if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
+              .isKatago) {
+            String rules = "";
+            boolean usingSpecificRues = false;
+            switch (Lizzie.engineManager.engineList.get(
+                    EngineManager.engineGameInfo.whiteEngineIndex)
+                .usingSpecificRules) {
+              case 1:
+                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
+                usingSpecificRues = true;
+                break;
+              case 2:
+                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
+                usingSpecificRues = true;
+                break;
+              case 3:
+                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
+                usingSpecificRues = true;
+                break;
+              case 4:
+                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
+                usingSpecificRues = true;
+                break;
+              case 5:
+                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
+                usingSpecificRues = true;
+                break;
+            }
+
+            if (usingSpecificRues) {
+              if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
+                Lizzie.board.getHistory().getStart().getData().comment +=
+                    Lizzie.resourceBundle.getString("SGFParse.whiteRules") + rules;
+              else
+                Lizzie.board.getHistory().getStart().getData().comment +=
+                    "\n" + Lizzie.resourceBundle.getString("SGFParse.whiteRules") + rules;
+            }
+          }
+        } else {
+          if (Lizzie.leelaz.isKatago && !fromAutoSave) {
+            String rules = "";
+            boolean usingSpecificRues = false;
+            if (Lizzie.leelaz.isKatago) {
+              switch (Lizzie.leelaz.usingSpecificRules) {
+                case 1:
+                  rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
+                  usingSpecificRues = true;
+                  break;
+                case 2:
+                  rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
+                  usingSpecificRues = true;
+                  break;
+                case 3:
+                  rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
+                  usingSpecificRues = true;
+                  break;
+                case 4:
+                  rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
+                  usingSpecificRues = true;
+                  break;
+                case 5:
+                  rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
+                  usingSpecificRues = true;
+                  break;
+              }
+            }
+            if (usingSpecificRues) {
+              if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
+                Lizzie.board.getHistory().getStart().getData().comment +=
+                    Lizzie.resourceBundle.getString("SGFParse.rules") + rules;
+              else if (!Lizzie.board
+                  .getHistory()
+                  .getStart()
+                  .getData()
+                  .comment
+                  .contains(Lizzie.resourceBundle.getString("SGFParse.rules")))
+                Lizzie.board.getHistory().getStart().getData().comment =
+                    Lizzie.resourceBundle.getString("SGFParse.rules")
+                        + rules
+                        + "\n\n"
+                        + Lizzie.board.getHistory().getStart().getData().comment;
+              else {
+                String oldComment = Lizzie.board.getHistory().getStart().getData().comment;
+                int leftIndex =
+                    oldComment.indexOf(
+                        "\n",
+                        oldComment.indexOf(Lizzie.resourceBundle.getString("SGFParse.rules")));
+                Lizzie.board.getHistory().getStart().getData().comment =
+                    oldComment.substring(
+                            0,
+                            oldComment.indexOf(Lizzie.resourceBundle.getString("SGFParse.rules")))
+                        + Lizzie.resourceBundle.getString("SGFParse.rules")
+                        + rules
+                        + (leftIndex > 0 ? oldComment.substring(leftIndex) : "");
+              }
+            }
+          }
+        }
+
+        if (EngineManager.isEngineGame || Lizzie.board.isPkBoard) {
+          if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
+                  .isKatago
+              || Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
+                  .isSai
+              || Lizzie.board.isPkBoardKataW)
+            generalProps.append(
+                String.format(
+                    "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KW]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
+                    komi, playerW, playerB, date, Lizzie.lizzieVersion, result, boardSizeTag));
+          else if (Lizzie.engineManager.engineList.get(
+                      EngineManager.engineGameInfo.blackEngineIndex)
+                  .isKatago
+              || Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
+                  .isSai
+              || Lizzie.board.isPkBoardKataB)
+            generalProps.append(
+                String.format(
+                    "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KB]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
+                    komi, playerW, playerB, date, Lizzie.lizzieVersion, result, boardSizeTag));
+          else
+            generalProps.append(
+                String.format(
+                    "KM[%s]PW[%s]PB[%s]DT[%s]DZ[Y]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
+                    komi, playerW, playerB, date, Lizzie.lizzieVersion, result, boardSizeTag));
+        } else {
+          if (Lizzie.leelaz.isKatago || Lizzie.board.isKataBoard)
+            generalProps.append(
+                String.format(
+                    "KM[%s]PW[%s]PB[%s]DT[%s]DZ[G]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
+                    komi, playerW, playerB, date, Lizzie.lizzieVersion, result, boardSizeTag));
+          else
+            generalProps.append(
+                String.format(
+                    "KM[%s]PW[%s]PB[%s]DT[%s]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
+                    komi, playerW, playerB, date, Lizzie.lizzieVersion, result, boardSizeTag));
+        }
+      }
+      // To append the winrate to the comment of sgf we might need to update the
+      // Winrate
+      // if (Lizzie.config.appendWinrateToComment) {
+      // Lizzie.board.updateWinrate();
+      // }
+
+      // move to the first move
+      history.toStart();
+
+      // Game properties
+      BoardData rootData = history.getData();
+      rootData.addProperties(generalProps.toString());
+      if (rootData.isSnapshotNode()) {
+        builder.append(materializedRootSnapshotProperties(rootData, history.getStones()));
+      } else {
+        builder.append(rootData.propertiesString());
+        if (handicap != 0) {
+          builder.append("AB");
+          Stone[] stones = history.getStones();
+          for (int i = 0; i < stones.length; i++) {
+            Stone stone = stones[i];
+            if (stone.isBlack()) {
+              // i = x * Board.BOARD_SIZE + y;
+              builder.append(String.format(Locale.ENGLISH, "[%s]", asCoord(i)));
+            }
+          }
+        } else {
+          // Process the AW/AB stone
+          Stone[] stones = history.getStones();
+          StringBuilder abStone = new StringBuilder();
+          StringBuilder awStone = new StringBuilder();
+          for (int i = 0; i < stones.length; i++) {
+            Stone stone = stones[i];
+            if (stone.isBlack() || stone.isWhite()) {
+              if (stone.isBlack()) {
+                abStone.append(String.format(Locale.ENGLISH, "[%s]", asCoord(i)));
+              } else {
+                awStone.append(String.format(Locale.ENGLISH, "[%s]", asCoord(i)));
+              }
+            }
+          }
+          if (abStone.length() > 0) {
+            builder.append("AB").append(abStone);
+          }
+          if (awStone.length() > 0) {
+            builder.append("AW").append(awStone);
+          }
+        }
+      }
+
+      // The AW/AB Comment
+      if (!stripRootMetadata && !history.getData().comment.isEmpty()) {
+        String coment = history.getData().comment;
+        if (forUpload) {
+          coment =
+              removeWinrateComment(
+                  history.getData().isKataData, history.getData().isSaiData, coment);
+        }
+        builder.append(String.format(Locale.ENGLISH, "C[%s]", Escaping(coment)));
+      }
+      BoardHistoryNode curNode = history.getCurrentHistoryNode();
+      if (!stripRootMetadata) {
+        try {
+          if (hasPrimaryAnalysisPayload(curNode.getData()))
+            builder.append(String.format(Locale.ENGLISH, "LZOP[%s]", formatNodeData(curNode)));
+          if (hasSecondaryAnalysisPayload(curNode.getData()))
+            builder.append(String.format(Locale.ENGLISH, "LZOP2[%s]", formatNodeData2(curNode)));
+          if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
+            BoardData data = curNode.getData();
+            if (Lizzie.board.isGameBoard) {
+              if (data.getPlayouts() > 0 && curNode.next().isPresent())
+                curNode.next().get().getData().comment = formatCommentForGame(curNode);
+              else if (curNode.next().isPresent()) curNode.next().get().getData().comment = "";
+            }
+          }
+        } catch (Exception e) {
+          Lizzie.board.isLoadingFile = false;
+        }
+      }
+      // replay moves, and convert them to tags.
+      // * format: ";B[xy]" or ";W[xy]"
+      // * with 'xy' = coordinates ; or 'tt' for pass.
+
+      // Write variation tree
+      BoardHistoryNode makerBeg = new BoardHistoryNode(null);
+      BoardHistoryNode makerEnd = new BoardHistoryNode(null);
+      BoardHistoryNode rootNode = history.getStart();
+      Stack<BoardHistoryNode> stack = new Stack<>();
+      stack.push(curNode);
+      while (!stack.isEmpty()) {
+        BoardHistoryNode cur = stack.pop();
+        if (cur == makerBeg) {
+          builder.append("(");
+          continue;
+        }
+        if (cur == makerEnd) {
+          builder.append(")");
+          continue;
+        }
+        if (cur != rootNode) {
+          builder = generateNode(board, cur, forUpload, builder);
+        }
+        if (mainTrunkOnly) {
+          if (cur.next().isPresent()) {
+            stack.push(cur.next().get());
+          }
+        } else {
+          boolean hasBrothers = (cur.numberOfChildren() > 1);
+          if (cur.numberOfChildren() >= 1) {
+            for (int i = cur.numberOfChildren() - 1; i >= 0; i--) {
+              if (hasBrothers) stack.push(makerEnd);
+              stack.push(cur.getVariations().get(i));
+              if (hasBrothers) stack.push(makerBeg);
             }
           }
         }
       }
-
-      if (EngineManager.isEngineGame || Lizzie.board.isPkBoard) {
-        if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                .isKatago
-            || Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                .isSai
-            || Lizzie.board.isPkBoardKataW)
-          generalProps.append(
-              String.format(
-                  "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KW]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
-                  komi,
-                  playerW,
-                  playerB,
-                  date,
-                  Lizzie.lizzieVersion,
-                  result,
-                  Board.boardWidth
-                      + (Board.boardWidth != Board.boardHeight ? ":" + Board.boardHeight : "")));
-        else if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                .isKatago
-            || Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                .isSai
-            || Lizzie.board.isPkBoardKataB)
-          generalProps.append(
-              String.format(
-                  "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KB]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
-                  komi,
-                  playerW,
-                  playerB,
-                  date,
-                  Lizzie.lizzieVersion,
-                  result,
-                  Board.boardWidth
-                      + (Board.boardWidth != Board.boardHeight ? ":" + Board.boardHeight : "")));
-        else
-          generalProps.append(
-              String.format(
-                  "KM[%s]PW[%s]PB[%s]DT[%s]DZ[Y]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
-                  komi,
-                  playerW,
-                  playerB,
-                  date,
-                  Lizzie.lizzieVersion,
-                  result,
-                  Board.boardWidth
-                      + (Board.boardWidth != Board.boardHeight ? ":" + Board.boardHeight : "")));
-      } else {
-        if (Lizzie.leelaz.isKatago || Lizzie.board.isKataBoard)
-          generalProps.append(
-              String.format(
-                  "KM[%s]PW[%s]PB[%s]DT[%s]DZ[G]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
-                  komi,
-                  playerW,
-                  playerB,
-                  date,
-                  Lizzie.lizzieVersion,
-                  result,
-                  Board.boardWidth
-                      + (Board.boardWidth != Board.boardHeight ? ":" + Board.boardHeight : "")));
-        else
-          generalProps.append(
-              String.format(
-                  "KM[%s]PW[%s]PB[%s]DT[%s]AP[Lizzie: %s]RE[%s]SZ[%s]CA[UTF-8]",
-                  komi,
-                  playerW,
-                  playerB,
-                  date,
-                  Lizzie.lizzieVersion,
-                  result,
-                  Board.boardWidth
-                      + (Board.boardWidth != Board.boardHeight ? ":" + Board.boardHeight : "")));
+      // close file
+      builder.append(')');
+      writer.append(builder.toString());
+    } finally {
+      if (switchedBoardContext) {
+        restoreParseBoardContext(boardContext);
       }
     }
-    // To append the winrate to the comment of sgf we might need to update the
-    // Winrate
-    // if (Lizzie.config.appendWinrateToComment) {
-    // Lizzie.board.updateWinrate();
-    // }
-
-    // move to the first move
-    history.toStart();
-
-    // Game properties
-    history.getData().addProperties(generalProps.toString());
-    builder.append(history.getData().propertiesString());
-
-    // add handicap stones to SGF
-    if (handicap != 0) {
-      builder.append("AB");
-      Stone[] stones = history.getStones();
-      for (int i = 0; i < stones.length; i++) {
-        Stone stone = stones[i];
-        if (stone.isBlack()) {
-          // i = x * Board.BOARD_SIZE + y;
-          builder.append(String.format(Locale.ENGLISH, "[%s]", asCoord(i)));
-        }
-      }
-    } else {
-      // Process the AW/AB stone
-      Stone[] stones = history.getStones();
-      StringBuilder abStone = new StringBuilder();
-      StringBuilder awStone = new StringBuilder();
-      for (int i = 0; i < stones.length; i++) {
-        Stone stone = stones[i];
-        if (stone.isBlack() || stone.isWhite()) {
-          if (stone.isBlack()) {
-            abStone.append(String.format(Locale.ENGLISH, "[%s]", asCoord(i)));
-          } else {
-            awStone.append(String.format(Locale.ENGLISH, "[%s]", asCoord(i)));
-          }
-        }
-      }
-      if (abStone.length() > 0) {
-        builder.append("AB").append(abStone);
-      }
-      if (awStone.length() > 0) {
-        builder.append("AW").append(awStone);
-      }
-    }
-
-    // The AW/AB Comment
-    if (!stripRootMetadata && !history.getData().comment.isEmpty()) {
-      String coment = history.getData().comment;
-      if (forUpload) {
-        coment =
-            removeWinrateComment(history.getData().isKataData, history.getData().isSaiData, coment);
-      }
-      builder.append(String.format(Locale.ENGLISH, "C[%s]", Escaping(coment)));
-    }
-    BoardHistoryNode curNode = history.getCurrentHistoryNode();
-    if (!stripRootMetadata) {
-      try {
-        if (curNode.getData().getPlayouts() > 0)
-          builder.append(String.format(Locale.ENGLISH, "LZOP[%s]", formatNodeData(curNode)));
-        if (Lizzie.config.isDoubleEngineMode() && curNode.getData().getPlayouts2() > 0)
-          builder.append(String.format(Locale.ENGLISH, "LZOP2[%s]", formatNodeData2(curNode)));
-        if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
-          BoardData data = curNode.getData();
-          if (Lizzie.board.isGameBoard) {
-            if (data.getPlayouts() > 0 && curNode.next().isPresent())
-              curNode.next().get().getData().comment = formatCommentForGame(curNode);
-            else if (curNode.next().isPresent()) curNode.next().get().getData().comment = "";
-          }
-        }
-      } catch (Exception e) {
-        Lizzie.board.isLoadingFile = false;
-      }
-    }
-    // replay moves, and convert them to tags.
-    // * format: ";B[xy]" or ";W[xy]"
-    // * with 'xy' = coordinates ; or 'tt' for pass.
-
-    // Write variation tree
-    BoardHistoryNode makerBeg = new BoardHistoryNode(null);
-    BoardHistoryNode makerEnd = new BoardHistoryNode(null);
-    Stack<BoardHistoryNode> stack = new Stack<>();
-    stack.push(curNode);
-    while (!stack.isEmpty()) {
-      BoardHistoryNode cur = stack.pop();
-      if (cur == makerBeg) {
-        builder.append("(");
-        continue;
-      }
-      if (cur == makerEnd) {
-        builder.append(")");
-        continue;
-      }
-      builder = generateNode(board, cur, forUpload, builder);
-      if (mainTrunkOnly) {
-        if (cur.next().isPresent()) {
-          stack.push(cur.next().get());
-        }
-      } else {
-        boolean hasBrothers = (cur.numberOfChildren() > 1);
-        if (cur.numberOfChildren() >= 1) {
-          for (int i = cur.numberOfChildren() - 1; i >= 0; i--) {
-            if (hasBrothers) stack.push(makerEnd);
-            stack.push(cur.getVariations().get(i));
-            if (hasBrothers) stack.push(makerBeg);
-          }
-        }
-      }
-    }
-    // close file
-    builder.append(')');
-    writer.append(builder.toString());
   }
 
   /** Generate node with variations */
@@ -1464,113 +1303,377 @@ public class SGFParser {
   private static StringBuilder generateNode(
       Board board, BoardHistoryNode node, boolean forUpload, StringBuilder builder)
       throws IOException {
-    if (node != null) {
-      BoardData data = node.getData();
-      String stone = "";
-      if (Stone.BLACK.equals(data.lastMoveColor) || Stone.WHITE.equals(data.lastMoveColor)) {
+    int[] nodeBoardSize = resolveNodeBoardSize(node);
+    ParseBoardContext boardContext = captureParseBoardContext();
+    boolean switchedBoardContext =
+        boardContext.boardWidth != nodeBoardSize[0] || boardContext.boardHeight != nodeBoardSize[1];
+    try {
+      if (switchedBoardContext) {
+        applyParseBoardContext(nodeBoardSize[0], nodeBoardSize[1]);
+      }
+      return generateNodeWithBoardContext(board, node, forUpload, builder);
+    } finally {
+      if (switchedBoardContext) {
+        restoreParseBoardContext(boardContext);
+      }
+    }
+  }
 
-        if (Stone.BLACK.equals(data.lastMoveColor)) stone = "B";
-        else if (Stone.WHITE.equals(data.lastMoveColor)) stone = "W";
+  private static StringBuilder generateNodeWithBoardContext(
+      Board board, BoardHistoryNode node, boolean forUpload, StringBuilder builder)
+      throws IOException {
+    if (node == null) {
+      return builder;
+    }
+    BoardData data = node.getData();
+    if (data.isSnapshotNode() && node.previous().isPresent()) {
+      builder.append(";");
+      builder.append(materializedSetupProperties(node));
+      appendSerializedComment(builder, node, forUpload, true);
+      return builder;
+    }
+    if (shouldSerializeSetupSnapshot(data)) {
+      builder.append(";");
+      builder.append(data.propertiesString());
+      appendSerializedComment(builder, node, forUpload, true);
+      return builder;
+    }
+    if (!data.isHistoryActionNode()) {
+      return builder;
+    }
+    String stone = "";
+    if (Stone.BLACK.equals(data.lastMoveColor) || Stone.WHITE.equals(data.lastMoveColor)) {
 
-        builder.append(";");
+      if (Stone.BLACK.equals(data.lastMoveColor)) stone = "B";
+      else if (Stone.WHITE.equals(data.lastMoveColor)) stone = "W";
 
-        if (!data.dummy) {
-          builder.append(
-              String.format(
-                  "%s[%s]",
-                  stone, data.lastMove.isPresent() ? asCoord(data.lastMove.get()) : passPos()));
+      builder.append(";");
+
+      if (!data.dummy) {
+        String sgfMove = data.isPassNode() ? passPos() : asCoord(data.lastMove.get());
+        builder.append(String.format("%s[%s]", stone, sgfMove));
+      }
+
+      // Node properties
+      builder.append(data.propertiesString());
+
+      if (forUpload) {
+        builder.append(String.format(Locale.ENGLISH, "FIT[%s]", getMatchValue(node)));
+      }
+
+      appendSerializedComment(builder, node, forUpload, true);
+    }
+    if (node.numberOfChildren() < 1)
+      if (node.isEndDummay()) {
+        builder.append(";DD[true]");
+      }
+    return builder;
+  }
+
+  private static boolean shouldSerializeSetupSnapshot(BoardData data) {
+    if (!data.isSnapshotNode()) {
+      return false;
+    }
+    Map<String, String> properties = data.getProperties();
+    return properties.containsKey("AB")
+        || properties.containsKey("AW")
+        || properties.containsKey("AE");
+  }
+
+  private static String materializedRootSnapshotProperties(BoardData rootData, Stone[] stones) {
+    Map<String, String> properties = new LinkedHashMap<String, String>();
+    Map<String, String> rootSetup = collectCurrentRootSetup(stones, rootData.blackToPlay);
+    boolean setupInserted = false;
+    for (Map.Entry<String, String> entry : rootData.getProperties().entrySet()) {
+      String key = entry.getKey();
+      if (isRootSetupSerializationProperty(key)) {
+        if (!setupInserted) {
+          addProperties(properties, rootSetup);
+          setupInserted = true;
         }
+        continue;
+      }
+      addProperty(properties, key, entry.getValue());
+    }
+    if (!setupInserted) {
+      addProperties(properties, rootSetup);
+    }
+    return propertiesString(properties);
+  }
 
-        // Node properties
-        builder.append(data.propertiesString());
+  private static Map<String, String> collectCurrentRootSetup(Stone[] stones, boolean blackToPlay) {
+    Map<String, String> setup = new LinkedHashMap<String, String>();
+    for (int index = 0; index < stones.length; index++) {
+      Stone stone = stones[index];
+      if (stone.isBlack()) {
+        addSetupProperty(setup, "AB", asCoord(index));
+      } else if (stone.isWhite()) {
+        addSetupProperty(setup, "AW", asCoord(index));
+      }
+    }
+    addProperty(setup, "PL", blackToPlay ? "B" : "W");
+    return setup;
+  }
 
-        if (forUpload) {
-          builder.append(String.format(Locale.ENGLISH, "FIT[%s]", getMatchValue(node)));
-        }
+  private static boolean isRootSetupSerializationProperty(String key) {
+    return "AB".equals(key) || "AW".equals(key) || "AE".equals(key) || "PL".equals(key);
+  }
 
-        if (!LizzieFrame.isSavingRaw) {
-          if (Lizzie.config.appendWinrateToComment) {
-            // Append the winrate to the comment of sgf
-            if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
-              if (Lizzie.board.isGameBoard) {
-                if (data.getPlayouts() > 0 && node.next().isPresent())
-                  node.next().get().getData().comment = formatCommentForGame(node);
-                else if (node.next().isPresent()) node.next().get().getData().comment = "";
-              } else {
-                if (data.getPlayouts() > 0) data.comment = formatComment(node);
-                if (Lizzie.config.isDoubleEngineMode() && data.getPlayouts2() > 0) {
-                  data.comment = formatComment2(node);
-                  //  if (data.comment != "") data.comment += "\n" + data.comment2;
-                  //  else data.comment = data.comment2;
-                }
+  private static String materializedSetupProperties(BoardHistoryNode node) {
+    Map<String, String> properties = new LinkedHashMap<String, String>();
+    BoardData data = node.getData();
+    addProperty(properties, "PL", data.blackToPlay ? "B" : "W");
+    appendSetupStoneDelta(properties, node);
+    data.getProperties()
+        .forEach(
+            (key, value) -> {
+              if ("PL".equals(key)) {
+                return;
               }
-            }
-          } else if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
-            if (Lizzie.board.isGameBoard) {
-              if (data.getPlayouts() > 0 && node.next().isPresent())
-                node.next().get().getData().comment = formatCommentForGame(node);
-              else if (node.next().isPresent()) node.next().get().getData().comment = "";
-            }
-          }
-          String curComment =
-              EngineManager.isSaveingEngineSGF && node.previous().isPresent()
-                  ? node.previous().get().getData().comment
-                  : data.comment;
-          if (EngineManager.isSaveingEngineSGF) {
-            if (node.previous().isPresent() && !node.previous().get().previous().isPresent())
-              curComment = formatCommentPk(node.previous().get());
-          }
-          //  if (data.komi > -999) curComment = data.comment + "\n" + "贴目: " + data.komi;
-          //  if (Lizzie.board.getHistory().getData().pda != 0) curComment += " PDA: " + data.pda;
-          // Write the comment
-          if (forUpload) {
-            curComment =
-                removeWinrateComment(
-                    node.getData().isKataData, node.getData().isSaiData, curComment);
-          }
-          if (!data.comment.isEmpty()) {
-            builder.append(String.format(Locale.ENGLISH, "C[%s]", Escaping(curComment)));
-          }
+              if (isSetupStoneProperty(key)) {
+                addSemanticallyMatchingSetupValues(properties, node, key, value);
+                return;
+              }
+              addProperty(properties, key, value);
+            });
+    return propertiesString(properties);
+  }
 
-          // Add LZ specific data to restore on next load
-          try {
-            if (node.getData().getPlayouts() > 0)
-              builder.append(String.format(Locale.ENGLISH, "LZ[%s]", formatNodeData(node)));
-            if (Lizzie.config.isDoubleEngineMode() && node.getData().getPlayouts2() > 0)
-              builder.append(String.format(Locale.ENGLISH, "LZ2[%s]", formatNodeData2(node)));
-          } catch (Exception e) {
-            Lizzie.board.isLoadingFile = false;
+  private static void appendSetupStoneDelta(Map<String, String> properties, BoardHistoryNode node) {
+    Stone[] currentStones = node.getData().stones;
+    Stone[] previousStones = node.previous().get().getData().stones;
+    for (int index = 0; index < currentStones.length; index++) {
+      Stone currentStone = currentStones[index];
+      Stone previousStone = previousStones[index];
+      if (currentStone == previousStone) {
+        continue;
+      }
+      if (!previousStone.isEmpty()) {
+        addSetupProperty(properties, "AE", asCoord(index));
+      }
+      if (currentStone.isBlack()) {
+        addSetupProperty(properties, "AB", asCoord(index));
+      } else if (currentStone.isWhite()) {
+        addSetupProperty(properties, "AW", asCoord(index));
+      }
+    }
+  }
+
+  private static void addSemanticallyMatchingSetupValues(
+      Map<String, String> properties, BoardHistoryNode node, String key, String rawValues) {
+    if (rawValues == null || rawValues.isEmpty()) {
+      return;
+    }
+    Stone[] currentStones = node.getData().stones;
+    Stone[] previousStones = node.previous().get().getData().stones;
+    boolean keepExplicitRemovedStoneMetadata = node.hasRemovedStone();
+    String[] values = rawValues.split(",");
+    for (String value : values) {
+      String normalizedValue = value.trim();
+      int[] coord = convertSgfPosToCoord(normalizedValue);
+      if (!matchesMaterializedSetupSemantics(
+          key, coord, currentStones, previousStones, keepExplicitRemovedStoneMetadata)) {
+        continue;
+      }
+      addSetupProperty(properties, key, normalizedValue);
+    }
+  }
+
+  private static boolean matchesMaterializedSetupSemantics(
+      String key,
+      int[] coord,
+      Stone[] currentStones,
+      Stone[] previousStones,
+      boolean keepExplicitRemovedStoneMetadata) {
+    if (coord == null || !isOnBoard(coord)) {
+      return false;
+    }
+    int index = Board.getIndex(coord[0], coord[1]);
+    Stone currentStone = currentStones[index];
+    Stone previousStone = previousStones[index];
+    if ("AB".equals(key)) {
+      return currentStone != previousStone && currentStone.isBlack();
+    }
+    if ("AW".equals(key)) {
+      return currentStone != previousStone && currentStone.isWhite();
+    }
+    if (!"AE".equals(key) || !currentStone.isEmpty()) {
+      return false;
+    }
+    if (currentStone != previousStone) {
+      return true;
+    }
+    return keepExplicitRemovedStoneMetadata;
+  }
+
+  private static boolean isOnBoard(int[] coord) {
+    return coord[0] >= 0
+        && coord[0] < Board.boardWidth
+        && coord[1] >= 0
+        && coord[1] < Board.boardHeight;
+  }
+
+  private static void addSetupProperty(Map<String, String> properties, String key, String value) {
+    if (value == null || value.isEmpty()) {
+      return;
+    }
+    String existing = properties.get(key);
+    if (existing == null || existing.isEmpty()) {
+      properties.put(key, value);
+      return;
+    }
+    if (containsSetupValue(existing, value)) {
+      return;
+    }
+    properties.put(key, existing + "," + value);
+  }
+
+  private static boolean containsSetupValue(String existing, String value) {
+    String[] entries = existing.split(",");
+    for (String entry : entries) {
+      if (entry.equals(value)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isSetupStoneProperty(String key) {
+    return "AB".equals(key) || "AW".equals(key) || "AE".equals(key);
+  }
+
+  private static void appendSerializedComment(
+      StringBuilder builder, BoardHistoryNode node, boolean forUpload, boolean includeAnalysisData)
+      throws IOException {
+    if (!LizzieFrame.isSavingRaw) {
+      appendStandardSerializedComment(builder, node, forUpload, includeAnalysisData);
+      return;
+    }
+    if (LizzieFrame.isSavingRawComment) {
+      appendRawSerializedComment(builder, node, forUpload);
+    }
+  }
+
+  private static void appendStandardSerializedComment(
+      StringBuilder builder, BoardHistoryNode node, boolean forUpload, boolean includeAnalysisData)
+      throws IOException {
+    prepareCommentForSave(node);
+    String curComment = getSerializedComment(node);
+    if (shouldFormatSnapshotCommentForSave(node)) {
+      curComment = formatSnapshotCommentForExport(node);
+    }
+    if (forUpload) {
+      curComment =
+          removeWinrateComment(node.getData().isKataData, node.getData().isSaiData, curComment);
+    }
+    if (!curComment.isEmpty()) {
+      builder.append(String.format(Locale.ENGLISH, "C[%s]", Escaping(curComment)));
+    }
+    if (includeAnalysisData) {
+      appendSerializedAnalysis(builder, node);
+    }
+  }
+
+  private static void prepareCommentForSave(BoardHistoryNode node) throws IOException {
+    BoardData data = node.getData();
+    if (Lizzie.config.appendWinrateToComment) {
+      if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
+        if (Lizzie.board.isGameBoard) {
+          updateGameComment(node, data);
+        } else {
+          if (data.isSnapshotNode()) {
+            return;
           }
-        } else if (LizzieFrame.isSavingRawComment) {
-          // Append the winrate to the comment of sgf
-          if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
-            if (data.getPlayouts() > 0) data.comment = formatComment(node);
-            if (Lizzie.config.isDoubleEngineMode() && data.getPlayouts2() > 0) {
-              data.comment = formatComment2(node);
-              //  if (data.comment != "") data.comment += "\n" + data.comment2;
-              //  else data.comment = data.comment2;
-            }
-          }
-          String curComment = data.comment;
-          if (forUpload) {
-            curComment =
-                removeWinrateComment(
-                    node.getData().isKataData, node.getData().isSaiData, curComment);
-          }
-          //  if (data.komi > -999) curComment = data.comment + "\n" + "贴目: " + data.komi;
-          //    if (Lizzie.board.getHistory().getData().pda != 0) curComment += " PDA: " + data.pda;
-          // Write the comment
-          if (!data.comment.isEmpty()) {
-            builder.append(String.format(Locale.ENGLISH, "C[%s]", Escaping(curComment)));
+          if (data.getPlayouts() > 0) data.comment = formatComment(node);
+          if (Lizzie.config.isDoubleEngineMode() && data.getPlayouts2() > 0) {
+            data.comment = formatComment2(node);
           }
         }
       }
-      if (node.numberOfChildren() < 1)
-        if (node.isEndDummay()) {
-          builder.append(";DD[true]");
-        }
+      return;
     }
-    return builder;
+    if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard && Lizzie.board.isGameBoard) {
+      updateGameComment(node, data);
+    }
+  }
+
+  private static void updateGameComment(BoardHistoryNode node, BoardData data) throws IOException {
+    if (data.getPlayouts() > 0 && node.next().isPresent()) {
+      node.next().get().getData().comment = formatCommentForGame(node);
+    } else if (node.next().isPresent()) {
+      node.next().get().getData().comment = "";
+    }
+  }
+
+  private static String getSerializedComment(BoardHistoryNode node) throws IOException {
+    if (!EngineManager.isSaveingEngineSGF || !node.previous().isPresent()) {
+      return node.getData().comment;
+    }
+    if (node.getData().isSnapshotNode()) {
+      return node.getData().comment;
+    }
+    if (!node.previous().get().previous().isPresent()) {
+      return formatCommentPk(node.previous().get());
+    }
+    return node.previous().get().getData().comment;
+  }
+
+  private static boolean shouldFormatSnapshotCommentForSave(BoardHistoryNode node) {
+    return Lizzie.config.appendWinrateToComment
+        && node.getData().isSnapshotNode()
+        && !EngineManager.isEngineGame
+        && !Lizzie.board.isPkBoard
+        && !Lizzie.board.isGameBoard;
+  }
+
+  private static String formatSnapshotCommentForExport(BoardHistoryNode node) throws IOException {
+    BoardData data = node.getData();
+    String curComment = data.comment;
+    if (data.getPlayouts() > 0) {
+      curComment = formatComment(node);
+    }
+    if (Lizzie.config.isDoubleEngineMode() && data.getPlayouts2() > 0) {
+      curComment = formatComment2(node);
+    }
+    return curComment;
+  }
+
+  private static void appendRawSerializedComment(
+      StringBuilder builder, BoardHistoryNode node, boolean forUpload) throws IOException {
+    BoardData data = node.getData();
+    String curComment = data.comment;
+    if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
+      if (data.isSnapshotNode()) {
+        curComment = formatSnapshotCommentForExport(node);
+      } else {
+        if (data.getPlayouts() > 0) data.comment = formatComment(node);
+        if (Lizzie.config.isDoubleEngineMode() && data.getPlayouts2() > 0) {
+          data.comment = formatComment2(node);
+        }
+        curComment = data.comment;
+      }
+    }
+    if (forUpload) {
+      curComment =
+          removeWinrateComment(node.getData().isKataData, node.getData().isSaiData, curComment);
+    }
+    if (!curComment.isEmpty()) {
+      builder.append(String.format(Locale.ENGLISH, "C[%s]", Escaping(curComment)));
+    }
+  }
+
+  private static void appendSerializedAnalysis(StringBuilder builder, BoardHistoryNode node)
+      throws IOException {
+    try {
+      if (hasPrimaryAnalysisPayload(node.getData())) {
+        builder.append(String.format(Locale.ENGLISH, "LZ[%s]", formatNodeData(node)));
+      }
+      if (hasSecondaryAnalysisPayload(node.getData())) {
+        builder.append(String.format(Locale.ENGLISH, "LZ2[%s]", formatNodeData2(node)));
+      }
+    } catch (Exception e) {
+      Lizzie.board.isLoadingFile = false;
+    }
   }
 
   private static String removeWinrateComment(
@@ -2524,57 +2627,26 @@ public class SGFParser {
 
     // Last winrate
     Optional<BoardData> lastNode = node.previous().flatMap(n -> Optional.of(n.getData()));
-    boolean validLastWinrate = lastNode.map(d -> d.getPlayouts() > 0).orElse(false);
+    boolean validLastWinrate = lastNode.map(SGFParser::hasPrimaryAnalysisPayload).orElse(false);
     double lastWR = validLastWinrate ? lastNode.get().winrate : 50;
 
     // Current winrate
-    boolean validWinrate = (data.getPlayouts() > 0);
+    boolean validWinrate = hasPrimaryAnalysisPayload(data);
     double curWR = validWinrate ? data.winrate : 100 - lastWR;
     String curWinrate = "";
     curWinrate = String.format(Locale.ENGLISH, "%.1f", 100 - curWR);
 
-    if (data.isKataData) {
-      boolean hasOwnership = false;
-      String ownership = " ownership";
-      if (data.estimateArray != null && !data.estimateArray.isEmpty()) {
-        for (Double value : data.estimateArray) {
-          ownership += " " + value;
-        }
-        hasOwnership = true;
-      }
-      String wf = "%s %s %s %s %s %s\n%s";
-      if (data.pda != 0) {
-        wf =
-            String.format(
-                wf,
-                data.engineName,
-                curWinrate,
-                playouts,
-                String.format(Locale.ENGLISH, "%.1f", data.scoreMean),
-                String.format(Locale.ENGLISH, "%.1f", data.scoreStdev),
-                data.pda,
-                data.bestMovesToString());
-      } else {
-        wf = "%s %s %s %s %s\n%s";
-        wf =
-            String.format(
-                wf,
-                data.engineName,
-                curWinrate,
-                playouts,
-                String.format(Locale.ENGLISH, "%.1f", data.scoreMean),
-                String.format(Locale.ENGLISH, "%.1f", data.scoreStdev),
-                data.bestMovesToString());
-      }
-      if (hasOwnership) {
-        wf += ownership;
-      }
-      return wf;
-    }
-
-    String wf = "%s %s %s\n%s";
-
-    return String.format(wf, data.engineName, curWinrate, playouts, data.bestMovesToString());
+    return formatAnalysisPayload(
+        data.engineName,
+        curWinrate,
+        playouts,
+        data.isKataData,
+        data.analysisHeaderSlots,
+        data.scoreMean,
+        data.scoreStdev,
+        data.pda,
+        data.bestMovesToString(),
+        data.estimateArray);
   }
 
   private static String formatNodeData2(BoardHistoryNode node) {
@@ -2585,57 +2657,78 @@ public class SGFParser {
 
     // Last winrate
     Optional<BoardData> lastNode = node.previous().flatMap(n -> Optional.of(n.getData()));
-    boolean validLastWinrate = lastNode.map(d -> d.getPlayouts2() > 0).orElse(false);
+    boolean validLastWinrate = lastNode.map(SGFParser::hasSecondaryAnalysisPayload).orElse(false);
     double lastWR = validLastWinrate ? lastNode.get().winrate2 : 50;
 
     // Current winrate
-    boolean validWinrate = (data.getPlayouts2() > 0);
+    boolean validWinrate = hasSecondaryAnalysisPayload(data);
     double curWR = validWinrate ? data.winrate2 : 100 - lastWR;
     String curWinrate = "";
     curWinrate = String.format(Locale.ENGLISH, "%.1f", 100 - curWR);
 
-    if (data.isKataData2) {
-      boolean hasOwnership = false;
-      String ownership = " ownership";
-      if (data.estimateArray2 != null && !data.estimateArray2.isEmpty()) {
-        for (Double value : data.estimateArray2) {
-          ownership += " " + value;
-        }
-        hasOwnership = true;
+    return formatAnalysisPayload(
+        data.engineName2,
+        curWinrate,
+        playouts,
+        data.isKataData2,
+        data.analysisHeaderSlots2,
+        data.scoreMean2,
+        data.scoreStdev2,
+        data.pda2,
+        data.bestMovesToString2(),
+        data.estimateArray2);
+  }
+
+  private static String formatAnalysisPayload(
+      String engineName,
+      String curWinrate,
+      String playouts,
+      boolean kataData,
+      int headerSlots,
+      double scoreMean,
+      double scoreStdev,
+      double pda,
+      String bestMoves,
+      ArrayList<Double> estimateArray) {
+    StringBuilder header = new StringBuilder();
+    header.append(engineName).append(" ").append(curWinrate).append(" ").append(playouts);
+    if (kataData) {
+      boolean hasExplicitHeaderSlots = headerSlots > 0;
+      boolean includeScoreStdev = !hasExplicitHeaderSlots || headerSlots >= 5;
+      boolean includePda = hasExplicitHeaderSlots ? headerSlots >= 6 : Double.compare(pda, 0) != 0;
+      header.append(" ").append(formatAnalysisScalar(scoreMean));
+      if (includeScoreStdev) {
+        header.append(" ").append(formatAnalysisScalar(scoreStdev));
       }
-      String wf = "%s %s %s %s %s %s\n%s";
-      if (data.pda != 0) {
-        wf =
-            String.format(
-                wf,
-                data.engineName2,
-                curWinrate,
-                playouts,
-                String.format(Locale.ENGLISH, "%.1f", data.scoreMean2),
-                String.format(Locale.ENGLISH, "%.1f", data.scoreStdev2),
-                data.pda,
-                data.bestMovesToString2());
-      } else {
-        wf = "%s %s %s %s %s\n%s";
-        wf =
-            String.format(
-                wf,
-                data.engineName2,
-                curWinrate,
-                playouts,
-                String.format(Locale.ENGLISH, "%.1f", data.scoreMean2),
-                String.format(Locale.ENGLISH, "%.1f", data.scoreStdev2),
-                data.bestMovesToString2());
+      if (includePda) {
+        header.append(" ").append(formatAnalysisScalar(pda));
       }
-      if (hasOwnership) {
-        wf += ownership;
-      }
-      return wf;
     }
 
-    String wf = "%s %s %s\n%s";
+    String detailLine = formatAnalysisDetailLine(bestMoves, estimateArray);
+    if (Utils.isBlank(detailLine)) {
+      return header.toString();
+    }
+    return header.append('\n').append(detailLine).toString();
+  }
 
-    return String.format(wf, data.engineName2, curWinrate, playouts, data.bestMovesToString2());
+  private static String formatAnalysisDetailLine(
+      String bestMoves, ArrayList<Double> estimateArray) {
+    StringBuilder detailLine = new StringBuilder();
+    if (!Utils.isBlank(bestMoves)) {
+      detailLine.append(bestMoves);
+    }
+    if (estimateArray != null && !estimateArray.isEmpty()) {
+      detailLine.append(" ownership");
+      for (Double value : estimateArray) {
+        detailLine.append(" ").append(value);
+      }
+    }
+    return detailLine.toString();
+  }
+
+  private static String formatAnalysisScalar(double value) {
+    return Double.toString(value);
   }
 
   public static boolean isListProperty(String key) {
@@ -2812,6 +2905,461 @@ public class SGFParser {
     props = new HashMap<String, String>();
   }
 
+  private static final class PendingSetupMetadata {
+    private String comment;
+    private final Map<String, String> properties = new LinkedHashMap<String, String>();
+    private final List<PendingAnalysisPayload> analysisPayloads =
+        new ArrayList<PendingAnalysisPayload>();
+
+    private boolean isEmpty() {
+      return Utils.isBlank(comment) && properties.isEmpty() && analysisPayloads.isEmpty();
+    }
+
+    private void clear() {
+      comment = null;
+      properties.clear();
+      analysisPayloads.clear();
+    }
+  }
+
+  private static final class PendingAnalysisPayload {
+    private final String tag;
+    private final String content;
+
+    private PendingAnalysisPayload(String tag, String content) {
+      this.tag = tag;
+      this.content = content;
+    }
+  }
+
+  private static boolean isLeadingSetupMetadataTag(String tag) {
+    return "C".equals(tag) || "MN".equals(tag) || isMarkupProperty(tag);
+  }
+
+  private static boolean shouldBufferLeadingSetupMetadata(
+      boolean currentNodeHasMove,
+      boolean currentNodeHasSetupSnapshot,
+      boolean rootSetupContext,
+      String tag) {
+    return !currentNodeHasMove
+        && !currentNodeHasSetupSnapshot
+        && !rootSetupContext
+        && isLeadingSetupMetadataTag(tag);
+  }
+
+  private static void bufferLeadingSetupMetadata(
+      PendingSetupMetadata pendingSetupMetadata, String tag, String tagContent) {
+    if ("C".equals(tag)) {
+      pendingSetupMetadata.comment = tagContent;
+      return;
+    }
+    addProperty(pendingSetupMetadata.properties, tag, tagContent);
+  }
+
+  private static boolean shouldBufferLeadingSetupAnalysis(
+      boolean currentNodeHasMove, boolean currentNodeHasSetupSnapshot, boolean rootSetupContext) {
+    return !currentNodeHasMove && !currentNodeHasSetupSnapshot && !rootSetupContext;
+  }
+
+  private static void bufferLeadingSetupAnalysis(
+      PendingSetupMetadata pendingSetupMetadata, String tag, String tagContent) {
+    pendingSetupMetadata.analysisPayloads.add(new PendingAnalysisPayload(tag, tagContent));
+  }
+
+  private static void applyPendingSetupAnalysisPayloads(
+      BoardData target, PendingSetupMetadata pendingSetupMetadata) {
+    if (target == null || pendingSetupMetadata.analysisPayloads.isEmpty()) {
+      return;
+    }
+    pendingSetupMetadata.analysisPayloads.forEach(
+        payload -> applyAnalysisTagOnDetachedHistory(target, payload.tag, payload.content));
+  }
+
+  private static void flushPendingSetupMetadataToCurrentNode(
+      BoardHistoryList history, PendingSetupMetadata pendingSetupMetadata) {
+    if (pendingSetupMetadata == null || pendingSetupMetadata.isEmpty()) {
+      return;
+    }
+    BoardHistoryNode current = history.getCurrentHistoryNode();
+    if (!Utils.isBlank(pendingSetupMetadata.comment)) {
+      current.getData().comment = pendingSetupMetadata.comment;
+    }
+    pendingSetupMetadata.properties.forEach(history::addNodeProperty);
+    applyPendingSetupAnalysisPayloads(current.getData(), pendingSetupMetadata);
+    pendingSetupMetadata.clear();
+  }
+
+  private static void movePendingSetupMetadataToTarget(
+      BoardHistoryList history,
+      BoardHistoryNode target,
+      PendingSetupMetadata pendingSetupMetadata) {
+    if (pendingSetupMetadata == null || pendingSetupMetadata.isEmpty()) {
+      return;
+    }
+    if (!Utils.isBlank(pendingSetupMetadata.comment)) {
+      target.getData().comment = pendingSetupMetadata.comment;
+    }
+    pendingSetupMetadata.properties.forEach(
+        (key, value) -> addNodePropertyOnNode(history, target, key, value));
+    applyPendingSetupAnalysisPayloads(target.getData(), pendingSetupMetadata);
+    pendingSetupMetadata.clear();
+  }
+
+  private static void moveLeadingSetupMetadataToSnapshot(BoardHistoryList history) {
+    BoardHistoryNode snapshotNode = history.getCurrentHistoryNode();
+    if (!snapshotNode.getData().isSnapshotNode() || !snapshotNode.previous().isPresent()) {
+      return;
+    }
+    BoardHistoryNode moveNode = snapshotNode.previous().get();
+    BoardData moveData = moveNode.getData();
+    BoardData snapshotData = snapshotNode.getData();
+    if (!moveData.comment.isEmpty()) {
+      snapshotData.comment = moveData.comment;
+      moveData.comment = "";
+    }
+    moveLeadingAnalysisPayloadToSnapshot(moveData, snapshotData);
+    if (moveData.getProperties().isEmpty()) {
+      return;
+    }
+    Map<String, String> properties = new LinkedHashMap<String, String>(moveData.getProperties());
+    properties.forEach(snapshotData::addProperty);
+    moveData.setProperties(new LinkedHashMap<String, String>());
+    if (properties.containsKey("PL")) {
+      applyCurrentPlayerProperty(snapshotData, properties.get("PL"));
+    }
+    if (properties.containsKey("MN")) {
+      rollbackMoveNodeMnState(moveNode);
+    }
+  }
+
+  private static void moveLeadingAnalysisPayloadToSnapshot(
+      BoardData moveData, BoardData snapshotData) {
+    movePrimaryAnalysisPayloadToSnapshot(moveData, snapshotData);
+    moveSecondaryAnalysisPayloadToSnapshot(moveData, snapshotData);
+  }
+
+  private static void movePrimaryAnalysisPayloadToSnapshot(
+      BoardData moveData, BoardData snapshotData) {
+    if (!hasPrimaryAnalysisPayload(moveData)) {
+      return;
+    }
+    snapshotData.engineName = moveData.engineName;
+    snapshotData.winrate = moveData.winrate;
+    snapshotData.setPlayouts(moveData.getPlayouts());
+    snapshotData.bestMoves = copyMoveDataListAllowNull(moveData.bestMoves);
+    snapshotData.bestMovesOutOfRange = copyMoveDataListAllowNull(moveData.bestMovesOutOfRange);
+    snapshotData.estimateArray = copyEstimateArray(moveData.estimateArray);
+    snapshotData.isSaiData = moveData.isSaiData;
+    snapshotData.isKataData = moveData.isKataData;
+    snapshotData.isChanged = moveData.isChanged;
+    snapshotData.playoutsChanged = moveData.playoutsChanged;
+    snapshotData.analysisHeaderSlots = moveData.analysisHeaderSlots;
+    snapshotData.scoreMean = moveData.scoreMean;
+    snapshotData.scoreStdev = moveData.scoreStdev;
+    snapshotData.pda = moveData.pda;
+    clearPrimaryAnalysisPayload(moveData);
+  }
+
+  private static void moveSecondaryAnalysisPayloadToSnapshot(
+      BoardData moveData, BoardData snapshotData) {
+    if (!hasSecondaryAnalysisPayload(moveData)) {
+      return;
+    }
+    snapshotData.engineName2 = moveData.engineName2;
+    snapshotData.winrate2 = moveData.winrate2;
+    snapshotData.setPlayouts2(moveData.getPlayouts2());
+    snapshotData.bestMoves2 = copyMoveDataListAllowNull(moveData.bestMoves2);
+    snapshotData.bestMoves2OutOfRange = copyMoveDataListAllowNull(moveData.bestMoves2OutOfRange);
+    snapshotData.estimateArray2 = copyEstimateArray(moveData.estimateArray2);
+    snapshotData.isSaiData2 = moveData.isSaiData2;
+    snapshotData.isKataData2 = moveData.isKataData2;
+    snapshotData.isChanged2 = moveData.isChanged2;
+    snapshotData.analysisHeaderSlots2 = moveData.analysisHeaderSlots2;
+    snapshotData.scoreMean2 = moveData.scoreMean2;
+    snapshotData.scoreStdev2 = moveData.scoreStdev2;
+    snapshotData.pda2 = moveData.pda2;
+    clearSecondaryAnalysisPayload(moveData);
+  }
+
+  private static boolean hasPrimaryAnalysisPayload(BoardData data) {
+    return data.getPlayouts() > 0
+        || !Utils.isBlank(data.engineName)
+        || (data.bestMoves != null && !data.bestMoves.isEmpty())
+        || data.isKataData
+        || (data.estimateArray != null && !data.estimateArray.isEmpty());
+  }
+
+  private static boolean hasSecondaryAnalysisPayload(BoardData data) {
+    return data.getPlayouts2() > 0
+        || !Utils.isBlank(data.engineName2)
+        || (data.bestMoves2 != null && !data.bestMoves2.isEmpty())
+        || data.isKataData2
+        || (data.estimateArray2 != null && !data.estimateArray2.isEmpty());
+  }
+
+  private static void clearPrimaryAnalysisPayload(BoardData data) {
+    data.engineName = "";
+    data.winrate = 50;
+    data.setPlayouts(0);
+    data.bestMoves = new ArrayList<MoveData>();
+    data.bestMovesOutOfRange = new ArrayList<MoveData>();
+    data.estimateArray = null;
+    data.isSaiData = false;
+    data.isKataData = false;
+    data.isChanged = false;
+    data.playoutsChanged = false;
+    data.analysisHeaderSlots = 0;
+    data.scoreMean = 0;
+    data.scoreStdev = 0;
+    data.pda = 0;
+  }
+
+  private static void clearSecondaryAnalysisPayload(BoardData data) {
+    data.engineName2 = "";
+    data.winrate2 = 50;
+    data.setPlayouts2(0);
+    data.bestMoves2 = new ArrayList<MoveData>();
+    data.bestMoves2OutOfRange = new ArrayList<MoveData>();
+    data.estimateArray2 = null;
+    data.isSaiData2 = false;
+    data.isKataData2 = false;
+    data.isChanged2 = false;
+    data.analysisHeaderSlots2 = 0;
+    data.scoreMean2 = 0;
+    data.scoreStdev2 = 0;
+    data.pda2 = 0;
+  }
+
+  private static List<MoveData> copyMoveDataListAllowNull(List<MoveData> values) {
+    return values == null ? null : new ArrayList<MoveData>(values);
+  }
+
+  private static ArrayList<Double> copyEstimateArray(ArrayList<Double> values) {
+    return values == null ? null : new ArrayList<Double>(values);
+  }
+
+  private static void rollbackMoveNodeMnState(BoardHistoryNode moveNode) {
+    BoardData moveData = moveNode.getData();
+    if (moveData.isMoveNode()) {
+      moveNode.resetMoveNumberList(moveData.moveNumber);
+    }
+    moveData.moveMNNumber = -1;
+  }
+
+  private static boolean isRootSetupContext(
+      BoardHistoryList history, boolean moveStart, boolean allowRootSetupOnCurrentNode) {
+    return allowRootSetupOnCurrentNode
+        && !moveStart
+        && history != null
+        && !history.getCurrentHistoryNode().previous().isPresent();
+  }
+
+  private static boolean isRootSetupContext(BoardHistoryList history, boolean moveStart) {
+    return isRootSetupContext(history, moveStart, true);
+  }
+
+  private static BoardHistoryNode getSetupPropertyTargetNode(
+      BoardHistoryList history, boolean currentNodeHasSetupSnapshot) {
+    BoardHistoryNode current = history.getCurrentHistoryNode();
+    if (!currentNodeHasSetupSnapshot || !current.getData().isHistoryActionNode()) {
+      return current;
+    }
+    if (!current.previous().isPresent()) {
+      return current;
+    }
+    BoardHistoryNode previous = current.previous().get();
+    if (!previous.getData().isSnapshotNode()) {
+      return current;
+    }
+    return previous;
+  }
+
+  private static void runOnNode(
+      BoardHistoryList history, BoardHistoryNode target, Runnable action) {
+    BoardHistoryNode original = history.getCurrentHistoryNode();
+    if (original == target) {
+      action.run();
+      return;
+    }
+    history.setHead(target);
+    try {
+      action.run();
+    } finally {
+      history.setHead(original);
+    }
+  }
+
+  private static void addNodePropertyOnNode(
+      BoardHistoryList history, BoardHistoryNode target, String key, String value) {
+    runOnNode(history, target, () -> history.addNodeProperty(key, value));
+  }
+
+  private static void addExtraStoneOnNode(
+      BoardHistoryList history, BoardHistoryNode target, int x, int y, Stone color) {
+    runOnNode(history, target, () -> history.addExtraStone(x, y, color));
+  }
+
+  private static void removeStoneOnNode(
+      BoardHistoryList history, BoardHistoryNode target, int x, int y, Stone color) {
+    removeStoneOnNode(history, target, x, y, color, true);
+  }
+
+  private static void removeStoneOnNode(
+      BoardHistoryList history,
+      BoardHistoryNode target,
+      int x,
+      int y,
+      Stone color,
+      boolean refreshUi) {
+    runOnNode(history, target, () -> removeStone(history, x, y, color, refreshUi));
+  }
+
+  private static void removeStone(
+      BoardHistoryList history, int x, int y, Stone color, boolean refreshUi) {
+    if (refreshUi) {
+      history.removeStone(x, y, color);
+      return;
+    }
+    removeStoneWithoutRefresh(history, x, y);
+  }
+
+  private static void removeStoneWithoutRefresh(BoardHistoryList history, int x, int y) {
+    synchronized (history) {
+      if (!Board.isValid(x, y)) {
+        return;
+      }
+      int index = Board.getIndex(x, y);
+      Stone[] stones = history.getStones();
+      if (stones[index] == Stone.EMPTY) {
+        return;
+      }
+      BoardData data = history.getData();
+      Stone oriColor = stones[index];
+      stones[index] = Stone.EMPTY;
+      data.zobrist.toggleStone(x, y, oriColor);
+      data.moveNumberList[index] = 0;
+      history.getCurrentHistoryNode().setRemovedStone();
+    }
+  }
+
+  private static void applyCurrentPlayerPropertyOnNode(
+      BoardHistoryList history, BoardHistoryNode target, String tagContent) {
+    runOnNode(history, target, () -> applyCurrentPlayerProperty(history, tagContent));
+  }
+
+  private static void clearStartStoneState(BoardHistoryList targetHistory) {
+    if (!isCurrentBoardHistory(targetHistory)) {
+      return;
+    }
+    Lizzie.board.hasStartStone = false;
+    if (Lizzie.board.startStonelist == null) {
+      Lizzie.board.startStonelist = new ArrayList<Movelist>();
+      return;
+    }
+    Lizzie.board.startStonelist.clear();
+  }
+
+  private static boolean isCurrentBoardHistory(BoardHistoryList history) {
+    return Lizzie.board != null && history != null && Lizzie.board.getHistory() == history;
+  }
+
+  private static void applyRootSetupProperty(
+      BoardHistoryList history, String tag, String tagContent, int[] move, Stone color) {
+    applyRootSetupProperty(history, tag, tagContent, move, color, true);
+  }
+
+  private static void applyRootSetupProperty(
+      BoardHistoryList history,
+      String tag,
+      String tagContent,
+      int[] move,
+      Stone color,
+      boolean refreshUi) {
+    clearStartStoneState(history);
+    history.addNodeProperty(tag, tagContent);
+    if (move == null) {
+      return;
+    }
+    if ("AE".equals(tag)) {
+      removeStone(history, move[0], move[1], color, refreshUi);
+      return;
+    }
+    if (history.getStones()[Board.getIndex(move[0], move[1])] == Stone.EMPTY) {
+      history.addExtraStone(move[0], move[1], color);
+    }
+  }
+
+  private static void applyRootPlayerProperty(BoardHistoryList history, String tagContent) {
+    clearStartStoneState(history);
+    applyCurrentPlayerProperty(history, tagContent);
+  }
+
+  private static void applyCurrentPlayerProperty(BoardHistoryList history, String tagContent) {
+    history.addNodeProperty("PL", tagContent);
+    applyCurrentPlayerProperty(history.getData(), tagContent);
+  }
+
+  private static void applyCurrentPlayerProperty(BoardData data, String tagContent) {
+    data.blackToPlay = !"W".equalsIgnoreCase(tagContent);
+  }
+
+  private static void stabilizeRootSetupSideToPlay(BoardHistoryList history) {
+    if (history == null) {
+      return;
+    }
+    BoardData rootData = history.getStart().getData();
+    String explicitPl = rootData.getProperty("PL");
+    if (!Utils.isBlank(explicitPl)) {
+      applyCurrentPlayerProperty(rootData, explicitPl);
+      return;
+    }
+    if (hasRootSetupStoneProperties(rootData)) {
+      rootData.blackToPlay = true;
+    }
+  }
+
+  private static boolean hasRootSetupStoneProperties(BoardData rootData) {
+    Map<String, String> properties = rootData.getProperties();
+    return properties.containsKey("AB")
+        || properties.containsKey("AW")
+        || properties.containsKey("AE");
+  }
+
+  private static void appendSetupSnapshot(
+      BoardHistoryList history,
+      boolean newBranch,
+      Map<String, String> pendingProps,
+      boolean transferLeadingMoveMetadata) {
+    BoardData current = history.getData();
+    int snapshotPlayouts = transferLeadingMoveMetadata ? current.getPlayouts() : 0;
+    double snapshotWinrate = transferLeadingMoveMetadata ? current.winrate : 50;
+    BoardData snapshot =
+        BoardData.snapshot(
+            current.stones.clone(),
+            Optional.empty(),
+            Stone.EMPTY,
+            current.blackToPlay,
+            current.zobrist.clone(),
+            current.moveNumber,
+            current.moveNumberList.clone(),
+            current.blackCaptures,
+            current.whiteCaptures,
+            snapshotWinrate,
+            snapshotPlayouts);
+    if (!transferLeadingMoveMetadata) {
+      clearPrimaryAnalysisPayload(snapshot);
+      clearSecondaryAnalysisPayload(snapshot);
+    }
+    snapshot.moveMNNumber = current.moveMNNumber;
+    history.addOrGoto(snapshot, newBranch);
+    if (transferLeadingMoveMetadata) {
+      moveLeadingSetupMetadataToSnapshot(history);
+    }
+    if (newBranch) {
+      processPendingPros(history, pendingProps);
+    }
+  }
+
   public static String Escaping(String in) {
     String out = in.replaceAll("\\\\", "\\\\\\\\");
     return out.replaceAll("\\]", "\\\\]");
@@ -2829,27 +3377,182 @@ public class SGFParser {
       return history;
     }
 
-    // Determine the SZ property
-    Pattern szPattern = Pattern.compile("(?s).*?SZ\\[(\\d+)\\](?s).*");
-    Matcher szMatcher = szPattern.matcher(value);
-    int boardWidth = 19;
-    int boardHeight = 19;
-    if (szMatcher.matches()) {
-      String sizeStr = szMatcher.group(1);
-      Pattern sizePattern = Pattern.compile("([\\d]+):([\\d]+)");
-      Matcher sizeMatcher = sizePattern.matcher(sizeStr);
-      if (sizeMatcher.matches()) {
-        boardWidth = Integer.parseInt(sizeMatcher.group(1));
-        boardHeight = Integer.parseInt(sizeMatcher.group(2));
-      } else {
-        boardWidth = boardHeight = Integer.parseInt(sizeStr);
+    int[] boardSize = parseBoardSize(value);
+    int boardWidth = boardSize[0];
+    int boardHeight = boardSize[1];
+    ParseBoardContext boardContext = captureParseBoardContext();
+    boolean switchedBoardContext =
+        boardContext.boardWidth != boardWidth || boardContext.boardHeight != boardHeight;
+    try {
+      if (switchedBoardContext) {
+        applyParseBoardContext(boardWidth, boardHeight);
+      }
+      history = new BoardHistoryList(BoardData.empty(boardWidth, boardHeight));
+      parseValue(value, history, false, first);
+    } finally {
+      if (switchedBoardContext) {
+        restoreParseBoardContext(boardContext);
       }
     }
-    history = new BoardHistoryList(BoardData.empty(boardWidth, boardHeight));
-
-    parseValue(value, history, false, first);
 
     return history;
+  }
+
+  private static ParseBoardContext captureParseBoardContext() {
+    return new ParseBoardContext(
+        Board.boardWidth,
+        Board.boardHeight,
+        readZobristTable(BLACK_ZOBRIST_FIELD),
+        readZobristTable(WHITE_ZOBRIST_FIELD));
+  }
+
+  private static void applyParseBoardContext(int boardWidth, int boardHeight) {
+    Board.boardWidth = boardWidth;
+    Board.boardHeight = boardHeight;
+    Zobrist.init();
+  }
+
+  private static void restoreParseBoardContext(ParseBoardContext context) {
+    Board.boardWidth = context.boardWidth;
+    Board.boardHeight = context.boardHeight;
+    writeZobristTable(BLACK_ZOBRIST_FIELD, context.blackZobrist);
+    writeZobristTable(WHITE_ZOBRIST_FIELD, context.whiteZobrist);
+  }
+
+  private static Field resolveZobristField(String fieldName) {
+    try {
+      Field field = Zobrist.class.getDeclaredField(fieldName);
+      field.setAccessible(true);
+      return field;
+    } catch (ReflectiveOperationException ex) {
+      throw new IllegalStateException("Failed to access Zobrist." + fieldName, ex);
+    }
+  }
+
+  private static long[] readZobristTable(Field field) {
+    try {
+      return (long[]) field.get(null);
+    } catch (IllegalAccessException ex) {
+      throw new IllegalStateException("Failed to read Zobrist table.", ex);
+    }
+  }
+
+  private static void writeZobristTable(Field field, long[] table) {
+    try {
+      field.set(null, table);
+    } catch (IllegalAccessException ex) {
+      throw new IllegalStateException("Failed to restore Zobrist table.", ex);
+    }
+  }
+
+  private static final class ParseBoardContext {
+    private final int boardWidth;
+    private final int boardHeight;
+    private final long[] blackZobrist;
+    private final long[] whiteZobrist;
+
+    private ParseBoardContext(
+        int boardWidth, int boardHeight, long[] blackZobrist, long[] whiteZobrist) {
+      this.boardWidth = boardWidth;
+      this.boardHeight = boardHeight;
+      this.blackZobrist = blackZobrist;
+      this.whiteZobrist = whiteZobrist;
+    }
+  }
+
+  private static int[] parseBoardSize(String value) {
+    int boardWidth = DEFAULT_BOARD_SIZE;
+    int boardHeight = DEFAULT_BOARD_SIZE;
+    Matcher szMatcher = BOARD_SIZE_PATTERN.matcher(value);
+    if (!szMatcher.matches()) {
+      return new int[] {boardWidth, boardHeight};
+    }
+    int[] parsedBoardSize = parseBoardSizeTagValue(szMatcher.group(1));
+    if (parsedBoardSize != null) {
+      return parsedBoardSize;
+    }
+    return new int[] {boardWidth, boardHeight};
+  }
+
+  static int[] resolveHistoryBoardSize(BoardHistoryList history) {
+    if (history == null) {
+      return new int[] {Board.boardWidth, Board.boardHeight};
+    }
+    return resolveBoardSize(history.getStart().getData(), Board.boardWidth, Board.boardHeight);
+  }
+
+  private static int[] resolveNodeBoardSize(BoardHistoryNode node) {
+    if (node == null) {
+      return new int[] {Board.boardWidth, Board.boardHeight};
+    }
+    BoardHistoryNode root = node;
+    while (root.previous().isPresent()) {
+      root = root.previous().get();
+    }
+    return resolveBoardSize(root.getData(), Board.boardWidth, Board.boardHeight);
+  }
+
+  private static int[] resolveBoardSize(
+      BoardData rootData, int fallbackBoardWidth, int fallbackBoardHeight) {
+    if (rootData == null) {
+      return new int[] {fallbackBoardWidth, fallbackBoardHeight};
+    }
+    int[] parsedFromSz = parseBoardSizeTagValue(rootData.getProperty("SZ"));
+    if (parsedFromSz != null) {
+      return parsedFromSz;
+    }
+    int boardArea = rootData.stones == null ? 0 : rootData.stones.length;
+    if (boardArea <= 0) {
+      return new int[] {fallbackBoardWidth, fallbackBoardHeight};
+    }
+    if (fallbackBoardWidth > 0
+        && fallbackBoardHeight > 0
+        && fallbackBoardWidth * fallbackBoardHeight == boardArea) {
+      return new int[] {fallbackBoardWidth, fallbackBoardHeight};
+    }
+    if (fallbackBoardHeight > 0 && boardArea % fallbackBoardHeight == 0) {
+      return new int[] {boardArea / fallbackBoardHeight, fallbackBoardHeight};
+    }
+    if (fallbackBoardWidth > 0 && boardArea % fallbackBoardWidth == 0) {
+      return new int[] {fallbackBoardWidth, boardArea / fallbackBoardWidth};
+    }
+    int squareBoardSize = (int) Math.sqrt(boardArea);
+    if (squareBoardSize * squareBoardSize == boardArea) {
+      return new int[] {squareBoardSize, squareBoardSize};
+    }
+    return new int[] {boardArea, 1};
+  }
+
+  private static int[] parseBoardSizeTagValue(String rawSzValue) {
+    if (rawSzValue == null) {
+      return null;
+    }
+    String normalizedValue = rawSzValue.split(",")[0].trim();
+    if (normalizedValue.isEmpty()) {
+      return null;
+    }
+    Matcher rectSizeMatcher = RECT_BOARD_SIZE_PATTERN.matcher(normalizedValue);
+    try {
+      if (rectSizeMatcher.matches()) {
+        int boardWidth = Integer.parseInt(rectSizeMatcher.group(1));
+        int boardHeight = Integer.parseInt(rectSizeMatcher.group(2));
+        if (boardWidth > 0 && boardHeight > 0) {
+          return new int[] {boardWidth, boardHeight};
+        }
+        return null;
+      }
+      int squareBoardSize = Integer.parseInt(normalizedValue);
+      if (squareBoardSize <= 0) {
+        return null;
+      }
+      return new int[] {squareBoardSize, squareBoardSize};
+    } catch (NumberFormatException ex) {
+      return null;
+    }
+  }
+
+  private static String formatBoardSizeTag(int boardWidth, int boardHeight) {
+    return boardWidth + (boardWidth != boardHeight ? ":" + boardHeight : "");
   }
 
   private static BoardHistoryList parseValue(
@@ -2863,12 +3566,17 @@ public class SGFParser {
     // Game properties
     Map<String, String> gameProperties = new HashMap<String, String>();
     Map<String, String> pendingProps = new HashMap<String, String>();
+    PendingSetupMetadata pendingSetupMetadata = new PendingSetupMetadata();
     boolean inTag = false,
         isMultiGo = false,
         escaping = false,
         moveStart = false,
-        addPassForMove = true;
+        currentNodeHasMove = false,
+        addPassForMove = true,
+        currentNodeHasSetupSnapshot = false;
     boolean inProp = false;
+    int topLevelNodeCount = 0;
+    boolean allowRootSetupOnCurrentNode = false;
     String tag = "";
     StringBuilder tagBuilder = new StringBuilder();
     StringBuilder tagContentBuilder = new StringBuilder();
@@ -2898,10 +3606,13 @@ public class SGFParser {
       switch (c) {
         case '(':
           if (!inTag) {
+            flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
             subTreeDepth += 1;
             // Initialize the step count
             subTreeStepMap.put(subTreeDepth, history.getCurrentHistoryNode());
             addPassForMove = true;
+            currentNodeHasSetupSnapshot = false;
+            currentNodeHasMove = false;
             pendingProps = new HashMap<String, String>();
           } else {
             if (i > 0) {
@@ -2912,6 +3623,7 @@ public class SGFParser {
           break;
         case ')':
           if (!inTag) {
+            flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
             if (isMultiGo) {
               // Restore to the variation node
               // int varStep = subTreeStepMap.get(subTreeDepth);
@@ -2957,7 +3669,7 @@ public class SGFParser {
           // We got tag, we can parse this tag now.
           if (tag.equals("B") || tag.equals("W")) {
             moveStart = true;
-            addPassForMove = true;
+            addPassForMove = !currentNodeHasSetupSnapshot;
             int[] move = convertSgfPosToCoord(tagContent);
             // Save the step count
             //  subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
@@ -2970,69 +3682,69 @@ public class SGFParser {
             } else {
               history.place(move[0], move[1], color, newBranch);
             }
+            currentNodeHasMove = true;
             if (newBranch) {
               processPendingPros(history, pendingProps);
             }
           } else if (tag.equals("C")) {
             // Support comment
-            if (!moveStart) {
+            boolean rootSetupContext =
+                isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode);
+            if (rootSetupContext) {
               headComment = tagContent;
+            } else if (shouldBufferLeadingSetupMetadata(
+                currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext, tag)) {
+              bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
             } else {
-              history.getData().comment = tagContent;
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+              target.getData().comment = tagContent;
             }
-          } else if (tag.equals("LZ") && history == null) {
-            // Content contains data for Lizzie to read
-            String[] lines = tagContent.split("\n");
-            String[] line1 = lines[0].split(" ");
-            String line2 = "";
-            if (lines.length > 1) {
-              line2 = lines[1];
-            }
-            String engname = line1[0];
-            Lizzie.board.getData().engineName = engname;
-            Lizzie.board.getData().winrate = 100 - Double.parseDouble(line1[1]);
-            int numPlayouts =
-                Integer.parseInt(
-                    line1[2]
-                        .replaceAll("k", "000")
-                        .replaceAll("m", "000000")
-                        .replaceAll("[^0-9]", ""));
-            if (numPlayouts > 0 && !line2.isEmpty()) {
-              Lizzie.board.getData().bestMoves = parseInfofromfile(line2, 0);
+          } else if (isAnalysisTag(tag)) {
+            boolean rootSetupContext =
+                isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode);
+            if (shouldBufferLeadingSetupAnalysis(
+                currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext)) {
+              bufferLeadingSetupAnalysis(pendingSetupMetadata, tag, tagContent);
+            } else {
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+              applyAnalysisTagOnDetachedHistory(target.getData(), tag, tagContent);
             }
           } else if (tag.equals("AB") || tag.equals("AW")) {
             int[] move = convertSgfPosToCoord(tagContent);
             Stone color = tag.equals("AB") ? Stone.BLACK : Stone.WHITE;
-            if (moveStart) {
-              // add to node properties
-              history.addNodeProperty(tag, tagContent);
-              if (addPassForMove) {
-                // Save the step count
-                //  subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
-                boolean newBranch = history.getCurrentHistoryNode().hasVariations();
-                history.pass(color, newBranch, true);
-                if (newBranch) {
-                  processPendingPros(history, pendingProps);
-                }
-                addPassForMove = false;
-              }
-              history.addNodeProperty(tag, tagContent);
-              if (move != null) {
-                history.addExtraStone(move[0], move[1], color);
-              }
+            if (isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode)) {
+              applyRootSetupProperty(history, tag, tagContent, move, color);
             } else {
-              if (move == null) {
-                history.pass(color);
-              } else {
-                history.place(move[0], move[1], color);
+              if (addPassForMove) {
+                boolean newBranch = history.getCurrentHistoryNode().hasVariations();
+                appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
+                addPassForMove = false;
+                currentNodeHasSetupSnapshot = true;
               }
-              history.flatten();
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+              movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+              addNodePropertyOnNode(history, target, tag, tagContent);
+              if (move != null) {
+                addExtraStoneOnNode(history, target, move[0], move[1], color);
+              }
             }
-            Lizzie.leelaz.playMove(color, Board.convertCoordinatesToName(move[0], move[1]));
-            if (!moveStart) {
-              Lizzie.board.hasStartStone = true;
-              if (color == Stone.BLACK) addStartList(true, move[0], move[1]);
-              else addStartList(false, move[0], move[1]);
+          } else if (tag.equals("PL")) {
+            if (isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode)) {
+              applyRootPlayerProperty(history, tagContent);
+            } else {
+              if (addPassForMove) {
+                boolean newBranch = history.getCurrentHistoryNode().hasVariations();
+                appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
+                addPassForMove = false;
+                currentNodeHasSetupSnapshot = true;
+              }
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+              movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+              applyCurrentPlayerPropertyOnNode(history, target, tagContent);
             }
           } else if (tag.equals("PB")) {
             blackPlayer = tagContent;
@@ -3052,8 +3764,7 @@ public class SGFParser {
                   if (komi.toString().endsWith(".75") || komi.toString().endsWith(".25"))
                     komi = komi * 2;
                   if (Math.abs(komi) < Board.boardWidth * Board.boardHeight) {
-                    Lizzie.leelaz.komi(komi);
-                    history.getGameInfo().setKomi(komi);
+                    history.getGameInfo().setKomiNoMenu(komi);
                   }
                 }
               } catch (NumberFormatException e) {
@@ -3076,23 +3787,26 @@ public class SGFParser {
               if ("AE".equals(tag)) {
                 // remove a stone
                 if (addPassForMove) {
-                  // Save the step count
-                  // subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
-                  Stone color =
-                      history.getLastMoveColor() == Stone.WHITE ? Stone.BLACK : Stone.WHITE;
                   boolean newBranch = history.getCurrentHistoryNode().hasVariations();
-                  history.pass(color, newBranch, true);
-                  if (newBranch) {
-                    processPendingPros(history, pendingProps);
-                  }
+                  appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
                   addPassForMove = false;
+                  currentNodeHasSetupSnapshot = true;
                 }
-                history.addNodeProperty(tag, tagContent);
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+                addNodePropertyOnNode(history, target, tag, tagContent);
                 int[] move = convertSgfPosToCoord(tagContent);
                 if (move != null) {
-                  history.removeStone(
-                      move[0], move[1], tag.equals("AB") ? Stone.BLACK : Stone.WHITE);
+                  removeStoneOnNode(history, target, move[0], move[1], Stone.EMPTY, false);
                 }
+              } else if (currentNodeHasSetupSnapshot) {
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                addNodePropertyOnNode(history, target, tag, tagContent);
+              } else if (shouldBufferLeadingSetupMetadata(
+                  currentNodeHasMove, currentNodeHasSetupSnapshot, false, tag)) {
+                bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
               } else {
                 boolean firstProp = history.getCurrentHistoryNode().hasVariations();
                 if (firstProp) {
@@ -3102,8 +3816,37 @@ public class SGFParser {
                 }
               }
             } else {
-              if ("N".equals(tag) && headComment.isEmpty()) headComment = tagContent;
-              else addProperty(gameProperties, tag, tagContent);
+              boolean rootSetupContext =
+                  isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode);
+              if ("AE".equals(tag) && rootSetupContext) {
+                int[] move = convertSgfPosToCoord(tagContent);
+                applyRootSetupProperty(history, tag, tagContent, move, Stone.EMPTY, false);
+              } else if (rootSetupContext) {
+                if ("N".equals(tag) && headComment.isEmpty()) headComment = tagContent;
+                else addProperty(gameProperties, tag, tagContent);
+              } else if ("AE".equals(tag)) {
+                if (addPassForMove) {
+                  boolean newBranch = history.getCurrentHistoryNode().hasVariations();
+                  appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
+                  addPassForMove = false;
+                  currentNodeHasSetupSnapshot = true;
+                }
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+                addNodePropertyOnNode(history, target, tag, tagContent);
+                int[] move = convertSgfPosToCoord(tagContent);
+                if (move != null) {
+                  removeStoneOnNode(history, target, move[0], move[1], Stone.EMPTY, false);
+                }
+              } else if (shouldBufferLeadingSetupMetadata(
+                  currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext, tag)) {
+                bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
+              } else {
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                addNodePropertyOnNode(history, target, tag, tagContent);
+              }
             }
           }
           break;
@@ -3111,6 +3854,13 @@ public class SGFParser {
           if (inProp) {
             // support C[a;b;c;]
             tagContentBuilder.append(c);
+          } else if (!(subTreeDepth > 1 && !isMultiGo)) {
+            flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
+            topLevelNodeCount += 1;
+            allowRootSetupOnCurrentNode = !isBranch && topLevelNodeCount == 1;
+            addPassForMove = true;
+            currentNodeHasSetupSnapshot = false;
+            currentNodeHasMove = false;
           }
           break;
         default:
@@ -3131,11 +3881,11 @@ public class SGFParser {
           }
       }
     }
+    flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
 
     if (isBranch) {
       history.toBranchTop();
     } else {
-      Lizzie.frame.setPlayers(whitePlayer, blackPlayer);
       if (!Utils.isBlank(gameProperties.get("RE")) && Utils.isBlank(history.getData().comment)) {
         history.getData().comment = gameProperties.get("RE");
       }
@@ -3151,6 +3901,7 @@ public class SGFParser {
       if (gameProperties.size() > 0) {
         history.getData().addProperties(gameProperties);
       }
+      stabilizeRootSetupSideToPlay(history);
     }
     return history;
   }
@@ -3174,12 +3925,16 @@ public class SGFParser {
     // Game properties
     Map<String, String> gameProperties = new HashMap<String, String>();
     Map<String, String> pendingProps = new HashMap<String, String>();
+    PendingSetupMetadata pendingSetupMetadata = new PendingSetupMetadata();
     boolean inTag = false,
         isMultiGo = false,
         escaping = false,
         moveStart = false,
-        addPassForMove = true;
+        currentNodeHasMove = false,
+        addPassForMove = true,
+        currentNodeHasSetupSnapshot = false;
     boolean inProp = false;
+    boolean allowRootSetupOnCurrentNode = false;
     String tag = "";
     StringBuilder tagBuilder = new StringBuilder();
     StringBuilder tagContentBuilder = new StringBuilder();
@@ -3202,10 +3957,13 @@ public class SGFParser {
       switch (c) {
         case '(':
           if (!inTag) {
+            flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
             subTreeDepth += 1;
             // Initialize the step count
             subTreeStepMap.put(subTreeDepth, 0);
             addPassForMove = true;
+            currentNodeHasSetupSnapshot = false;
+            currentNodeHasMove = false;
             pendingProps = new HashMap<String, String>();
           } else {
             if (i > 0) {
@@ -3216,6 +3974,7 @@ public class SGFParser {
           break;
         case ')':
           if (!inTag) {
+            flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
             if (isMultiGo) {
               // Restore to the variation node
               int varStep = subTreeStepMap.get(subTreeDepth);
@@ -3260,7 +4019,7 @@ public class SGFParser {
           // We got tag, we can parse this tag now.
           if (tag.equals("B") || tag.equals("W")) {
             moveStart = true;
-            addPassForMove = true;
+            addPassForMove = !currentNodeHasSetupSnapshot;
             int[] move = convertSgfPosToCoord(tagContent);
             // Save the step count
             subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
@@ -3271,50 +4030,58 @@ public class SGFParser {
             } else {
               history.place(move[0], move[1], color, newBranch);
             }
+            currentNodeHasMove = true;
             if (newBranch) {
               processPendingPros(history, pendingProps);
             }
           } else if (tag.equals("C")) {
             // Support comment
-            if (!moveStart) {
+            boolean rootSetupContext =
+                isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode);
+            if (rootSetupContext) {
               headComment = tagContent;
+            } else if (shouldBufferLeadingSetupMetadata(
+                currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext, tag)) {
+              bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
             } else {
-              history.getData().comment = tagContent;
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+              target.getData().comment = tagContent;
             }
           } else if (tag.equals("AB") || tag.equals("AW")) {
             int[] move = convertSgfPosToCoord(tagContent);
             Stone color = tag.equals("AB") ? Stone.BLACK : Stone.WHITE;
-            if (moveStart) {
-              // add to node properties
-              history.addNodeProperty(tag, tagContent);
-              if (addPassForMove) {
-                // Save the step count
-                subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
-                boolean newBranch = (subTreeStepMap.get(subTreeDepth) == 1);
-                history.pass(color, newBranch, true);
-                if (newBranch) {
-                  processPendingPros(history, pendingProps);
-                }
-                addPassForMove = false;
-              }
-              history.addNodeProperty(tag, tagContent);
-              if (move != null) {
-                // history.addStone(move[0], move[1], color);
-                history.place(move[0], move[1], color);
-              }
+            if (isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode)) {
+              applyRootSetupProperty(history, tag, tagContent, move, color);
             } else {
-              if (move == null) {
-                history.pass(color);
-              } else {
-                history.place(move[0], move[1], color);
+              if (addPassForMove) {
+                boolean newBranch = (subTreeStepMap.get(subTreeDepth) <= 1);
+                appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
+                addPassForMove = false;
+                currentNodeHasSetupSnapshot = true;
               }
-              // history.flatten();
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+              movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+              addNodePropertyOnNode(history, target, tag, tagContent);
+              if (move != null) {
+                addExtraStoneOnNode(history, target, move[0], move[1], color);
+              }
             }
-            Lizzie.leelaz.playMove(color, Board.convertCoordinatesToName(move[0], move[1]));
-            if (!moveStart) {
-              Lizzie.board.hasStartStone = true;
-              if (color == Stone.BLACK) addStartList(true, move[0], move[1]);
-              else addStartList(false, move[0], move[1]);
+          } else if (tag.equals("PL")) {
+            if (isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode)) {
+              applyRootPlayerProperty(history, tagContent);
+            } else {
+              if (addPassForMove) {
+                boolean newBranch = (subTreeStepMap.get(subTreeDepth) <= 1);
+                appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
+                addPassForMove = false;
+                currentNodeHasSetupSnapshot = true;
+              }
+              BoardHistoryNode target =
+                  getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+              movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+              applyCurrentPlayerPropertyOnNode(history, target, tagContent);
             }
           } else if (tag.equals("PB")) {
           } else if (tag.equals("PW")) {
@@ -3343,23 +4110,26 @@ public class SGFParser {
               if ("AE".equals(tag)) {
                 // remove a stone
                 if (addPassForMove) {
-                  // Save the step count
-                  subTreeStepMap.put(subTreeDepth, subTreeStepMap.get(subTreeDepth) + 1);
-                  Stone color =
-                      history.getLastMoveColor() == Stone.WHITE ? Stone.BLACK : Stone.WHITE;
-                  boolean newBranch = (subTreeStepMap.get(subTreeDepth) == 1);
-                  history.pass(color, newBranch, true);
-                  if (newBranch) {
-                    processPendingPros(history, pendingProps);
-                  }
+                  boolean newBranch = (subTreeStepMap.get(subTreeDepth) <= 1);
+                  appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
                   addPassForMove = false;
+                  currentNodeHasSetupSnapshot = true;
                 }
-                history.addNodeProperty(tag, tagContent);
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+                addNodePropertyOnNode(history, target, tag, tagContent);
                 int[] move = convertSgfPosToCoord(tagContent);
                 if (move != null) {
-                  history.removeStone(
-                      move[0], move[1], tag.equals("AB") ? Stone.BLACK : Stone.WHITE);
+                  removeStoneOnNode(history, target, move[0], move[1], Stone.EMPTY);
                 }
+              } else if (currentNodeHasSetupSnapshot) {
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                addNodePropertyOnNode(history, target, tag, tagContent);
+              } else if (shouldBufferLeadingSetupMetadata(
+                  currentNodeHasMove, currentNodeHasSetupSnapshot, false, tag)) {
+                bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
               } else {
                 boolean firstProp = (subTreeStepMap.get(subTreeDepth) == 0);
                 if (firstProp) {
@@ -3369,8 +4139,37 @@ public class SGFParser {
                 }
               }
             } else {
-              if ("N".equals(tag) && headComment.isEmpty()) headComment = tagContent;
-              else addProperty(gameProperties, tag, tagContent);
+              boolean rootSetupContext =
+                  isRootSetupContext(history, moveStart, allowRootSetupOnCurrentNode);
+              if ("AE".equals(tag) && rootSetupContext) {
+                int[] move = convertSgfPosToCoord(tagContent);
+                applyRootSetupProperty(history, tag, tagContent, move, Stone.EMPTY);
+              } else if (rootSetupContext) {
+                if ("N".equals(tag) && headComment.isEmpty()) headComment = tagContent;
+                else addProperty(gameProperties, tag, tagContent);
+              } else if ("AE".equals(tag)) {
+                if (addPassForMove) {
+                  boolean newBranch = (subTreeStepMap.get(subTreeDepth) <= 1);
+                  appendSetupSnapshot(history, newBranch, pendingProps, currentNodeHasMove);
+                  addPassForMove = false;
+                  currentNodeHasSetupSnapshot = true;
+                }
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                movePendingSetupMetadataToTarget(history, target, pendingSetupMetadata);
+                addNodePropertyOnNode(history, target, tag, tagContent);
+                int[] move = convertSgfPosToCoord(tagContent);
+                if (move != null) {
+                  removeStoneOnNode(history, target, move[0], move[1], Stone.EMPTY);
+                }
+              } else if (shouldBufferLeadingSetupMetadata(
+                  currentNodeHasMove, currentNodeHasSetupSnapshot, rootSetupContext, tag)) {
+                bufferLeadingSetupMetadata(pendingSetupMetadata, tag, tagContent);
+              } else {
+                BoardHistoryNode target =
+                    getSetupPropertyTargetNode(history, currentNodeHasSetupSnapshot);
+                addNodePropertyOnNode(history, target, tag, tagContent);
+              }
             }
           }
           break;
@@ -3378,6 +4177,11 @@ public class SGFParser {
           if (inProp) {
             // support C[a;b;c;]
             tagContentBuilder.append(c);
+          } else if (!(subTreeDepth > 1 && !isMultiGo)) {
+            flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
+            addPassForMove = true;
+            currentNodeHasSetupSnapshot = false;
+            currentNodeHasMove = false;
           }
           break;
         default:
@@ -3398,6 +4202,7 @@ public class SGFParser {
           }
       }
     }
+    flushPendingSetupMetadataToCurrentNode(history, pendingSetupMetadata);
     history.toBranchTop();
     return history.getCurrentHistoryNode().numberOfChildren() - 1;
   }
@@ -3406,6 +4211,289 @@ public class SGFParser {
     int[] cor = Board.getCoord(i);
 
     return asCoord(cor);
+  }
+
+  private static boolean isAnalysisTag(String tag) {
+    return "LZ".equals(tag) || "LZOP".equals(tag) || "LZ2".equals(tag) || "LZOP2".equals(tag);
+  }
+
+  private static boolean isSecondaryEngineAnalysisTag(String tag) {
+    return "LZ2".equals(tag) || "LZOP2".equals(tag);
+  }
+
+  private static void applyAnalysisTagOnDetachedHistory(
+      BoardHistoryList history, String tag, String tagContent) {
+    if (history == null) {
+      return;
+    }
+    applyAnalysisTagOnDetachedHistory(history.getData(), tag, tagContent);
+  }
+
+  private static void applyAnalysisTagOnDetachedHistory(
+      BoardData target, String tag, String tagContent) {
+    if (target == null || Utils.isBlank(tagContent)) {
+      return;
+    }
+    String[] lines = tagContent.split("\n", 2);
+    String[] line1 = lines[0].trim().split("\\s+");
+    if (line1.length < 3 || Utils.isBlank(line1[0])) {
+      return;
+    }
+    String line2 = lines.length > 1 ? lines[1] : "";
+    boolean secondaryEngine = isSecondaryEngineAnalysisTag(tag);
+    applyAnalysisHeader(target, line1, secondaryEngine);
+    int numPlayouts = parseAnalysisPlayouts(line1[2]);
+    if (numPlayouts <= 0 || Utils.isBlank(line2)) {
+      return;
+    }
+    double stdev = extractAnalysisScoreStdev(line1);
+    ParsedAnalysisInfo parsed = parseAnalysisInfoForDetachedNode(line2, stdev, secondaryEngine);
+    applyParsedAnalysisInfo(target, parsed, secondaryEngine);
+  }
+
+  private static void applyAnalysisHeader(
+      BoardData target, String[] line1, boolean secondaryEngineTag) {
+    int headerPlayouts = parseAnalysisPlayouts(line1[2]);
+    int headerSlots = line1.length;
+    if (secondaryEngineTag) {
+      target.engineName2 = line1[0];
+      target.winrate2 = 100 - parseDoubleOrDefault(line1[1], 50);
+      target.setPlayouts2(headerPlayouts);
+      target.isKataData2 = false;
+      target.analysisHeaderSlots2 = headerSlots;
+      target.scoreMean2 = 0;
+      target.scoreStdev2 = 0;
+      target.pda2 = 0;
+      if (line1.length >= 4) {
+        target.scoreMean2 = parseDoubleOrDefault(line1[3], 0);
+        target.isKataData2 = true;
+      }
+      if (line1.length >= 5) {
+        target.scoreStdev2 = parseDoubleOrDefault(line1[4], 0);
+      }
+      if (line1.length >= 6) {
+        target.pda2 = parseDoubleOrDefault(line1[5], 0);
+      }
+      return;
+    }
+    target.engineName = line1[0];
+    target.winrate = 100 - parseDoubleOrDefault(line1[1], 50);
+    target.setPlayouts(headerPlayouts);
+    target.isKataData = false;
+    target.analysisHeaderSlots = headerSlots;
+    target.scoreMean = 0;
+    target.scoreStdev = 0;
+    target.pda = 0;
+    if (line1.length >= 4) {
+      target.scoreMean = parseDoubleOrDefault(line1[3], 0);
+      target.isKataData = true;
+    }
+    if (line1.length >= 5) {
+      target.scoreStdev = parseDoubleOrDefault(line1[4], 0);
+    }
+    if (line1.length >= 6) {
+      target.pda = parseDoubleOrDefault(line1[5], 0);
+    }
+  }
+
+  private static int parseAnalysisPlayouts(String rawValue) {
+    if (Utils.isBlank(rawValue)) {
+      return 0;
+    }
+    String normalized = rawValue.trim().toLowerCase(Locale.ENGLISH).replace(",", "");
+    double multiplier = 1;
+    if (normalized.endsWith("m")) {
+      multiplier = 1_000_000;
+      normalized = normalized.substring(0, normalized.length() - 1);
+    } else if (normalized.endsWith("k")) {
+      multiplier = 1_000;
+      normalized = normalized.substring(0, normalized.length() - 1);
+    }
+    try {
+      double value = Double.parseDouble(normalized.replaceAll("[^0-9.\\-]", ""));
+      return value <= 0 ? 0 : (int) Math.round(value * multiplier);
+    } catch (NumberFormatException ex) {
+      String digits = normalized.replaceAll("[^0-9]", "");
+      if (digits.isEmpty()) {
+        return 0;
+      }
+      try {
+        return Integer.parseInt(digits);
+      } catch (NumberFormatException nestedEx) {
+        return 0;
+      }
+    }
+  }
+
+  private static double extractAnalysisScoreStdev(String[] line1) {
+    if (line1.length < 5) {
+      return 0;
+    }
+    return parseDoubleOrDefault(line1[4], 0);
+  }
+
+  private static double parseDoubleOrDefault(String rawValue, double defaultValue) {
+    try {
+      return Double.parseDouble(rawValue);
+    } catch (NumberFormatException ex) {
+      return defaultValue;
+    }
+  }
+
+  private static ParsedAnalysisInfo parseAnalysisInfoForDetachedNode(
+      String line, double stdev, boolean secondaryEngineTag) {
+    boolean hasOwnership = line.contains("ownership");
+    String[] lineInfo = hasOwnership ? line.split("ownership", 2) : null;
+    String analysisLine = hasOwnership ? lineInfo[0] : line;
+    List<MoveData> bestMoves = new ArrayList<>();
+    String[] variations = analysisLine.split(" info ");
+    int maxSuggestions =
+        secondaryEngineTag
+            ? 361
+            : (Lizzie.config.limitMaxSuggestion > 0 && !Lizzie.config.showNoSuggCircle
+                ? Lizzie.config.limitMaxSuggestion
+                : 361);
+    for (String variation : variations) {
+      if (Utils.isBlank(variation) || maxSuggestions < 1) {
+        continue;
+      }
+      bestMoves.add(parseMoveDataFromAnalysis(variation, bestMoves));
+      maxSuggestions -= 1;
+    }
+    if (!bestMoves.isEmpty()) {
+      bestMoves.get(0).scoreStdev = stdev;
+    }
+    return new ParsedAnalysisInfo(bestMoves, parseOwnershipValues(lineInfo));
+  }
+
+  private static MoveData parseMoveDataFromAnalysis(String variation, List<MoveData> bestMoves) {
+    MoveData result = new MoveData();
+    String[] data = variation.trim().split("\\s+");
+    for (int i = 0; i < data.length - 1; i++) {
+      String key = data[i];
+      if ("pv".equals(key)) {
+        captureVariationTokens(result, data, i);
+        break;
+      }
+      String value = data[++i];
+      applyMoveDataToken(result, key, value);
+    }
+    result.order = bestMoves.size();
+    if ((result.variation == null || result.variation.isEmpty())
+        && !Utils.isBlank(result.coordinate)) {
+      result.variation = new ArrayList<>();
+      result.variation.add(result.coordinate);
+    }
+    return result;
+  }
+
+  private static void captureVariationTokens(MoveData target, String[] data, int pvIndex) {
+    int pvVisitsIndex = -1;
+    for (int cursor = pvIndex + 1; cursor < data.length; cursor++) {
+      if ("pvVisits".equals(data[cursor])) {
+        pvVisitsIndex = cursor;
+        target.pvVisits = new ArrayList<>(asList(data).subList(cursor + 1, data.length));
+        break;
+      }
+    }
+    int end = pvVisitsIndex > -1 ? pvVisitsIndex : data.length;
+    int maxLength = end - pvIndex - 1;
+    if (Lizzie.config.limitBranchLength > 0 && maxLength > Lizzie.config.limitBranchLength) {
+      end = pvIndex + 1 + Lizzie.config.limitBranchLength;
+    }
+    target.variation = new ArrayList<>(asList(data).subList(pvIndex + 1, end));
+  }
+
+  private static void applyMoveDataToken(MoveData target, String key, String value) {
+    if ("move".equals(key)) {
+      target.coordinate = value;
+    } else if ("visits".equals(key)) {
+      target.playouts = parseAnalysisPlayouts(value);
+    } else if ("winrate".equals(key)) {
+      target.winrate = parseAnalysisPlayouts(value) / 100.0;
+      target.lcb = target.winrate;
+    } else if ("prior".equals(key)) {
+      target.policy = parsePriorValue(value);
+    } else if ("scoreMean".equals(key)) {
+      target.scoreMean = parseDoubleOrDefault(value, 0);
+      target.isKataData = true;
+    } else if ("scoreStdev".equals(key)) {
+      target.scoreStdev = parseDoubleOrDefault(value, 0);
+      target.isKataData = true;
+    }
+  }
+
+  private static double parsePriorValue(String rawValue) {
+    try {
+      return Integer.parseInt(rawValue) / 100.0;
+    } catch (NumberFormatException ex) {
+      return parseDoubleOrDefault(rawValue, 0);
+    }
+  }
+
+  private static ArrayList<Double> parseOwnershipValues(String[] lineInfo) {
+    if (lineInfo == null || lineInfo.length < 2) {
+      return null;
+    }
+    ArrayList<Double> estimateArray = new ArrayList<>();
+    String[] params = lineInfo[1].trim().split("\\s+");
+    for (String param : params) {
+      try {
+        estimateArray.add(Double.parseDouble(param));
+      } catch (NumberFormatException ex) {
+        break;
+      }
+    }
+    return estimateArray;
+  }
+
+  private static void applyParsedAnalysisInfo(
+      BoardData target, ParsedAnalysisInfo parsed, boolean secondaryEngineTag) {
+    if (parsed.bestMoves.isEmpty()) {
+      return;
+    }
+    MoveData bestMove = parsed.bestMoves.get(0);
+    if (secondaryEngineTag) {
+      boolean headerHasKata = target.isKataData2;
+      target.bestMoves2 = parsed.bestMoves;
+      target.estimateArray2 = parsed.estimateArray;
+      target.isSaiData2 = target.isSaiData2 || bestMove.isSaiData;
+      target.isKataData2 = target.isKataData2 || bestMove.isKataData;
+      if (!headerHasKata && bestMove.isKataData) {
+        if (shouldApplyBestMoveScore(target.scoreMean2, bestMove.scoreMean)) {
+          target.scoreMean2 = bestMove.scoreMean;
+        }
+        target.scoreStdev2 = bestMove.scoreStdev;
+      }
+      return;
+    }
+    boolean headerHasKata = target.isKataData;
+    target.bestMoves = parsed.bestMoves;
+    target.estimateArray = parsed.estimateArray;
+    target.playoutsChanged = true;
+    target.isSaiData = target.isSaiData || bestMove.isSaiData;
+    target.isKataData = target.isKataData || bestMove.isKataData;
+    if (!headerHasKata && bestMove.isKataData) {
+      if (shouldApplyBestMoveScore(target.scoreMean, bestMove.scoreMean)) {
+        target.scoreMean = bestMove.scoreMean;
+      }
+      target.scoreStdev = bestMove.scoreStdev;
+    }
+  }
+
+  private static boolean shouldApplyBestMoveScore(
+      double headerScoreMean, double bestMoveScoreMean) {
+    return Double.compare(bestMoveScoreMean, 0) != 0 || Double.compare(headerScoreMean, 0) == 0;
+  }
+
+  private static final class ParsedAnalysisInfo {
+    private final List<MoveData> bestMoves;
+    private final ArrayList<Double> estimateArray;
+
+    private ParsedAnalysisInfo(List<MoveData> bestMoves, ArrayList<Double> estimateArray) {
+      this.bestMoves = bestMoves;
+      this.estimateArray = estimateArray;
+    }
   }
 
   private static List<MoveData> parseInfofromfile(String line, double stdev) {

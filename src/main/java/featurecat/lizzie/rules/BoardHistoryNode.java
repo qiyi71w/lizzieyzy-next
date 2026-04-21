@@ -4,7 +4,9 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Node structure for the board history / sgf tree */
@@ -113,9 +115,7 @@ public class BoardHistoryNode {
     BoardHistoryNode node = new BoardHistoryNode(data);
     // Add node
     if (variations.size() == 0) {
-      if (this.data.blackToPlay != node.getData().lastMoveColor.isBlack()) {
-        this.data.blackToPlay = node.getData().lastMoveColor.isBlack();
-      }
+      alignParentTurnStateWithFirstActionChild(node.getData());
     }
     variations.add(node);
     node.previous = Optional.of(this);
@@ -182,7 +182,7 @@ public class BoardHistoryNode {
     }
     if (!newBranch && !tsumego) {
       for (int i = 0; i < variations.size(); i++) {
-        if (variations.get(i).data.zobrist.equals(data.zobrist)) {
+        if (matchesVariationIdentity(variations.get(i), data)) {
           // if (i != 0) {
           // // Swap selected next to foremost
           // BoardHistoryNode currentNext = variations.get(i);
@@ -227,9 +227,7 @@ public class BoardHistoryNode {
     } else {
       // Add node
       if (variations.size() == 0 && !tsumego) {
-        if (this.data.blackToPlay != node.getData().lastMoveColor.isBlack()) {
-          this.data.blackToPlay = node.getData().lastMoveColor.isBlack();
-        }
+        alignParentTurnStateWithFirstActionChild(node.getData());
       }
       variations.add(node);
     }
@@ -331,30 +329,28 @@ public class BoardHistoryNode {
   }
 
   public void moveChildUp(BoardHistoryNode child) {
-    for (int i = 1; i < variations.size(); i++) {
-      if (variations.get(i).data.zobrist.equals(child.data.zobrist)) {
-        BoardHistoryNode tmp = variations.get(i - 1);
-        variations.set(i - 1, child);
-        variations.set(i, tmp);
-        if ((i - 1) == 0) {
-          child.swapMoveNumberList(tmp);
-        }
-        return;
-      }
+    int index = findDirectChildIndex(child);
+    if (index <= 0) {
+      return;
+    }
+    BoardHistoryNode previousSibling = variations.get(index - 1);
+    variations.set(index - 1, child);
+    variations.set(index, previousSibling);
+    if ((index - 1) == 0) {
+      child.swapMoveNumberList(previousSibling);
     }
   }
 
   public void moveChildDown(BoardHistoryNode child) {
-    for (int i = 0; i < variations.size() - 1; i++) {
-      if (variations.get(i).data.zobrist.equals(child.data.zobrist)) {
-        BoardHistoryNode tmp = variations.get(i + 1);
-        variations.set(i + 1, child);
-        variations.set(i, tmp);
-        if (i == 0) {
-          tmp.swapMoveNumberList(child);
-        }
-        return;
-      }
+    int index = findDirectChildIndex(child);
+    if (index < 0 || index >= variations.size() - 1) {
+      return;
+    }
+    BoardHistoryNode nextSibling = variations.get(index + 1);
+    variations.set(index + 1, child);
+    variations.set(index, nextSibling);
+    if (index == 0) {
+      nextSibling.swapMoveNumberList(child);
     }
   }
 
@@ -378,7 +374,7 @@ public class BoardHistoryNode {
     BoardData data = this.getData();
     int[] moveNumberList = data.moveNumberList;
     data.moveMNNumber = start;
-    if (data.lastMove.isPresent() && !data.dummy) {
+    if (data.isMoveNode() && !data.dummy) {
       int[] move = data.lastMove.get();
       moveNumberList[Board.getIndex(move[0], move[1])] = start;
     }
@@ -386,7 +382,7 @@ public class BoardHistoryNode {
     int moveNumber = start;
     while (node.isPresent()) {
       BoardData nodeData = node.get().getData();
-      if (nodeData.lastMove.isPresent()) {
+      if (nodeData.isMoveNode()) {
         int[] move = nodeData.lastMove.get();
         moveNumber = (moveNumber > 1) ? moveNumber - 1 : 0;
         moveNumberList[Board.getIndex(move[0], move[1])] = moveNumber;
@@ -669,50 +665,32 @@ public class BoardHistoryNode {
 
     BoardHistoryNode cur = this;
     // Compare
-    while (node != null) {
+    while (node != null && cur != null) {
       if (!cur.compare(node)) {
         BoardData sData = cur.getData();
         sData.sync(node.getData());
-        if (sData.getPlayouts() > 0) sData.comment = SGFParser.formatComment(cur);
-        if (node.numberOfChildren() > 0) {
-          for (int i = 0; i < node.numberOfChildren(); i++) {
-            if (node.getVariation(i).isPresent()) {
-              if (cur.variations.size() <= i) {
-                cur.addOrGoto(node.getVariation(i).get().getData().clone(), (i > 0));
-              }
-              if (i > 0) {
-                cur.variations.get(i).sync(node.getVariation(i).get());
-              }
-            }
-          }
+        cur.extraStones = cloneExtraStones(node.extraStones);
+        cur.hasRemovedStone = node.hasRemovedStone;
+        if (sData.getPlayouts() > 0 && !sData.isSnapshotNode()) {
+          sData.comment = SGFParser.formatComment(cur);
         }
       }
+      cur.syncVariationsFrom(node);
       cur = cur.next(true).map(n -> n).orElse(null);
       node = node.next(true).map(n -> n).orElse(null);
     }
   }
 
+  public void syncVariations(BoardHistoryNode node) {
+    if (node == null) return;
+    syncVariationsFrom(node);
+  }
+
   public boolean compare(BoardHistoryNode node) {
     BoardData sData = this.getData();
     BoardData dData = node.getData();
-
-    boolean dMove =
-        sData.lastMove.isPresent() && dData.lastMove.isPresent()
-            || !sData.lastMove.isPresent() && !dData.lastMove.isPresent();
-    if (dMove && sData.lastMove.isPresent()) {
-      int[] sM = sData.lastMove.get();
-      int[] dM = dData.lastMove.get();
-      dMove =
-          (sM != null
-              && sM.length == 2
-              && dM != null
-              && dM.length == 2
-              && sM[0] == dM[0]
-              && sM[1] == dM[1]);
-    }
-    return dMove
-        && sData.comment != null
-        && sData.comment.equals(dData.comment)
+    return matchesChildState(sData, dData)
+        && hasEquivalentMetadata(node)
         && this.numberOfChildren() == node.numberOfChildren();
   }
 
@@ -731,7 +709,7 @@ public class BoardHistoryNode {
         isNewBranch
             ? new int[Board.boardWidth * Board.boardHeight]
             : this.previous.get().getData().moveNumberList.clone();
-    if (getData().lastMove.isPresent())
+    if (getData().isMoveNode())
       this.getData()
               .moveNumberList[
               Board.getIndex(this.getData().lastMove.get()[0], this.getData().lastMove.get()[1])] =
@@ -749,18 +727,8 @@ public class BoardHistoryNode {
 
   public void clearAndSyncBoard(boolean stepIn) {
     if (stepIn) {
-      //	  System.out.println("in");
       Lizzie.leelaz.clear();
-      for (int x = 0; x < Board.boardWidth; x++) {
-        for (int y = 0; y < Board.boardHeight; y++) {
-          Stone stone = data.stones[Board.getIndex(x, y)];
-          if (stone.isBlack()) {
-            Lizzie.leelaz.playMove(stone, Board.convertCoordinatesToName(x, y));
-          } else if (stone.isWhite()) {
-            Lizzie.leelaz.playMove(stone, Board.convertCoordinatesToName(x, y));
-          }
-        }
-      }
+      replayBoardStateWithSnapshotTurnAlignment(this);
     } else {
       //  System.out.println("out");
       Lizzie.board.resendMoveToEngine(Lizzie.leelaz, false);
@@ -769,43 +737,221 @@ public class BoardHistoryNode {
   }
 
   public boolean checkForRemovedStone() {
-    // TODO Auto-generated method stub
-    boolean removedStone = this.hasRemovedStone;
-    Optional<BoardHistoryNode> node = previous;
-    while (!removedStone && node.isPresent()) {
-      removedStone = node.get().hasRemovedStone;
-      node = node.get().previous;
+    BoardHistoryNode marker = findRemovedStoneMarker();
+    if (marker == null) {
+      return false;
     }
-    if (removedStone) {
-      Optional<BoardHistoryNode> nextNode = node;
-      for (int x = 0; x < Board.boardWidth; x++) {
-        for (int y = 0; y < Board.boardHeight; y++) {
-          Stone stone = node.get().data.stones[Board.getIndex(x, y)];
-          if (stone.isBlack()) {
-            Lizzie.leelaz.playMove(stone, Board.convertCoordinatesToName(x, y));
-          } else if (stone.isWhite()) {
-            Lizzie.leelaz.playMove(stone, Board.convertCoordinatesToName(x, y));
-          }
-        }
-      }
-      while (nextNode.get().next().isPresent()) {
-        if (nextNode.get().data.lastMove.isPresent()) {
-          Lizzie.leelaz.playMove(
-              nextNode.get().data.lastMoveColor,
-              Board.convertCoordinatesToName(
-                  nextNode.get().data.lastMove.get()[0], nextNode.get().data.lastMove.get()[1]));
-        } else Lizzie.leelaz.playMove(nextNode.get().data.lastMoveColor, "pass");
-        nextNode = nextNode.get().next();
-      }
-      if (nextNode != node) {
-        if (nextNode.get().data.lastMove.isPresent()) {
-          Lizzie.leelaz.playMove(
-              nextNode.get().data.lastMoveColor,
-              Board.convertCoordinatesToName(
-                  nextNode.get().data.lastMove.get()[0], nextNode.get().data.lastMove.get()[1]));
-        } else Lizzie.leelaz.playMove(nextNode.get().data.lastMoveColor, "pass");
+    replayBoardStateWithoutSnapshotTurnAlignment(marker);
+    replayActionsAfterRemovedStone(marker.next().orElse(null));
+    return true;
+  }
+
+  private void replayNodeMove(BoardHistoryNode node) {
+    BoardData replayData = node.getData();
+    if (replayData.isMoveNode()) {
+      Lizzie.leelaz.playMove(
+          replayData.lastMoveColor,
+          Board.convertCoordinatesToName(
+              replayData.lastMove.get()[0], replayData.lastMove.get()[1]));
+      return;
+    }
+    if (isReplayablePass(replayData)) {
+      Lizzie.leelaz.playMove(replayData.lastMoveColor, "pass");
+    }
+  }
+
+  private static ArrayList<ExtraStones> cloneExtraStones(ArrayList<ExtraStones> stones) {
+    if (stones == null) {
+      return null;
+    }
+    ArrayList<ExtraStones> clone = new ArrayList<ExtraStones>(stones.size());
+    for (ExtraStones stone : stones) {
+      ExtraStones copy = new ExtraStones();
+      copy.x = stone.x;
+      copy.y = stone.y;
+      copy.isBlack = stone.isBlack;
+      clone.add(copy);
+    }
+    return clone;
+  }
+
+  private static boolean sameLastMove(Optional<int[]> leftMove, Optional<int[]> rightMove) {
+    if (leftMove.isPresent() != rightMove.isPresent()) {
+      return false;
+    }
+    if (!leftMove.isPresent()) {
+      return true;
+    }
+    return Arrays.equals(leftMove.get(), rightMove.get());
+  }
+
+  private static boolean matchesChildState(BoardData existing, BoardData candidate) {
+    return Arrays.equals(existing.stones, candidate.stones)
+        && sameLastMove(existing.lastMove, candidate.lastMove)
+        && existing.getNodeKind() == candidate.getNodeKind()
+        && existing.dummy == candidate.dummy
+        && existing.moveNumber == candidate.moveNumber
+        && existing.blackToPlay == candidate.blackToPlay
+        && existing.lastMoveColor == candidate.lastMoveColor
+        && Objects.equals(existing.comment, candidate.comment);
+  }
+
+  private static boolean matchesVariationIdentity(
+      BoardHistoryNode existingChild, BoardData candidate) {
+    return matchesVariationIdentity(existingChild, candidate, false, null);
+  }
+
+  private static boolean matchesVariationIdentity(
+      BoardHistoryNode existingChild,
+      BoardData candidate,
+      boolean candidateHasRemovedStone,
+      ArrayList<ExtraStones> candidateExtraStones) {
+    BoardData existingData = existingChild.data;
+    if (!matchesChildState(existingData, candidate)) {
+      return false;
+    }
+    if (!existingData.isSnapshotNode() || !candidate.isSnapshotNode()) {
+      return true;
+    }
+    return hasSameSnapshotMetadataSignature(
+        existingData,
+        existingChild.hasRemovedStone,
+        existingChild.extraStones,
+        candidate,
+        candidateHasRemovedStone,
+        candidateExtraStones);
+  }
+
+  private static boolean isReplayablePass(BoardData data) {
+    return data.isPassNode() && data.moveNumber != 0 && !data.dummy;
+  }
+
+  private void alignParentTurnStateWithFirstActionChild(BoardData childData) {
+    if (this.data.isSnapshotNode()) {
+      return;
+    }
+    if (this.data.getProperties().containsKey("PL")) {
+      return;
+    }
+    if (!childData.isHistoryActionNode()) {
+      return;
+    }
+    if (this.data.blackToPlay != childData.lastMoveColor.isBlack()) {
+      this.data.blackToPlay = childData.lastMoveColor.isBlack();
+    }
+  }
+
+  private int findDirectChildIndex(BoardHistoryNode child) {
+    for (int i = 0; i < variations.size(); i++) {
+      if (variations.get(i) == child) {
+        return i;
       }
     }
-    return removedStone;
+    return -1;
+  }
+
+  private BoardHistoryNode ensureVariation(int index, BoardHistoryNode sourceChild) {
+    if (variations.size() > index) {
+      return variations.get(index);
+    }
+    return addOrGoto(sourceChild.getData().clone(), index > 0);
+  }
+
+  private void syncVariationsFrom(BoardHistoryNode sourceNode) {
+    int sourceChildren = sourceNode.numberOfChildren();
+    for (int i = 0; i < sourceChildren; i++) {
+      Optional<BoardHistoryNode> sourceChild = sourceNode.getVariation(i);
+      if (!sourceChild.isPresent()) {
+        continue;
+      }
+      BoardHistoryNode child = ensureVariation(i, sourceChild.get());
+      child.sync(sourceChild.get());
+    }
+    trimVariationsToSize(sourceChildren);
+  }
+
+  private void trimVariationsToSize(int expectedSize) {
+    while (variations.size() > expectedSize) {
+      variations.remove(variations.size() - 1);
+    }
+  }
+
+  private boolean hasEquivalentMetadata(BoardHistoryNode node) {
+    return hasSameSnapshotMetadataSignature(
+        data, hasRemovedStone, extraStones, node.data, node.hasRemovedStone, node.extraStones);
+  }
+
+  private static boolean hasSameSnapshotMetadataSignature(
+      BoardData leftData,
+      boolean leftHasRemovedStone,
+      ArrayList<ExtraStones> leftExtraStones,
+      BoardData rightData,
+      boolean rightHasRemovedStone,
+      ArrayList<ExtraStones> rightExtraStones) {
+    return leftHasRemovedStone == rightHasRemovedStone
+        && Objects.equals(leftData.getProperties(), rightData.getProperties())
+        && sameExtraStones(leftExtraStones, rightExtraStones);
+  }
+
+  private BoardHistoryNode findRemovedStoneMarker() {
+    BoardHistoryNode node = this;
+    while (true) {
+      if (node.hasRemovedStone) {
+        return node;
+      }
+      if (!node.previous.isPresent()) {
+        return null;
+      }
+      node = node.previous.get();
+    }
+  }
+
+  private void replayBoardStateWithSnapshotTurnAlignment(BoardHistoryNode anchor) {
+    replayBoardState(anchor);
+  }
+
+  private void replayBoardStateWithoutSnapshotTurnAlignment(BoardHistoryNode anchor) {
+    replayBoardState(anchor);
+  }
+
+  private void replayBoardState(BoardHistoryNode anchor) {
+    BoardData snapshotData = anchor.data;
+    if (!snapshotData.isSnapshotNode()) {
+      snapshotData = SnapshotEngineRestore.snapshotFromCurrentBoard(snapshotData);
+    }
+    if (!SnapshotEngineRestore.restoreExactSnapshotIfNeeded(Lizzie.leelaz, snapshotData)) {
+      throw new IllegalStateException("Removed-stone replay requires snapshot data.");
+    }
+  }
+
+  private void replayActionsAfterRemovedStone(BoardHistoryNode actionNode) {
+    BoardHistoryNode node = actionNode;
+    while (node != null) {
+      replayNodeMove(node);
+      if (node == this) {
+        return;
+      }
+      node = node.next().orElse(null);
+    }
+  }
+
+  private static boolean sameExtraStones(
+      ArrayList<ExtraStones> left, ArrayList<ExtraStones> right) {
+    if (left == right) {
+      return true;
+    }
+    if (left == null || right == null || left.size() != right.size()) {
+      return false;
+    }
+    for (int i = 0; i < left.size(); i++) {
+      ExtraStones leftStone = left.get(i);
+      ExtraStones rightStone = right.get(i);
+      if (leftStone.x != rightStone.x
+          || leftStone.y != rightStone.y
+          || leftStone.isBlack != rightStone.isBlack) {
+        return false;
+      }
+    }
+    return true;
   }
 }
