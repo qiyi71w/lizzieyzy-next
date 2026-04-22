@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -135,7 +136,7 @@ class ReadBoardSyncDecisionTest {
   }
 
   @Test
-  void foxMoveNumberDoesNotRecoverRepeatedStoneHistoryMatch() throws Exception {
+  void foxLiveRollbackReusesExactMainTrunkAncestorEvenWithRepeatedStones() throws Exception {
     Stone[] repeatedStones = stones(placement(1, 1, Stone.BLACK));
 
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
@@ -161,26 +162,30 @@ class ReadBoardSyncDecisionTest {
       BoardHistoryNode mainEnd = harness.board.getHistory().getCurrentHistoryNode();
       setField(harness.readBoard, "lastResolvedSnapshotNode", mainEnd);
 
-      harness.readBoard.parseLine("foxMoveNumber 1");
+      armFoxMoveNumber(harness.readBoard, 1);
       harness.sync(snapshot(repeatedStones, Optional.empty(), Stone.EMPTY));
       assertSame(
           mainEnd,
           harness.board.getHistory().getMainEnd(),
-          "the first conflicting markerless frame should hold instead of rewinding history.");
+          "rollback to an exact ancestor should keep later local history available.");
+      assertSame(
+          moveOne,
+          harness.board.getHistory().getCurrentHistoryNode(),
+          "fox live rollback should move the current view to the matched main-trunk ancestor.");
 
-      harness.readBoard.parseLine("foxMoveNumber 1");
+      harness.leelaz.clearCount = 0;
+      armFoxMoveNumber(harness.readBoard, 1);
       harness.sync(snapshot(repeatedStones, Optional.empty(), Stone.EMPTY));
 
-      BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
-      assertNotSame(
-          moveOne,
-          rebuiltMainEnd,
-          "fox metadata must not recover an earlier repeated-stones node from old history.");
       assertSame(
-          rebuiltMainEnd,
+          mainEnd,
+          harness.board.getHistory().getMainEnd(),
+          "steady-state rollback frames should keep the preserved future history.");
+      assertSame(
+          moveOne,
           harness.board.getHistory().getCurrentHistoryNode(),
-          "rebuilding the repeated-stones snapshot should focus the new sync root.");
-      assertStaticSnapshotRootWithoutMarker(harness.board, repeatedStones, 1, false);
+          "steady-state rollback frames should stay on the matched ancestor.");
+      assertEquals(0, harness.leelaz.clearCount, "exact ancestor rollback should not rebuild.");
       assertTrue(
           passNode.previous().isPresent(), "test fixture should keep the pass node in history.");
     }
@@ -192,7 +197,7 @@ class ReadBoardSyncDecisionTest {
     Stone[] target = stones(placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
 
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
-      harness.readBoard.parseLine("foxMoveNumber 57");
+      armFoxMoveNumber(harness.readBoard, 57);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertEquals(
@@ -223,7 +228,7 @@ class ReadBoardSyncDecisionTest {
     Stone[] target = stones(placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
 
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertStaticSnapshotRootWithoutMarker(harness.board, target, 58, true);
@@ -255,7 +260,7 @@ class ReadBoardSyncDecisionTest {
             placement(2, 2, Stone.BLACK));
 
     try (SyncHarness harness = SyncHarness.create(false, rootHistory(initial, true))) {
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertEquals(
@@ -273,6 +278,77 @@ class ReadBoardSyncDecisionTest {
           "exact snapshot restore should avoid replaying the rebuilt static stones.");
       assertArrayEquals(target, harness.leelaz.copyStones());
       assertTrue(harness.leelaz.isBlackToPlay());
+    }
+  }
+
+  @Test
+  void foxRollbackPastRetainedHistoryWindowRebuildsImmediately() throws Exception {
+    Stone[] rootStones = stones(placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+    Stone[] target = stones(placement(0, 0, Stone.BLACK));
+
+    try (SyncHarness harness =
+        SyncHarness.create(
+            false,
+            rootHistory(
+                rootStones,
+                Optional.of(new int[] {1, 0}),
+                Stone.WHITE,
+                true,
+                100,
+                BoardNodeKind.SNAPSHOT))) {
+      buildHistory(
+          harness.board,
+          placement(0, 1, Stone.BLACK),
+          placement(1, 1, Stone.WHITE),
+          placement(2, 2, Stone.BLACK));
+
+      armFoxMoveNumber(harness.readBoard, 99);
+      harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
+
+      assertEquals(
+          0,
+          harness.board.placeForSyncCount,
+          "rollback past the retained history window should rebuild statically.");
+      assertStaticSnapshotRootWithoutMarker(harness.board, target, 99, false);
+    }
+  }
+
+  @Test
+  void foxJumpBeyondRetainedHistoryWindowRebuildsImmediately() throws Exception {
+    Stone[] rootStones = stones(placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+    Stone[] target =
+        stones(
+            placement(0, 0, Stone.BLACK),
+            placement(1, 0, Stone.WHITE),
+            placement(0, 1, Stone.BLACK),
+            placement(1, 1, Stone.WHITE),
+            placement(2, 2, Stone.BLACK),
+            placement(2, 0, Stone.WHITE));
+
+    try (SyncHarness harness =
+        SyncHarness.create(
+            false,
+            rootHistory(
+                rootStones,
+                Optional.of(new int[] {1, 0}),
+                Stone.WHITE,
+                true,
+                100,
+                BoardNodeKind.SNAPSHOT))) {
+      buildHistory(
+          harness.board,
+          placement(0, 1, Stone.BLACK),
+          placement(1, 1, Stone.WHITE),
+          placement(2, 2, Stone.BLACK));
+
+      armFoxMoveNumber(harness.readBoard, 106);
+      harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
+
+      assertEquals(
+          0,
+          harness.board.placeForSyncCount,
+          "jumping beyond the retained history window should rebuild statically.");
+      assertStaticSnapshotRootWithoutMarker(harness.board, target, 106, true);
     }
   }
 
@@ -333,7 +409,7 @@ class ReadBoardSyncDecisionTest {
       harness.leelaz.clearCount = 0;
       harness.leelaz.playedMoves = new ArrayList<>();
 
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       BoardHistoryNode currentMainEnd = harness.board.getHistory().getMainEnd();
@@ -383,7 +459,7 @@ class ReadBoardSyncDecisionTest {
       harness.leelaz.clearCount = 0;
       harness.leelaz.playedMoves = new ArrayList<>();
 
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
@@ -429,7 +505,7 @@ class ReadBoardSyncDecisionTest {
       BoardHistoryNode originalMainEnd = harness.board.getHistory().getMainEnd();
       seedSetupMetadata(originalMainEnd);
 
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
@@ -468,7 +544,7 @@ class ReadBoardSyncDecisionTest {
       originalMainEnd.getData().addProperty("MN", "93");
       originalMainEnd.getData().blackToPlay = false;
 
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
@@ -493,7 +569,7 @@ class ReadBoardSyncDecisionTest {
       harness.board.resetCounters();
       harness.frame.refreshCount = 0;
       harness.leelaz.clearCount = 0;
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertSame(
@@ -512,6 +588,42 @@ class ReadBoardSyncDecisionTest {
   }
 
   @Test
+  void sameBoardRecordViewConflictDoesNotRebuildFromConflictingFoxMoveMetadata() throws Exception {
+    Stone[] target = stones(placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+
+    try (SyncHarness harness =
+        SyncHarness.create(
+            false,
+            rootHistory(target, Optional.empty(), Stone.EMPTY, true, 2, BoardNodeKind.SNAPSHOT))) {
+      BoardHistoryNode originalMainEnd = harness.board.getHistory().getMainEnd();
+      harness.board.resetCounters();
+      harness.frame.refreshCount = 0;
+      harness.leelaz.clearCount = 0;
+
+      harness.readBoard.parseLine("syncPlatform fox");
+      harness.readBoard.parseLine("recordCurrentMove 57");
+      harness.readBoard.parseLine("recordTotalMove 333");
+      harness.readBoard.parseLine("recordAtEnd 0");
+      harness.readBoard.parseLine("recordTitleFingerprint record-fingerprint");
+      harness.readBoard.parseLine("foxMoveNumber 58");
+      harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
+
+      assertSame(
+          originalMainEnd,
+          harness.board.getHistory().getMainEnd(),
+          "conflicting record-view title metadata should suppress fox metadata rebuilds.");
+      assertEquals(
+          0,
+          harness.leelaz.clearCount,
+          "conflicting record-view title metadata should stay off the rebuild path.");
+      assertEquals(
+          0,
+          harness.frame.refreshCount,
+          "conflicting record-view title metadata should keep the UI on the NO_CHANGE path.");
+    }
+  }
+
+  @Test
   void sameBoardWithSameFoxMoveNumberDoesNotRebuildTwice() throws Exception {
     Stone[] target = stones(placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
 
@@ -525,7 +637,7 @@ class ReadBoardSyncDecisionTest {
       harness.leelaz.clearCount = 0;
       harness.leelaz.playedMoves = new ArrayList<>();
 
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertSame(
@@ -551,7 +663,7 @@ class ReadBoardSyncDecisionTest {
     Stone[] target = stones(placement(0, 0, Stone.BLACK));
 
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
-      harness.readBoard.parseLine("foxMoveNumber 3");
+      armFoxMoveNumber(harness.readBoard, 3);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertStaticSnapshotRootWithoutMarker(harness.board, target, 3, false);
@@ -563,7 +675,7 @@ class ReadBoardSyncDecisionTest {
     Stone[] target = stones(placement(0, 0, Stone.BLACK));
 
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
-      harness.readBoard.parseLine("foxMoveNumber 1");
+      armFoxMoveNumber(harness.readBoard, 1);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       BoardHistoryNode trackedMainEnd = harness.board.getHistory().getMainEnd();
@@ -579,7 +691,7 @@ class ReadBoardSyncDecisionTest {
       harness.leelaz.clearCount = 0;
       harness.leelaz.playedMoves = new ArrayList<>();
 
-      harness.readBoard.parseLine("foxMoveNumber 1");
+      armFoxMoveNumber(harness.readBoard, 1);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertSame(
@@ -689,7 +801,7 @@ class ReadBoardSyncDecisionTest {
             placement(1, 2, Stone.BLACK));
 
     try (SyncHarness harness = SyncHarness.create(false, rootHistory(beforeCapture, true))) {
-      harness.readBoard.parseLine("foxMoveNumber 1");
+      armFoxMoveNumber(harness.readBoard, 1);
       harness.sync(snapshot(afterCapture, Optional.empty(), Stone.EMPTY));
 
       BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
@@ -790,7 +902,7 @@ class ReadBoardSyncDecisionTest {
             placement(1, 2, Stone.BLACK));
 
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
 
       assertStaticSnapshotRootWithoutMarker(harness.board, target, 58, true);
@@ -1279,7 +1391,7 @@ class ReadBoardSyncDecisionTest {
       harness.board.resetCounters();
       harness.frame.refreshCount = 0;
       harness.leelaz.clearCount = 0;
-      harness.readBoard.parseLine("foxMoveNumber 58");
+      armFoxMoveNumber(harness.readBoard, 58);
       harness.sync(snapshot(repeatedStones, Optional.empty(), Stone.EMPTY));
 
       assertSame(
@@ -1291,6 +1403,284 @@ class ReadBoardSyncDecisionTest {
           "the matching PASS node should remain a real history action.");
       assertEquals(0, harness.leelaz.clearCount, "preserving PASS should avoid metadata rebuilds.");
       assertEquals(0, harness.frame.refreshCount, "preserving PASS should keep the UI steady.");
+    }
+  }
+
+  @Test
+  void startAtSameSizeDoesNotClearBoardOrResumeState() throws Exception {
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      HistoryPath path =
+          buildHistory(
+              harness.board,
+              placement(0, 0, Stone.BLACK),
+              placement(1, 0, Stone.WHITE),
+              placement(0, 1, Stone.BLACK));
+      BoardHistoryNode mainEnd = path.nodes.get(path.nodes.size() - 1);
+      SyncResumeState resumeState =
+          new SyncResumeState(
+              mainEnd,
+              SyncRemoteContext.forFoxLive(OptionalInt.of(3), "43581号", OptionalInt.of(3), false));
+      setField(harness.readBoard, "resumeState", resumeState);
+      setField(harness.readBoard, "lastResolvedSnapshotNode", mainEnd);
+
+      harness.board.resetCounters();
+      harness.readBoard.parseLine("start 3 3");
+
+      assertEquals(0, harness.board.clearCount, "same-size start should not clear lizzie board.");
+      assertSame(mainEnd, harness.board.getHistory().getMainEnd());
+      assertSame(
+          resumeState,
+          getField(harness.readBoard, "resumeState"),
+          "start should keep cross-session resume state.");
+      assertSame(
+          mainEnd,
+          getField(harness.readBoard, "lastResolvedSnapshotNode"),
+          "start should keep the remembered resolved node.");
+    }
+  }
+
+  @Test
+  void clearDoesNotClearBoardOrResumeState() throws Exception {
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      HistoryPath path =
+          buildHistory(harness.board, placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+      BoardHistoryNode mainEnd = path.nodes.get(path.nodes.size() - 1);
+      SyncResumeState resumeState =
+          new SyncResumeState(
+              mainEnd,
+              SyncRemoteContext.forFoxLive(OptionalInt.of(2), "43581号", OptionalInt.of(2), false));
+      setField(harness.readBoard, "resumeState", resumeState);
+      setField(harness.readBoard, "lastResolvedSnapshotNode", mainEnd);
+
+      harness.board.resetCounters();
+      harness.readBoard.parseLine("clear");
+
+      assertEquals(0, harness.board.clearCount, "readboard clear should not clear lizzie board.");
+      assertSame(mainEnd, harness.board.getHistory().getMainEnd());
+      assertSame(
+          resumeState,
+          getField(harness.readBoard, "resumeState"),
+          "clear should keep cross-session resume state.");
+      assertSame(
+          mainEnd,
+          getField(harness.readBoard, "lastResolvedSnapshotNode"),
+          "clear should keep the remembered resolved node.");
+    }
+  }
+
+  @Test
+  void startFirstFoxJumpFrameBypassesHoldAndRebuildsImmediately() throws Exception {
+    Stone[] rootStones = stones(placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+    Stone[] target =
+        stones(
+            placement(0, 0, Stone.BLACK),
+            placement(1, 0, Stone.WHITE),
+            placement(0, 1, Stone.BLACK),
+            placement(1, 1, Stone.WHITE),
+            placement(2, 2, Stone.BLACK),
+            placement(2, 0, Stone.WHITE));
+
+    try (SyncHarness harness =
+        SyncHarness.create(
+            false,
+            rootHistory(
+                rootStones,
+                Optional.of(new int[] {1, 0}),
+                Stone.WHITE,
+                true,
+                100,
+                BoardNodeKind.SNAPSHOT))) {
+      buildHistory(
+          harness.board,
+          placement(0, 1, Stone.BLACK),
+          placement(1, 1, Stone.WHITE),
+          placement(2, 2, Stone.BLACK));
+
+      harness.readBoard.parseLine("start 3 3");
+      armFoxMoveNumber(harness.readBoard, 106);
+      harness.sync(snapshot(target, Optional.empty(), Stone.EMPTY));
+
+      assertEquals(
+          0,
+          harness.board.placeForSyncCount,
+          "the first frame after start should bypass HOLD for fox multi-step jumps.");
+      assertStaticSnapshotRootWithoutMarker(harness.board, target, 106, true);
+    }
+  }
+
+  @Test
+  void forceRebuildFlagAppliesToNextFrameOnly() throws Exception {
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      HistoryPath path =
+          buildHistory(harness.board, placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+      BoardHistoryNode originalMainEnd = path.nodes.get(path.nodes.size() - 1);
+      int[] snapshotCodes =
+          snapshot(
+              originalMainEnd.getData().stones,
+              originalMainEnd.getData().lastMove,
+              originalMainEnd.getData().lastMoveColor);
+
+      harness.readBoard.parseLine("forceRebuild");
+      harness.sync(snapshotCodes);
+
+      BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
+      assertNotSame(
+          originalMainEnd,
+          rebuiltMainEnd,
+          "forceRebuild should bypass the steady-state NO_CHANGE.");
+      assertTrue(rebuiltMainEnd.getData().isSnapshotNode());
+
+      harness.board.resetCounters();
+      harness.frame.refreshCount = 0;
+      harness.leelaz.clearCount = 0;
+      harness.sync(snapshotCodes);
+
+      assertSame(
+          rebuiltMainEnd,
+          harness.board.getHistory().getMainEnd(),
+          "forceRebuild should be consumed after one sync frame.");
+      assertEquals(
+          0,
+          harness.leelaz.clearCount,
+          "steady-state frame after forceRebuild should not rebuild again.");
+      assertEquals(
+          0,
+          harness.board.placeForSyncCount,
+          "steady-state frame after forceRebuild should not replay stones.");
+    }
+  }
+
+  @Test
+  void roomTokenChangeForcesRebuildInsteadOfReusingEarlierFoxHistory() throws Exception {
+    Stone[] ancestorStones = stones(placement(1, 1, Stone.BLACK));
+
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      HistoryPath path =
+          buildHistory(
+              harness.board,
+              placement(1, 1, Stone.BLACK),
+              placement(0, 0, Stone.WHITE),
+              placement(2, 2, Stone.BLACK));
+      BoardHistoryNode ancestorNode = path.nodes.get(0);
+      setField(
+          harness.readBoard,
+          "resumeState",
+          new SyncResumeState(
+              ancestorNode,
+              SyncRemoteContext.forFoxLive(OptionalInt.of(1), "43581号", OptionalInt.of(1), false)));
+      setField(harness.readBoard, "lastResolvedSnapshotNode", ancestorNode);
+
+      harness.readBoard.parseLine("syncPlatform fox");
+      harness.readBoard.parseLine("roomToken 55667号");
+      harness.readBoard.parseLine("liveTitleMove 1");
+      harness.readBoard.parseLine("foxMoveNumber 1");
+      harness.sync(snapshot(ancestorStones, Optional.empty(), Stone.EMPTY));
+
+      BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
+      assertNotSame(
+          ancestorNode,
+          rebuiltMainEnd,
+          "changing roomToken should force a rebuild instead of reusing old main-trunk history.");
+      assertFalse(
+          rebuiltMainEnd.previous().isPresent(),
+          "room-token conflict should rebuild to a new snapshot root.");
+      assertTrue(rebuiltMainEnd.getData().isSnapshotNode());
+      assertArrayEquals(ancestorStones, rebuiltMainEnd.getData().stones);
+    }
+  }
+
+  @Test
+  void recordTitleFingerprintChangeForcesRebuildInsteadOfReusingEarlierFoxHistory()
+      throws Exception {
+    Stone[] ancestorStones = stones(placement(1, 1, Stone.BLACK));
+
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      HistoryPath path =
+          buildHistory(
+              harness.board,
+              placement(1, 1, Stone.BLACK),
+              placement(0, 0, Stone.WHITE),
+              placement(2, 2, Stone.BLACK));
+      BoardHistoryNode ancestorNode = path.nodes.get(0);
+      setField(
+          harness.readBoard,
+          "resumeState",
+          new SyncResumeState(
+              ancestorNode,
+              SyncRemoteContext.forFoxRecord(
+                  OptionalInt.of(1),
+                  OptionalInt.of(1),
+                  OptionalInt.of(333),
+                  false,
+                  "record-fingerprint-a",
+                  false)));
+      setField(harness.readBoard, "lastResolvedSnapshotNode", ancestorNode);
+
+      harness.readBoard.parseLine("syncPlatform fox");
+      harness.readBoard.parseLine("recordCurrentMove 1");
+      harness.readBoard.parseLine("recordTotalMove 333");
+      harness.readBoard.parseLine("recordAtEnd 0");
+      harness.readBoard.parseLine("recordTitleFingerprint record-fingerprint-b");
+      harness.readBoard.parseLine("foxMoveNumber 1");
+      harness.sync(snapshot(ancestorStones, Optional.empty(), Stone.EMPTY));
+
+      BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
+      assertNotSame(
+          ancestorNode,
+          rebuiltMainEnd,
+          "changing record title fingerprint should force a rebuild instead of reusing old history.");
+      assertFalse(
+          rebuiltMainEnd.previous().isPresent(),
+          "record-title conflict should rebuild to a new snapshot root.");
+      assertTrue(rebuiltMainEnd.getData().isSnapshotNode());
+      assertArrayEquals(ancestorStones, rebuiltMainEnd.getData().stones);
+    }
+  }
+
+  @Test
+  void recordTotalMoveChangeForcesRebuildInsteadOfReusingEarlierFoxHistory() throws Exception {
+    Stone[] ancestorStones = stones(placement(1, 1, Stone.BLACK));
+
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      HistoryPath path =
+          buildHistory(
+              harness.board,
+              placement(1, 1, Stone.BLACK),
+              placement(0, 0, Stone.WHITE),
+              placement(2, 2, Stone.BLACK));
+      BoardHistoryNode ancestorNode = path.nodes.get(0);
+      setField(
+          harness.readBoard,
+          "resumeState",
+          new SyncResumeState(
+              ancestorNode,
+              SyncRemoteContext.forFoxRecord(
+                  OptionalInt.of(1),
+                  OptionalInt.of(1),
+                  OptionalInt.of(333),
+                  false,
+                  "record-fingerprint",
+                  false)));
+      setField(harness.readBoard, "lastResolvedSnapshotNode", ancestorNode);
+
+      harness.readBoard.parseLine("syncPlatform fox");
+      harness.readBoard.parseLine("recordCurrentMove 1");
+      harness.readBoard.parseLine("recordTotalMove 444");
+      harness.readBoard.parseLine("recordAtEnd 0");
+      harness.readBoard.parseLine("recordTitleFingerprint record-fingerprint");
+      harness.readBoard.parseLine("foxMoveNumber 1");
+      harness.sync(snapshot(ancestorStones, Optional.empty(), Stone.EMPTY));
+
+      BoardHistoryNode rebuiltMainEnd = harness.board.getHistory().getMainEnd();
+      assertNotSame(
+          ancestorNode,
+          rebuiltMainEnd,
+          "changing record total move should force a rebuild instead of reusing old history.");
+      assertFalse(
+          rebuiltMainEnd.previous().isPresent(),
+          "record-total conflict should rebuild to a new snapshot root.");
+      assertTrue(rebuiltMainEnd.getData().isSnapshotNode());
+      assertArrayEquals(ancestorStones, rebuiltMainEnd.getData().stones);
     }
   }
 
@@ -1307,6 +1697,11 @@ class ReadBoardSyncDecisionTest {
     assertEquals(BOARD_SIZE, Board.boardHeight, "fixture builders should restore the 3x3 height.");
     assertEquals(
         Stone.BLACK, data.stones[stoneIndex(2, 2)], "fixture data should keep 3x3 stones.");
+  }
+
+  private static void armFoxMoveNumber(ReadBoard readBoard, int moveNumber) {
+    readBoard.parseLine("syncPlatform fox");
+    readBoard.parseLine("foxMoveNumber " + moveNumber);
   }
 
   private static HistoryPath buildHistory(TrackingBoard board, Placement... moves) {
@@ -1901,6 +2296,16 @@ class ReadBoardSyncDecisionTest {
     @Override
     public void clearTryPlay() {
       // No UI side effects in these tests.
+    }
+
+    @Override
+    public void scheduleResumeAnalysisAfterLoad(int delayMillis) {
+      // Avoid background scheduler threads in sync-decision tests.
+    }
+
+    @Override
+    public void scheduleResumeAnalysisAfterLoad(int delayMillis, Runnable action) {
+      // Avoid background scheduler threads in sync-decision tests.
     }
   }
 

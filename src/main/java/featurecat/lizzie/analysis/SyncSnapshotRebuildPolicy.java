@@ -18,32 +18,113 @@ final class SyncSnapshotRebuildPolicy {
   }
 
   Optional<BoardHistoryNode> findMatchingHistoryNode(
-      BoardHistoryNode syncStartNode, int[] snapshotCodes, OptionalInt foxMoveNumber) {
+      BoardHistoryNode syncStartNode, int[] snapshotCodes, SyncRemoteContext remoteContext) {
     if (syncStartNode == null || snapshotCodes.length == 0) {
       return Optional.empty();
     }
-    SnapshotMarker marker = findSnapshotMarker(snapshotCodes);
-    if (!marker.valid) {
+    if (shouldUseAncestorScan(remoteContext)) {
+      for (BoardHistoryNode cursor = syncStartNode;
+          cursor != null;
+          cursor = cursor.previous().orElse(null)) {
+        if (matchesRemoteIdentity(cursor.getData(), snapshotCodes, remoteContext)) {
+          return Optional.of(cursor);
+        }
+      }
       return Optional.empty();
     }
-    BoardData currentData = syncStartNode.getData();
-    if (marker.present) {
-      return matchesSnapshot(currentData, snapshotCodes, marker)
-          ? Optional.of(syncStartNode)
-          : Optional.empty();
-    }
-    return matchesStones(currentData.stones, snapshotCodes)
+    return matchesRemoteIdentity(syncStartNode.getData(), snapshotCodes, remoteContext)
         ? Optional.of(syncStartNode)
         : Optional.empty();
   }
 
+  Optional<BoardHistoryNode> findMatchingHistoryNode(
+      BoardHistoryNode syncStartNode, int[] snapshotCodes, OptionalInt foxMoveNumber) {
+    SyncRemoteContext remoteContext =
+        foxMoveNumber.isPresent()
+            ? SyncRemoteContext.forFoxLive(foxMoveNumber, null, foxMoveNumber, false)
+            : SyncRemoteContext.generic(false);
+    return findMatchingHistoryNode(syncStartNode, snapshotCodes, remoteContext);
+  }
+
   Optional<BoardHistoryNode> findAdjacentMatchFromLastResolvedNode(
-      BoardHistoryNode lastResolvedNode, int[] snapshotCodes, OptionalInt foxMoveNumber) {
+      SyncResumeState resumeState, int[] snapshotCodes, SyncRemoteContext remoteContext) {
+    if (resumeState == null
+        || resumeState.node == null
+        || remoteContext == null
+        || !remoteContext.supportsFoxRecovery()
+        || resumeState.remoteContext == null
+        || resumeState.remoteContext.conflictsWith(remoteContext)) {
+      return Optional.empty();
+    }
+    BoardHistoryNode nextNode =
+        resumeState.node.next().filter(BoardHistoryNode::isMainTrunk).orElse(null);
+    if (nextNode == null) {
+      return Optional.empty();
+    }
+    if (matchesRemoteIdentity(nextNode.getData(), snapshotCodes, remoteContext)) {
+      return Optional.of(nextNode);
+    }
     return Optional.empty();
   }
 
-  private boolean matchesSnapshot(BoardData candidate, int[] snapshotCodes, SnapshotMarker marker) {
-    return matchesStones(candidate.stones, snapshotCodes) && matchesMarker(candidate, marker);
+  Optional<BoardHistoryNode> findAdjacentMatchFromLastResolvedNode(
+      BoardHistoryNode lastResolvedNode, int[] snapshotCodes, OptionalInt foxMoveNumber) {
+    SyncRemoteContext remoteContext =
+        foxMoveNumber.isPresent()
+            ? SyncRemoteContext.forFoxLive(foxMoveNumber, null, foxMoveNumber, false)
+            : SyncRemoteContext.generic(false);
+    return findAdjacentMatchFromLastResolvedNode(
+        new SyncResumeState(lastResolvedNode, remoteContext), snapshotCodes, remoteContext);
+  }
+
+  String buildConflictKey(int[] snapshotCodes, SyncRemoteContext remoteContext) {
+    StringBuilder builder = new StringBuilder(snapshotCodes.length + 64);
+    for (int snapshotCode : snapshotCodes) {
+      builder.append(normalizeSnapshot(snapshotCode));
+    }
+    if (remoteContext == null) {
+      return builder.toString();
+    }
+    builder.append('|').append(remoteContext.platform.name());
+    builder.append('|').append(remoteContext.windowKind.name());
+    if (remoteContext.supportsFoxRecovery()) {
+      builder.append('|').append(remoteContext.recoveryMoveNumber().getAsInt());
+    }
+    if (remoteContext.windowKind == SyncRemoteContext.WindowKind.LIVE_ROOM) {
+      builder.append('|').append(remoteContext.roomToken.orElse(""));
+    }
+    if (remoteContext.windowKind == SyncRemoteContext.WindowKind.RECORD_VIEW) {
+      builder
+          .append('|')
+          .append(
+              remoteContext.recordTotalMove.isPresent()
+                  ? remoteContext.recordTotalMove.getAsInt()
+                  : -1);
+      builder.append('|').append(remoteContext.titleFingerprint.orElse(""));
+    }
+    return builder.toString();
+  }
+
+  private boolean shouldUseAncestorScan(SyncRemoteContext remoteContext) {
+    return remoteContext != null && remoteContext.supportsFoxRecovery();
+  }
+
+  private boolean matchesRemoteIdentity(
+      BoardData candidate, int[] snapshotCodes, SyncRemoteContext remoteContext) {
+    SnapshotMarker marker = findSnapshotMarker(snapshotCodes);
+    if (!marker.valid) {
+      return false;
+    }
+    if (!matchesStones(candidate.stones, snapshotCodes)) {
+      return false;
+    }
+    if (marker.present && !matchesMarker(candidate, marker)) {
+      return false;
+    }
+    if (remoteContext != null && remoteContext.supportsFoxRecovery()) {
+      return candidate.moveNumber == remoteContext.recoveryMoveNumber().getAsInt();
+    }
+    return true;
   }
 
   private boolean matchesStones(Stone[] stones, int[] snapshotCodes) {

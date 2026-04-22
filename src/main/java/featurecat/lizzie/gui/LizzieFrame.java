@@ -3661,6 +3661,10 @@ public class LizzieFrame extends JFrame {
   }
 
   public void scheduleResumeAnalysisAfterLoad(int delayMillis) {
+    scheduleResumeAnalysisAfterLoad(delayMillis, this::resumeAnalysisAfterLoad);
+  }
+
+  public void scheduleResumeAnalysisAfterLoad(int delayMillis, Runnable action) {
     final int scheduleDelay = Math.max(0, delayMillis);
     canGoAfterload = false;
     Runnable runnable =
@@ -3676,7 +3680,9 @@ public class LizzieFrame extends JFrame {
             SwingUtilities.invokeLater(
                 new Runnable() {
                   public void run() {
-                    resumeAnalysisAfterLoad();
+                    if (action != null) {
+                      action.run();
+                    }
                   }
                 });
           }
@@ -12449,19 +12455,24 @@ public class LizzieFrame extends JFrame {
   }
 
   private void resumeAnalysisAfterLoad() {
+    ensureAnalysisResumedAfterLoad();
+  }
+
+  public boolean ensureAnalysisResumedAfterLoad() {
     if (Lizzie.leelaz == null
         || EngineManager.isEmpty
         || EngineManager.isEngineGame()
         || isPlayingAgainstLeelaz
         || isAnaPlayingAgainstLeelaz) {
-      return;
+      return false;
     }
     if (shouldAutoQuickAnalyzeLoadedGame()) {
       flashAnalyzeGame(true, false, true);
-      return;
+      return true;
     }
     Lizzie.leelaz.ponder();
     refresh();
+    return true;
   }
 
   private boolean shouldAutoQuickAnalyzeLoadedGame() {

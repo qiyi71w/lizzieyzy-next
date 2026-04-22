@@ -19,6 +19,7 @@ class SnapshotTrackingLeelaz extends Leelaz {
   private static final Pattern PROPERTY_PATTERN = Pattern.compile("(AB|AW|PL)\\[([^\\]]*)\\]");
 
   int clearCount;
+  int ponderCount;
   List<String> playedMoves;
   List<String> sentCommands;
   private Stone[] stones;
@@ -33,6 +34,7 @@ class SnapshotTrackingLeelaz extends Leelaz {
     SnapshotTrackingLeelaz leelaz =
         (SnapshotTrackingLeelaz) UnsafeHolder.UNSAFE.allocateInstance(SnapshotTrackingLeelaz.class);
     leelaz.clearCount = 0;
+    leelaz.ponderCount = 0;
     leelaz.playedMoves = new ArrayList<>();
     leelaz.sentCommands = new ArrayList<>();
     leelaz.resetBoardState();
@@ -42,9 +44,15 @@ class SnapshotTrackingLeelaz extends Leelaz {
   @Override
   public void clear() {
     clearCount++;
+    ponderCount = 0;
     playedMoves = new ArrayList<>();
     sentCommands = new ArrayList<>();
     resetBoardState();
+  }
+
+  @Override
+  public void ponder() {
+    ponderCount++;
   }
 
   @Override

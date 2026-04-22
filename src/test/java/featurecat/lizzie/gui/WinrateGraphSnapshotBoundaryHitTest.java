@@ -355,7 +355,8 @@ class WinrateGraphSnapshotBoundaryHitTest {
       graph.clearMouseOverNode();
       boolean handled = frame.processMouseMoveOnWinrateGraph(mainEndPoint[0], mainEndPoint[1]);
       assertTrue(handled, "hover should still resolve after current node changed and no redraw.");
-      assertSame(mainEnd, graph.mouseOverNode, "hover should still hit the rendered main-end point.");
+      assertSame(
+          mainEnd, graph.mouseOverNode, "hover should still hit the rendered main-end point.");
     } finally {
       env.close();
     }
@@ -380,10 +381,12 @@ class WinrateGraphSnapshotBoundaryHitTest {
       assertSame(null, middleHit, "blank background between dense columns should remain miss.");
 
       BoardHistoryNode nearMoveOne = resolveTargetNode(graph, xMoveOne + 1, y);
-      assertSame(moveOne, nearMoveOne, "neighbor pixel near move-one column should resolve move one.");
+      assertSame(
+          moveOne, nearMoveOne, "neighbor pixel near move-one column should resolve move one.");
 
       BoardHistoryNode nearMoveTwo = resolveTargetNode(graph, xMoveTwo - 1, y);
-      assertSame(moveTwo, nearMoveTwo, "neighbor pixel near move-two column should resolve move two.");
+      assertSame(
+          moveTwo, nearMoveTwo, "neighbor pixel near move-two column should resolve move two.");
     } finally {
       env.close();
     }
@@ -416,7 +419,8 @@ class WinrateGraphSnapshotBoundaryHitTest {
       graph.clearMouseOverNode();
       boolean handled = frame.processMouseMoveOnWinrateGraph(edgePixel[0], edgePixel[1]);
       assertTrue(handled, "hover should accept rendered anchor edge foreground pixels.");
-      assertSame(targetNode, graph.mouseOverNode, "hover should resolve to the target anchor node.");
+      assertSame(
+          targetNode, graph.mouseOverNode, "hover should resolve to the target anchor node.");
 
       board.getHistory().goToMoveNumber(1, false);
       frame.onClickedWinrateOnly(edgePixel[0], edgePixel[1]);
@@ -446,7 +450,8 @@ class WinrateGraphSnapshotBoundaryHitTest {
     return configuredGraph(GRAPH_WIDTH, GRAPH_HEIGHT, GRAPH_NUM_MOVES);
   }
 
-  private static WinrateGraph configuredGraph(int width, int height, int numMoves) throws Exception {
+  private static WinrateGraph configuredGraph(int width, int height, int numMoves)
+      throws Exception {
     WinrateGraph graph = new WinrateGraph();
     setField(graph, "origParams", new int[] {0, 0, width, height});
     setField(graph, "params", new int[] {0, 0, width, height, numMoves});
@@ -543,7 +548,9 @@ class WinrateGraphSnapshotBoundaryHitTest {
       if (y < 0 || y >= layer.getHeight()) continue;
       int minX = Integer.MAX_VALUE;
       int maxX = Integer.MIN_VALUE;
-      for (int x = Math.max(0, centerX - 2); x <= Math.min(layer.getWidth() - 1, centerX + 2); x++) {
+      for (int x = Math.max(0, centerX - 2);
+          x <= Math.min(layer.getWidth() - 1, centerX + 2);
+          x++) {
         Color pixel = new Color(layer.getRGB(x, y), true);
         if (pixel.getAlpha() == 0) continue;
         minX = Math.min(minX, x);

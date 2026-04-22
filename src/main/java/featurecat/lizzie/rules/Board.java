@@ -2959,6 +2959,7 @@ public class Board {
     history = newList;
     syncBoardDimensionsWithHistory(newList);
     syncBoardKataFlagsWithHistory(newList);
+    notifyReadBoardHistoryOverwritten();
   }
 
   private static void syncBoardDimensionsWithHistory(BoardHistoryList historyList) {
@@ -3151,6 +3152,7 @@ public class Board {
       }
     } else Lizzie.board.getHistory().getGameInfo().setKomi(komi);
     Lizzie.frame.clearKataEstimate();
+    notifyReadBoardHistoryOverwritten();
   }
 
   public void clearForOnline() {
@@ -3175,11 +3177,13 @@ public class Board {
     Lizzie.board.getHistory().getGameInfo().resetAllNoKomi();
     Lizzie.board.getHistory().getGameInfo().setKomi(Lizzie.leelaz.orikomi);
     Lizzie.frame.clearKataEstimate();
+    notifyReadBoardHistoryOverwritten();
   }
 
   public void clearforedit() {
     initialize(false);
     Lizzie.leelaz.clear();
+    notifyReadBoardHistoryOverwritten();
   }
 
   /** Goes to the previous coordinate, thread safe */
@@ -3223,6 +3227,12 @@ public class Board {
   private void notifyReadBoardLocalHistoryNavigation() {
     if (Lizzie.frame != null && Lizzie.frame.readBoard != null) {
       Lizzie.frame.readBoard.onLocalHistoryNavigation();
+    }
+  }
+
+  protected final void notifyReadBoardHistoryOverwritten() {
+    if (Lizzie.frame != null && Lizzie.frame.readBoard != null) {
+      Lizzie.frame.readBoard.onHistoryOverwritten();
     }
   }
 

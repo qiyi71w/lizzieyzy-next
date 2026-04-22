@@ -33,11 +33,12 @@ import java.util.concurrent.TimeUnit;
 public class ReadBoard {
   private static final long PROCESS_EXIT_WAIT_TIMEOUT_MS = 1000L;
   private static final long PROCESS_DESTROY_WAIT_TIMEOUT_MS = 200L;
+  private static final String LEGACY_NATIVE_READBOARD_EXE = "readboard.exe";
+  private static final String LEGACY_NATIVE_READBOARD_BAT = "readboard.bat";
+  private static final int SYNC_ANALYSIS_RESUME_DELAY_MS = 200;
 
   public static boolean isLegacyNativeReadBoardAvailable() {
-    File readBoardDir = new File("readboard");
-    return new File(readBoardDir, "readboard.exe").canRead()
-        || new File(readBoardDir, "readboard.bat").canRead();
+    return isLegacyNativeReadBoardAvailable(legacyNativeReadBoardDirectory());
   }
 
   public Process process;
@@ -49,7 +50,6 @@ public class ReadBoard {
 
   public boolean isLoaded = false;
   private int version = 220430;
-  private String engineCommand;
   public String currentEnginename = "";
   private int port = -1;
 
@@ -70,7 +70,7 @@ public class ReadBoard {
   private String javaReadBoardName = "readboard-1.6.2-shaded.jar";
   private boolean waitSocket = true;
   public boolean lastMovePlayByLizzie = false;
-  private OptionalInt pendingFoxMoveNumber = OptionalInt.empty();
+  private SyncRemoteContext pendingRemoteContext = SyncRemoteContext.generic(false);
   private boolean waitingForReadBoardLocalMoveAck = false;
   private boolean hideFloadBoardBeforePlace = false;
   private boolean hideFromPlace = false;
@@ -79,7 +79,11 @@ public class ReadBoard {
   private final SyncHistoryJumpTracker historyJumpTracker = new SyncHistoryJumpTracker();
   private final SyncLocalNavigationTracker localNavigationTracker =
       new SyncLocalNavigationTracker();
+  private SyncResumeState resumeState;
   private BoardHistoryNode lastResolvedSnapshotNode;
+  private boolean awaitingFirstSyncFrame = true;
+  private int historyOverwriteSuppressionDepth = 0;
+  private volatile long syncAnalysisEpoch = 0L;
 
   private enum CompleteSnapshotRecovery {
     NO_CHANGE,
@@ -102,9 +106,44 @@ public class ReadBoard {
     if (s != null && !s.isClosed()) {
       s.close();
     }
-    if (usePipe) engineCommand = "readboard\\readboard.exe";
-    else engineCommand = "readboard\\readboard.bat";
-    startEngine(engineCommand, 0);
+    startEngine();
+  }
+
+  static File legacyNativeReadBoardDirectory() {
+    return new File("readboard").getAbsoluteFile();
+  }
+
+  static File resolveLegacyNativeReadBoardCommand(File readBoardDir, boolean usePipe) {
+    File absoluteDir = readBoardDir.getAbsoluteFile();
+    if (usePipe) {
+      return new File(absoluteDir, LEGACY_NATIVE_READBOARD_EXE);
+    }
+
+    return new File(absoluteDir, LEGACY_NATIVE_READBOARD_BAT);
+  }
+
+  static boolean isLegacyNativeReadBoardAvailable(File readBoardDir) {
+    File absoluteDir = readBoardDir.getAbsoluteFile();
+    return new File(absoluteDir, LEGACY_NATIVE_READBOARD_EXE).canRead()
+        || new File(absoluteDir, LEGACY_NATIVE_READBOARD_BAT).canRead();
+  }
+
+  static ProcessBuilder buildLegacyNativeReadBoardProcessBuilder(
+      boolean usePipe, List<String> arguments) {
+    return buildLegacyNativeReadBoardProcessBuilder(
+        legacyNativeReadBoardDirectory(), usePipe, arguments);
+  }
+
+  static ProcessBuilder buildLegacyNativeReadBoardProcessBuilder(
+      File readBoardDir, boolean usePipe, List<String> arguments) {
+    File absoluteDir = readBoardDir.getAbsoluteFile();
+    List<String> commands = new ArrayList<String>();
+    commands.add(resolveLegacyNativeReadBoardCommand(absoluteDir, usePipe).getAbsolutePath());
+    commands.addAll(arguments);
+    ProcessBuilder processBuilder = new ProcessBuilder(commands);
+    processBuilder.directory(absoluteDir);
+    processBuilder.redirectErrorStream(true);
+    return processBuilder;
   }
 
   private void createSocketServer() {
@@ -135,7 +174,7 @@ public class ReadBoard {
     }
   }
 
-  public void startEngine(String engineCommand, int index) throws Exception {
+  public void startEngine() throws Exception {
     if (javaReadBoard) {
       File javaReadBoardJar = new File("readboard_java" + File.separator + javaReadBoardName);
       if (!javaReadBoardJar.exists()) {
@@ -182,7 +221,6 @@ public class ReadBoard {
         }
       }
       List<String> commands = new ArrayList<String>();
-      commands.add(engineCommand);
       commands.add("yzy");
       commands.add(
           !LizzieFrame.toolbar.chkAutoPlayTime.isSelected()
@@ -205,9 +243,7 @@ public class ReadBoard {
       commands.add(Lizzie.resourceBundle.getString("ReadBoard.language"));
       if (usePipe) commands.add("-1");
       else commands.add(String.valueOf(port));
-      ProcessBuilder processBuilder = new ProcessBuilder(commands);
-      if (usePipe) processBuilder.directory(new File("readboard"));
-      processBuilder.redirectErrorStream(true);
+      ProcessBuilder processBuilder = buildLegacyNativeReadBoardProcessBuilder(usePipe, commands);
       try {
         process = processBuilder.start();
       } catch (IOException e) {
@@ -289,6 +325,7 @@ public class ReadBoard {
   }
 
   public void parseLine(String line) {
+    ensureTransientSyncStateInitialized();
     // if (Lizzie.gtpConsole.isVisible())
     // Lizzie.gtpConsole.addLine(line);
     //  System.out.println(line);
@@ -316,8 +353,51 @@ public class ReadBoard {
     if (line.startsWith("foxMoveNumber")) {
       OptionalInt foxMoveNumber = parseFoxMoveNumber(line);
       if (foxMoveNumber.isPresent()) {
-        pendingFoxMoveNumber = foxMoveNumber;
+        pendingRemoteContext = currentPendingRemoteContext().withFoxMoveNumber(foxMoveNumber);
       }
+    }
+    if (line.startsWith("syncPlatform ")) {
+      pendingRemoteContext =
+          currentPendingRemoteContext()
+              .withPlatform(parseSyncPlatform(line.substring("syncPlatform ".length())));
+      return;
+    }
+    if (line.startsWith("roomToken ")) {
+      pendingRemoteContext =
+          currentPendingRemoteContext().withRoomToken(line.substring("roomToken ".length()).trim());
+      return;
+    }
+    if (line.startsWith("liveTitleMove ")) {
+      pendingRemoteContext =
+          currentPendingRemoteContext().withLiveTitleMove(parseOptionalInt(line, "liveTitleMove "));
+      return;
+    }
+    if (line.startsWith("recordCurrentMove ")) {
+      pendingRemoteContext =
+          currentPendingRemoteContext()
+              .withRecordCurrentMove(parseOptionalInt(line, "recordCurrentMove "));
+      return;
+    }
+    if (line.startsWith("recordTotalMove ")) {
+      pendingRemoteContext =
+          currentPendingRemoteContext()
+              .withRecordTotalMove(parseOptionalInt(line, "recordTotalMove "));
+      return;
+    }
+    if (line.startsWith("recordAtEnd ")) {
+      pendingRemoteContext =
+          currentPendingRemoteContext().withRecordAtEnd(line.trim().endsWith("1"));
+      return;
+    }
+    if (line.startsWith("recordTitleFingerprint ")) {
+      pendingRemoteContext =
+          currentPendingRemoteContext()
+              .withTitleFingerprint(line.substring("recordTitleFingerprint ".length()).trim());
+      return;
+    }
+    if (line.trim().equals("forceRebuild")) {
+      pendingRemoteContext = currentPendingRemoteContext().withForceRebuild(true);
+      return;
     }
     if (line.startsWith("version")) {
       Lizzie.gtpConsole.addLineReadBoard("Board synchronization tool " + line + "\n");
@@ -332,34 +412,33 @@ public class ReadBoard {
     }
     if (line.startsWith("end")) {
       if (!isSyncing) syncBoardStones(false);
-      clearPendingFoxMoveNumber();
+      clearPendingRemoteContext();
       tempcount = new ArrayList<Integer>();
     }
     if (line.startsWith("clear")) {
-      resetSyncTrackers();
-      clearPendingFoxMoveNumber();
-      Lizzie.board.clear(false);
-      Lizzie.frame.refresh();
+      resetActiveSyncState();
+      clearPendingRemoteContext();
+      tempcount = new ArrayList<Integer>();
     }
     if (line.startsWith("start")) {
-      clearPendingFoxMoveNumber();
+      clearPendingRemoteContext();
       String[] params = line.trim().split(" ");
       if (params.length >= 3) {
         int boardWidth = Integer.parseInt(params[1]);
         int boardHeight = Integer.parseInt(params[2]);
         if (boardWidth != Board.boardWidth || boardHeight != Board.boardHeight) {
-          resetSyncTrackers();
+          resetActiveSyncState();
+          clearResumeState();
           Lizzie.board.reopen(boardWidth, boardHeight);
         } else {
-          resetSyncTrackers();
-          Lizzie.board.clear(false);
+          resetActiveSyncState();
         }
       } else {
-        resetSyncTrackers();
-        Lizzie.board.clear(false);
+        resetActiveSyncState();
       }
+      tempcount = new ArrayList<Integer>();
     }
-    if (line.startsWith("sync")) {
+    if (line.trim().equals("sync")) {
       Lizzie.frame.syncBoard = true;
       if (!Lizzie.leelaz.isPondering()) Lizzie.leelaz.togglePonder();
     }
@@ -379,8 +458,8 @@ public class ReadBoard {
     }
     if (line.startsWith("endsync")) {
       noMsg = true;
-      resetSyncTrackers();
-      clearPendingFoxMoveNumber();
+      resetActiveSyncState();
+      clearPendingRemoteContext();
       tempcount = new ArrayList<Integer>();
       Lizzie.frame.syncBoard = false;
       if (Lizzie.frame.isAnaPlayingAgainstLeelaz) {
@@ -392,8 +471,8 @@ public class ReadBoard {
       }
     }
     if (line.startsWith("stopsync")) {
-      resetSyncTrackers();
-      clearPendingFoxMoveNumber();
+      resetActiveSyncState();
+      clearPendingRemoteContext();
       tempcount = new ArrayList<Integer>();
       Lizzie.frame.syncBoard = false;
       if (Lizzie.frame.isAnaPlayingAgainstLeelaz) {
@@ -585,7 +664,7 @@ public class ReadBoard {
     localNavigationTracker.startSyncPass(isSecondTime);
     if (tempcount.size() > Board.boardWidth * Board.boardHeight) {
       tempcount = new ArrayList<Integer>();
-      resetSyncTrackers();
+      resetActiveSyncState();
       return;
     }
     isSyncing = true;
@@ -603,7 +682,8 @@ public class ReadBoard {
       Stone[] syncStartStones = node2.getData().stones.clone();
       Stone[] stones = Lizzie.board.getHistory().getMainEnd().getData().stones;
       int[] currentSnapshotCodes = getSnapshotCodes();
-      OptionalInt currentFoxMoveNumber = currentPendingFoxMoveNumber();
+      SyncRemoteContext currentRemoteContext = currentPendingRemoteContext();
+      OptionalInt currentFoxMoveNumber = currentRemoteContext.recoveryMoveNumber();
       SyncSnapshotClassifier classifier =
           new SyncSnapshotClassifier(Board.boardWidth, Board.boardHeight);
       SyncSnapshotClassifier.SnapshotDelta snapshotDelta =
@@ -621,7 +701,7 @@ public class ReadBoard {
           int x = i % Board.boardWidth;
           if (((holdLastMove && m == 3) || m == 1) && !stones[Board.getIndex(x, y)].isBlack()) {
             if (stones[Board.getIndex(x, y)].isWhite()) {
-              Lizzie.board.clear(false);
+              clearBoardWithoutInvalidatingResumeState(false);
               needReSync = true;
               needRefresh = true;
               break;
@@ -640,7 +720,7 @@ public class ReadBoard {
           }
           if (((holdLastMove && m == 4) || m == 2) && !stones[Board.getIndex(x, y)].isWhite()) {
             if (stones[Board.getIndex(x, y)].isBlack()) {
-              Lizzie.board.clear(false);
+              clearBoardWithoutInvalidatingResumeState(false);
               needReSync = true;
               needRefresh = true;
               break;
@@ -661,7 +741,7 @@ public class ReadBoard {
 
           if (!holdLastMove && m == 3 && !stones[Board.getIndex(x, y)].isBlack()) {
             if (stones[Board.getIndex(x, y)].isWhite()) {
-              Lizzie.board.clear(false);
+              clearBoardWithoutInvalidatingResumeState(false);
               needReSync = true;
               needRefresh = true;
               break;
@@ -673,7 +753,7 @@ public class ReadBoard {
           }
           if (!holdLastMove && m == 4 && !stones[Board.getIndex(x, y)].isWhite()) {
             if (stones[Board.getIndex(x, y)].isBlack()) {
-              Lizzie.board.clear(false);
+              clearBoardWithoutInvalidatingResumeState(false);
               needReSync = true;
               needRefresh = true;
               break;
@@ -734,7 +814,7 @@ public class ReadBoard {
         BoardHistoryNode currentNode =
             singleMoveRecovered ? currentSyncEndNode : resolveLocalNavigationTarget(node);
         if (shouldRebuildForFoxMetadataChange(
-            currentSyncEndNode, currentFoxMoveNumber, currentSnapshotCodes)) {
+            currentSyncEndNode, currentRemoteContext, currentSnapshotCodes)) {
           rebuildFromSnapshot(
               currentSyncEndNode, currentSnapshotCodes, snapshotDelta, currentFoxMoveNumber);
           return;
@@ -744,6 +824,7 @@ public class ReadBoard {
       }
       if (!needReSync) {
         conflictTracker.clear();
+        awaitingFirstSyncFrame = false;
       }
       if (played || needRefresh) {
         Lizzie.frame.refresh();
@@ -803,20 +884,46 @@ public class ReadBoard {
     }
   }
 
-  private OptionalInt currentPendingFoxMoveNumber() {
-    if (pendingFoxMoveNumber == null) {
-      return OptionalInt.empty();
-    }
-    return pendingFoxMoveNumber;
+  private SyncRemoteContext.SyncPlatform parseSyncPlatform(String platformToken) {
+    return "fox".equalsIgnoreCase(platformToken.trim())
+        ? SyncRemoteContext.SyncPlatform.FOX
+        : SyncRemoteContext.SyncPlatform.GENERIC;
   }
 
-  private void clearPendingFoxMoveNumber() {
-    pendingFoxMoveNumber = OptionalInt.empty();
+  private OptionalInt parseOptionalInt(String line, String prefix) {
+    if (!line.startsWith(prefix)) {
+      return OptionalInt.empty();
+    }
+    try {
+      return OptionalInt.of(Integer.parseInt(line.substring(prefix.length()).trim()));
+    } catch (NumberFormatException ex) {
+      return OptionalInt.empty();
+    }
+  }
+
+  private SyncRemoteContext currentPendingRemoteContext() {
+    ensureTransientSyncStateInitialized();
+    return pendingRemoteContext;
+  }
+
+  private void ensureTransientSyncStateInitialized() {
+    if (pendingRemoteContext == null) {
+      pendingRemoteContext = SyncRemoteContext.generic(false);
+      awaitingFirstSyncFrame = true;
+    }
+  }
+
+  private OptionalInt currentPendingFoxMoveNumber() {
+    return currentPendingRemoteContext().recoveryMoveNumber();
+  }
+
+  private void clearPendingRemoteContext() {
+    pendingRemoteContext = SyncRemoteContext.generic(false);
   }
 
   private boolean shouldRebuildForFoxMetadataChange(
-      BoardHistoryNode syncEndNode, OptionalInt foxMoveNumber, int[] snapshotCodes) {
-    if (!foxMoveNumber.isPresent()) {
+      BoardHistoryNode syncEndNode, SyncRemoteContext remoteContext, int[] snapshotCodes) {
+    if (remoteContext == null || !remoteContext.supportsFoxRecovery()) {
       return false;
     }
     if (!syncEndMatchesSnapshot(syncEndNode, snapshotCodes)) {
@@ -826,7 +933,7 @@ public class ReadBoard {
     if (currentData.isHistoryActionNode()) {
       return false;
     }
-    int moveNumber = foxMoveNumber.getAsInt();
+    int moveNumber = remoteContext.recoveryMoveNumber().getAsInt();
     boolean expectedBlackToPlay = explicitPlayerOverride(currentData).orElse(moveNumber % 2 == 0);
     return currentData.moveNumber != moveNumber || currentData.blackToPlay != expectedBlackToPlay;
   }
@@ -849,33 +956,78 @@ public class ReadBoard {
       Stone[] syncStartStones,
       int[] snapshotCodes,
       SyncSnapshotClassifier.SnapshotDelta snapshotDelta) {
-    OptionalInt foxMoveNumber = currentPendingFoxMoveNumber();
-    if (isSyncAlreadyAtTarget(syncStartNode, snapshotCodes, foxMoveNumber)) {
+    SyncRemoteContext remoteContext = currentPendingRemoteContext();
+    if (remoteContext.forceRebuild) {
+      return CompleteSnapshotRecovery.FORCE_REBUILD;
+    }
+    if (shouldForceRebuildOnResumeConflict(remoteContext)) {
+      return CompleteSnapshotRecovery.FORCE_REBUILD;
+    }
+
+    Optional<BoardHistoryNode> matchingNode =
+        rebuildPolicy().findMatchingHistoryNode(syncStartNode, snapshotCodes, remoteContext);
+    if (matchingNode.isPresent()) {
+      BoardHistoryNode matchedNode = matchingNode.get();
+      boolean needsAnalysisResume = matchedNode != syncStartNode || awaitingFirstSyncFrame;
+      if (matchedNode != syncStartNode) {
+        moveToAnyPositionWithoutTracking(matchedNode);
+      }
+      if (needsAnalysisResume) {
+        rememberResolvedSnapshotNode(matchedNode);
+        scheduleResumeAnalysisAfterSync(matchedNode);
+      }
       return CompleteSnapshotRecovery.NO_CHANGE;
     }
+
+    Optional<BoardHistoryNode> adjacentMatch =
+        rebuildPolicy()
+            .findAdjacentMatchFromLastResolvedNode(resumeState, snapshotCodes, remoteContext);
+    if (adjacentMatch.isPresent()) {
+      moveToAnyPositionWithoutTracking(adjacentMatch.get());
+      rememberResolvedSnapshotNode(adjacentMatch.get());
+      scheduleResumeAnalysisAfterSync(adjacentMatch.get());
+      return CompleteSnapshotRecovery.NO_CHANGE;
+    }
+
     if (snapshotDelta.hasMarker()
         && tryApplySingleMoveRecovery(syncStartNode, syncStartStones, snapshotCodes)) {
       return CompleteSnapshotRecovery.SINGLE_MOVE_RECOVERY;
     }
-    if (shouldHoldConflictingSnapshot(syncStartNode, snapshotCodes)) {
+    if (shouldForceRebuildWithoutWaiting(syncStartNode, remoteContext)) {
+      return CompleteSnapshotRecovery.FORCE_REBUILD;
+    }
+    if (shouldHoldConflictingSnapshot(syncStartNode, snapshotCodes, remoteContext)) {
       return CompleteSnapshotRecovery.HOLD;
     }
     return CompleteSnapshotRecovery.FORCE_REBUILD;
   }
 
+  private boolean shouldForceRebuildWithoutWaiting(
+      BoardHistoryNode syncStartNode, SyncRemoteContext remoteContext) {
+    if (awaitingFirstSyncFrame) {
+      return remoteContext != null && remoteContext.supportsFoxRecovery();
+    }
+    if (syncStartNode == null || remoteContext == null || !remoteContext.supportsFoxRecovery()) {
+      return false;
+    }
+    return remoteContext.recoveryMoveNumber().getAsInt() != syncStartNode.getData().moveNumber;
+  }
+
   private boolean shouldHoldConflictingSnapshot(
-      BoardHistoryNode syncStartNode, int[] snapshotCodes) {
+      BoardHistoryNode syncStartNode, int[] snapshotCodes, SyncRemoteContext remoteContext) {
     if (rebuildPolicy().shouldRebuildImmediatelyWithoutHistory(syncStartNode)) {
       return false;
     }
-    return conflictTracker.evaluate(snapshotCodes) == SyncConflictTracker.Decision.HOLD;
+    String conflictKey = rebuildPolicy().buildConflictKey(snapshotCodes, remoteContext);
+    return conflictTracker.evaluate(conflictKey) == SyncConflictTracker.Decision.HOLD;
   }
 
-  private boolean isSyncAlreadyAtTarget(
-      BoardHistoryNode syncStartNode, int[] snapshotCodes, OptionalInt foxMoveNumber) {
-    return rebuildPolicy()
-        .findMatchingHistoryNode(syncStartNode, snapshotCodes, foxMoveNumber)
-        .isPresent();
+  private boolean shouldForceRebuildOnResumeConflict(SyncRemoteContext remoteContext) {
+    return remoteContext != null
+        && remoteContext.supportsFoxRecovery()
+        && resumeState != null
+        && resumeState.remoteContext != null
+        && resumeState.remoteContext.conflictsWith(remoteContext);
   }
 
   private void rebuildFromSnapshot(
@@ -890,21 +1042,23 @@ public class ReadBoard {
       int[] snapshotCodes,
       SyncSnapshotClassifier.SnapshotDelta snapshotDelta,
       OptionalInt foxMoveNumber) {
-    resetSyncTrackers();
+    SyncRemoteContext resolvedRemoteContext = currentPendingRemoteContext().withoutForceRebuild();
+    resetActiveSyncState();
     BoardHistoryList previousHistory = Lizzie.board.getHistory();
     RootStartSetupState preservedRootStartSetup = captureRootStartSetupState();
     BoardHistoryList rebuiltHistory =
         buildSnapshotHistory(
             previousHistory, syncStartNode, snapshotCodes, snapshotDelta, foxMoveNumber);
     if (rebuildPolicy().shouldRebuildImmediatelyWithoutHistory(syncStartNode)) {
-      Lizzie.board.clear(false);
+      clearBoardWithoutInvalidatingResumeState(false);
     }
     Lizzie.board.hasStartStone = false;
     Lizzie.board.startStonelist = new ArrayList<>();
-    Lizzie.board.setHistory(rebuiltHistory);
+    setHistoryWithoutInvalidatingResumeState(rebuiltHistory);
     restoreRootStartSetupIfNoOrRootSnapshotAnchor(syncStartNode, preservedRootStartSetup);
     syncEngineToRebuiltSnapshot(rebuiltHistory.getCurrentHistoryNode());
-    rememberResolvedSnapshotNode(rebuiltHistory.getCurrentHistoryNode());
+    rememberResolvedSnapshotNode(rebuiltHistory.getCurrentHistoryNode(), resolvedRemoteContext);
+    scheduleResumeAnalysisAfterSync(rebuiltHistory.getCurrentHistoryNode());
     Lizzie.frame.renderVarTree(0, 0, false, false);
     Lizzie.frame.refresh();
     firstSync = false;
@@ -1375,11 +1529,44 @@ public class ReadBoard {
     return blackTurn ? Stone.BLACK : Stone.WHITE;
   }
 
-  private void resetSyncTrackers() {
+  private void resetActiveSyncState() {
     conflictTracker.clear();
     historyJumpTracker.clear();
-    lastResolvedSnapshotNode = null;
     waitingForReadBoardLocalMoveAck = false;
+    pendingRemoteContext = SyncRemoteContext.generic(false);
+    awaitingFirstSyncFrame = true;
+    invalidatePendingSyncAnalysisResume();
+  }
+
+  private void clearResumeState() {
+    invalidatePendingSyncAnalysisResume();
+    resumeState = null;
+    lastResolvedSnapshotNode = null;
+  }
+
+  private synchronized void runWithSuppressedHistoryOverwriteInvalidation(Runnable action) {
+    historyOverwriteSuppressionDepth++;
+    try {
+      action.run();
+    } finally {
+      historyOverwriteSuppressionDepth--;
+    }
+  }
+
+  private synchronized boolean shouldSuppressHistoryOverwriteInvalidation() {
+    return historyOverwriteSuppressionDepth > 0;
+  }
+
+  private void clearBoardWithoutInvalidatingResumeState(boolean isEngineGame) {
+    runWithSuppressedHistoryOverwriteInvalidation(() -> Lizzie.board.clear(isEngineGame));
+  }
+
+  private void setHistoryWithoutInvalidatingResumeState(BoardHistoryList history) {
+    runWithSuppressedHistoryOverwriteInvalidation(() -> Lizzie.board.setHistory(history));
+  }
+
+  private void invalidatePendingSyncAnalysisResume() {
+    syncAnalysisEpoch++;
   }
 
   private void moveToAnyPositionWithoutTracking(BoardHistoryNode node) {
@@ -1498,7 +1685,9 @@ public class ReadBoard {
     if (Lizzie.config.alwaysSyncBoardStat || showInBoard) {
       lastMoveWithoutTracking();
     }
-    rememberResolvedSnapshotNode(Lizzie.board.getHistory().getMainEnd());
+    BoardHistoryNode resolvedNode = Lizzie.board.getHistory().getMainEnd();
+    rememberResolvedSnapshotNode(resolvedNode);
+    scheduleResumeAnalysisAfterSync(resolvedNode);
     return true;
   }
 
@@ -1510,7 +1699,40 @@ public class ReadBoard {
   }
 
   private void rememberResolvedSnapshotNode(BoardHistoryNode resolvedNode) {
+    rememberResolvedSnapshotNode(resolvedNode, currentPendingRemoteContext().withoutForceRebuild());
+  }
+
+  private void rememberResolvedSnapshotNode(
+      BoardHistoryNode resolvedNode, SyncRemoteContext resolvedRemoteContext) {
+    resumeState =
+        resolvedNode == null ? null : new SyncResumeState(resolvedNode, resolvedRemoteContext);
     lastResolvedSnapshotNode = resolvedNode;
+    awaitingFirstSyncFrame = false;
+  }
+
+  private void scheduleResumeAnalysisAfterSync(BoardHistoryNode targetNode) {
+    if (Lizzie.frame == null || targetNode == null) {
+      return;
+    }
+    long scheduledEpoch = ++syncAnalysisEpoch;
+    Lizzie.frame.scheduleResumeAnalysisAfterLoad(
+        SYNC_ANALYSIS_RESUME_DELAY_MS,
+        () -> resumeAnalysisAfterSyncIfStillCurrent(scheduledEpoch, targetNode));
+  }
+
+  private void resumeAnalysisAfterSyncIfStillCurrent(
+      long scheduledEpoch, BoardHistoryNode targetNode) {
+    if (scheduledEpoch != syncAnalysisEpoch
+        || Lizzie.frame == null
+        || Lizzie.board == null
+        || Lizzie.config == null
+        || !Lizzie.config.readBoardPonder) {
+      return;
+    }
+    if (Lizzie.board.getHistory().getCurrentHistoryNode() != targetNode) {
+      return;
+    }
+    Lizzie.frame.ensureAnalysisResumedAfterLoad();
   }
 
   private static final class SnapshotHistoryState {
@@ -1635,8 +1857,9 @@ public class ReadBoard {
 
   public void shutdown() {
     noMsg = true;
-    resetSyncTrackers();
-    clearPendingFoxMoveNumber();
+    resetActiveSyncState();
+    clearResumeState();
+    clearPendingRemoteContext();
     tempcount = new ArrayList<Integer>();
     if (Lizzie.frame != null) {
       Lizzie.frame.syncBoard = false;
@@ -1650,10 +1873,18 @@ public class ReadBoard {
     if (!localNavigationTracker.shouldProcessLocalNavigation()) {
       return;
     }
+    invalidatePendingSyncAnalysisResume();
     historyJumpTracker.onLocalNavigation();
     if (isSyncing) {
       localNavigationTracker.remember(Lizzie.board.getHistory().getCurrentHistoryNode());
     }
+  }
+
+  public void onHistoryOverwritten() {
+    if (shouldSuppressHistoryOverwriteInvalidation()) {
+      return;
+    }
+    clearResumeState();
   }
 
   public void sendCommandTo(String command) {
