@@ -1,0 +1,236 @@
+package featurecat.lizzie.gui.web;
+
+import featurecat.lizzie.analysis.MoveData;
+import featurecat.lizzie.rules.BoardData;
+import featurecat.lizzie.rules.BoardHistoryNode;
+import featurecat.lizzie.rules.Stone;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/**
+ * Collects board state and analysis data, serializes to JSON, and broadcasts to WebSocket clients.
+ * Throttles updates to a maximum of 10 per second.
+ */
+public class WebBoardDataCollector {
+
+  private final ScheduledExecutorService executor =
+      Executors.newSingleThreadScheduledExecutor(
+          r -> {
+            Thread t = new Thread(r, "WebBoardDataCollector");
+            t.setDaemon(true);
+            return t;
+          });
+  private volatile WebBoardServer server;
+  private volatile long lastBroadcastTime = 0;
+  private static final long MIN_BROADCAST_INTERVAL_MS = 100; // 10 updates/sec max
+  private volatile boolean pendingUpdate = false;
+
+  public WebBoardDataCollector() {}
+
+  public void setServer(WebBoardServer server) {
+    this.server = server;
+  }
+
+  /** Called when analysis data is updated. Throttles to max 10 updates/sec. */
+  public void onAnalysisUpdated() {
+    long now = System.currentTimeMillis();
+    if (now - lastBroadcastTime < MIN_BROADCAST_INTERVAL_MS) {
+      if (!pendingUpdate) {
+        pendingUpdate = true;
+        long delay = MIN_BROADCAST_INTERVAL_MS - (now - lastBroadcastTime);
+        executor.schedule(this::doBroadcastAnalysis, delay, TimeUnit.MILLISECONDS);
+      }
+      return;
+    }
+    executor.execute(this::doBroadcastAnalysis);
+  }
+
+  /** Called when board state changes (new move, navigation, etc.). */
+  public void onBoardStateChanged() {
+    executor.execute(this::doBroadcastFullState);
+  }
+
+  private void doBroadcastAnalysis() {
+    pendingUpdate = false;
+    lastBroadcastTime = System.currentTimeMillis();
+    if (server == null) return;
+    // Stub: will be wired to live data in Task 5
+  }
+
+  private void doBroadcastFullState() {
+    lastBroadcastTime = System.currentTimeMillis();
+    if (server == null) return;
+    // Stub: will be wired to live data in Task 5
+  }
+
+  /** Shuts down the executor. */
+  public void shutdown() {
+    executor.shutdownNow();
+    server = null;
+  }
+
+  // --- Static JSON serialization methods ---
+
+  /**
+   * Converts a Stone array to a JSONArray of ints. BLACK/BLACK_RECURSED -> 1,
+   * WHITE/WHITE_RECURSED -> 2, EMPTY/CAPTURED -> 0.
+   */
+  static JSONArray buildStonesArray(Stone[] stones) {
+    JSONArray arr = new JSONArray();
+    for (Stone s : stones) {
+      if (s.isBlack()) arr.put(1);
+      else if (s.isEmpty()) arr.put(0);
+      else arr.put(2); // white variants
+    }
+    return arr;
+  }
+
+  /**
+   * Parses a GTP coordinate (e.g. "Q16") to [x, y]. Column A=0, skip I, row maps to y =
+   * boardHeight - rowNumber.
+   */
+  static int[] gtpToXY(String coordinate, int boardHeight) {
+    if (coordinate == null || coordinate.length() < 2) return null;
+    char col = coordinate.toUpperCase().charAt(0);
+    int x = col - 'A';
+    if (col > 'I') x--; // GTP skips 'I'
+    int row;
+    try {
+      row = Integer.parseInt(coordinate.substring(1));
+    } catch (NumberFormatException e) {
+      return null;
+    }
+    int y = boardHeight - row;
+    return new int[] {x, y};
+  }
+
+  /** Serializes a MoveData to JSON with coordinate, x, y, winrate, playouts, etc. */
+  static JSONObject buildMoveDataJson(MoveData move, int boardWidth, int boardHeight) {
+    JSONObject obj = new JSONObject();
+    obj.put("coordinate", move.coordinate);
+    int[] xy = gtpToXY(move.coordinate, boardHeight);
+    if (xy != null) {
+      obj.put("x", xy[0]);
+      obj.put("y", xy[1]);
+    }
+    obj.put("winrate", move.winrate);
+    obj.put("playouts", move.playouts);
+    obj.put("scoreMean", move.scoreMean);
+    obj.put("scoreStdev", move.scoreStdev);
+    obj.put("policy", move.policy);
+    obj.put("lcb", move.lcb);
+    obj.put("order", move.order);
+    JSONArray var = new JSONArray();
+    if (move.variation != null) {
+      for (String s : move.variation) var.put(s);
+    }
+    obj.put("variation", var);
+    return obj;
+  }
+
+  /** Builds an analysis_update JSON message. */
+  static JSONObject buildAnalysisUpdateJson(
+      List<MoveData> bestMoves,
+      double winrate,
+      double scoreMean,
+      int playouts,
+      ArrayList<Double> estimateArray,
+      int boardWidth,
+      int boardHeight) {
+    JSONObject obj = new JSONObject();
+    obj.put("type", "analysis_update");
+    JSONArray movesArr = new JSONArray();
+    for (MoveData m : bestMoves) {
+      movesArr.put(buildMoveDataJson(m, boardWidth, boardHeight));
+    }
+    obj.put("bestMoves", movesArr);
+    obj.put("winrate", winrate);
+    obj.put("scoreMean", scoreMean);
+    obj.put("playouts", playouts);
+    if (estimateArray != null) {
+      JSONArray est = new JSONArray();
+      for (Double d : estimateArray) est.put(d);
+      obj.put("estimateArray", est);
+    } else {
+      obj.put("estimateArray", JSONObject.NULL);
+    }
+    return obj;
+  }
+
+  /** Builds a full_state JSON message with all board information. */
+  static JSONObject buildFullStateJson(
+      int boardWidth,
+      int boardHeight,
+      Stone[] stones,
+      int[] lastMove,
+      int moveNumber,
+      boolean blackToPlay,
+      List<MoveData> bestMoves,
+      double winrate,
+      double scoreMean,
+      int playouts,
+      ArrayList<Double> estimateArray) {
+    JSONObject obj = new JSONObject();
+    obj.put("type", "full_state");
+    obj.put("boardWidth", boardWidth);
+    obj.put("boardHeight", boardHeight);
+    obj.put("stones", buildStonesArray(stones));
+    if (lastMove != null) {
+      obj.put("lastMove", new JSONArray(lastMove));
+    } else {
+      obj.put("lastMove", JSONObject.NULL);
+    }
+    obj.put("moveNumber", moveNumber);
+    obj.put("currentPlayer", blackToPlay ? "B" : "W");
+    JSONArray movesArr = new JSONArray();
+    if (bestMoves != null) {
+      for (MoveData m : bestMoves) {
+        movesArr.put(buildMoveDataJson(m, boardWidth, boardHeight));
+      }
+    }
+    obj.put("bestMoves", movesArr);
+    obj.put("winrate", winrate);
+    obj.put("scoreMean", scoreMean);
+    obj.put("playouts", playouts);
+    if (estimateArray != null) {
+      JSONArray est = new JSONArray();
+      for (Double d : estimateArray) est.put(d);
+      obj.put("estimateArray", est);
+    } else {
+      obj.put("estimateArray", JSONObject.NULL);
+    }
+    return obj;
+  }
+
+  /**
+   * Builds a winrate_history JSON message by walking from root to current along the main
+   * variation.
+   */
+  static JSONObject buildWinrateHistoryJson(BoardHistoryNode root, BoardHistoryNode current) {
+    JSONObject obj = new JSONObject();
+    obj.put("type", "winrate_history");
+    JSONArray data = new JSONArray();
+
+    BoardHistoryNode node = root;
+    while (node != null) {
+      BoardData d = node.getData();
+      JSONObject entry = new JSONObject();
+      entry.put("moveNumber", d.moveNumber);
+      entry.put("winrate", d.winrate);
+      entry.put("scoreMean", d.scoreMean);
+      data.put(entry);
+      if (node == current) break;
+      Optional<BoardHistoryNode> next = node.next();
+      node = next.isPresent() ? next.get() : null;
+    }
+
+    obj.put("data", data);
+    return obj;
+  }
+}
