@@ -81,7 +81,7 @@ public class WebBoardHttpServer {
         return;
       }
 
-      String path = parts[1];
+      String path = java.net.URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
       if (path.contains("..") || path.contains("\\")) {
         sendError(out, 403, "Forbidden");
         return;

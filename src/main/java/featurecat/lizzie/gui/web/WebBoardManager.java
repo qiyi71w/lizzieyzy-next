@@ -10,11 +10,11 @@ import java.util.Enumeration;
 import org.json.JSONObject;
 
 public class WebBoardManager {
-  private WebBoardServer wsServer;
-  private WebBoardHttpServer httpServer;
-  private WebBoardDataCollector collector;
-  private boolean running;
-  private String accessUrl;
+  private volatile WebBoardServer wsServer;
+  private volatile WebBoardHttpServer httpServer;
+  private volatile WebBoardDataCollector collector;
+  private volatile boolean running;
+  private volatile String accessUrl;
   private int actualHttpPort;
   private int actualWsPort;
 

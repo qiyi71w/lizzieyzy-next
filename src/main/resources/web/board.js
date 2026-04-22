@@ -230,12 +230,12 @@
     }
 
     // Last move marker
-    if (state.lastMove != null) {
-      var lx = Math.floor(state.lastMove / boardHeight);
-      var ly = state.lastMove % boardHeight;
+    if (state.lastMove != null && Array.isArray(state.lastMove)) {
+      var lx = state.lastMove[0];
+      var ly = state.lastMove[1];
       var lpx = margin + lx * gridSize;
       var lpy = margin + ly * gridSize;
-      var color = stones[state.lastMove];
+      var color = stones[lx * boardHeight + ly];
       ctx.beginPath();
       ctx.arc(lpx, lpy, radius * 0.35, 0, Math.PI * 2);
       ctx.strokeStyle = color === 1 ? "#eee" : "#222";
@@ -278,7 +278,7 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
-      var wr = move.winrate != null ? (move.winrate * 100).toFixed(1) + "%" : "";
+      var wr = move.winrate != null ? move.winrate.toFixed(1) + "%" : "";
       ctx.fillText(wr, px, py - gridSize * 0.12);
 
       // Score mean text
@@ -367,7 +367,7 @@
     curPlayer.textContent = "轮到: " + (boardState.currentPlayer === "B" ? "黑" : boardState.currentPlayer === "W" ? "白" : "-");
 
     if (boardState.winrate != null) {
-      wrEl.textContent = "胜率: " + (boardState.winrate * 100).toFixed(1) + "%";
+      wrEl.textContent = "胜率: " + boardState.winrate.toFixed(1) + "%";
     } else {
       wrEl.textContent = "胜率: -";
     }
@@ -428,7 +428,7 @@
         // Map scoreMean to 0-100 range: scoreMean + 50, clamped
         val = Math.max(0, Math.min(100, entry.scoreMean + 50));
       } else {
-        val = entry.winrate != null ? entry.winrate * 100 : 50;
+        val = entry.winrate != null ? entry.winrate : 50;
       }
 
       var x = (i / Math.max(len - 1, 1)) * w;

@@ -115,6 +115,11 @@ public class WebBoardDataCollector {
   /** Shuts down the executor. */
   public void shutdown() {
     executor.shutdownNow();
+    try {
+      executor.awaitTermination(1, TimeUnit.SECONDS);
+    } catch (InterruptedException ignored) {
+      Thread.currentThread().interrupt();
+    }
     server = null;
   }
 
