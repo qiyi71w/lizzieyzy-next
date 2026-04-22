@@ -142,16 +142,16 @@ final class SyncSnapshotRebuildPolicy {
 
   private boolean matchesRemoteIdentity(
       BoardData candidate, int[] snapshotCodes, SyncRemoteContext remoteContext) {
-    SnapshotMarker marker = findSnapshotMarker(snapshotCodes);
-    if (!marker.valid) {
-      return false;
-    }
     boolean foxRecovery = remoteContext != null && remoteContext.supportsFoxRecovery();
     if (!matchesStones(candidate.stones, snapshotCodes, remoteContext)) {
       return false;
     }
     if (foxRecovery) {
       return candidate.moveNumber == remoteContext.recoveryMoveNumber().getAsInt();
+    }
+    SnapshotMarker marker = findSnapshotMarker(snapshotCodes);
+    if (!marker.valid) {
+      return false;
     }
     if (marker.present && !matchesMarker(candidate, marker)) {
       return false;
@@ -164,13 +164,17 @@ final class SyncSnapshotRebuildPolicy {
     if (stones.length != snapshotCodes.length || snapshotCodes.length % boardWidth != 0) {
       return false;
     }
+    boolean foxRecovery = remoteContext != null && remoteContext.supportsFoxRecovery();
     int boardHeight = snapshotCodes.length / boardWidth;
     for (int snapshotIndex = 0; snapshotIndex < snapshotCodes.length; snapshotIndex++) {
+      int code = snapshotCodes[snapshotIndex];
+      if (foxRecovery && (code == 3 || code == 4)) {
+        continue;
+      }
       int x = snapshotIndex % boardWidth;
       int y = snapshotIndex / boardWidth;
       int stoneIndex = x * boardHeight + y;
-      if (normalizeConflictSnapshot(snapshotCodes[snapshotIndex], remoteContext)
-          != normalizeStone(stones[stoneIndex])) {
+      if (normalizeSnapshot(code) != normalizeStone(stones[stoneIndex])) {
         return false;
       }
     }

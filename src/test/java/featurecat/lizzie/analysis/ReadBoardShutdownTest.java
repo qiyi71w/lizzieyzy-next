@@ -225,6 +225,13 @@ class ReadBoardShutdownTest {
       this.shutdownWaitBlockMs = shutdownWaitBlockMs;
       this.shutdownStartedSignal = new CountDownLatch(1);
       this.restartSignal = new CountDownLatch(1);
+      try {
+        Field field = LizzieFrame.class.getDeclaredField("readBoardRestartLock");
+        field.setAccessible(true);
+        field.set(this, new Object());
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
     }
 
     private boolean awaitShutdownStarted(long timeout, TimeUnit unit) throws InterruptedException {

@@ -262,7 +262,7 @@ public class LizzieFrame extends JFrame {
   public KataEstimate zen;
   public SetEstimateParam setEstimateParam;
   public ReadBoard readBoard;
-  private Object readBoardRestartLock;
+  private Object readBoardRestartLock = new Object();
   private ReadBoard readBoardRestartTarget;
   private ReadBoardFactory pendingReadBoardFactory;
   public ConfigDialog2 configDialog2;
@@ -2351,7 +2351,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean queueReadBoardRestart(ReadBoard existingReadBoard, ReadBoardFactory factory) {
-    synchronized (readBoardRestartLock()) {
+    synchronized (readBoardRestartLock) {
       pendingReadBoardFactory = factory;
       if (readBoardRestartTarget == existingReadBoard) {
         return true;
@@ -2362,7 +2362,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private ReadBoardFactory finishReadBoardRestart(ReadBoard existingReadBoard) {
-    synchronized (readBoardRestartLock()) {
+    synchronized (readBoardRestartLock) {
       if (readBoard != null && readBoard != existingReadBoard) {
         readBoardRestartTarget = null;
         pendingReadBoardFactory = null;
@@ -2373,18 +2373,6 @@ public class LizzieFrame extends JFrame {
       ReadBoardFactory nextFactory = pendingReadBoardFactory;
       pendingReadBoardFactory = null;
       return nextFactory;
-    }
-  }
-
-  private Object readBoardRestartLock() {
-    if (readBoardRestartLock != null) {
-      return readBoardRestartLock;
-    }
-    synchronized (this) {
-      if (readBoardRestartLock == null) {
-        readBoardRestartLock = new Object();
-      }
-      return readBoardRestartLock;
     }
   }
 

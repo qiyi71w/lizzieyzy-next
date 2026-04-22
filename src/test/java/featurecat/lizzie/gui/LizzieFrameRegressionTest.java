@@ -158,6 +158,7 @@ class LizzieFrameRegressionTest {
 
   private static TrackingFrame newTrackingFrame() throws Exception {
     TrackingFrame frame = allocate(TrackingFrame.class);
+    initReadBoardRestartLock(frame);
     frame.shutdownCalled = new CountDownLatch(1);
     frame.createCalled = new CountDownLatch(1);
     frame.secondShutdownCalled = new CountDownLatch(1);
@@ -308,6 +309,12 @@ class LizzieFrameRegressionTest {
   @SuppressWarnings("unchecked")
   private static <T> T allocate(Class<T> type) throws Exception {
     return (T) UnsafeHolder.UNSAFE.allocateInstance(type);
+  }
+
+  private static void initReadBoardRestartLock(LizzieFrame frame) throws Exception {
+    Field field = LizzieFrame.class.getDeclaredField("readBoardRestartLock");
+    field.setAccessible(true);
+    field.set(frame, new Object());
   }
 
   private static final class TestEnvironment implements AutoCloseable {

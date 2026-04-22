@@ -981,7 +981,6 @@ public class ReadBoard {
         || syncStartNode == null
         || remoteContext == null
         || !remoteContext.supportsFoxRecovery()
-        || snapshotDelta.hasMarker()
         || !snapshotDelta.hasOnlyAdditions()
         || snapshotDelta.additions() != 1) {
       return false;

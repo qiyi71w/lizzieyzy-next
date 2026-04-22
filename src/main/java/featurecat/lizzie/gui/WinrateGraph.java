@@ -2368,13 +2368,10 @@ public class WinrateGraph {
 
   private int minPositiveGraphColumnSpacing(List<GraphPoint> points) {
     int minSpacing = Integer.MAX_VALUE;
-    for (int i = 0; i < points.size(); i++) {
-      int xi = points.get(i).x;
-      for (int j = i + 1; j < points.size(); j++) {
-        int spacing = Math.abs(xi - points.get(j).x);
-        if (spacing > 0 && spacing < minSpacing) {
-          minSpacing = spacing;
-        }
+    for (int i = 1; i < points.size(); i++) {
+      int spacing = Math.abs(points.get(i).x - points.get(i - 1).x);
+      if (spacing > 0 && spacing < minSpacing) {
+        minSpacing = spacing;
       }
     }
     return minSpacing;
@@ -2392,13 +2389,10 @@ public class WinrateGraph {
 
   private int minPositiveQuickOverviewColumnSpacing(List<QuickOverviewPoint> points) {
     int minSpacing = Integer.MAX_VALUE;
-    for (int i = 0; i < points.size(); i++) {
-      int xi = points.get(i).x;
-      for (int j = i + 1; j < points.size(); j++) {
-        int spacing = Math.abs(xi - points.get(j).x);
-        if (spacing > 0 && spacing < minSpacing) {
-          minSpacing = spacing;
-        }
+    for (int i = 1; i < points.size(); i++) {
+      int spacing = Math.abs(points.get(i).x - points.get(i - 1).x);
+      if (spacing > 0 && spacing < minSpacing) {
+        minSpacing = spacing;
       }
     }
     return minSpacing;
