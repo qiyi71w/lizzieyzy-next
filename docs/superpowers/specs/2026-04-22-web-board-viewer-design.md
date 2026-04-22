@@ -58,6 +58,16 @@ KataGo 引擎 ─ GTP ─▶ Leelaz.java ─ 事件 ─▶ WebBoardDataCollector
 - 引擎回调（engine reader thread）和棋盘变化回调（EDT）仅向 collector 提交数据快照，不直接广播
 - JSON 序列化和 WebSocket 广播在 collector 的单线程 executor 上执行，避免竞争
 - `WebBoardServer` 的连接管理由 `Java-WebSocket` 内部线程处理，广播时对连接集合加锁
+- `onAnalysisUpdated()` 和 `onBoardStateChanged()` 内部捕获 `RejectedExecutionException`，防止 shutdown 竞态导致异常传播到 Swing EDT
+- `onBoardStateChanged()` 使用 `AtomicBoolean` coalescing：快速连续调用只排队一次 `doBroadcastFullState`，防止快速导航时 executor 队列堆积
+
+### 菜单启动行为
+
+`WebBoardManager.start()` 涉及串行端口探测（最多 20 次 socket 操作），在后台线程执行以避免冻结 EDT。启动期间菜单项禁用，启动完成后通过 `SwingUtilities.invokeLater` 更新菜单状态。
+
+### 移动端布局
+
+移动端（宽度 ≤ 768px）切换为纵向布局，`body` 允许纵向滚动（`overflow-y: auto`），棋盘容器限制最大高度 60vh，确保小屏手机上胜率曲线和状态栏不被裁剪。
 
 ### 连接上限
 

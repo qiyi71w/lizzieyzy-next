@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,6 +34,7 @@ public class WebBoardDataCollector {
   private volatile long lastBroadcastTime = 0;
   private static final long MIN_BROADCAST_INTERVAL_MS = 100; // 10 updates/sec max
   private final AtomicBoolean pendingUpdate = new AtomicBoolean(false);
+  private final AtomicBoolean pendingFullState = new AtomicBoolean(false);
 
   public WebBoardDataCollector() {}
 
@@ -42,20 +44,28 @@ public class WebBoardDataCollector {
 
   /** Called when analysis data is updated. Throttles to max 10 updates/sec. */
   public void onAnalysisUpdated() {
-    long now = System.currentTimeMillis();
-    if (now - lastBroadcastTime < MIN_BROADCAST_INTERVAL_MS) {
-      if (pendingUpdate.compareAndSet(false, true)) {
-        long delay = MIN_BROADCAST_INTERVAL_MS - (now - lastBroadcastTime);
-        executor.schedule(this::doBroadcastAnalysis, delay, TimeUnit.MILLISECONDS);
+    try {
+      long now = System.currentTimeMillis();
+      if (now - lastBroadcastTime < MIN_BROADCAST_INTERVAL_MS) {
+        if (pendingUpdate.compareAndSet(false, true)) {
+          long delay = MIN_BROADCAST_INTERVAL_MS - (now - lastBroadcastTime);
+          executor.schedule(this::doBroadcastAnalysis, delay, TimeUnit.MILLISECONDS);
+        }
+        return;
       }
-      return;
+      executor.execute(this::doBroadcastAnalysis);
+    } catch (RejectedExecutionException ignored) {
     }
-    executor.execute(this::doBroadcastAnalysis);
   }
 
-  /** Called when board state changes (new move, navigation, etc.). */
+  /** Called when board state changes (new move, navigation, etc.). Coalesces rapid calls. */
   public void onBoardStateChanged() {
-    executor.execute(this::doBroadcastFullState);
+    try {
+      if (pendingFullState.compareAndSet(false, true)) {
+        executor.execute(this::doBroadcastFullState);
+      }
+    } catch (RejectedExecutionException ignored) {
+    }
   }
 
   private void doBroadcastAnalysis() {
@@ -82,6 +92,7 @@ public class WebBoardDataCollector {
   }
 
   private void doBroadcastFullState() {
+    pendingFullState.set(false);
     lastBroadcastTime = System.currentTimeMillis();
     if (server == null) return;
     try {

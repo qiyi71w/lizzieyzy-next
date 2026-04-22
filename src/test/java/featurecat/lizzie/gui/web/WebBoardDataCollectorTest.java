@@ -205,6 +205,43 @@ public class WebBoardDataCollectorTest {
     assertEquals(50.0, data.getJSONObject(0).getDouble("winrate"), 0.01);
   }
 
+  @Test
+  void buildWinrateHistoryJson_branchedTree_followsActiveBranch() {
+    // Tree: node0 -> node1a (main, via add)
+    //            \-> node1b (branch, added to variations) -> node2b
+    BoardData d0 = createBoardData(0, 50.0, 0.0, true);
+    BoardData d1a = createBoardData(1, 55.0, 1.5, false);
+    BoardData d1b = createBoardData(1, 45.0, -1.0, false);
+    BoardData d2b = createBoardData(2, 42.0, -2.0, true);
+
+    BoardHistoryNode node0 = new BoardHistoryNode(d0);
+    BoardHistoryNode node1a = new BoardHistoryNode(d1a);
+    BoardHistoryNode node1b = new BoardHistoryNode(d1b);
+    BoardHistoryNode node2b = new BoardHistoryNode(d2b);
+
+    // node0.add clears variations and adds node1a as main line
+    node0.add(node1a);
+    // manually add branch: node1b as second variation of node0, with previous set
+    node0.getVariations().add(node1b);
+    // set previous manually via reflection since it's package-private
+    try {
+      java.lang.reflect.Field prevField = BoardHistoryNode.class.getDeclaredField("previous");
+      prevField.setAccessible(true);
+      prevField.set(node1b, Optional.of(node0));
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    node1b.add(node2b);
+
+    // Current node is node2b (on the branch), path should be [node0, node1b, node2b]
+    JSONObject json = WebBoardDataCollector.buildWinrateHistoryJson(node0, node2b);
+    JSONArray data = json.getJSONArray("data");
+    assertEquals(3, data.length());
+    assertEquals(50.0, data.getJSONObject(0).getDouble("winrate"), 0.01);
+    assertEquals(45.0, data.getJSONObject(1).getDouble("winrate"), 0.01);
+    assertEquals(42.0, data.getJSONObject(2).getDouble("winrate"), 0.01);
+  }
+
   private BoardData createBoardData(
       int moveNum, double winrate, double scoreMean, boolean blackToPlay) {
     Stone[] stones = new Stone[361];

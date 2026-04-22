@@ -4083,12 +4083,24 @@ public class Menu extends JMenuBar {
             String title = Lizzie.frame.getTitle();
             Lizzie.frame.setTitle(title.replaceAll(" \\| Web: .*", ""));
           } else {
-            boolean ok = Lizzie.webBoardManager.start();
-            if (ok) {
-              webBoardToggle.setText(resourceBundle.getString("Menu.webBoardStop"));
-              Lizzie.frame.setTitle(
-                  Lizzie.frame.getTitle() + " | Web: " + Lizzie.webBoardManager.getAccessUrl());
-            }
+            webBoardToggle.setEnabled(false);
+            new Thread(
+                    () -> {
+                      boolean ok = Lizzie.webBoardManager.start();
+                      javax.swing.SwingUtilities.invokeLater(
+                          () -> {
+                            webBoardToggle.setEnabled(true);
+                            if (ok) {
+                              webBoardToggle.setText(resourceBundle.getString("Menu.webBoardStop"));
+                              Lizzie.frame.setTitle(
+                                  Lizzie.frame.getTitle()
+                                      + " | Web: "
+                                      + Lizzie.webBoardManager.getAccessUrl());
+                            }
+                          });
+                    },
+                    "WebBoardStart")
+                .start();
           }
         });
 

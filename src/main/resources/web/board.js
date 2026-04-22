@@ -518,10 +518,12 @@
     var rect = boardCanvas.getBoundingClientRect();
     var mx = touch.clientX - rect.left;
     var my = touch.clientY - rect.top;
+    var snap = boardState;
 
     longPressTimer = setTimeout(function () {
-      var boardHeight = boardState.boardHeight || 19;
-      var boardWidth = boardState.boardWidth || 19;
+      if (!snap || !snap.bestMoves) return;
+      var boardHeight = snap.boardHeight || 19;
+      var boardWidth = snap.boardWidth || 19;
       var size = parseInt(boardCanvas.style.width) || boardCanvas.width;
       var margin = size * 0.04;
       var gridSize = (size - 2 * margin) / (Math.max(boardWidth, boardHeight) - 1);
@@ -529,8 +531,8 @@
       var found = null;
       var bestDist = gridSize * 0.5;
 
-      for (var i = 0; i < boardState.bestMoves.length; i++) {
-        var move = boardState.bestMoves[i];
+      for (var i = 0; i < snap.bestMoves.length; i++) {
+        var move = snap.bestMoves[i];
         var xy = gtpToXY(move.coordinate, boardHeight);
         if (!xy) continue;
 

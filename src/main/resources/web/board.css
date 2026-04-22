@@ -21,8 +21,9 @@ body { background: #1a1a2e; color: #ccc; font-family: -apple-system, sans-serif;
 
 /* Mobile: stack vertically */
 @media (max-width: 768px) {
-  #app { flex-direction: column; }
-  #board-container { flex: none; padding: 8px; }
+  body { overflow-y: auto; }
+  #app { flex-direction: column; height: auto; min-height: 100vh; }
+  #board-container { flex: none; padding: 8px; max-height: 60vh; }
   #info-panel { flex: none; border-left: none; border-top: 1px solid #333; padding: 8px; min-width: auto; }
   #status-bar { flex-direction: row; flex-wrap: wrap; justify-content: space-around; }
   #status-bar span { flex-direction: row; gap: 4px; }
