@@ -4069,6 +4069,44 @@ public class Menu extends JMenuBar {
         });
     live.addSeparator();
 
+    final JFontMenu webBoardMenu = new JFontMenu(resourceBundle.getString("Menu.webBoard"));
+    live.add(webBoardMenu);
+
+    final JFontMenuItem webBoardToggle =
+        new JFontMenuItem(resourceBundle.getString("Menu.webBoardStart"));
+    webBoardMenu.add(webBoardToggle);
+    webBoardToggle.addActionListener(
+        e -> {
+          if (Lizzie.webBoardManager.isRunning()) {
+            Lizzie.webBoardManager.stop();
+            webBoardToggle.setText(resourceBundle.getString("Menu.webBoardStart"));
+            String title = Lizzie.frame.getTitle();
+            Lizzie.frame.setTitle(title.replaceAll(" \\| Web: .*", ""));
+          } else {
+            boolean ok = Lizzie.webBoardManager.start();
+            if (ok) {
+              webBoardToggle.setText(resourceBundle.getString("Menu.webBoardStop"));
+              Lizzie.frame.setTitle(
+                  Lizzie.frame.getTitle() + " | Web: " + Lizzie.webBoardManager.getAccessUrl());
+            }
+          }
+        });
+
+    final JFontMenuItem webBoardCopyUrl =
+        new JFontMenuItem(resourceBundle.getString("Menu.webBoardCopyUrl"));
+    webBoardMenu.add(webBoardCopyUrl);
+    webBoardCopyUrl.addActionListener(
+        e -> {
+          if (Lizzie.webBoardManager.isRunning()) {
+            String url = Lizzie.webBoardManager.getAccessUrl();
+            java.awt.datatransfer.StringSelection sel =
+                new java.awt.datatransfer.StringSelection(url);
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+          }
+        });
+
+    live.addSeparator();
+
     final JFontCheckBoxMenuItem EnableEnterYikeGame =
         new JFontCheckBoxMenuItem(
             resourceBundle.getString("Menu.EnableEnterYikeGame")); // //允许弈客直播/大厅进入对居室
