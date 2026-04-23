@@ -77,15 +77,11 @@ public class WebBoardDataCollector {
       if (data.bestMoves == null || data.bestMoves.isEmpty()) return;
       int bw = Board.boardWidth;
       int bh = Board.boardHeight;
+      double wr = data.blackToPlay ? data.winrate : 100 - data.winrate;
+      double sm = data.blackToPlay ? data.scoreMean : -data.scoreMean;
       JSONObject json =
           buildAnalysisUpdateJson(
-              data.bestMoves,
-              data.winrate,
-              data.scoreMean,
-              data.getPlayouts(),
-              data.estimateArray,
-              bw,
-              bh);
+              data.bestMoves, wr, sm, data.getPlayouts(), data.estimateArray, bw, bh);
       server.broadcastMessage(json.toString());
     } catch (Exception ignored) {
     }
@@ -101,6 +97,8 @@ public class WebBoardDataCollector {
       int bw = Board.boardWidth;
       int bh = Board.boardHeight;
       int[] lastMove = data.lastMove.isPresent() ? data.lastMove.get() : null;
+      double wr = data.blackToPlay ? data.winrate : 100 - data.winrate;
+      double sm = data.blackToPlay ? data.scoreMean : -data.scoreMean;
       JSONObject fullState =
           buildFullStateJson(
               bw,
@@ -110,8 +108,8 @@ public class WebBoardDataCollector {
               data.moveNumber,
               data.blackToPlay,
               data.bestMoves,
-              data.winrate,
-              data.scoreMean,
+              wr,
+              sm,
               data.getPlayouts(),
               data.estimateArray);
       server.broadcastFullState(fullState.toString());
@@ -287,8 +285,23 @@ public class WebBoardDataCollector {
       BoardData d = n.getData();
       JSONObject entry = new JSONObject();
       entry.put("moveNumber", d.moveNumber);
-      entry.put("winrate", d.winrate);
-      entry.put("scoreMean", d.scoreMean);
+      entry.put("blackToPlay", d.blackToPlay);
+      // Only emit winrate/scoreMean if this node was actually analyzed.
+      // Without this, unanalyzed positions (sync from mid-game) report
+      // default 0/100 values that produce spurious spikes in the chart.
+      if (d.getPlayouts() > 0) {
+        double wr = d.winrate;
+        double sm = d.scoreMean;
+        if (!d.blackToPlay) {
+          wr = 100 - wr;
+          sm = -sm;
+        }
+        entry.put("winrate", wr);
+        entry.put("scoreMean", sm);
+      } else {
+        entry.put("winrate", JSONObject.NULL);
+        entry.put("scoreMean", JSONObject.NULL);
+      }
       data.put(entry);
     }
 

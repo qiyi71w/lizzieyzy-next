@@ -21,9 +21,27 @@
       </div>
       <div id="controls">
         <button id="toggle-heatmap" style="display:none">形势判断</button>
-        <button id="toggle-score">目差曲线</button>
+        <button id="toggle-perspective">切换白方视角</button>
+        <select id="coord-style">
+          <option value="off">坐标: 关</option>
+          <option value="standard">标准 (跳I)</option>
+          <option value="withI">含 I</option>
+          <option value="fox">野狐风格</option>
+        </select>
       </div>
+      <div id="candidate-info-controls">
+        <span class="ci-label">选点显示:</span>
+        <label><input type="checkbox" id="ci-winrate" checked> 胜率</label>
+        <label><input type="checkbox" id="ci-playouts" checked> 计算量</label>
+        <label><input type="checkbox" id="ci-score" checked> 目差</label>
+      </div>
+      <div id="chart-label-winrate" class="chart-label">胜率曲线（黑方视角）</div>
       <canvas id="winrate-chart"></canvas>
+      <div id="chart-label-score" class="chart-label">目差曲线（黑方视角）</div>
+      <canvas id="score-chart"></canvas>
+      <div class="chart-label">问题手</div>
+      <div id="blunder-list"></div>
+      <div id="chart-tooltip"></div>
     </div>
   </div>
   <div id="connection-overlay" style="display:none">

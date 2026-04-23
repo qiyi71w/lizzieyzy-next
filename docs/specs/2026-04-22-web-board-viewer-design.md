@@ -98,6 +98,22 @@ Java 和 JS 端的 `gtpToXY` 均处理以下边界：
 - "pass" / 非标准坐标（字母后跟非数字）→ 返回 null
 - 正常坐标（A1-T19，跳过 I 列）→ 返回 `[x, y]`
 
+### 候选点颜色方案
+
+Web 端与桌面端保持一致的颜色逻辑：
+- **最佳手（bestMoves 列表首元素）**：青色 (cyan, rgba(0, 230, 230, 0.7))
+- **其余候选点**：按 `playouts / maxPlayouts` 比例的平方根，从红色（低）渐变到绿色（高）
+
+判定最佳手使用 **数组 index（i===0）**而非 `order` 字段，与桌面端 `BoardRenderer.drawLeelazSuggestions()` 行为一致。`order` 字段在非 KataGo 引擎中可能全部为 0，不可靠。
+
+### 多入口 Toggle 同步
+
+Web 旁观的启动/停止有两个 UI 入口（菜单栏 + 底部工具栏）。每个入口的菜单项在弹出时通过 listener（`MenuListener` / `PopupMenuListener`）检查 `WebBoardManager.isRunning()` 并刷新文字，确保无论从哪个入口操作，另一个入口下次打开时显示正确状态。
+
+### 标题栏 Web 地址持久化
+
+`LizzieFrame.webBoardSuffix`（volatile String）存储 ` | Web: http://...` 后缀。`updateTitle()` 所有分支的 `setTitle` 调用末尾追加该字段，防止引擎分析回调重建标题时丢失 Web 地址。启动时设置，停止时置空，均通过 `updateTitle()` 生效。
+
 ### 关闭顺序
 
 停止时按以下顺序：
@@ -177,11 +193,27 @@ Java 和 JS 端的 `gtpToXY` 均处理以下边界：
 {
   "type": "winrate_history",
   "data": [
-    {"moveNumber": 1, "winrate": 50.0, "scoreMean": 0.5},
-    {"moveNumber": 2, "winrate": 48.2, "scoreMean": -0.3}
+    {"moveNumber": 1, "winrate": 50.0, "scoreMean": 0.5, "blackToPlay": false},
+    {"moveNumber": 2, "winrate": 48.2, "scoreMean": -0.3, "blackToPlay": true}
   ]
 }
 ```
+
+字段说明：
+- `winrate`、`scoreMean` 已统一到**黑方视角**（黑方胜率 / 黑方目差）。白方走过的节点 Java 端做翻转后发送
+- `blackToPlay` 表示该节点之后**轮到谁走**。客户端用 `!blackToPlay` 判定本节点是谁走的（用于问题手颜色归属）
+- 未被引擎分析的节点（`playouts == 0`，例如中盘同步的早期节点）`winrate` 和 `scoreMean` 为 JSON `null`。客户端遇到 null 应跳过（断开折线、tooltip 显示「未分析」、问题手列表跳过）
+
+### 问题手识别
+
+客户端从 `winrate_history` 计算连续两节点的差值：
+- **走子方视角**：`drop = moverIsBlack ? prev.winrate - curr.winrate : curr.winrate - prev.winrate`
+- 当走子方胜率下跌 ≥5% 时进入问题手列表
+- 必须按走子方视角计算，否则因数据已统一到黑方视角，白方失误会显示为黑方胜率上升而被漏检
+
+### Tooltip 定位
+
+`#chart-tooltip` 使用 `position: fixed` 配合 `clientX/clientY`（视口坐标），确保移动端 `overflow-y: auto` 滚动后位置仍然正确。定位时检测视口右/上边界并自动翻转到鼠标另一侧。
 
 ### 节流策略
 

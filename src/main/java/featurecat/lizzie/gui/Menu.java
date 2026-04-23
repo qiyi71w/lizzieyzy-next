@@ -4080,8 +4080,8 @@ public class Menu extends JMenuBar {
           if (Lizzie.webBoardManager.isRunning()) {
             Lizzie.webBoardManager.stop();
             webBoardToggle.setText(resourceBundle.getString("Menu.webBoardStart"));
-            String title = Lizzie.frame.getTitle();
-            Lizzie.frame.setTitle(title.replaceAll(" \\| Web: .*", ""));
+            Lizzie.frame.webBoardSuffix = "";
+            Lizzie.frame.updateTitle();
           } else {
             webBoardToggle.setEnabled(false);
             new Thread(
@@ -4092,10 +4092,9 @@ public class Menu extends JMenuBar {
                             webBoardToggle.setEnabled(true);
                             if (ok) {
                               webBoardToggle.setText(resourceBundle.getString("Menu.webBoardStop"));
-                              Lizzie.frame.setTitle(
-                                  Lizzie.frame.getTitle()
-                                      + " | Web: "
-                                      + Lizzie.webBoardManager.getAccessUrl());
+                              Lizzie.frame.webBoardSuffix =
+                                  " | Web: " + Lizzie.webBoardManager.getAccessUrl();
+                              Lizzie.frame.updateTitle();
                             }
                           });
                     },
@@ -4107,6 +4106,22 @@ public class Menu extends JMenuBar {
     final JFontMenuItem webBoardCopyUrl =
         new JFontMenuItem(resourceBundle.getString("Menu.webBoardCopyUrl"));
     webBoardMenu.add(webBoardCopyUrl);
+
+    webBoardMenu.addMenuListener(
+        new javax.swing.event.MenuListener() {
+          public void menuSelected(javax.swing.event.MenuEvent e) {
+            webBoardToggle.setText(
+                resourceBundle.getString(
+                    Lizzie.webBoardManager.isRunning()
+                        ? "Menu.webBoardStop"
+                        : "Menu.webBoardStart"));
+          }
+
+          public void menuDeselected(javax.swing.event.MenuEvent e) {}
+
+          public void menuCanceled(javax.swing.event.MenuEvent e) {}
+        });
+
     webBoardCopyUrl.addActionListener(
         e -> {
           if (Lizzie.webBoardManager.isRunning()) {

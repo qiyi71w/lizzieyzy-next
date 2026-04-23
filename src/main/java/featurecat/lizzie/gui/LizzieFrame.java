@@ -222,6 +222,7 @@ public class LizzieFrame extends JFrame {
   public String playerTitle = "";
   private String resultTitle = "";
   public static String fileNameTitle = "";
+  public volatile String webBoardSuffix = "";
 
   // private JScrollPane variationScrollPane;
   // private Rectangle variationCommentRect;
@@ -7381,9 +7382,9 @@ public class LizzieFrame extends JFrame {
       // sb.append(playerTitle);
       // sb.append(resultTitle);
       if (hasEnginePkTitile && enginePkTitile != null) {
-        setTitle(enginePkTitile + " " + sb.toString());
+        setTitle(enginePkTitile + " " + sb.toString() + webBoardSuffix);
       } else {
-        setTitle(sb.toString());
+        setTitle(sb.toString() + webBoardSuffix);
       }
       return;
     }
@@ -7446,7 +7447,7 @@ public class LizzieFrame extends JFrame {
     if (hasEnginePkTitile && enginePkTitile != null) {
       sb.append(Lizzie.leelaz.oriEnginename);
       sb.append(visitsString + " ");
-      setTitle(enginePkTitile + " " + sb.toString());
+      setTitle(enginePkTitile + " " + sb.toString() + webBoardSuffix);
     } else {
       // sb.append(DEFAULT_TITLE);
       if (EngineManager.isEmpty) {
@@ -7463,7 +7464,7 @@ public class LizzieFrame extends JFrame {
       //      if (Lizzie.leelaz.engineCommand().length() < 100)
       //        sb.append(" [" + Lizzie.leelaz.engineCommand() + "]");
       //      else sb.append(" [" + Lizzie.leelaz.engineCommand().substring(0, 100) + "...]");
-      setTitle(sb.toString());
+      setTitle(sb.toString() + webBoardSuffix);
     }
   }
 

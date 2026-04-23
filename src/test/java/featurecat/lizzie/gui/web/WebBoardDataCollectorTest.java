@@ -190,7 +190,9 @@ public class WebBoardDataCollectorTest {
     JSONArray data = json.getJSONArray("data");
     assertEquals(3, data.length());
     assertEquals(0, data.getJSONObject(0).getInt("moveNumber"));
-    assertEquals(55.0, data.getJSONObject(1).getDouble("winrate"), 0.01);
+    // d1 has blackToPlay=false → winrate flipped to black perspective: 100-55=45
+    assertEquals(45.0, data.getJSONObject(1).getDouble("winrate"), 0.01);
+    // d2 has blackToPlay=true → not flipped
     assertEquals(-0.8, data.getJSONObject(2).getDouble("scoreMean"), 0.01);
   }
 
@@ -237,13 +239,58 @@ public class WebBoardDataCollectorTest {
     JSONObject json = WebBoardDataCollector.buildWinrateHistoryJson(node0, node2b);
     JSONArray data = json.getJSONArray("data");
     assertEquals(3, data.length());
+    // d0 blackToPlay=true → not flipped: 50
     assertEquals(50.0, data.getJSONObject(0).getDouble("winrate"), 0.01);
-    assertEquals(45.0, data.getJSONObject(1).getDouble("winrate"), 0.01);
+    // d1b blackToPlay=false → flipped to black perspective: 100-45=55
+    assertEquals(55.0, data.getJSONObject(1).getDouble("winrate"), 0.01);
+    // d2b blackToPlay=true → not flipped: 42
     assertEquals(42.0, data.getJSONObject(2).getDouble("winrate"), 0.01);
   }
 
   private BoardData createBoardData(
       int moveNum, double winrate, double scoreMean, boolean blackToPlay) {
+    return createBoardData(moveNum, winrate, scoreMean, blackToPlay, 100);
+  }
+
+  @Test
+  void buildWinrateHistoryJson_nullsForUnanalyzedNodes() {
+    // Mid-game sync: prior moves never analyzed (playouts=0), current node analyzed.
+    BoardData d0 = createBoardData(0, 50.0, 0.0, true, 0);
+    BoardData d1 = createBoardData(1, 0.0, 0.0, false, 0);
+    BoardData d2 = createBoardData(2, 55.0, 1.5, true, 200);
+
+    BoardHistoryNode n0 = new BoardHistoryNode(d0);
+    BoardHistoryNode n1 = new BoardHistoryNode(d1);
+    BoardHistoryNode n2 = new BoardHistoryNode(d2);
+    n0.add(n1);
+    n1.add(n2);
+
+    JSONObject json = WebBoardDataCollector.buildWinrateHistoryJson(n0, n2);
+    JSONArray data = json.getJSONArray("data");
+    assertEquals(3, data.length());
+    assertTrue(data.getJSONObject(0).isNull("winrate"));
+    assertTrue(data.getJSONObject(0).isNull("scoreMean"));
+    assertTrue(data.getJSONObject(1).isNull("winrate"));
+    assertTrue(data.getJSONObject(1).isNull("scoreMean"));
+    assertEquals(55.0, data.getJSONObject(2).getDouble("winrate"), 0.01);
+  }
+
+  @Test
+  void buildWinrateHistoryJson_emitsBlackToPlayField() {
+    BoardData d0 = createBoardData(0, 50.0, 0.0, true);
+    BoardData d1 = createBoardData(1, 55.0, 1.5, false);
+    BoardHistoryNode n0 = new BoardHistoryNode(d0);
+    BoardHistoryNode n1 = new BoardHistoryNode(d1);
+    n0.add(n1);
+
+    JSONObject json = WebBoardDataCollector.buildWinrateHistoryJson(n0, n1);
+    JSONArray data = json.getJSONArray("data");
+    assertTrue(data.getJSONObject(0).getBoolean("blackToPlay"));
+    assertFalse(data.getJSONObject(1).getBoolean("blackToPlay"));
+  }
+
+  private BoardData createBoardData(
+      int moveNum, double winrate, double scoreMean, boolean blackToPlay, int playouts) {
     Stone[] stones = new Stone[361];
     Arrays.fill(stones, Stone.EMPTY);
     BoardData d =
@@ -258,7 +305,7 @@ public class WebBoardDataCollectorTest {
             0,
             0,
             winrate,
-            0);
+            playouts);
     d.scoreMean = scoreMean;
     return d;
   }
