@@ -52,6 +52,10 @@ READBOARD_CACHE_DIR="$ROOT_DIR/.cache/readboard"
 READBOARD_STAGE_DIR="$DIST_DIR/readboard"
 PYTHON_BIN=""
 
+log_step() {
+  printf '\n[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
+}
+
 resolve_python_bin() {
   if [[ -n "$PYTHON_BIN" ]]; then
     return 0
@@ -70,6 +74,7 @@ resolve_python_bin() {
 
 prepare_bundled_readboard_assets() {
   resolve_python_bin
+  log_step "Preparing pinned native readboard assets"
   "$PYTHON_BIN" - \
     "$READBOARD_RELEASE_API" \
     "$READBOARD_CACHE_DIR" \
@@ -309,6 +314,7 @@ prepare_bundled_nvidia_runtime_assets() {
     echo "Missing NVIDIA runtime prepare script: $NVIDIA_RUNTIME_PREPARE_SCRIPT"
     exit 1
   fi
+  log_step "Preparing NVIDIA CUDA runtime DLLs"
   "$PYTHON_BIN" "$NVIDIA_RUNTIME_PREPARE_SCRIPT" --output-dir "$NVIDIA_RUNTIME_STAGE_DIR"
 }
 
@@ -361,6 +367,7 @@ build_app_image() {
     fi
   fi
 
+  log_step "Building Windows app image: $app_name [$flavor]"
   jpackage \
     --type app-image \
     --name "$app_name" \
@@ -372,7 +379,8 @@ build_app_image() {
     --vendor "wimi321" \
     --description "$app_description" \
     --icon "$ICON_PATH" \
-    --java-options "-Xmx4096m"
+    --java-options "-Xmx4096m" >&2
+  log_step "Finished Windows app image: $app_name [$flavor]"
 
   printf '%s\n' "$app_image_dir/$app_name"
 }
@@ -398,6 +406,7 @@ build_installer() {
     fi
   fi
 
+  log_step "Building Windows installer: $app_name [$flavor]"
   jpackage \
     --type exe \
     --name "$app_name" \
@@ -413,7 +422,8 @@ build_installer() {
     --win-menu \
     --win-shortcut \
     --win-upgrade-uuid "$upgrade_uuid" \
-    --java-options "-Xmx4096m"
+    --java-options "-Xmx4096m" >&2
+  log_step "Finished Windows installer: $app_name [$flavor]"
 
   find "$installer_dir" -maxdepth 1 -type f -name '*.exe' | head -n 1
 }
@@ -534,8 +544,10 @@ create_portable_zip() {
 
   native_root="$(to_native_path "$app_image_root")"
   native_zip="$(to_native_path "$portable_zip")"
+  log_step "Creating Windows portable zip: $(basename "$portable_zip")"
   powershell.exe -NoProfile -Command \
     "Compress-Archive -Path '$native_root' -DestinationPath '$native_zip' -Force"
+  log_step "Finished Windows portable zip: $(basename "$portable_zip")"
 }
 
 build_release_variant() {
@@ -553,6 +565,7 @@ build_release_variant() {
   local installer_path
   local final_installer
 
+  log_step "Starting Windows release variant: $release_basename"
   app_root="$(build_app_image \
     "$flavor" \
     "$include_katago" \
@@ -574,6 +587,7 @@ build_release_variant() {
   final_installer="$RELEASE_DIR/${DATE_TAG}-${release_basename}.installer.exe"
   cp "$installer_path" "$final_installer"
   artifacts+=("$final_installer" "$RELEASE_DIR/${DATE_TAG}-${release_basename}.portable.zip")
+  log_step "Finished Windows release variant: $release_basename"
 }
 
 artifacts=()
