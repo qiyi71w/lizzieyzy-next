@@ -219,7 +219,9 @@ public class TrackingEngine {
   }
 
   static String toAnalysisCommand(String cmd) {
-    String result = cmd.replaceFirst("(?i)\\bgtp\\b", "analysis");
+    // Only replace the standalone 'gtp' subcommand token (preceded by whitespace,
+    // followed by whitespace or end-of-string). Avoids touching paths that contain "gtp".
+    String result = cmd.replaceFirst("(?i)(\\s)gtp(\\s|$)", "$1analysis$2");
     String analysisDefaults = "numAnalysisThreads=1,nnMaxBatchSize=8";
     if (!result.toLowerCase().contains("-override-config")) {
       result += " -override-config " + analysisDefaults;

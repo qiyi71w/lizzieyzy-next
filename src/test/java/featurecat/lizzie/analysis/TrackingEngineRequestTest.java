@@ -35,6 +35,9 @@ class TrackingEngineRequestTest {
     assertEquals("W", entry.getString("player"));
     JSONArray moves = entry.getJSONArray("moves");
     assertEquals(3, moves.length());
+    assertEquals("E3", moves.getString(0));
+    assertEquals("F5", moves.getString(1));
+    assertEquals("Q16", moves.getString(2));
   }
 
   @Test
@@ -62,15 +65,16 @@ class TrackingEngineRequestTest {
   void toAnalysisCommand_replacesGtpWithAnalysis() {
     String result = TrackingEngine.toAnalysisCommand("katago gtp -model m.bin -config c.cfg");
     assertTrue(result.contains("analysis"));
-    assertFalse(result.contains("gtp"));
+    assertFalse(result.matches(".*\\sgtp\\s.*"));
     assertTrue(result.contains("numAnalysisThreads=1"));
+    assertTrue(result.contains("nnMaxBatchSize=8"));
   }
 
   @Test
   void toAnalysisCommand_caseInsensitive() {
     String result = TrackingEngine.toAnalysisCommand("katago GTP -model m.bin");
     assertTrue(result.contains("analysis"));
-    assertFalse(result.contains("GTP"));
+    assertFalse(result.matches(".*\\sGTP\\s.*"));
   }
 
   @Test
@@ -78,6 +82,7 @@ class TrackingEngineRequestTest {
     String result = TrackingEngine.toAnalysisCommand("katago analysis -model m.bin");
     assertTrue(result.contains("analysis"));
     assertTrue(result.contains("numAnalysisThreads=1"));
+    assertTrue(result.contains("nnMaxBatchSize=8"));
   }
 
   @Test
@@ -86,6 +91,14 @@ class TrackingEngineRequestTest {
         TrackingEngine.toAnalysisCommand(
             "katago gtp -model m.bin -override-config \"maxVisits=500\"");
     assertTrue(result.contains("numAnalysisThreads=1"));
+    assertTrue(result.contains("nnMaxBatchSize=8"));
     assertTrue(result.contains("maxVisits=500"));
+  }
+
+  @Test
+  void toAnalysisCommand_pathContainingGtp_notTouched() {
+    String result = TrackingEngine.toAnalysisCommand("/usr/local/gtp/bin/katago gtp -model m.bin");
+    assertTrue(result.contains("/usr/local/gtp/bin/katago"));
+    assertTrue(result.contains(" analysis "));
   }
 }
