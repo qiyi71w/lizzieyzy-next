@@ -22,10 +22,13 @@ import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -152,7 +155,64 @@ public class ReadBoard {
   }
 
   static File legacyNativeReadBoardDirectory() {
+    return resolveNativeReadBoardDirectory(defaultNativeReadBoardDirectoryCandidates());
+  }
+
+  static File resolveNativeReadBoardDirectory(List<File> candidates) {
+    for (File candidate : candidates) {
+      if (new File(candidate, LEGACY_NATIVE_READBOARD_EXE).canRead()) {
+        return candidate.getAbsoluteFile();
+      }
+    }
     return new File("readboard").getAbsoluteFile();
+  }
+
+  static List<File> defaultNativeReadBoardDirectoryCandidates() {
+    Set<File> candidates = new LinkedHashSet<File>();
+    candidates.addAll(
+        nativeReadBoardDirectoryCandidatesForBase(new File(System.getProperty("user.dir", "."))));
+    codeSourceDirectory()
+        .ifPresent(
+            directory -> candidates.addAll(nativeReadBoardDirectoryCandidatesForBase(directory)));
+    bundledRuntimeRoot()
+        .ifPresent(
+            directory -> candidates.addAll(nativeReadBoardDirectoryCandidatesForBase(directory)));
+    return new ArrayList<File>(candidates);
+  }
+
+  static List<File> nativeReadBoardDirectoryCandidatesForBase(File baseDir) {
+    Set<File> candidates = new LinkedHashSet<File>();
+    File absoluteBase = baseDir.getAbsoluteFile();
+    candidates.add(new File(absoluteBase, "readboard"));
+    candidates.add(new File(new File(absoluteBase, "app"), "readboard"));
+    if ("app".equalsIgnoreCase(absoluteBase.getName())) {
+      candidates.add(new File(absoluteBase, "readboard"));
+    }
+    return new ArrayList<File>(candidates);
+  }
+
+  private static Optional<File> codeSourceDirectory() {
+    try {
+      if (ReadBoard.class.getProtectionDomain().getCodeSource() == null) {
+        return Optional.empty();
+      }
+      File codeSource =
+          new File(ReadBoard.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+      File directory = codeSource.isFile() ? codeSource.getParentFile() : codeSource;
+      return Optional.ofNullable(directory);
+    } catch (URISyntaxException | SecurityException e) {
+      return Optional.empty();
+    }
+  }
+
+  private static Optional<File> bundledRuntimeRoot() {
+    String javaHome = System.getProperty("java.home");
+    if (javaHome == null || javaHome.isEmpty()) {
+      return Optional.empty();
+    }
+    File runtimeDir = new File(javaHome).getAbsoluteFile();
+    File root = runtimeDir.getParentFile();
+    return Optional.ofNullable(root);
   }
 
   static File resolveLegacyNativeReadBoardCommand(File readBoardDir, boolean usePipe) {

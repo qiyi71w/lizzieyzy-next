@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -79,5 +80,52 @@ class ReadBoardLaunchPathTest {
     Files.write(readBoardDir.resolve("readboard.bat"), new byte[] {0});
 
     assertTrue(ReadBoard.isLegacyNativeReadBoardAvailable(readBoardDir.toFile()));
+  }
+
+  @Test
+  void resolveNativeReadBoardDirectoryRecognizesJpackageAppLayout() throws Exception {
+    Path appRoot = Files.createDirectories(tempDir.resolve("LizzieYzy Next"));
+    Path appReadBoardDir = Files.createDirectories(appRoot.resolve("app").resolve("readboard"));
+    Files.write(appReadBoardDir.resolve("readboard.exe"), new byte[] {0});
+
+    assertEquals(
+        appReadBoardDir.toFile().getAbsolutePath(),
+        ReadBoard.resolveNativeReadBoardDirectory(
+                ReadBoard.nativeReadBoardDirectoryCandidatesForBase(appRoot.toFile()))
+            .getAbsolutePath());
+  }
+
+  @Test
+  void resolveNativeReadBoardDirectoryPrefersExecutableOverEmptyLegacyDirectory() throws Exception {
+    Path appRoot = Files.createDirectories(tempDir.resolve("LizzieYzy Next"));
+    Files.createDirectories(appRoot.resolve("readboard"));
+    Path appReadBoardDir = Files.createDirectories(appRoot.resolve("app").resolve("readboard"));
+    Files.write(appReadBoardDir.resolve("readboard.exe"), new byte[] {0});
+
+    assertEquals(
+        appReadBoardDir.toFile().getAbsolutePath(),
+        ReadBoard.resolveNativeReadBoardDirectory(
+                ReadBoard.nativeReadBoardDirectoryCandidatesForBase(appRoot.toFile()))
+            .getAbsolutePath());
+  }
+
+  @Test
+  void defaultNativeReadBoardDirectoryCandidatesIncludeJpackageRuntimeRoot() {
+    String javaHome = System.getProperty("java.home");
+    try {
+      Path appRoot = tempDir.resolve("LizzieYzy Next");
+      System.setProperty("java.home", appRoot.resolve("runtime").toString());
+
+      List<String> candidatePaths = new ArrayList<String>();
+      for (java.io.File candidate : ReadBoard.defaultNativeReadBoardDirectoryCandidates()) {
+        candidatePaths.add(candidate.getAbsolutePath());
+      }
+
+      assertTrue(
+          candidatePaths.contains(
+              appRoot.resolve("app").resolve("readboard").toFile().getAbsolutePath()));
+    } finally {
+      System.setProperty("java.home", javaHome);
+    }
   }
 }

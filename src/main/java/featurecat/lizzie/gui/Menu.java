@@ -4081,7 +4081,10 @@ public class Menu extends JMenuBar {
 
     final JFontMenuItem readBoard =
         new JFontMenuItem(resourceBundle.getString("Menu.readBoard")); // ("棋盘识别工具(Alt+O)");
-    if (OS.isWindows()) live.add(readBoard);
+    if (OS.isWindows()) {
+      readBoard.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.ALT_DOWN_MASK));
+      live.add(readBoard);
+    }
 
     readBoard.addActionListener(
         new ActionListener() {
