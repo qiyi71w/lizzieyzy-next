@@ -257,7 +257,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                 'items': [
                     '首次启动和手动智能测速现在都可以主动取消：关闭窗口或点击“停止测速”会结束 KataGo benchmark 进程，并恢复当前分析。',
                     '棋谱加载改成“可操作优先”：本地 SGF、野狐棋谱、在线/共享棋谱加载后，胜率曲线和 movelist 补齐前也能立即用方向键走棋。',
-                    'Windows 棋盘同步工具修复 native readboard 启动路径，正常 release 包优先使用内置 `readboard.exe`；启动失败会明确提示并自动回退到 Java 简易版。',
+                    'Windows 棋盘同步工具继续内置固定版本 native `readboard.exe`，这版预览重点验证 PR #9 的棋盘同步、Web 旁观和追踪分析功能。',
                     '发布说明已精简为本版新增变化，同时继续保持 6 种语言同结构和同一下载表格式。',
                 ],
             },
@@ -322,7 +322,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                 'items': [
                     '首次啟動和手動智慧測速現在都可以主動取消：關閉視窗或點擊「停止測速」會結束 KataGo benchmark 行程，並恢復目前分析。',
                     '棋譜載入改成「可操作優先」：本地 SGF、野狐棋譜、線上/共享棋譜載入後，勝率曲線和 movelist 補齊前也能立即用方向鍵走棋。',
-                    'Windows 棋盤同步工具修復 native readboard 啟動路徑，正常 release 包優先使用內建 `readboard.exe`；啟動失敗會明確提示並自動回退到 Java 簡易版。',
+                    'Windows 棋盤同步工具繼續內建固定版本 native `readboard.exe`，這版預覽重點驗證 PR #9 的棋盤同步、Web 旁觀和追蹤分析功能。',
                     '發布說明已精簡為本版新增變化，同時繼續保持 6 種語言同結構和同一下載表格式。',
                 ],
             },
@@ -387,7 +387,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                 'items': [
                     'First-run and manual Smart Optimize benchmarks can now be cancelled: closing the window or pressing Stop kills the KataGo benchmark process and restores analysis.',
                     'Game-record loading now prioritizes interaction: after local SGF, Fox game, online SGF, or shared-game loading, arrow-key navigation works immediately while the winrate graph and movelist catch up.',
-                    'The Windows board sync tool now launches native readboard from the correct path, prefers the bundled `readboard.exe` in normal release packages, and clearly falls back to the Java lightweight sync tool if native startup fails.',
+                    'The Windows board sync tool continues to bundle the pinned native `readboard.exe`; this preview focuses on validating PR #9 board sync, LAN Web viewing, and tracking analysis.',
                     'Release notes now focus on changes introduced in this release while keeping the fixed six-language structure and matching download tables.',
                 ],
             },
@@ -452,7 +452,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                 'items': [
                     '初回起動時と手動のスマート最適化 benchmark は、ウィンドウを閉じるか停止ボタンを押すことでキャンセルできます。キャンセル時は KataGo benchmark プロセスを終了し、分析を復帰します。',
                     '棋譜読み込みは操作可能性を優先します。ローカル SGF、野狐棋譜、オンライン/共有棋譜の読み込み後、勝率グラフと movelist の補完前でも方向キーで進められます。',
-                    'Windows の棋盤同期ツールは native readboard の起動パスを修正しました。通常の release パッケージでは同梱 `readboard.exe` を優先し、起動失敗時は明確に通知して Java 簡易版へ自動 fallback します。',
+                    'Windows の棋盤同期ツールは固定版の native `readboard.exe` を引き続き同梱します。この preview は PR #9 の棋盤同期、LAN Web 観戦、追跡分析の検証が主目的です。',
                     'リリースノートはこのリリースで追加された変更に絞りつつ、6 言語同一構造と同じダウンロード表形式を維持します。',
                 ],
             },
@@ -517,7 +517,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                 'items': [
                     '첫 실행 및 수동 Smart Optimize 벤치마크는 이제 취소할 수 있습니다. 창을 닫거나 Stop 버튼을 누르면 KataGo benchmark 프로세스를 종료하고 분석을 복구합니다.',
                     '기보 로딩은 즉시 조작을 우선합니다. 로컬 SGF, Fox 기보, 온라인/공유 기보를 불러온 뒤 승률 그래프와 movelist 가 보완되기 전에도 방향키 이동이 바로 가능합니다.',
-                    'Windows 보드 동기화 도구는 native readboard 실행 경로를 수정했습니다. 정상 release 패키지에서는 내장 `readboard.exe` 를 우선 사용하고, native 시작 실패 시 명확히 알린 뒤 Java 간편 버전으로 자동 fallback 합니다.',
+                    'Windows 보드 동기화 도구는 고정 버전 native `readboard.exe` 를 계속 포함합니다. 이번 preview 는 PR #9 의 보드 동기화, LAN Web 관전, 추적 분석 검증에 집중합니다.',
                     'release notes 는 이번 릴리스에서 추가된 변경 사항에 집중하면서도 6개 언어 동일 구조와 같은 다운로드 표 형식을 유지합니다.',
                 ],
             },
@@ -582,7 +582,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                 'items': [
                     'benchmark ครั้งแรกและ Smart Optimize แบบกดเองสามารถยกเลิกได้แล้ว: ปิดหน้าต่างหรือกด Stop จะหยุด process benchmark ของ KataGo และคืนค่าการวิเคราะห์',
                     'การโหลด SGF/บันทึกเกมเน้นให้ใช้งานได้ทันที: local SGF, เกม Fox, online/shared SGF สามารถใช้ปุ่มลูกศรเดินหมากได้ทันที แม้กราฟอัตราชนะและ movelist จะยังเติมข้อมูลตามมา',
-                    'เครื่องมือซิงก์กระดานบน Windows แก้ path สำหรับเปิด native readboard แล้ว แพ็กเกจ release ปกติจะใช้ `readboard.exe` ที่มาพร้อมกันก่อน และถ้าเปิด native ไม่สำเร็จจะแจ้งชัดเจนพร้อม fallback ไป Java lightweight sync โดยอัตโนมัติ',
+                    'เครื่องมือซิงก์กระดานบน Windows ยังรวม native `readboard.exe` เวอร์ชันที่ pin ไว้ และ preview นี้เน้นทดสอบ board sync, LAN Web viewer และ tracking analysis จาก PR #9',
                     'release notes ถูกย่อให้เน้นเฉพาะการเปลี่ยนแปลงของเวอร์ชันนี้ พร้อมคงโครงสร้าง 6 ภาษาและตารางดาวน์โหลดรูปแบบเดียวกัน',
                 ],
             },

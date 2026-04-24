@@ -498,7 +498,7 @@ What is bundled:
 - Windows release assets include a packaged Java runtime via jpackage.
 - Native Windows readboard is included in `readboard/`.
 - Native Windows readboard is pinned to qiyi71w/readboard ${READBOARD_RELEASE_TAG} (${READBOARD_ASSET_NAME}, SHA256 ${READBOARD_ASSET_SHA256}).
-- The built-in Java readboard helper is also included in `readboard_java/` as a fallback.
+- The built-in Java readboard helper is also included in `readboard_java/` for the explicit Java sync entry.
 EOF
 
   if [[ "$has_with_katago" == "true" ]]; then

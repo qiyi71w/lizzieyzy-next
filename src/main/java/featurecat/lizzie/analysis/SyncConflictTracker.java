@@ -1,19 +1,17 @@
 package featurecat.lizzie.analysis;
 
-import java.util.Arrays;
-
 final class SyncConflictTracker {
   enum Decision {
     HOLD,
     REBUILD
   }
 
-  private int[] pendingSnapshot = new int[0];
-  private boolean pendingConflict = false;
+  private String pendingConflictKey = "";
+  private boolean pendingConflict;
 
-  Decision evaluate(int[] snapshot) {
-    if (!pendingConflict || !Arrays.equals(pendingSnapshot, snapshot)) {
-      pendingSnapshot = Arrays.copyOf(snapshot, snapshot.length);
+  Decision evaluate(String conflictKey) {
+    if (!pendingConflict || !pendingConflictKey.equals(conflictKey)) {
+      pendingConflictKey = conflictKey;
       pendingConflict = true;
       return Decision.HOLD;
     }
@@ -22,7 +20,7 @@ final class SyncConflictTracker {
   }
 
   void clear() {
-    pendingSnapshot = new int[0];
+    pendingConflictKey = "";
     pendingConflict = false;
   }
 }

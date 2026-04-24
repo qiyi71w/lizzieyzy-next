@@ -46,6 +46,8 @@ public class BoardData {
   public boolean isSaiData2;
   public boolean isKataData;
   public boolean isKataData2;
+  public int analysisHeaderSlots;
+  public int analysisHeaderSlots2;
   //  public boolean isPDA;
   //  public boolean isPDA2;
   public double pda = 0;
@@ -59,10 +61,13 @@ public class BoardData {
   //	public boolean commented=true;
   //	public boolean commented2=true;
 
-  // Node properties
-  private Map<String, String> properties = new HashMap<String, String>();
+  private BoardNodeKind nodeKind;
 
-  public BoardData(
+  // Node properties
+  private Map<String, String> properties = new LinkedHashMap<String, String>();
+
+  private BoardData(
+      BoardNodeKind nodeKind,
       Stone[] stones,
       Optional<int[]> lastMove,
       Stone lastMoveColor,
@@ -74,15 +79,17 @@ public class BoardData {
       int whiteCaptures,
       double winrate,
       int playouts) {
+    this.nodeKind = Objects.requireNonNull(nodeKind, "nodeKind");
     this.moveMNNumber = -1;
     this.moveNumber = moveNumber;
-    this.lastMove = lastMove;
-    this.moveNumberList = moveNumberList;
+    this.lastMove = copyLastMove(Objects.requireNonNull(lastMove, "lastMove"));
+    validateNodeKind(this.nodeKind, this.lastMove);
+    this.moveNumberList = copyIntArray(moveNumberList);
     this.blackToPlay = blackToPlay;
     this.dummy = false;
     this.lastMoveColor = lastMoveColor;
-    this.stones = stones;
-    this.zobrist = zobrist;
+    this.stones = copyStones(stones);
+    this.zobrist = zobrist == null ? null : zobrist.clone();
     this.verify = false;
 
     this.winrate = winrate;
@@ -105,8 +112,117 @@ public class BoardData {
     }
 
     int[] boardArray = new int[width * height];
-    return new BoardData(
+    return snapshot(
         stones, Optional.empty(), Stone.EMPTY, true, new Zobrist(), 0, boardArray, 0, 0, 50, 0);
+  }
+
+  /** Creates an explicit history move node. */
+  public static BoardData move(
+      Stone[] stones,
+      int[] lastMove,
+      Stone lastMoveColor,
+      boolean blackToPlay,
+      Zobrist zobrist,
+      int moveNumber,
+      int[] moveNumberList,
+      int blackCaptures,
+      int whiteCaptures,
+      double winrate,
+      int playouts) {
+    return new BoardData(
+        BoardNodeKind.MOVE,
+        stones,
+        Optional.of(Objects.requireNonNull(lastMove, "lastMove")),
+        lastMoveColor,
+        blackToPlay,
+        zobrist,
+        moveNumber,
+        moveNumberList,
+        blackCaptures,
+        whiteCaptures,
+        winrate,
+        playouts);
+  }
+
+  /** Creates an explicit history pass node. */
+  public static BoardData pass(
+      Stone[] stones,
+      Stone lastMoveColor,
+      boolean blackToPlay,
+      Zobrist zobrist,
+      int moveNumber,
+      int[] moveNumberList,
+      int blackCaptures,
+      int whiteCaptures,
+      double winrate,
+      int playouts) {
+    return new BoardData(
+        BoardNodeKind.PASS,
+        stones,
+        Optional.empty(),
+        lastMoveColor,
+        blackToPlay,
+        zobrist,
+        moveNumber,
+        moveNumberList,
+        blackCaptures,
+        whiteCaptures,
+        winrate,
+        playouts);
+  }
+
+  /**
+   * Creates an explicit snapshot node.
+   *
+   * <p>Sync input never carries a real pass signal. Markerless sync callers must pass {@link
+   * Optional#empty()} and keep the node canonical as {@link BoardNodeKind#SNAPSHOT}.
+   */
+  public static BoardData snapshot(
+      Stone[] stones,
+      Optional<int[]> lastMove,
+      Stone lastMoveColor,
+      boolean blackToPlay,
+      Zobrist zobrist,
+      int moveNumber,
+      int[] moveNumberList,
+      int blackCaptures,
+      int whiteCaptures,
+      double winrate,
+      int playouts) {
+    return new BoardData(
+        BoardNodeKind.SNAPSHOT,
+        stones,
+        Objects.requireNonNull(lastMove, "lastMove"),
+        lastMoveColor,
+        blackToPlay,
+        zobrist,
+        moveNumber,
+        moveNumberList,
+        blackCaptures,
+        whiteCaptures,
+        winrate,
+        playouts);
+  }
+
+  /** Returns the canonical node kind for this board state. */
+  public BoardNodeKind getNodeKind() {
+    return nodeKind;
+  }
+
+  public boolean isMoveNode() {
+    return getNodeKind() == BoardNodeKind.MOVE;
+  }
+
+  public boolean isPassNode() {
+    return getNodeKind() == BoardNodeKind.PASS;
+  }
+
+  public boolean isSnapshotNode() {
+    return getNodeKind() == BoardNodeKind.SNAPSHOT;
+  }
+
+  public boolean isHistoryActionNode() {
+    return getNodeKind().isHistoryAction();
   }
 
   /**
@@ -155,7 +271,7 @@ public class BoardData {
   }
 
   public void setProperties(Map<String, String> properties) {
-    this.properties = properties;
+    this.properties = copyProperties(properties);
   }
 
   /**
@@ -249,6 +365,7 @@ public class BoardData {
     }
     if (!(EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove))
       wrn = Lizzie.leelaz.wrn;
+    analysisHeaderSlots = 0;
     // 排序
     Collections.sort(
         moves,
@@ -348,6 +465,7 @@ public class BoardData {
         pda2 = Lizzie.leelaz2.pda;
       } else pda2 = 0;
     }
+    analysisHeaderSlots2 = 0;
     Collections.sort(
         moves,
         new Comparator<MoveData>() {
@@ -471,24 +589,16 @@ public class BoardData {
   }
 
   public void sync(BoardData data) {
-    this.moveMNNumber = data.moveMNNumber;
-    this.moveNumber = data.moveNumber;
-    this.lastMove = data.lastMove;
-    this.moveNumberList = data.moveNumberList;
-    this.blackToPlay = data.blackToPlay;
-    this.dummy = data.dummy;
-    this.lastMoveColor = data.lastMoveColor;
-    this.stones = data.stones;
-    this.zobrist = data.zobrist;
-    this.verify = data.verify;
-    this.blackCaptures = data.blackCaptures;
-    this.whiteCaptures = data.whiteCaptures;
-    this.comment = data.comment;
+    copyCoreStateFrom(data);
+    copyAnalysisStateFrom(data);
+    this.properties = copyProperties(data.properties);
   }
 
   public BoardData clone() {
-    BoardData data = BoardData.empty(19, 19);
-    data.sync(this);
+    BoardData data = copyCoreData();
+    data.copyCoreStateFrom(this);
+    data.copyAnalysisStateFrom(this);
+    data.properties = copyProperties(this.properties);
     return data;
   }
 
@@ -500,11 +610,179 @@ public class BoardData {
   }
 
   public void tryToClearBestMoves() {
-    bestMoves = new ArrayList<>();
-    playouts = 0;
+    clearPrimaryAnalysisPayloadState();
+    clearSecondaryAnalysisPayloadState();
     if (Lizzie.leelaz.isKatago) {
       Lizzie.leelaz.scoreMean = 0;
       Lizzie.leelaz.scoreStdev = 0;
     }
+    if (Lizzie.leelaz2 != null && Lizzie.leelaz2.isKatago) {
+      Lizzie.leelaz2.scoreMean = 0;
+      Lizzie.leelaz2.scoreStdev = 0;
+    }
+  }
+
+  private void clearPrimaryAnalysisPayloadState() {
+    engineName = "";
+    winrate = 50;
+    setPlayouts(0);
+    bestMoves = new ArrayList<MoveData>();
+    bestMovesOutOfRange = new ArrayList<MoveData>();
+    estimateArray = null;
+    isSaiData = false;
+    isKataData = false;
+    isChanged = false;
+    playoutsChanged = false;
+    analysisHeaderSlots = 0;
+    scoreMean = 0;
+    scoreStdev = 0;
+    pda = 0;
+  }
+
+  private void clearSecondaryAnalysisPayloadState() {
+    engineName2 = "";
+    winrate2 = 50;
+    setPlayouts2(0);
+    bestMoves2 = new ArrayList<MoveData>();
+    bestMoves2OutOfRange = new ArrayList<MoveData>();
+    estimateArray2 = null;
+    isSaiData2 = false;
+    isKataData2 = false;
+    isChanged2 = false;
+    analysisHeaderSlots2 = 0;
+    scoreMean2 = 0;
+    scoreStdev2 = 0;
+    pda2 = 0;
+  }
+
+  private static void validateNodeKind(BoardNodeKind nodeKind, Optional<int[]> lastMove) {
+    if (nodeKind == BoardNodeKind.MOVE && !lastMove.isPresent()) {
+      throw new IllegalArgumentException("MOVE nodes require coordinates.");
+    }
+    if (nodeKind == BoardNodeKind.PASS && lastMove.isPresent()) {
+      throw new IllegalArgumentException("PASS nodes cannot carry coordinates.");
+    }
+  }
+
+  private void copyCoreStateFrom(BoardData data) {
+    this.nodeKind = data.getNodeKind();
+    this.moveMNNumber = data.moveMNNumber;
+    this.moveNumber = data.moveNumber;
+    this.lastMove = copyLastMove(data.lastMove);
+    this.moveNumberList = copyIntArray(data.moveNumberList);
+    this.blackToPlay = data.blackToPlay;
+    this.dummy = data.dummy;
+    this.lastMoveColor = data.lastMoveColor;
+    this.stones = copyStones(data.stones);
+    this.zobrist = data.zobrist == null ? null : data.zobrist.clone();
+    this.verify = data.verify;
+    this.blackCaptures = data.blackCaptures;
+    this.whiteCaptures = data.whiteCaptures;
+  }
+
+  private void copyAnalysisStateFrom(BoardData data) {
+    this.winrate = data.winrate;
+    this.winrate2 = data.winrate2;
+    this.playouts = data.playouts;
+    this.playouts2 = data.playouts2;
+    this.scoreMean = data.scoreMean;
+    this.scoreMean2 = data.scoreMean2;
+    this.scoreStdev = data.scoreStdev;
+    this.scoreStdev2 = data.scoreStdev2;
+    this.bestMoves = copyMoveDataList(data.bestMoves);
+    this.bestMovesOutOfRange = copyMoveDataList(data.bestMovesOutOfRange);
+    this.bestMoves2 = copyMoveDataList(data.bestMoves2);
+    this.bestMoves2OutOfRange = copyMoveDataList(data.bestMoves2OutOfRange);
+    this.isChanged = data.isChanged;
+    this.isChanged2 = data.isChanged2;
+    this.comment = data.comment;
+    this.engineName = data.engineName;
+    this.engineName2 = data.engineName2;
+    this.isSaiData = data.isSaiData;
+    this.isSaiData2 = data.isSaiData2;
+    this.isKataData = data.isKataData;
+    this.isKataData2 = data.isKataData2;
+    this.analysisHeaderSlots = data.analysisHeaderSlots;
+    this.analysisHeaderSlots2 = data.analysisHeaderSlots2;
+    this.pda = data.pda;
+    this.pda2 = data.pda2;
+    this.komi = data.komi;
+    this.wrn = data.wrn;
+    this.estimateArray = copyDoubleList(data.estimateArray);
+    this.estimateArray2 = copyDoubleList(data.estimateArray2);
+    this.playoutsChanged = data.playoutsChanged;
+    this.lastMoveMatchCandidteNo = data.lastMoveMatchCandidteNo;
+  }
+
+  private BoardData copyCoreData() {
+    Stone[] stonesCopy = copyStones(this.stones);
+    Optional<int[]> lastMoveCopy = copyLastMove(this.lastMove);
+    int[] moveNumberListCopy = copyIntArray(this.moveNumberList);
+    Zobrist zobristCopy = this.zobrist == null ? null : this.zobrist.clone();
+    if (this.nodeKind == BoardNodeKind.MOVE) {
+      return BoardData.move(
+          stonesCopy,
+          lastMoveCopy.orElseThrow(),
+          this.lastMoveColor,
+          this.blackToPlay,
+          zobristCopy,
+          this.moveNumber,
+          moveNumberListCopy,
+          this.blackCaptures,
+          this.whiteCaptures,
+          this.winrate,
+          this.playouts);
+    }
+    if (this.nodeKind == BoardNodeKind.PASS) {
+      return BoardData.pass(
+          stonesCopy,
+          this.lastMoveColor,
+          this.blackToPlay,
+          zobristCopy,
+          this.moveNumber,
+          moveNumberListCopy,
+          this.blackCaptures,
+          this.whiteCaptures,
+          this.winrate,
+          this.playouts);
+    }
+    return BoardData.snapshot(
+        stonesCopy,
+        lastMoveCopy,
+        this.lastMoveColor,
+        this.blackToPlay,
+        zobristCopy,
+        this.moveNumber,
+        moveNumberListCopy,
+        this.blackCaptures,
+        this.whiteCaptures,
+        this.winrate,
+        this.playouts);
+  }
+
+  private static Optional<int[]> copyLastMove(Optional<int[]> move) {
+    return move.isPresent() ? Optional.of(move.get().clone()) : Optional.empty();
+  }
+
+  private static Stone[] copyStones(Stone[] stones) {
+    return stones == null ? null : stones.clone();
+  }
+
+  private static int[] copyIntArray(int[] values) {
+    return values == null ? null : values.clone();
+  }
+
+  private static ArrayList<Double> copyDoubleList(ArrayList<Double> values) {
+    return values == null ? null : new ArrayList<Double>(values);
+  }
+
+  private static List<MoveData> copyMoveDataList(List<MoveData> moves) {
+    return moves == null ? null : new ArrayList<MoveData>(moves);
+  }
+
+  private static Map<String, String> copyProperties(Map<String, String> properties) {
+    return properties == null
+        ? new LinkedHashMap<String, String>()
+        : new LinkedHashMap<String, String>(properties);
   }
 }

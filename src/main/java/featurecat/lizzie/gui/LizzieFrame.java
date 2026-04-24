@@ -18,6 +18,7 @@ import featurecat.lizzie.analysis.KataEstimate;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
 import featurecat.lizzie.analysis.ReadBoard;
+import featurecat.lizzie.analysis.TrackingEngine;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
@@ -223,6 +224,7 @@ public class LizzieFrame extends JFrame {
   public String playerTitle = "";
   private String resultTitle = "";
   public static String fileNameTitle = "";
+  public volatile String webBoardSuffix = "";
 
   // private JScrollPane variationScrollPane;
   // private Rectangle variationCommentRect;
@@ -270,6 +272,9 @@ public class LizzieFrame extends JFrame {
   public KataEstimate zen;
   public SetEstimateParam setEstimateParam;
   public ReadBoard readBoard;
+  private Object readBoardRestartLock = new Object();
+  private ReadBoard readBoardRestartTarget;
+  private ReadBoardFactory pendingReadBoardFactory;
   public ConfigDialog2 configDialog2;
   public boolean isShowingPolicy = false;
   public boolean isShowingHeatmap = false;
@@ -466,6 +471,10 @@ public class LizzieFrame extends JFrame {
   public ArrayList<String> priorityMoveCoords = new ArrayList<String>();
 
   public AnalysisEngine analysisEngine;
+  public volatile TrackingEngine trackingEngine;
+  public TrackingConsolePane trackingConsolePane;
+  public Set<String> trackedCoords = Collections.synchronizedSet(new LinkedHashSet<>());
+  public volatile boolean isKeepTracking = false;
   private boolean redrawWinratePaneOnly = false;
   public boolean mouseOverChanged = false;
   public boolean isAutoReplying = false;
@@ -2275,61 +2284,125 @@ public class LizzieFrame extends JFrame {
   }
 
   public void openReadBoardJava() {
-    if (readBoard != null) {
-      try {
-        readBoard.shutdown();
-      } catch (Exception e) {
-        e.printStackTrace();
-        // Failed to save config
-      }
-    }
-    try {
-      readBoard = new ReadBoard(true, true);
-    } catch (Exception e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
-    }
+    reopenReadBoard(this::createJavaReadBoard);
   }
 
   public void openBoardSync() {
-    // Non-Windows has no native readboard — always use the bundled Java version.
-    if (!OS.isWindows()) {
+    if (!isNativeBoardSyncSupported()) {
       openReadBoardJava();
       return;
     }
-    // Windows release packages include native readboard. If a custom/dev checkout is missing it,
-    // fall back to the bundled Java helper instead of downloading anything at runtime.
-    if (!ReadBoard.isNativeReadBoardExeAvailable()) {
-      Utils.showMsg(Lizzie.resourceBundle.getString("ReadBoard.nativeExeMissing"));
-      openReadBoardJava();
+    if (!isNativeReadBoardAvailable()) {
       return;
     }
-    launchNativeReadBoard();
+    reopenReadBoard(this::createNativeReadBoard);
   }
 
-  private void launchNativeReadBoard() {
-    if (readBoard != null) {
-      try {
-        readBoard.shutdown();
-      } catch (Exception e) {
-        e.printStackTrace();
+  private void reopenReadBoard(ReadBoardFactory factory) {
+    if (!SwingUtilities.isEventDispatchThread() || readBoard == null) {
+      replaceReadBoard(factory);
+      return;
+    }
+    ReadBoard existingReadBoard = readBoard;
+    if (queueReadBoardRestart(existingReadBoard, factory)) {
+      return;
+    }
+    Thread restartThread =
+        new Thread(
+            () -> {
+              shutdownReadBoard(existingReadBoard);
+              SwingUtilities.invokeLater(
+                  () -> {
+                    ReadBoardFactory nextFactory = finishReadBoardRestart(existingReadBoard);
+                    if (nextFactory == null) {
+                      return;
+                    }
+                    startReadBoard(nextFactory);
+                  });
+            },
+            "lizzie-readboard-restart");
+    restartThread.start();
+  }
+
+  private void replaceReadBoard(ReadBoardFactory factory) {
+    ReadBoard existingReadBoard = readBoard;
+    if (existingReadBoard != null) {
+      if (queueReadBoardRestart(existingReadBoard, factory)) {
+        return;
+      }
+      shutdownReadBoard(existingReadBoard);
+      factory = finishReadBoardRestart(existingReadBoard);
+      if (factory == null) {
+        return;
       }
     }
+    startReadBoard(factory);
+  }
+
+  private void startReadBoard(ReadBoardFactory factory) {
     try {
-      readBoard = new ReadBoard(true, false);
+      readBoard = factory.create();
     } catch (Exception e) {
       e.printStackTrace();
-      if (ReadBoard.isNativeReadBoardBatAvailable()) {
-        try {
-          readBoard = new ReadBoard(false, false);
-          return;
-        } catch (Exception e1) {
-          e1.printStackTrace();
-        }
-      }
-      Utils.showMsg(Lizzie.resourceBundle.getString("ReadBoard.nativeStartFailed"));
-      openReadBoardJava();
     }
+  }
+
+  protected void shutdownReadBoard(ReadBoard targetReadBoard) {
+    if (targetReadBoard == null) {
+      return;
+    }
+    try {
+      targetReadBoard.shutdown();
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
+
+  protected ReadBoard createJavaReadBoard() throws Exception {
+    return new ReadBoard(true, true);
+  }
+
+  protected boolean isNativeBoardSyncSupported() {
+    return OS.isWindows();
+  }
+
+  protected boolean isNativeReadBoardAvailable() {
+    return ReadBoard.isNativeReadBoardExeAvailable();
+  }
+
+  protected ReadBoard createNativeReadBoard() throws Exception {
+    return new ReadBoard(true, false);
+  }
+
+  private boolean queueReadBoardRestart(ReadBoard existingReadBoard, ReadBoardFactory factory) {
+    synchronized (readBoardRestartLock) {
+      pendingReadBoardFactory = factory;
+      if (readBoardRestartTarget == existingReadBoard) {
+        return true;
+      }
+      readBoardRestartTarget = existingReadBoard;
+      return false;
+    }
+  }
+
+  private ReadBoardFactory finishReadBoardRestart(ReadBoard existingReadBoard) {
+    synchronized (readBoardRestartLock) {
+      if (readBoard != null && readBoard != existingReadBoard) {
+        readBoardRestartTarget = null;
+        pendingReadBoardFactory = null;
+        return null;
+      }
+      readBoard = null;
+      readBoardRestartTarget = null;
+      ReadBoardFactory nextFactory = pendingReadBoardFactory;
+      pendingReadBoardFactory = null;
+      return nextFactory;
+    }
+  }
+
+  @FunctionalInterface
+  private interface ReadBoardFactory {
+    ReadBoard create() throws Exception;
   }
 
   public void openConfigDialog2(int index) {
@@ -3897,6 +3970,10 @@ public class LizzieFrame extends JFrame {
   }
 
   public void scheduleResumeAnalysisAfterLoad(int delayMillis) {
+    scheduleResumeAnalysisAfterLoad(delayMillis, this::resumeAnalysisAfterLoad);
+  }
+
+  public void scheduleResumeAnalysisAfterLoad(int delayMillis, Runnable action) {
     final int scheduleDelay = Math.max(0, delayMillis);
     canGoAfterload = false;
     Runnable runnable =
@@ -3912,7 +3989,9 @@ public class LizzieFrame extends JFrame {
             SwingUtilities.invokeLater(
                 new Runnable() {
                   public void run() {
-                    resumeAnalysisAfterLoad();
+                    if (action != null) {
+                      action.run();
+                    }
                   }
                 });
           }
@@ -5406,6 +5485,7 @@ public class LizzieFrame extends JFrame {
     appendComment();
     requestProblemListRefresh();
     repaint();
+    notifyWebBoard(false);
   }
 
   public void refresh(int mode) {
@@ -5422,7 +5502,19 @@ public class LizzieFrame extends JFrame {
       case 1:
         refreshFromInfo = true;
         repaint();
+        notifyWebBoard(true);
+        break;
       default:
+    }
+  }
+
+  private void notifyWebBoard(boolean analysisOnly) {
+    if (Lizzie.webBoardManager != null && Lizzie.webBoardManager.isRunning()) {
+      featurecat.lizzie.gui.web.WebBoardDataCollector c = Lizzie.webBoardManager.getCollector();
+      if (c != null) {
+        if (analysisOnly) c.onAnalysisUpdated();
+        else c.onBoardStateChanged();
+      }
     }
   }
 
@@ -6476,12 +6568,12 @@ public class LizzieFrame extends JFrame {
 
   public void onClickedWinrateOnly(int x, int y) {
     if (isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) return;
-    int moveNumber = winrateGraph.moveNumber(x - grx, y - gry);
-    if (Lizzie.config.showWinrateGraph && moveNumber >= 0) {
+    BoardHistoryNode targetNode = resolveWinrateGraphTargetNode(x, y);
+    if (targetNode != null) {
       // isPlayingAgainstLeelaz = false;
       // menu.toggleDoubleMenuGameStatus();
       // noautocounting();
-      if (canGoAfterload) Lizzie.board.goToMoveNumberBeyondBranch(moveNumber);
+      if (canGoAfterload) goToWinrateGraphTarget(targetNode, false);
     }
   }
 
@@ -6532,8 +6624,6 @@ public class LizzieFrame extends JFrame {
     } else {
       boardCoordinates = boardRenderer.convertScreenToCoordinates(x, y);
     }
-    int moveNumber = winrateGraph.moveNumber(x - grx, y - gry);
-
     if (boardCoordinates.isPresent()) {
       if (Lizzie.frame.isContributing) return;
       int[] coords = boardCoordinates.get();
@@ -6569,11 +6659,12 @@ public class LizzieFrame extends JFrame {
         }
       }
     }
-    if (Lizzie.config.showWinrateGraph && moveNumber >= 0) {
+    BoardHistoryNode targetNode = resolveWinrateGraphTargetNode(x, y);
+    if (targetNode != null) {
       if (isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) return;
       // isPlayingAgainstLeelaz = false;
       // noautocounting();
-      if (canGoAfterload) Lizzie.board.goToMoveNumberBeyondBranch(moveNumber);
+      if (canGoAfterload) goToWinrateGraphTarget(targetNode, false);
     }
     // if (Lizzie.config.showSubBoard && subBoardRenderer.isInside(x, y)) {
     // Lizzie.config.toggleLargeSubBoard();
@@ -6823,42 +6914,32 @@ public class LizzieFrame extends JFrame {
     return bestMoves;
   }
 
-  public boolean processMouseMoveOnWinrateGraph(int x, int y) {
-    if (winrateGraph.mode == 1) return false;
-    int moveNumber = winrateGraph.moveNumber(x - this.grx, y - this.gry);
-    boolean noRefresh = false;
-    if (moveNumber >= 0) {
-      BoardHistoryNode curNode = Lizzie.board.getHistory().getCurrentHistoryNode();
-      BoardHistoryNode mouseOverNode = curNode;
-      int curMoveNumber = (mouseOverNode.getData()).moveNumber;
-      if (curMoveNumber > moveNumber) {
-        for (int i = 0; i < curMoveNumber - moveNumber; i++) {
-          if (mouseOverNode.previous().isPresent()) {
-            mouseOverNode = mouseOverNode.previous().get();
-          } else {
-            noRefresh = true;
-            break;
-          }
-        }
-      } else if (curMoveNumber < moveNumber) {
-        for (int i = 0; i < moveNumber - curMoveNumber; i++) {
-          if (mouseOverNode.next().isPresent()) {
-            mouseOverNode = mouseOverNode.next().get();
-          } else {
-            noRefresh = true;
-            break;
-          }
-        }
-      }
-      winrateGraph.setMouseOverNode(mouseOverNode);
-      if (mouseOverNode != curNode || !noRefresh) {
-        redrawWinratePaneOnly = true;
-        refreshWinratePane = true;
-        repaint();
-      }
-      return true;
+  static boolean hasRealMoveCoordinates(BoardData data) {
+    return data != null && data.isMoveNode() && data.lastMove.isPresent();
+  }
+
+  static boolean isNextMoveBlunderTarget(BoardData data, int[] curCoords) {
+    if (!hasRealMoveCoordinates(data) || data.getPlayouts() <= 0) {
+      return false;
     }
-    return false;
+    int[] lastMove = data.lastMove.get();
+    return lastMove[0] == curCoords[0] && lastMove[1] == curCoords[1];
+  }
+
+  public boolean processMouseMoveOnWinrateGraph(int x, int y) {
+    BoardHistoryNode targetNode = resolveWinrateGraphTargetNode(x, y);
+    if (targetNode == null) {
+      return false;
+    }
+    BoardHistoryNode currentNode = Lizzie.board.getHistory().getCurrentHistoryNode();
+    BoardHistoryNode previousHoverNode = winrateGraph.mouseOverNode;
+    winrateGraph.setMouseOverNode(targetNode);
+    if (targetNode != currentNode || previousHoverNode != targetNode) {
+      redrawWinratePaneOnly = true;
+      refreshWinratePane = true;
+      repaint();
+    }
+    return true;
   }
 
   public boolean onMouseMoved(int x, int y) {
@@ -6932,12 +7013,9 @@ public class LizzieFrame extends JFrame {
           if (Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent()) {
             BoardData nextData =
                 Lizzie.board.getHistory().getCurrentHistoryNode().next().get().getData();
-            if (nextData.getPlayouts() > 0)
-              if (nextData.lastMove.isPresent())
-                if (nextData.lastMove.get()[0] == curCoords[0]
-                    && nextData.lastMove.get()[1] == curCoords[1]) {
-                  isCurMouseOver = true;
-                }
+            if (isNextMoveBlunderTarget(nextData, curCoords)) {
+              isCurMouseOver = true;
+            }
           }
         }
         List<MoveData> bestMoves = getBestMoves();
@@ -7089,10 +7167,103 @@ public class LizzieFrame extends JFrame {
   }
 
   public void onMouseDragged(int x, int y) {
-    int moveNumber = winrateGraph.moveNumber(x - grx, y - gry);
-    if (Lizzie.config.showWinrateGraph && moveNumber >= 0 && canGoAfterload) {
-      Lizzie.board.goToMoveNumberWithinBranch(moveNumber);
+    BoardHistoryNode targetNode = resolveWinrateGraphTargetNode(x, y);
+    if (targetNode != null && canGoAfterload) {
+      goToWinrateGraphTarget(targetNode, true);
     }
+  }
+
+  private BoardHistoryNode resolveWinrateGraphTargetNode(int x, int y) {
+    if (!Lizzie.config.showWinrateGraph || winrateGraph == null) {
+      return null;
+    }
+    return winrateGraph.resolveMoveTargetNode(x - grx, y - gry);
+  }
+
+  private boolean goToWinrateGraphTarget(BoardHistoryNode targetNode, boolean withinBranch) {
+    if (targetNode == null || Lizzie.board == null) {
+      return false;
+    }
+    BoardHistoryNode currentNode = Lizzie.board.getHistory().getCurrentHistoryNode();
+    if (currentNode == targetNode) {
+      return false;
+    }
+    if (canReachWinrateGraphTarget(currentNode, targetNode, true)) {
+      return stepToWinrateGraphTarget(targetNode, true, withinBranch);
+    }
+    if (canReachWinrateGraphTarget(currentNode, targetNode, false)) {
+      return stepToWinrateGraphTarget(targetNode, false, withinBranch);
+    }
+    if (!withinBranch && canJumpToVisibleMainTrunkTarget(currentNode, targetNode)) {
+      return stepToVisibleMainTrunkTarget(currentNode, targetNode);
+    }
+    return false;
+  }
+
+  private boolean canJumpToVisibleMainTrunkTarget(
+      BoardHistoryNode currentNode, BoardHistoryNode targetNode) {
+    if (currentNode == null || targetNode == null) {
+      return false;
+    }
+    if (currentNode.isMainTrunk() || !targetNode.isMainTrunk()) {
+      return false;
+    }
+    BoardHistoryNode forkNode = currentNode.findTop();
+    return forkNode != targetNode && canReachWinrateGraphTarget(forkNode, targetNode, false);
+  }
+
+  private boolean canReachWinrateGraphTarget(
+      BoardHistoryNode startNode, BoardHistoryNode targetNode, boolean backwards) {
+    BoardHistoryNode node = startNode;
+    while (node != targetNode) {
+      Optional<BoardHistoryNode> nextNode = backwards ? node.previous() : node.next();
+      if (!nextNode.isPresent()) {
+        return false;
+      }
+      node = nextNode.get();
+    }
+    return true;
+  }
+
+  private boolean stepToWinrateGraphTarget(
+      BoardHistoryNode targetNode, boolean backwards, boolean withinBranch) {
+    boolean moved = moveToWinrateGraphTarget(targetNode, backwards, withinBranch);
+    if (moved) {
+      Lizzie.board.clearAfterMove();
+      refresh();
+    }
+    return moved;
+  }
+
+  private boolean moveToWinrateGraphTarget(
+      BoardHistoryNode targetNode, boolean backwards, boolean withinBranch) {
+    boolean moved = false;
+    while (Lizzie.board.getHistory().getCurrentHistoryNode() != targetNode) {
+      BoardHistoryNode currentNode = Lizzie.board.getHistory().getCurrentHistoryNode();
+      if (backwards && withinBranch && !currentNode.isFirstChild()) {
+        break;
+      }
+      boolean stepOk = backwards ? Lizzie.board.previousMove(false) : Lizzie.board.nextMove(false);
+      if (!stepOk) {
+        break;
+      }
+      moved = true;
+    }
+    return moved;
+  }
+
+  private boolean stepToVisibleMainTrunkTarget(
+      BoardHistoryNode currentNode, BoardHistoryNode targetNode) {
+    BoardHistoryNode forkNode = currentNode.findTop();
+    boolean moved = moveToWinrateGraphTarget(forkNode, true, false);
+    if (Lizzie.board.getHistory().getCurrentHistoryNode() == forkNode) {
+      moved = moveToWinrateGraphTarget(targetNode, false, false) || moved;
+    }
+    if (moved) {
+      Lizzie.board.clearAfterMove();
+      refresh();
+    }
+    return moved;
   }
 
   public boolean isInPlayMode() {
@@ -7577,9 +7748,9 @@ public class LizzieFrame extends JFrame {
       // sb.append(playerTitle);
       // sb.append(resultTitle);
       if (hasEnginePkTitile && enginePkTitile != null) {
-        setTitle(enginePkTitile + " " + sb.toString());
+        setTitle(enginePkTitile + " " + sb.toString() + webBoardSuffix);
       } else {
-        setTitle(sb.toString());
+        setTitle(sb.toString() + webBoardSuffix);
       }
       return;
     }
@@ -7642,7 +7813,7 @@ public class LizzieFrame extends JFrame {
     if (hasEnginePkTitile && enginePkTitile != null) {
       sb.append(Lizzie.leelaz.oriEnginename);
       sb.append(visitsString + " ");
-      setTitle(enginePkTitile + " " + DEFAULT_TITLE + " - " + sb.toString());
+      setTitle(enginePkTitile + " " + DEFAULT_TITLE + " - " + sb.toString() + webBoardSuffix);
     } else {
       String titlePrefix = sb.toString();
       sb.setLength(0);
@@ -7665,7 +7836,7 @@ public class LizzieFrame extends JFrame {
       //      if (Lizzie.leelaz.engineCommand().length() < 100)
       //        sb.append(" [" + Lizzie.leelaz.engineCommand() + "]");
       //      else sb.append(" [" + Lizzie.leelaz.engineCommand().substring(0, 100) + "...]");
-      setTitle(sb.toString());
+      setTitle(sb.toString() + webBoardSuffix);
     }
   }
 
@@ -8021,7 +8192,7 @@ public class LizzieFrame extends JFrame {
     if (validLastWinrate && validWinrate) {
       double lastWinDiff = 100 - lastWR - curWR;
       double lastScoreDiff = -lastScore - curScore;
-      if ((lastWinDiff < 0 || lastScoreDiff < 0) && node.getData().lastMove.isPresent()) {
+      if ((lastWinDiff < 0 || lastScoreDiff < 0) && isRealHistoryActionNode(node.getData())) {
         if (node.isBest) {
           winScoreDiff[0] = 0;
           winScoreDiff[1] = 0;
@@ -10288,7 +10459,7 @@ public class LizzieFrame extends JFrame {
         try {
           if (Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent()) {
             BoardHistoryNode next = Lizzie.board.getHistory().getCurrentHistoryNode().next().get();
-            if (next.getData().lastMove.isPresent()) {
+            if (hasRealMoveCoordinates(next.getData())) {
               int[] coords = next.getData().lastMove.get();
               boolean hasData = false;
               for (MoveData move : data2) {
@@ -11903,6 +12074,198 @@ public class LizzieFrame extends JFrame {
     }
   }
 
+  private final java.util.concurrent.atomic.AtomicBoolean trackingEngineStarting =
+      new java.util.concurrent.atomic.AtomicBoolean(false);
+
+  public void ensureTrackingEngine() {
+    if (trackingEngine != null && trackingEngine.isLoaded()) return;
+    if (!trackingEngineStarting.compareAndSet(false, true)) return;
+    boolean threadStarted = false;
+    try {
+      if (trackingEngine != null && trackingEngine.isLoaded()) return;
+      TrackingEngine previous = trackingEngine;
+      TrackingEngine engine = new TrackingEngine();
+      synchronized (trackedCoords) {
+        trackingEngine = engine;
+        lastTrackingPonderNode = null;
+      }
+      SwingUtilities.invokeLater(
+          () -> {
+            if (trackingConsolePane == null || !trackingConsolePane.isDisplayable()) {
+              trackingConsolePane = new TrackingConsolePane();
+            }
+            engine.setConsolePane(trackingConsolePane);
+            trackingConsolePane.setVisible(true);
+          });
+      String engineCmd = Lizzie.leelaz != null ? Lizzie.leelaz.engineCommand : "";
+      if (engineCmd == null || engineCmd.trim().isEmpty()) return;
+      threadStarted = true;
+      new Thread(
+              () -> {
+                try {
+                  if (previous != null) {
+                    try {
+                      previous.shutdown();
+                    } catch (Throwable t) {
+                      t.printStackTrace();
+                    }
+                  }
+                  if (engine != trackingEngine) return;
+                  engine.startEngine(engineCmd);
+                } finally {
+                  trackingEngineStarting.set(false);
+                }
+              })
+          .start();
+    } finally {
+      if (!threadStarted) trackingEngineStarting.set(false);
+    }
+  }
+
+  public boolean ensureTrackingEngineWithWarning() {
+    if (trackingEngine != null && trackingEngine.isLoaded()) return true;
+    if (!Lizzie.config.trackingEngineSkipWarning) {
+      if (!showTrackingEngineWarning()) return false;
+    }
+    ensureTrackingEngine();
+    return true;
+  }
+
+  private boolean showTrackingEngineWarning() {
+    JCheckBox chkDontAsk =
+        new JCheckBox(Lizzie.resourceBundle.getString("LizzieFrame.trackingDontAskAgain"));
+    Object[] message = {
+      Lizzie.resourceBundle.getString("LizzieFrame.trackingEngineWarning"), chkDontAsk
+    };
+    int result =
+        JOptionPane.showConfirmDialog(
+            this,
+            message,
+            Lizzie.resourceBundle.getString("LizzieFrame.trackingEngineWarningTitle"),
+            JOptionPane.OK_CANCEL_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+    if (result == JOptionPane.OK_OPTION) {
+      if (chkDontAsk.isSelected()) {
+        Lizzie.config.trackingEngineSkipWarning = true;
+        Lizzie.config.uiConfig.put("tracking-engine-skip-warning", true);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  public void destroyTrackingEngine() {
+    TrackingEngine te;
+    synchronized (trackedCoords) {
+      te = trackingEngine;
+      trackingEngine = null;
+      lastTrackingPonderNode = null;
+    }
+    if (te != null) {
+      new Thread(
+              () -> {
+                try {
+                  te.shutdown();
+                } catch (Throwable t) {
+                  t.printStackTrace();
+                }
+              })
+          .start();
+    }
+  }
+
+  public void destroyTrackingEngineSync() {
+    TrackingEngine te;
+    synchronized (trackedCoords) {
+      te = trackingEngine;
+      trackingEngine = null;
+      lastTrackingPonderNode = null;
+    }
+    if (te != null) {
+      try {
+        te.shutdown();
+      } catch (Throwable t) {
+        t.printStackTrace();
+      }
+    }
+  }
+
+  public void toggleTrackingConsole() {
+    SwingUtilities.invokeLater(
+        () -> {
+          if (trackingConsolePane == null || !trackingConsolePane.isDisplayable()) {
+            trackingConsolePane = new TrackingConsolePane();
+            TrackingEngine te = trackingEngine;
+            if (te != null) te.setConsolePane(trackingConsolePane);
+          }
+          trackingConsolePane.setVisible(!trackingConsolePane.isVisible());
+        });
+  }
+
+  public void clearTrackedCoords() {
+    synchronized (trackedCoords) {
+      trackedCoords.clear();
+      isKeepTracking = false;
+      lastTrackingPonderNode = null;
+    }
+    TrackingEngine te = trackingEngine;
+    if (te != null) te.clearTrackedMoves();
+    refresh();
+  }
+
+  public void triggerTrackingAnalysis() {
+    if (Lizzie.board == null) return;
+    BoardHistoryNode node = Lizzie.board.getHistory().getCurrentHistoryNode();
+    TrackingEngine teSnapshot;
+    Set<String> snapshot;
+    synchronized (trackedCoords) {
+      lastTrackingPonderNode = node;
+      teSnapshot = trackingEngine;
+      if (teSnapshot == null || !teSnapshot.isLoaded()) return;
+      if (trackedCoords.isEmpty()) return;
+      snapshot = new java.util.LinkedHashSet<>(trackedCoords);
+    }
+    teSnapshot.sendTrackingRequest(node, snapshot);
+  }
+
+  private volatile BoardHistoryNode lastTrackingPonderNode;
+
+  public void onMainEnginePonder() {
+    if (Lizzie.board == null) return;
+    BoardHistoryNode currentNode = Lizzie.board.getHistory().getCurrentHistoryNode();
+    boolean shouldTrigger = false;
+    boolean shouldClearAndRefresh = false;
+    Set<String> snapshot = null;
+    TrackingEngine teSnapshot = null;
+    synchronized (trackedCoords) {
+      if (trackedCoords.isEmpty()) {
+        lastTrackingPonderNode = null;
+        return;
+      }
+      if (currentNode == lastTrackingPonderNode) return;
+      lastTrackingPonderNode = currentNode;
+      if (isKeepTracking) {
+        teSnapshot = trackingEngine;
+        if (teSnapshot == null || !teSnapshot.isLoaded()) {
+          lastTrackingPonderNode = null;
+          return;
+        }
+        snapshot = new java.util.LinkedHashSet<>(trackedCoords);
+        shouldTrigger = true;
+      } else {
+        trackedCoords.clear();
+        teSnapshot = trackingEngine;
+        shouldClearAndRefresh = true;
+      }
+    }
+    if (shouldTrigger) {
+      teSnapshot.sendTrackingRequest(currentNode, snapshot);
+    } else if (shouldClearAndRefresh) {
+      if (teSnapshot != null) teSnapshot.clearTrackedMoves();
+      refresh();
+    }
+  }
+
   public void flashAnalyzeGameBatch(int firstMove, int lastMove, boolean isAllBranches) {
     // TODO Auto-generated method stub
     Lizzie.config.analysisStartMove = firstMove;
@@ -12679,19 +13042,24 @@ public class LizzieFrame extends JFrame {
   }
 
   private void resumeAnalysisAfterLoad() {
+    ensureAnalysisResumedAfterLoad();
+  }
+
+  public boolean ensureAnalysisResumedAfterLoad() {
     if (Lizzie.leelaz == null
         || EngineManager.isEmpty
         || EngineManager.isEngineGame()
         || isPlayingAgainstLeelaz
         || isAnaPlayingAgainstLeelaz) {
-      return;
+      return false;
     }
     if (shouldAutoQuickAnalyzeLoadedGame()) {
       flashAnalyzeGame(true, false, true);
-      return;
+      return true;
     }
     Lizzie.leelaz.ponder();
     refresh();
+    return true;
   }
 
   private boolean shouldAutoQuickAnalyzeLoadedGame() {
@@ -12703,13 +13071,17 @@ public class LizzieFrame extends JFrame {
     int analyzedMoves = 0;
     while (node.next().isPresent()) {
       node = node.next().get();
-      if (!node.getData().lastMove.isPresent()) continue;
+      if (!isRealHistoryActionNode(node.getData())) continue;
       mainTrunkMoves++;
       if (node.getData().getPlayouts() > 0 || node.getData().isKataData) {
         analyzedMoves++;
       }
     }
     return mainTrunkMoves > 0 && analyzedMoves < mainTrunkMoves;
+  }
+
+  private boolean isRealHistoryActionNode(BoardData data) {
+    return data != null && (data.isMoveNode() || (data.isPassNode() && !data.dummy));
   }
 
   public void tryToRefreshVariation() {

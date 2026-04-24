@@ -12,6 +12,7 @@ import featurecat.lizzie.analysis.Branch;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
+import featurecat.lizzie.analysis.TrackingEngine;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
@@ -267,8 +268,9 @@ public class BoardRenderer {
   }
 
   private void drawLastMoveMark(Graphics2D g, BoardHistoryNode mouseOnNode) {
-    if (mouseOnNode.getData().lastMove.isPresent()) {
-      int[] lastMove = mouseOnNode.getData().lastMove.get();
+    BoardData data = mouseOnNode.getData();
+    if (data.isMoveNode() && data.lastMove.isPresent()) {
+      int[] lastMove = data.lastMove.get();
       int stoneX = x + scaledMarginWidth + squareWidth * lastMove[0];
       int stoneY = y + scaledMarginHeight + squareHeight * lastMove[1];
       switch (Lizzie.config.stoneIndicatorType) {
@@ -289,6 +291,25 @@ public class BoardRenderer {
   }
 
   private boolean isShowingEstimate = false;
+
+  private BoardData getDisplayedBoardData(Board board) {
+    return branchOpt.map(b -> b.data).orElse(board.getData());
+  }
+
+  private int getDisplayedLastMoveNumber(int[] moveNumberList) {
+    return branchOpt.map(b -> b.length).orElse(Arrays.stream(moveNumberList).max().getAsInt());
+  }
+
+  private Optional<int[]> getDisplayedLastMove(Board board, BoardData data) {
+    if (data.isSnapshotNode()) {
+      return Optional.empty();
+    }
+    return branchOpt.map(b -> copyCoords(b.data.lastMove)).orElse(copyCoords(board.getLastMove()));
+  }
+
+  private Optional<int[]> copyCoords(Optional<int[]> coordsOpt) {
+    return coordsOpt.map(coords -> coords.clone());
+  }
 
   private void drawEstimate() {
     boolean hasDraw = false;
@@ -319,20 +340,16 @@ public class BoardRenderer {
     isShowingEstimate = hasDraw;
   }
 
-  private void drawPass(Graphics2D g, Board board, Optional<int[]> lastMoveOpt) {
-    if (!lastMoveOpt.isPresent() && board.getData().moveNumber != 0 && !board.getData().dummy) {
-      if (board.getHistory().getCurrentHistoryNode().hasRemovedStone()
-          || (board.getHistory().getCurrentHistoryNode().extraStones != null
-              && !board.getHistory().getCurrentHistoryNode().extraStones.isEmpty())) return;
-      g.setColor(
-          board.getData().blackToPlay ? new Color(255, 255, 255, 80) : new Color(0, 0, 0, 80));
+  private void drawPass(Graphics2D g, Board board) {
+    BoardData data = getDisplayedBoardData(board);
+    if (data.isPassNode() && data.moveNumber != 0 && !data.dummy) {
+      g.setColor(data.blackToPlay ? new Color(255, 255, 255, 80) : new Color(0, 0, 0, 80));
       g.fillOval(
           x + boardWidth / 2 - stoneRadius * 5 / 2,
           y + boardHeight / 2 - stoneRadius * 5 / 2,
           stoneRadius * 5,
           stoneRadius * 5);
-      g.setColor(
-          board.getData().blackToPlay ? new Color(0, 0, 0, 200) : new Color(255, 255, 255, 200));
+      g.setColor(data.blackToPlay ? new Color(0, 0, 0, 200) : new Color(255, 255, 255, 200));
       drawString(
           g,
           x + boardWidth / 2,
@@ -347,9 +364,8 @@ public class BoardRenderer {
   private void drawMoveRankMark(Graphics2D g, BoardHistoryNode node) {
     Board board = Lizzie.board;
     BoardHistoryNode lastNode = node;
-    Optional<int[]> lastMoveOpt = branchOpt.map(b -> b.data.lastMove).orElse(board.getLastMove());
     g.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
-    drawPass(g, board, lastMoveOpt);
+    drawPass(g, board);
     int limit = Lizzie.config.moveRankMarkLastMove;
     boolean shouldLimit = limit > 0;
     int[] moveNumberList = node.getData().moveNumberList;
@@ -360,7 +376,7 @@ public class BoardRenderer {
         limit--;
         if (limit < 0) break;
       }
-      if (node.getData().lastMove.isPresent()) {
+      if (node.getData().isMoveNode() && node.getData().lastMove.isPresent()) {
         int[] coords = node.getData().lastMove.get();
         int index = Board.getIndex(coords[0], coords[1]);
         if (branchOpt.isPresent()) {
@@ -507,6 +523,29 @@ public class BoardRenderer {
 
   private boolean shouldShowPreviousBestMoves() {
     return (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame);
+  }
+
+  private Optional<int[]> getHistoryMoveCoords(BoardData data) {
+    if (data == null || !data.isMoveNode()) {
+      return Optional.empty();
+    }
+    return copyCoords(data.lastMove);
+  }
+
+  private Optional<int[]> getCurrentHistoryMoveCoords() {
+    return getHistoryMoveCoords(Lizzie.board.getData());
+  }
+
+  private Optional<int[]> getNextHistoryMoveCoords() {
+    Optional<BoardHistoryNode> nextNode = Lizzie.board.getHistory().getCurrentHistoryNode().next();
+    if (!nextNode.isPresent()) {
+      return Optional.empty();
+    }
+    return getHistoryMoveCoords(nextNode.get().getData());
+  }
+
+  private boolean matchesHistoryMove(Optional<int[]> moveOpt, int[] coords) {
+    return moveOpt.filter(move -> move[0] == coords[0] && move[1] == coords[1]).isPresent();
   }
 
   private int getInterval() {
@@ -1451,11 +1490,11 @@ public class BoardRenderer {
               Lizzie.board.getHistory().getCurrentHistoryNode().previous().get().getData();
           if (Lizzie.config.showPreviousBestmovesOnlyFirstMove) {
             bestMoves = new ArrayList<MoveData>();
-            BoardData thisData = Lizzie.board.getData();
+            Optional<int[]> currentMove = getCurrentHistoryMoveCoords();
             for (MoveData move : preData.bestMoves) {
-              if (thisData.lastMove.isPresent()) {
+              if (currentMove.isPresent()) {
                 int[] coords = Board.convertNameToCoordinates(move.coordinate);
-                int[] lastMove = thisData.lastMove.get();
+                int[] lastMove = currentMove.get();
                 if (coords[0] == lastMove[0] && coords[1] == lastMove[1]) {
                   bestMoves.add(move);
                   break;
@@ -1528,21 +1567,8 @@ public class BoardRenderer {
       }
     }
 
-    if (Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent()) {
-      if (Lizzie.board
-          .getHistory()
-          .getCurrentHistoryNode()
-          .next()
-          .get()
-          .getData()
-          .lastMove
-          .isPresent()) {
-        int nextMove[] =
-            Lizzie.board.getHistory().getCurrentHistoryNode().next().get().getData().lastMove.get();
-        int coords[] = Board.convertNameToCoordinates(suggestedMove.get().coordinate);
-        if (nextMove[0] == coords[0] && nextMove[1] == coords[1]) needShow = true;
-      }
-    }
+    int[] coords = Board.convertNameToCoordinates(suggestedMove.get().coordinate);
+    if (matchesHistoryMove(getNextHistoryMoveCoords(), coords)) needShow = true;
     if (notChangedMouseOverMove) {
       if (displayedBranchLength == 1) {
         if (!Lizzie.config.autoReplayBranch) return;
@@ -1838,8 +1864,12 @@ public class BoardRenderer {
   private void drawMoveNumbers(Graphics2D g) {
     g.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
     Board board = Lizzie.board;
-    Optional<int[]> lastMoveOpt = branchOpt.map(b -> b.data.lastMove).orElse(board.getLastMove());
-    drawPass(g, board, lastMoveOpt);
+    BoardData data = getDisplayedBoardData(board);
+    Optional<int[]> lastMoveOpt = getDisplayedLastMove(board, data);
+    drawPass(g, board);
+    if (data.isSnapshotNode()) {
+      return;
+    }
     boolean showAllinBranch = false;
     if (Lizzie.config.showMoveAllInBranch
         && !Lizzie.board.getHistory().getCurrentHistoryNode().isMainTrunk()) {
@@ -1886,10 +1916,7 @@ public class BoardRenderer {
     moveNumberList = branchOpt.map(b -> b.data.moveNumberList).orElse(board.getMoveNumberList());
 
     // Allow to display only last move number
-    int lastMoveNumber =
-        branchOpt
-            .map(b -> b.data.moveNumber)
-            .orElse(Arrays.stream(moveNumberList).max().getAsInt());
+    int lastMoveNumber = getDisplayedLastMoveNumber(moveNumberList);
     shouldHideMouseOverInfo = false;
     for (int i = 0; i < Board.boardWidth; i++) {
       for (int j = 0; j < Board.boardHeight; j++) {
@@ -2434,26 +2461,7 @@ public class BoardRenderer {
               if (coord.equals(move.coordinate)) needShow = true;
             }
           }
-          if (Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent())
-            if (Lizzie.board
-                .getHistory()
-                .getCurrentHistoryNode()
-                .next()
-                .get()
-                .getData()
-                .lastMove
-                .isPresent()) {
-              int nextMove[] =
-                  Lizzie.board
-                      .getHistory()
-                      .getCurrentHistoryNode()
-                      .next()
-                      .get()
-                      .getData()
-                      .lastMove
-                      .get();
-              if (nextMove[0] == coords[0] && nextMove[1] == coords[1]) needShow = true;
-            }
+          if (matchesHistoryMove(getNextHistoryMoveCoords(), coords)) needShow = true;
           if (!branchOpt.isPresent() || isMouseOver) {
             if (Lizzie.config.showSuggestionOrder && move.order == 0) {
 
@@ -2564,10 +2572,7 @@ public class BoardRenderer {
             }
             boolean isGenmoveBest = false;
             if (shouldShowPreviousBestMoves()) {
-              Optional<int[]> lastMoveOpt = Lizzie.board.getLastMove();
-              if ((lastMoveOpt.isPresent()
-                  && lastMoveOpt.get()[0] == coords[0]
-                  && lastMoveOpt.get()[1] == coords[1])) {
+              if (matchesHistoryMove(getCurrentHistoryMoveCoords(), coords)) {
                 if (Lizzie.board.getData().blackToPlay) g.setColor(Color.BLACK);
                 else g.setColor(Color.WHITE);
                 isGenmoveBest = true;
@@ -2954,6 +2959,135 @@ public class BoardRenderer {
         clearAfterMove();
       }
     }
+
+    try {
+      if (Lizzie.board == null) return;
+      TrackingEngine te = Lizzie.frame != null ? Lizzie.frame.trackingEngine : null;
+      if (te != null && te.isLoaded()) {
+        List<MoveData> trackedMoves = te.getCurrentTrackedMoves();
+        if (trackedMoves != null && !trackedMoves.isEmpty()) {
+          java.util.Set<String> mainCoords = new java.util.HashSet<>();
+          if (bestMoves != null) {
+            for (MoveData m : bestMoves) mainCoords.add(m.coordinate);
+          }
+          long maxPlayoutsTracked = 0;
+          for (MoveData m : trackedMoves) {
+            if (m.playouts > maxPlayoutsTracked) maxPlayoutsTracked = m.playouts;
+          }
+          float orangeHue = Color.RGBtoHSB(255, 165, 0, null)[0];
+          for (MoveData move : trackedMoves) {
+            String moveCoord = move.coordinate;
+            if (moveCoord == null) continue;
+            int movePlayouts = move.playouts;
+            double moveWinrate = move.winrate;
+            double moveScoreMean = move.scoreMean;
+            boolean moveIsKataData = move.isKataData;
+            if (mainCoords.contains(moveCoord)) continue;
+            if (movePlayouts == 0) continue;
+            Optional<int[]> coordsOpt = Board.asCoordinates(moveCoord);
+            if (!coordsOpt.isPresent()) continue;
+            int[] tCoords = coordsOpt.get();
+            if (tCoords[0] < 0
+                || tCoords[0] >= Board.boardWidth
+                || tCoords[1] < 0
+                || tCoords[1] >= Board.boardHeight) continue;
+            int suggestionX = x + scaledMarginWidth + squareWidth * tCoords[0];
+            int suggestionY = y + scaledMarginHeight + squareHeight * tCoords[1];
+
+            float alphaRatio =
+                maxPlayoutsTracked > 0
+                    ? max(
+                        0,
+                        (float) log((double) movePlayouts / maxPlayoutsTracked) / alphaFactor + 1)
+                    : 1.0f;
+            int alpha = (int) (minAlpha + (maxAlpha - minAlpha) * alphaRatio);
+            Color hsbColor = Color.getHSBColor(orangeHue, 1.0f, 0.85f);
+            Color trackColor =
+                new Color(hsbColor.getRed(), hsbColor.getGreen(), hsbColor.getBlue(), alpha);
+
+            g.setColor(trackColor);
+            fillCircle(g, suggestionX, suggestionY, stoneRadius + 1);
+            float alphaCircle = 48 + 48 * alphaRatio;
+            g.setColor(new Color(0, 0, 0, (int) alphaCircle));
+            drawCircle(g, suggestionX, suggestionY, stoneRadius + 1, 26.5f);
+
+            boolean flipWinrate =
+                Lizzie.config.winrateAlwaysBlack && !Lizzie.board.getData().blackToPlay;
+            double roundedWinrate = round(moveWinrate * 10) / 10.0;
+            if (flipWinrate) roundedWinrate = 100.0 - roundedWinrate;
+            g.setColor(Color.BLACK);
+            String winrateText = String.format(Locale.ENGLISH, "%.1f", roundedWinrate);
+            String playoutsText = Utils.getPlayoutsString(movePlayouts);
+            boolean showScoreLead = moveIsKataData && Lizzie.config.showScoremeanInSuggestion;
+            if (showScoreLead) {
+              String scoreLeadText = Utils.convertScoreToString(moveScoreMean, moveScoreMean);
+              float availableWidth = squareWidth * (Board.boardWidth - 1);
+              drawStringFor3row(
+                  g,
+                  suggestionX,
+                  suggestionY - (int) round(squareWidth * 0.09),
+                  LizzieFrame.winrateFont,
+                  Font.PLAIN,
+                  winrateText,
+                  squareWidth * 0.36f,
+                  squareWidth * 0.67);
+              drawStringFor3row(
+                  g,
+                  suggestionX,
+                  suggestionY + (int) round(squareWidth * 0.18),
+                  LizzieFrame.playoutsFont,
+                  Font.PLAIN,
+                  playoutsText,
+                  squareWidth * 0.34f,
+                  stoneRadius * 1.3);
+              drawStringFor3row(
+                  g,
+                  suggestionX,
+                  suggestionY + (int) round(squareWidth * 0.435),
+                  LizzieFrame.winrateFont,
+                  Font.PLAIN,
+                  scoreLeadText,
+                  availableWidth * 0.273f / (Board.boardWidth - 1),
+                  stoneRadius * 1.6);
+            } else {
+              if (roundedWinrate < 10) {
+                drawString(
+                    g,
+                    suggestionX,
+                    suggestionY - squareWidth / 15,
+                    LizzieFrame.winrateFont,
+                    Font.PLAIN,
+                    winrateText,
+                    stoneRadius,
+                    squareWidth * 0.57,
+                    1);
+              } else {
+                drawString(
+                    g,
+                    suggestionX,
+                    suggestionY - squareWidth / 16,
+                    LizzieFrame.winrateFont,
+                    Font.PLAIN,
+                    winrateText,
+                    stoneRadius,
+                    squareWidth * 0.735,
+                    1);
+              }
+              drawString(
+                  g,
+                  suggestionX,
+                  suggestionY + stoneRadius * 15 / 35,
+                  LizzieFrame.playoutsFont,
+                  playoutsText,
+                  stoneRadius * 0.77f,
+                  stoneRadius * 1.8);
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
   }
 
   private boolean isOnNext(int[] coord) {
@@ -3046,28 +3180,9 @@ public class BoardRenderer {
               continue;
             }
           }
-          if (Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent())
-            if (Lizzie.board
-                .getHistory()
-                .getCurrentHistoryNode()
-                .next()
-                .get()
-                .getData()
-                .lastMove
-                .isPresent()) {
-              int nextMove[] =
-                  Lizzie.board
-                      .getHistory()
-                      .getCurrentHistoryNode()
-                      .next()
-                      .get()
-                      .getData()
-                      .lastMove
-                      .get();
-              if (nextMove[0] == coords[0] && nextMove[1] == coords[1]) {
-                continue;
-              }
-            }
+          if (matchesHistoryMove(getNextHistoryMoveCoords(), coords)) {
+            continue;
+          }
           if (!Lizzie.config.showNoSuggCircle && outOfOrder && !move.lastTimeUnlimited) continue;
           if (Board.getIndex(coords[0], coords[1]) < hasDrawBackground.length)
             hasDrawBackground[Board.getIndex(coords[0], coords[1])] = true;
@@ -3123,17 +3238,19 @@ public class BoardRenderer {
   }
 
   private void drawNextMoves(Graphics2D g) {
-    List<BoardHistoryNode> nexts = Lizzie.board.getHistory().getNexts();
+    List<BoardHistoryNode> nexts = new ArrayList<BoardHistoryNode>();
+    for (BoardHistoryNode next : Lizzie.board.getHistory().getNexts()) {
+      if (next.getData().isMoveNode()) {
+        nexts.add(next);
+      }
+    }
     Color color;
     if (nexts.size() > 0) {
       color = nexts.get(0).getData().lastMoveColor == Stone.BLACK ? Color.BLACK : Color.WHITE;
       g.setColor(color);
       for (int i = 0; i < nexts.size(); i++) {
         boolean first = (i == 0);
-        nexts
-            .get(i)
-            .getData()
-            .lastMove
+        getHistoryMoveCoords(nexts.get(i).getData())
             .ifPresent(
                 nextMove -> {
                   nextCoords.add(nextMove);
