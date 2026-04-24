@@ -296,7 +296,30 @@ function Invoke-NativeReadBoardPipeProbe {
     }
 }
 
-function Invoke-BoardSyncHotkeyProbe {
+function Add-AppJavaOption {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppExe,
+
+        [Parameter(Mandatory = $true)]
+        [string]$JavaOption
+    )
+
+    $appDir = Split-Path -Parent $AppExe
+    $cfgPath = Join-Path (Join-Path $appDir "app") ("{0}.cfg" -f [System.IO.Path]::GetFileNameWithoutExtension($AppExe))
+    if (-not (Test-Path -LiteralPath $cfgPath)) {
+        throw "Packaged app cfg file was not found: $cfgPath"
+    }
+
+    $line = "java-options=$JavaOption"
+    $content = Get-Content -LiteralPath $cfgPath -Raw
+    if ($content -notmatch [regex]::Escape($line)) {
+        Add-Content -LiteralPath $cfgPath -Value $line
+        Write-Host "Injected smoke JVM option into app cfg: $line"
+    }
+}
+
+function Assert-BoardSyncProcessAppears {
     param(
         [Parameter(Mandatory = $true)]
         [System.Diagnostics.Process]$AppProcess,
@@ -310,46 +333,13 @@ function Invoke-BoardSyncHotkeyProbe {
     $assets = Get-NativeReadBoardAssets -AppExe $AppExe
     Stop-NativeReadBoardProcesses -ReadBoardExePath $assets.ExePath
 
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public static class LizzieYzySmokeWin32 {
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-}
-"@
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $windowHandle = [IntPtr]::Zero
-    while ((Get-Date) -lt $deadline) {
-        $AppProcess.Refresh()
-        if ($AppProcess.HasExited) {
-            throw "Application exited before board sync hotkey probe could run."
-        }
-        if ($AppProcess.MainWindowHandle -ne [IntPtr]::Zero) {
-            $windowHandle = $AppProcess.MainWindowHandle
-            break
-        }
-        Start-Sleep -Milliseconds 500
-    }
-
-    if ($windowHandle -eq [IntPtr]::Zero) {
-        throw "Application main window handle was not available for board sync hotkey probe."
-    }
-
-    [void][LizzieYzySmokeWin32]::ShowWindow($windowHandle, 9)
-    [void][LizzieYzySmokeWin32]::SetForegroundWindow($windowHandle)
-    Start-Sleep -Seconds 1
-
-    Write-Host "Sending Alt+O to trigger native board sync."
-    [System.Windows.Forms.SendKeys]::SendWait("%o")
-
     $probeDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $probeDeadline) {
         Start-Sleep -Milliseconds 500
+        $AppProcess.Refresh()
+        if ($AppProcess.HasExited) {
+            throw "Application exited before board sync process appeared."
+        }
         $match = Get-CimInstance Win32_Process -Filter "Name = 'readboard.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
                 ($_.ExecutablePath -and ($_.ExecutablePath -ieq $assets.ExePath)) -or
@@ -358,13 +348,13 @@ public static class LizzieYzySmokeWin32 {
             } |
             Select-Object -First 1
         if ($match) {
-            Write-Host "Board sync hotkey probe passed. readboard.exe process id: $($match.ProcessId)"
+            Write-Host "Board sync app-entry probe passed. readboard.exe process id: $($match.ProcessId)"
             Stop-NativeReadBoardProcesses -ReadBoardExePath $assets.ExePath
             return
         }
     }
 
-    throw "Alt+O did not start packaged native readboard.exe within $TimeoutSeconds seconds."
+    throw "The application board-sync entry did not start packaged native readboard.exe within $TimeoutSeconds seconds."
 }
 
 if (-not (Test-Path -LiteralPath $AppExe)) {
@@ -390,6 +380,12 @@ if (-not $PreserveConfig) {
 
 Get-ChildItem -Path $consoleLogs -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $errorLogs -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+if ($ProbeBoardSync) {
+    Add-AppJavaOption -AppExe $AppExe -JavaOption "-Dlizzie.smoke.openBoardSync=true"
+    Add-AppJavaOption -AppExe $AppExe -JavaOption "-Dlizzie.smoke.openBoardSyncDelayMs=5000"
+    Invoke-NativeReadBoardPipeProbe -AppExe $AppExe
+}
 
 Write-Host "Launching $AppExe"
 $process = Start-Process -FilePath $AppExe -WorkingDirectory $appDir -PassThru
@@ -425,8 +421,7 @@ try {
             }
             Invoke-BundledKataGoBenchmarkProbe -AppExe $AppExe -ConfigDir $activeConfigDir
             if ($ProbeBoardSync) {
-                Invoke-NativeReadBoardPipeProbe -AppExe $AppExe
-                Invoke-BoardSyncHotkeyProbe -AppProcess $process -AppExe $AppExe
+                Assert-BoardSyncProcessAppears -AppProcess $process -AppExe $AppExe
             }
             if ($hasRuntimeLogs) {
                 Write-Host "Smoke test passed. Config files and bundled KataGo runtime logs were created."

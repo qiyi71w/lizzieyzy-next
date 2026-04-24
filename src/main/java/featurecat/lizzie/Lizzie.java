@@ -54,6 +54,9 @@ public class Lizzie {
   public static String appName = "LizzieYzy Next";
   public static String lizzieVersion = "2.5.3";
   private static final String DEFAULT_NEXT_VERSION = "1.0.0-dev";
+  private static final String SMOKE_OPEN_BOARD_SYNC_PROPERTY = "lizzie.smoke.openBoardSync";
+  private static final String SMOKE_OPEN_BOARD_SYNC_DELAY_MS_PROPERTY =
+      "lizzie.smoke.openBoardSyncDelayMs";
   public static String nextVersion = resolveNextVersion();
   public static String checkVersion = "230614";
   public static boolean readMode = false;
@@ -189,6 +192,38 @@ public class Lizzie {
       }
     }
     if (Lizzie.config.autoReplayBranch) frame.autoReplayBranch();
+    scheduleBoardSyncSmokeProbe();
+  }
+
+  private static void scheduleBoardSyncSmokeProbe() {
+    if (!Boolean.getBoolean(SMOKE_OPEN_BOARD_SYNC_PROPERTY)) {
+      return;
+    }
+
+    int delayMs = Math.max(0, Integer.getInteger(SMOKE_OPEN_BOARD_SYNC_DELAY_MS_PROPERTY, 5000));
+    Thread smokeThread =
+        new Thread(
+            () -> {
+              try {
+                Thread.sleep(delayMs);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+
+              SwingUtilities.invokeLater(
+                  () -> {
+                    if (frame == null) {
+                      System.err.println("Board sync smoke probe skipped: frame unavailable.");
+                      return;
+                    }
+                    System.out.println("Board sync smoke probe: invoking openBoardSync().");
+                    frame.openBoardSync();
+                  });
+            },
+            "lizzie-board-sync-smoke");
+    smokeThread.setDaemon(true);
+    smokeThread.start();
   }
 
   public static String getAppDisplayName() {
