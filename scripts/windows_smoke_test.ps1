@@ -331,7 +331,6 @@ function Assert-BoardSyncProcessAppears {
     )
 
     $assets = Get-NativeReadBoardAssets -AppExe $AppExe
-    Stop-NativeReadBoardProcesses -ReadBoardExePath $assets.ExePath
 
     $probeDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $probeDeadline) {
@@ -419,10 +418,10 @@ try {
                 Start-Sleep -Seconds 2
                 Assert-NoBundledEngineStartupFailure -RuntimeLogDir $requiredRuntimeLogDir
             }
-            Invoke-BundledKataGoBenchmarkProbe -AppExe $AppExe -ConfigDir $activeConfigDir
             if ($ProbeBoardSync) {
                 Assert-BoardSyncProcessAppears -AppProcess $process -AppExe $AppExe
             }
+            Invoke-BundledKataGoBenchmarkProbe -AppExe $AppExe -ConfigDir $activeConfigDir
             if ($hasRuntimeLogs) {
                 Write-Host "Smoke test passed. Config files and bundled KataGo runtime logs were created."
             }
