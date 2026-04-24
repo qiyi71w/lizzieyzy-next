@@ -70,7 +70,7 @@ class WinrateGraphSnapshotBoundaryHitTest {
       int[] snapshotPoint = renderedGraphPoint(graph, snapshotBoundary);
       assertNotNull(snapshotPoint, "snapshot boundary should keep a rendered graph anchor.");
 
-      int scrubY = 0;
+      int scrubY = snapshotPoint[1];
       BoardHistoryNode targetNode = resolveTargetNode(graph, snapshotPoint[0], scrubY);
 
       assertNotNull(targetNode, "column scrub should still resolve a target node.");

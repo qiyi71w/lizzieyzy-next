@@ -2098,13 +2098,13 @@ public class WinrateGraph {
 
   private Color graphAnchorColor(BoardData data) {
     if (data != null && data.isSnapshotNode()) {
-      return new Color(255, 208, 84, 220);
+      return new Color(255, 208, 84, 110);
     }
     Color baseColor =
         Lizzie.config.winrateLineColor != null
             ? Lizzie.config.winrateLineColor
             : new Color(100, 180, 255);
-    return new Color(baseColor.getRed(), baseColor.getGreen(), baseColor.getBlue(), 190);
+    return new Color(baseColor.getRed(), baseColor.getGreen(), baseColor.getBlue(), 80);
   }
 
   private Double displayedGraphWinrate(BoardHistoryNode node, double fallbackWinrate) {
@@ -2328,6 +2328,10 @@ public class WinrateGraph {
       if (!isInsideGraphColumnHitRegion(point, targetX, hitHalfWidth)) {
         continue;
       }
+      if (hasOverlappingPointsAtColumn(points, point)
+          && !isInsideNodeRenderedYRange(points, point.node, targetY)) {
+        continue;
+      }
       long distance = graphDistanceSquared(point, targetX, targetY);
       if (distance <= bestDistance) {
         bestPoint = point;
@@ -2335,6 +2339,27 @@ public class WinrateGraph {
       }
     }
     return bestPoint;
+  }
+
+  private boolean hasOverlappingPointsAtColumn(List<GraphPoint> points, GraphPoint subject) {
+    for (GraphPoint other : points) {
+      if (other == subject) continue;
+      if (other.x == subject.x) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean isInsideNodeRenderedYRange(
+      List<GraphPoint> points, BoardHistoryNode node, int targetY) {
+    for (GraphPoint other : points) {
+      if (other.node != node) continue;
+      if (Math.abs(other.y - targetY) <= GRAPH_ANCHOR_HIT_HALF_SIZE) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private boolean isInsideGraphAnchorHitRegion(
@@ -2367,9 +2392,10 @@ public class WinrateGraph {
   }
 
   private int minPositiveGraphColumnSpacing(List<GraphPoint> points) {
+    int[] xs = points.stream().mapToInt(p -> p.x).distinct().sorted().toArray();
     int minSpacing = Integer.MAX_VALUE;
-    for (int i = 1; i < points.size(); i++) {
-      int spacing = Math.abs(points.get(i).x - points.get(i - 1).x);
+    for (int i = 1; i < xs.length; i++) {
+      int spacing = xs[i] - xs[i - 1];
       if (spacing > 0 && spacing < minSpacing) {
         minSpacing = spacing;
       }
@@ -2464,7 +2490,8 @@ public class WinrateGraph {
 
   private boolean hasFreshRenderedState() {
     boolean sameState =
-        currentMainEndNode() == renderedMainEndNode
+        (!isFrameTryingMode() || currentGraphNode() == renderedCurrentGraphNode)
+            && currentMainEndNode() == renderedMainEndNode
             && mode == renderedMode
             && EngineManager.isEngineGame == renderedEngineGame
             && (Lizzie.board != null && Lizzie.board.isPkBoard) == renderedPkBoard

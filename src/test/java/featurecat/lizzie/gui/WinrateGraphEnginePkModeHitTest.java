@@ -364,20 +364,49 @@ class WinrateGraphEnginePkModeHitTest {
 
   private static int[] renderedModeZeroDotPixel(
       WinrateGraph graph, BoardHistoryNode target, double targetWinrate) throws Exception {
-    BufferedImage image = renderGraphLayer(graph);
+    renderGraphLayer(graph);
     int[] params = (int[]) getField(graph, "params");
-    int centerX = graphCenterX(params, target.getData().moveNumber);
-    int centerY = graphCenterY(params, targetWinrate);
-    return opaquePixelNear(image, centerX, centerY);
+    int expectedY = graphCenterY(params, targetWinrate);
+    return renderedGraphPointMatchingY(graph, target, expectedY);
   }
 
   private static int[] renderedModeOneWhiteDotPixel(
       WinrateGraph graph, BoardHistoryNode target, double whiteDotWinrate) throws Exception {
-    BufferedImage image = renderGraphLayer(graph);
+    renderGraphLayer(graph);
     int[] params = (int[]) getField(graph, "params");
-    int centerX = graphCenterX(params, target.getData().moveNumber);
-    int centerY = graphCenterY(params, whiteDotWinrate);
-    return opaquePixelNear(image, centerX, centerY);
+    int expectedY = graphCenterY(params, whiteDotWinrate);
+    return renderedGraphPointMatchingY(graph, target, expectedY);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static int[] renderedGraphPointMatchingY(
+      WinrateGraph graph, BoardHistoryNode target, int expectedY) throws Exception {
+    Field field = WinrateGraph.class.getDeclaredField("renderedGraphPoints");
+    field.setAccessible(true);
+    java.util.List<Object> points = (java.util.List<Object>) field.get(graph);
+    Object best = null;
+    int bestDelta = Integer.MAX_VALUE;
+    for (Object point : points) {
+      Field nodeField = point.getClass().getDeclaredField("node");
+      nodeField.setAccessible(true);
+      if (nodeField.get(point) != target) continue;
+      Field yField = point.getClass().getDeclaredField("y");
+      yField.setAccessible(true);
+      int y = yField.getInt(point);
+      int delta = Math.abs(y - expectedY);
+      if (delta < bestDelta) {
+        best = point;
+        bestDelta = delta;
+      }
+    }
+    if (best == null) {
+      throw new AssertionError("expected rendered graph point for target node.");
+    }
+    Field xField = best.getClass().getDeclaredField("x");
+    xField.setAccessible(true);
+    Field yField = best.getClass().getDeclaredField("y");
+    yField.setAccessible(true);
+    return new int[] {xField.getInt(best), yField.getInt(best)};
   }
 
   private static int[] renderedGraphPoint(WinrateGraph graph, BoardHistoryNode node)

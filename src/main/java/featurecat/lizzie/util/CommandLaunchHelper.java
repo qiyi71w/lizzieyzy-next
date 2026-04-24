@@ -142,12 +142,15 @@ public final class CommandLaunchHelper {
       }
     }
 
+    Path executableDirectory = referencedDirectories.get(0);
     if (commonDirectory != null
         && Files.isDirectory(commonDirectory)
-        && !isFilesystemRoot(commonDirectory)) {
+        && !isFilesystemRoot(commonDirectory)
+        && executableDirectory.startsWith(commonDirectory)
+        && commonDirectory.equals(executableDirectory.getParent())) {
       return commonDirectory;
     }
-    return referencedDirectories.get(0);
+    return executableDirectory;
   }
 
   private static void addAbsoluteReferenceDirectory(List<Path> directories, String token) {
