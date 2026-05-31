@@ -29,6 +29,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -123,6 +124,8 @@ public class ReadBoard {
   private boolean awaitingFirstSyncFrame = true;
   private int historyOverwriteSuppressionDepth = 0;
   private volatile long syncAnalysisEpoch = 0L;
+  private String lastProtocolLineSummary;
+  private long lastProtocolTimestampMillis;
 
   private enum CompleteSnapshotRecoveryOutcome {
     NO_CHANGE,
@@ -135,35 +138,44 @@ public class ReadBoard {
     private final CompleteSnapshotRecoveryOutcome outcome;
     private final BoardHistoryNode resolvedNode;
     private final boolean shouldResumeAnalysis;
+    private final String reasonCode;
 
     private CompleteSnapshotRecoveryDecision(
         CompleteSnapshotRecoveryOutcome outcome,
         BoardHistoryNode resolvedNode,
-        boolean shouldResumeAnalysis) {
+        boolean shouldResumeAnalysis,
+        String reasonCode) {
       this.outcome = outcome;
       this.resolvedNode = resolvedNode;
       this.shouldResumeAnalysis = shouldResumeAnalysis;
+      this.reasonCode = reasonCode;
     }
 
     private static CompleteSnapshotRecoveryDecision noChange(
-        BoardHistoryNode resolvedNode, boolean shouldResumeAnalysis) {
+        BoardHistoryNode resolvedNode, boolean shouldResumeAnalysis, String reasonCode) {
       return new CompleteSnapshotRecoveryDecision(
-          CompleteSnapshotRecoveryOutcome.NO_CHANGE, resolvedNode, shouldResumeAnalysis);
+          CompleteSnapshotRecoveryOutcome.NO_CHANGE,
+          resolvedNode,
+          shouldResumeAnalysis,
+          reasonCode);
     }
 
     private static CompleteSnapshotRecoveryDecision singleMoveRecovery() {
       return new CompleteSnapshotRecoveryDecision(
-          CompleteSnapshotRecoveryOutcome.SINGLE_MOVE_RECOVERY, null, false);
+          CompleteSnapshotRecoveryOutcome.SINGLE_MOVE_RECOVERY,
+          null,
+          false,
+          "single_move_recovery");
     }
 
     private static CompleteSnapshotRecoveryDecision hold() {
       return new CompleteSnapshotRecoveryDecision(
-          CompleteSnapshotRecoveryOutcome.HOLD, null, false);
+          CompleteSnapshotRecoveryOutcome.HOLD, null, false, "conflict_hold");
     }
 
-    private static CompleteSnapshotRecoveryDecision forceRebuild() {
+    private static CompleteSnapshotRecoveryDecision forceRebuild(String reasonCode) {
       return new CompleteSnapshotRecoveryDecision(
-          CompleteSnapshotRecoveryOutcome.FORCE_REBUILD, null, false);
+          CompleteSnapshotRecoveryOutcome.FORCE_REBUILD, null, false, reasonCode);
     }
   }
 
@@ -664,6 +676,7 @@ public class ReadBoard {
 
   public void parseLine(String line) {
     ensureTransientSyncStateInitialized();
+    recordProtocolLine(line);
     ReadBoardUpdateRequest updateRequest = ReadBoardUpdateRequest.tryParse(line);
     if (updateRequest != null) {
       handleHostedUpdateRequest(updateRequest);
@@ -707,6 +720,7 @@ public class ReadBoard {
       OptionalInt foxMoveNumber = parseFoxMoveNumber(line);
       if (foxMoveNumber.isPresent()) {
         pendingRemoteContext = currentPendingRemoteContext().withFoxMoveNumber(foxMoveNumber);
+        publishCurrentReadBoardDiagnosticsSnapshot();
       }
     }
     if (line.startsWith("syncPlatform ")) {
@@ -717,43 +731,51 @@ public class ReadBoard {
         YikeSyncDebugLog.log("ReadBoard received syncPlatform yike");
         handleYikeSyncStartCommand(false);
       }
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.startsWith("roomToken ")) {
       pendingRemoteContext =
           currentPendingRemoteContext().withRoomToken(line.substring("roomToken ".length()).trim());
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.startsWith("liveTitleMove ")) {
       pendingRemoteContext =
           currentPendingRemoteContext().withLiveTitleMove(parseOptionalInt(line, "liveTitleMove "));
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.startsWith("recordCurrentMove ")) {
       pendingRemoteContext =
           currentPendingRemoteContext()
               .withRecordCurrentMove(parseOptionalInt(line, "recordCurrentMove "));
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.startsWith("recordTotalMove ")) {
       pendingRemoteContext =
           currentPendingRemoteContext()
               .withRecordTotalMove(parseOptionalInt(line, "recordTotalMove "));
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.startsWith("recordAtEnd ")) {
       pendingRemoteContext =
           currentPendingRemoteContext().withRecordAtEnd(line.trim().endsWith("1"));
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.startsWith("recordTitleFingerprint ")) {
       pendingRemoteContext =
           currentPendingRemoteContext()
               .withTitleFingerprint(line.substring("recordTitleFingerprint ".length()).trim());
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.trim().equals("forceRebuild")) {
       pendingRemoteContext = currentPendingRemoteContext().withForceRebuild(true);
+      publishCurrentReadBoardDiagnosticsSnapshot();
       return;
     }
     if (line.startsWith("version")) {
@@ -774,11 +796,13 @@ public class ReadBoard {
       if (!isSyncing && !isYikePlatform) syncBoardStones(false);
       clearPendingRemoteContext();
       tempcount = new ArrayList<Integer>();
+      publishCurrentReadBoardDiagnosticsSnapshot();
     }
     if (line.startsWith("clear")) {
       resetActiveSyncState();
       clearPendingRemoteContext();
       tempcount = new ArrayList<Integer>();
+      publishCurrentReadBoardDiagnosticsSnapshot();
     }
     if (line.startsWith("start")) {
       clearPendingRemoteContext();
@@ -797,6 +821,7 @@ public class ReadBoard {
         resetActiveSyncState();
       }
       tempcount = new ArrayList<Integer>();
+      publishCurrentReadBoardDiagnosticsSnapshot();
     }
     if (line.trim().equals("sync")) {
       Lizzie.frame.syncBoard = true;
@@ -831,6 +856,7 @@ public class ReadBoard {
       if (Lizzie.frame.floatBoard != null) {
         Lizzie.frame.floatBoard.setVisible(false);
       }
+      publishCurrentReadBoardDiagnosticsSnapshot();
     }
     if (line.startsWith("stopsync")) {
       resetActiveSyncState();
@@ -845,6 +871,7 @@ public class ReadBoard {
       if (Lizzie.frame.floatBoard != null) {
         Lizzie.frame.floatBoard.setVisible(false);
       }
+      publishCurrentReadBoardDiagnosticsSnapshot();
     }
     if (line.startsWith("play")) {
       String[] params = line.trim().split(">");
@@ -1017,6 +1044,161 @@ public class ReadBoard {
     }
   }
 
+  private void recordProtocolLine(String line) {
+    lastProtocolLineSummary = summarizeProtocolLine(line);
+    lastProtocolTimestampMillis = System.currentTimeMillis();
+    publishReadBoardDiagnosticsSnapshot(
+        SyncDiagnosticsRecorder.getDefault().snapshot().getLatestDecisionTrace());
+  }
+
+  private String summarizeProtocolLine(String line) {
+    if (line == null) {
+      return "null";
+    }
+    String trimmed = line.trim();
+    if (trimmed.isEmpty()) {
+      return "empty";
+    }
+    String command = protocolCommand(trimmed);
+    if (isSensitiveProtocolCommand(command) || trimmed.length() > 80) {
+      return command + " <redacted>";
+    }
+    return trimmed;
+  }
+
+  private String protocolCommand(String line) {
+    int firstWhitespace = firstWhitespaceIndex(line);
+    if (firstWhitespace <= 0) {
+      return line.length() > 40 ? "<payload>" : line;
+    }
+    return line.substring(0, firstWhitespace);
+  }
+
+  private int firstWhitespaceIndex(String line) {
+    for (int index = 0; index < line.length(); index++) {
+      if (Character.isWhitespace(line.charAt(index))) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  private boolean isSensitiveProtocolCommand(String command) {
+    String normalized = command.toLowerCase(Locale.ROOT);
+    return "roomtoken".equals(normalized)
+        || "livetitle".equals(normalized)
+        || "sgf".equals(normalized)
+        || "loadsgf".equals(normalized)
+        || "recordtitlefingerprint".equals(normalized)
+        || "readboardupdateready".equals(normalized);
+  }
+
+  private SyncDecisionTrace publishCompleteSnapshotRecoveryDiagnostics(
+      CompleteSnapshotRecoveryDecision recovery,
+      SyncRemoteContext remoteContext,
+      int[] snapshotCodes,
+      SyncSnapshotClassifier.SnapshotDelta snapshotDelta) {
+    SyncDecisionTrace trace =
+        SyncDecisionTrace.builder(recovery.outcome.name(), recovery.reasonCode)
+            .source("ReadBoard.syncBoardStones")
+            .summary(recovery.outcome.name() + " " + recovery.reasonCode)
+            .platform(remoteContext.platform.name())
+            .windowKind(remoteContext.windowKind.name())
+            .remoteContextFingerprint(buildRemoteContextFingerprint(remoteContext))
+            .snapshotHash(SyncDecisionTrace.hashSnapshotCodes(snapshotCodes))
+            .changedStoneCount(snapshotDelta.changedStones())
+            .removedStoneCount(snapshotDelta.removals())
+            .recoveryMoveNumber(
+                remoteContext.recoveryMoveNumber().isPresent()
+                    ? remoteContext.recoveryMoveNumber().getAsInt()
+                    : -1)
+            .resolvedSnapshotMoveNumber(resolvedSnapshotMoveNumber(recovery.resolvedNode))
+            .resolvedSnapshotKind(resolvedSnapshotKind(recovery.resolvedNode))
+            .forceRebuildRequested(remoteContext.forceRebuild)
+            .firstSyncFrame(awaitingFirstSyncFrame)
+            .shouldResumeAnalysis(recovery.shouldResumeAnalysis)
+            .timestampMillis(System.currentTimeMillis())
+            .epoch(syncAnalysisEpoch)
+            .build();
+    SyncDiagnosticsRecorder recorder = SyncDiagnosticsRecorder.getDefault();
+    recorder.updateLatestDecision(trace);
+    publishReadBoardDiagnosticsSnapshot(trace);
+    return trace;
+  }
+
+  private void publishCurrentReadBoardDiagnosticsSnapshot() {
+    publishReadBoardDiagnosticsSnapshot(
+        SyncDiagnosticsRecorder.getDefault().snapshot().getLatestDecisionTrace());
+  }
+
+  private void publishReadBoardDiagnosticsSnapshot(SyncDecisionTrace latestDecisionTrace) {
+    SyncDiagnosticsRecorder.getDefault()
+        .updateSync(
+            SyncDiagnosticsSnapshot.builder()
+                .readBoardAttached(Lizzie.frame != null && Lizzie.frame.readBoard == this)
+                .readBoardConnected(isReadBoardConnectedForDiagnostics())
+                .javaReadBoard(javaReadBoard)
+                .usePipe(usePipe)
+                .syncing(isSyncing)
+                .awaitingFirstSyncFrame(awaitingFirstSyncFrame)
+                .hasResumeState(resumeState != null)
+                .hasLastResolvedSnapshotNode(lastResolvedSnapshotNode != null)
+                .syncAnalysisEpoch(syncAnalysisEpoch)
+                .timestampMillis(System.currentTimeMillis())
+                .source("ReadBoard")
+                .summary("readboard diagnostics snapshot")
+                .pendingRemoteContextSummary(
+                    buildRemoteContextFingerprint(currentPendingRemoteContext()))
+                .lastResolvedSnapshotSummary(
+                    summarizeResolvedSnapshotNode(lastResolvedSnapshotNode))
+                .lastProtocolLineSummary(lastProtocolLineSummary)
+                .lastProtocolTimestampMillis(lastProtocolTimestampMillis)
+                .latestDecisionTrace(latestDecisionTrace)
+                .build());
+  }
+
+  private boolean isReadBoardConnectedForDiagnostics() {
+    if (javaReadBoard) {
+      return socket != null && !socket.isClosed();
+    }
+    return outputStream != null;
+  }
+
+  private String buildRemoteContextFingerprint(SyncRemoteContext remoteContext) {
+    if (remoteContext == null) {
+      return "none";
+    }
+    StringBuilder summary = new StringBuilder();
+    summary.append("platform=").append(remoteContext.platform.name());
+    summary.append(",windowKind=").append(remoteContext.windowKind.name());
+    summary.append(",hasRoomToken=").append(remoteContext.roomToken.isPresent());
+    summary.append(",hasTitleFingerprint=").append(remoteContext.titleFingerprint.isPresent());
+    summary.append(",recordAtEnd=").append(remoteContext.recordAtEnd);
+    summary.append(",forceRebuild=").append(remoteContext.forceRebuild);
+    summary.append(",recoveryMoveNumber=");
+    summary.append(
+        remoteContext.recoveryMoveNumber().isPresent()
+            ? remoteContext.recoveryMoveNumber().getAsInt()
+            : -1);
+    return summary.toString();
+  }
+
+  private String summarizeResolvedSnapshotNode(BoardHistoryNode node) {
+    if (node == null) {
+      return "none";
+    }
+    BoardData data = node.getData();
+    return "moveNumber=" + data.moveNumber + ",kind=" + data.getNodeKind().name();
+  }
+
+  private int resolvedSnapshotMoveNumber(BoardHistoryNode node) {
+    return node == null ? -1 : node.getData().moveNumber;
+  }
+
+  private String resolvedSnapshotKind(BoardHistoryNode node) {
+    return node == null ? "none" : node.getData().getNodeKind().name();
+  }
+
   private static boolean isExactReadBoardCommand(String line, String command) {
     return line != null && command.equals(line.trim());
   }
@@ -1076,6 +1258,7 @@ public class ReadBoard {
       boolean needReSync = false;
       boolean played = false;
       boolean singleMoveRecovered = false;
+      SyncDecisionTrace completeSnapshotTrace = null;
       boolean holdLastMove = false;
       int lastX = 0;
       int lastY = 0;
@@ -1205,11 +1388,16 @@ public class ReadBoard {
         CompleteSnapshotRecoveryDecision recovery =
             resolveCompleteSnapshotRecovery(
                 node2, node, syncStartStones, currentSnapshotCodes, snapshotDelta);
+        SyncDecisionTrace trace =
+            publishCompleteSnapshotRecoveryDiagnostics(
+                recovery, currentRemoteContext, currentSnapshotCodes, snapshotDelta);
+        completeSnapshotTrace = trace;
         if (recovery.outcome == CompleteSnapshotRecoveryOutcome.HOLD) {
           return;
         }
         if (recovery.outcome == CompleteSnapshotRecoveryOutcome.FORCE_REBUILD) {
           rebuildFromSnapshot(node2, currentSnapshotCodes, snapshotDelta, currentFoxMoveNumber);
+          publishReadBoardDiagnosticsSnapshot(trace);
           return;
         }
         if (recovery.outcome == CompleteSnapshotRecoveryOutcome.NO_CHANGE
@@ -1253,6 +1441,9 @@ public class ReadBoard {
       if (!needReSync) {
         conflictTracker.clear();
         awaitingFirstSyncFrame = false;
+      }
+      if (completeSnapshotTrace != null && !needReSync) {
+        publishReadBoardDiagnosticsSnapshot(completeSnapshotTrace);
       }
       if (played || needRefresh) {
         Lizzie.frame.refresh();
@@ -1411,10 +1602,10 @@ public class ReadBoard {
       SyncSnapshotClassifier.SnapshotDelta snapshotDelta) {
     SyncRemoteContext remoteContext = currentPendingRemoteContext();
     if (remoteContext.forceRebuild) {
-      return CompleteSnapshotRecoveryDecision.forceRebuild();
+      return CompleteSnapshotRecoveryDecision.forceRebuild("remote_force_rebuild_requested");
     }
     if (shouldForceRebuildOnResumeConflict(remoteContext)) {
-      return CompleteSnapshotRecoveryDecision.forceRebuild();
+      return CompleteSnapshotRecoveryDecision.forceRebuild("resume_context_conflict");
     }
 
     Optional<BoardHistoryNode> matchingNode =
@@ -1426,7 +1617,9 @@ public class ReadBoard {
     if (matchingNode.isPresent()) {
       BoardHistoryNode matchedNode = matchingNode.get();
       return CompleteSnapshotRecoveryDecision.noChange(
-          matchedNode, matchedNode != currentNode || awaitingFirstSyncFrame);
+          matchedNode,
+          matchedNode != currentNode || awaitingFirstSyncFrame,
+          "snapshot_matches_existing_node");
     }
 
     Optional<BoardHistoryNode> adjacentMatch =
@@ -1435,7 +1628,9 @@ public class ReadBoard {
     if (adjacentMatch.isPresent()) {
       BoardHistoryNode matchedNode = adjacentMatch.get();
       return CompleteSnapshotRecoveryDecision.noChange(
-          matchedNode, matchedNode != currentNode || awaitingFirstSyncFrame);
+          matchedNode,
+          matchedNode != currentNode || awaitingFirstSyncFrame,
+          "snapshot_matches_adjacent_resolved_node");
     }
 
     if (snapshotDelta.hasMarker()
@@ -1443,12 +1638,13 @@ public class ReadBoard {
       return CompleteSnapshotRecoveryDecision.singleMoveRecovery();
     }
     if (shouldForceRebuildWithoutWaiting(syncStartNode, remoteContext)) {
-      return CompleteSnapshotRecoveryDecision.forceRebuild();
+      return CompleteSnapshotRecoveryDecision.forceRebuild(
+          awaitingFirstSyncFrame ? "first_sync_force_rebuild" : "fallback_force_rebuild");
     }
     if (shouldHoldConflictingSnapshot(syncStartNode, snapshotCodes, remoteContext)) {
       return CompleteSnapshotRecoveryDecision.hold();
     }
-    return CompleteSnapshotRecoveryDecision.forceRebuild();
+    return CompleteSnapshotRecoveryDecision.forceRebuild("fallback_force_rebuild");
   }
 
   private boolean shouldForceRebuildWithoutWaiting(
@@ -2270,6 +2466,7 @@ public class ReadBoard {
     }
     this.sendCommand("quit");
     releaseHostedResources();
+    publishCurrentReadBoardDiagnosticsSnapshot();
   }
 
   public void onLocalHistoryNavigation() {
@@ -2288,6 +2485,7 @@ public class ReadBoard {
       return;
     }
     clearResumeState();
+    publishCurrentReadBoardDiagnosticsSnapshot();
   }
 
   public void sendCommandTo(String command) {
