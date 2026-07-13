@@ -14,11 +14,15 @@ import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -134,6 +138,7 @@ class ReadBoardEngineResumeTest {
       assertEquals(0, harness.leelaz.togglePonderCount);
       assertEquals(0, harness.leelaz.ponderCount);
       assertFalse(harness.leelaz.isPondering());
+      assertEquals("analysisState paused\n", harness.protocolOutput());
     }
   }
 
@@ -150,6 +155,7 @@ class ReadBoardEngineResumeTest {
       assertEquals(0, harness.leelaz.togglePonderCount);
       assertEquals(0, harness.leelaz.ponderCount);
       assertFalse(harness.leelaz.isPondering());
+      assertEquals("analysisState paused\n", harness.protocolOutput());
     }
   }
 
@@ -165,6 +171,37 @@ class ReadBoardEngineResumeTest {
       assertEquals(1, harness.leelaz.nameCmdCount);
       assertEquals(0, harness.leelaz.ponderCount);
       assertFalse(harness.leelaz.isPondering());
+      assertEquals("analysisState paused\n", harness.protocolOutput());
+    }
+  }
+
+  @Test
+  void resumeponderUsesManualToggleOnceAndReportsRunningState() throws Exception {
+    try (EngineResumeHarness harness =
+        EngineResumeHarness.create(rootHistory(emptyStones(), true))) {
+      harness.leelaz.notPondering();
+
+      harness.readBoard.parseLine("resumeponder");
+      harness.readBoard.parseLine("resumeponder");
+
+      assertEquals(1, harness.frame.togglePonderMannulCount);
+      assertEquals(1, harness.leelaz.togglePonderCount);
+      assertEquals("analysisState running\nanalysisState running\n", harness.protocolOutput());
+    }
+  }
+
+  @Test
+  void clearBoardClearsOnEdtWithoutMatchingLegacyClear() throws Exception {
+    try (EngineResumeHarness harness =
+        EngineResumeHarness.create(rootHistory(emptyStones(), true))) {
+      ArrayList<Integer> pendingSnapshot = new ArrayList<>(List.of(1));
+      setField(harness.readBoard, "tempcount", pendingSnapshot);
+
+      harness.readBoard.parseLine("clearBoard");
+
+      assertEquals(1, harness.board.clearCount);
+      assertEquals(true, harness.board.clearCalledOnEdt);
+      assertEquals(pendingSnapshot, getField(harness.readBoard, "tempcount"));
     }
   }
 
@@ -372,6 +409,12 @@ class ReadBoardEngineResumeTest {
     field.set(target, value);
   }
 
+  private static Object getField(Object target, String name) throws Exception {
+    Field field = findField(target.getClass(), name);
+    field.setAccessible(true);
+    return field.get(target);
+  }
+
   private static Field findField(Class<?> type, String name) throws NoSuchFieldException {
     Class<?> current = type;
     while (current != null) {
@@ -399,6 +442,7 @@ class ReadBoardEngineResumeTest {
     private final TrackingFrame frame;
     private final SnapshotTrackingLeelaz leelaz;
     private final ReadBoard readBoard;
+    private final ByteArrayOutputStream protocolCapture;
 
     private EngineResumeHarness(
         Config previousConfig,
@@ -408,7 +452,8 @@ class ReadBoardEngineResumeTest {
         TrackingBoard board,
         TrackingFrame frame,
         SnapshotTrackingLeelaz leelaz,
-        ReadBoard readBoard) {
+        ReadBoard readBoard,
+        ByteArrayOutputStream protocolCapture) {
       this.previousConfig = previousConfig;
       this.previousBoard = previousBoard;
       this.previousLeelaz = previousLeelaz;
@@ -417,6 +462,7 @@ class ReadBoardEngineResumeTest {
       this.frame = frame;
       this.leelaz = leelaz;
       this.readBoard = readBoard;
+      this.protocolCapture = protocolCapture;
     }
 
     private static EngineResumeHarness create(BoardHistoryList history) throws Exception {
@@ -452,6 +498,9 @@ class ReadBoardEngineResumeTest {
       setField(readBoard, "localNavigationTracker", new SyncLocalNavigationTracker());
       setField(readBoard, "tempcount", new ArrayList<Integer>());
       readBoard.firstSync = false;
+      setField(readBoard, "usePipe", true);
+      ByteArrayOutputStream protocolCapture = new ByteArrayOutputStream();
+      setField(readBoard, "outputStream", new BufferedOutputStream(protocolCapture));
       frame.readBoard = readBoard;
 
       return new EngineResumeHarness(
@@ -462,7 +511,8 @@ class ReadBoardEngineResumeTest {
           board,
           frame,
           leelaz,
-          readBoard);
+          readBoard,
+          protocolCapture);
     }
 
     private void sync(int[] snapshotCodes) throws Exception {
@@ -472,6 +522,10 @@ class ReadBoardEngineResumeTest {
       }
       setField(readBoard, "tempcount", counts);
       invokeSyncBoardStones(readBoard);
+    }
+
+    private String protocolOutput() {
+      return protocolCapture.toString(StandardCharsets.UTF_8);
     }
 
     @Override
@@ -484,6 +538,9 @@ class ReadBoardEngineResumeTest {
   }
 
   private static final class TrackingBoard extends Board {
+    private int clearCount;
+    private boolean clearCalledOnEdt;
+
     private void initialize(BoardHistoryList history) {
       setHistory(history);
       hasStartStone = false;
@@ -494,6 +551,8 @@ class ReadBoardEngineResumeTest {
 
     @Override
     public void clear(boolean isEngineGame) {
+      clearCount++;
+      clearCalledOnEdt = SwingUtilities.isEventDispatchThread();
       setHistory(rootHistory(emptyStones(), true));
       hasStartStone = false;
       if (Lizzie.frame != null && Lizzie.frame.readBoard != null) {
@@ -532,6 +591,7 @@ class ReadBoardEngineResumeTest {
     private int stopAiPlayingAndPolicyCount;
     private int flashAnalyzeGameCount;
     private Runnable lastScheduledResumeAction;
+    private int togglePonderMannulCount;
     private TrackingBoard board;
 
     private void initialize(TrackingBoard board) {
@@ -544,6 +604,12 @@ class ReadBoardEngineResumeTest {
 
     @Override
     public void refresh() {}
+
+    @Override
+    public void togglePonderMannul() {
+      togglePonderMannulCount++;
+      super.togglePonderMannul();
+    }
 
     @Override
     public void flashAnalyzeGame(boolean isAllGame, boolean isAllBranches, boolean silentAnalyze) {

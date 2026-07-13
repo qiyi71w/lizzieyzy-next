@@ -642,10 +642,8 @@ public class ReadBoard {
             String rawLine = line.toString();
             logReadBoardOutputLine(rawLine);
             parseLine(rawLine);
-            if (!isLoaded) {
-              isLoaded = true;
-              if (!javaReadBoard) checkVersion();
-              announceHostedUpdateSupport();
+            if ("ready".equals(rawLine.trim())) {
+              handleReady();
             }
           } catch (Exception ex) {
             ex.printStackTrace();
@@ -798,11 +796,14 @@ public class ReadBoard {
       tempcount = new ArrayList<Integer>();
       publishCurrentReadBoardDiagnosticsSnapshot();
     }
-    if (line.startsWith("clear")) {
+    if (line.trim().equals("clear")) {
       resetActiveSyncState();
       clearPendingRemoteContext();
       tempcount = new ArrayList<Integer>();
       publishCurrentReadBoardDiagnosticsSnapshot();
+    }
+    if (line.trim().equals("clearBoard")) {
+      runOnEdtAndWait(() -> Lizzie.board.clear(false));
     }
     if (line.startsWith("start")) {
       clearPendingRemoteContext();
@@ -958,7 +959,7 @@ public class ReadBoard {
       }
     }
 
-    if (line.startsWith("noponder")) {
+    if (line.trim().equals("noponder")) {
       if (Lizzie.frame.isPlayingAgainstLeelaz) {
         Lizzie.frame.isPlayingAgainstLeelaz = false;
         Lizzie.leelaz.isThinking = false;
@@ -967,6 +968,16 @@ public class ReadBoard {
         Lizzie.frame.stopAiPlayingAndPolicy();
       }
       stopPonderingIfActive();
+      sendAnalysisState();
+    }
+    if (line.trim().equals("resumeponder")) {
+      runOnEdtAndWait(
+          () -> {
+            if (isReadBoardAnalysisEngineAvailable() && !Lizzie.leelaz.isPondering()) {
+              Lizzie.frame.togglePonderMannul();
+            }
+          });
+      sendAnalysisState();
     }
     if (line.startsWith("noinboard")) {
       if (Lizzie.frame.floatBoard != null && Lizzie.frame.floatBoard.isVisible()) {
@@ -2165,6 +2176,18 @@ public class ReadBoard {
     runWithSuppressedHistoryOverwriteInvalidation(() -> Lizzie.board.clear(isEngineGame));
   }
 
+  private void runOnEdtAndWait(Runnable action) {
+    if (SwingUtilities.isEventDispatchThread()) {
+      action.run();
+      return;
+    }
+    try {
+      SwingUtilities.invokeAndWait(action);
+    } catch (Exception e) {
+      throw new IllegalStateException("ReadBoard EDT command failed", e);
+    }
+  }
+
   private void setHistoryWithoutInvalidatingResumeState(BoardHistoryList history) {
     runWithSuppressedHistoryOverwriteInvalidation(() -> Lizzie.board.setHistory(history));
   }
@@ -2540,6 +2563,22 @@ public class ReadBoard {
 
   public void checkVersion() {
     sendCommand("version");
+  }
+
+  void handleReady() {
+    if (isLoaded) {
+      return;
+    }
+    isLoaded = true;
+    if (!javaReadBoard) checkVersion();
+    announceHostedUpdateSupport();
+    sendAnalysisState();
+  }
+
+  private void sendAnalysisState() {
+    if (javaReadBoard) return;
+    boolean running = Lizzie.leelaz != null && Lizzie.leelaz.isPondering();
+    sendCommand("analysisState " + (running ? "running" : "paused"));
   }
 
   public boolean shouldAnnounceHostedUpdateSupport() {
