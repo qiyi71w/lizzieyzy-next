@@ -3606,7 +3606,6 @@ public class Board {
         Lizzie.board.setMovelistAll();
       } else {
         forwarding = clearBoardState(false); // Clear the board if we're at the top
-        if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
       }
     }
     forwarding.forward();
@@ -3639,7 +3638,6 @@ public class Board {
         // Lizzie.board.setMovelistAll();
       } else {
         forwarding = clearBoardState(false); // Clear the board if we're at the top
-        if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
       }
     }
     forwarding.forward();
@@ -3671,7 +3669,6 @@ public class Board {
         Lizzie.board.setMovelistAll();
       } else {
         forwarding = clearBoardState(false); // Clear the board if we're at the top
-        if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
       }
     }
     forwarding.forward();
@@ -3700,11 +3697,12 @@ public class Board {
     return history;
   }
 
-  public synchronized void setHistory(BoardHistoryList newList) {
-    history = newList;
-    setupMode = false;
-    syncBoardDimensionsWithHistory(newList);
-    syncBoardKataFlagsWithHistory(newList);
+  public void setHistory(BoardHistoryList newList) {
+    synchronized (this) {
+      history = newList;
+      syncBoardDimensionsWithHistory(newList);
+      syncBoardKataFlagsWithHistory(newList);
+    }
     notifyReadBoardHistoryOverwritten();
   }
 

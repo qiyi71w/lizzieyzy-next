@@ -5,11 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
-import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.LizzieFrame;
@@ -21,12 +21,20 @@ import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
@@ -48,8 +56,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       engine.startEngine(0);
 
       AtomicInteger barrierRounds = new AtomicInteger();
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       startup.beforeRestore =
           () -> {
             barrierRounds.incrementAndGet();
@@ -80,6 +87,85 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   @Test
+  void liveUpdateAdmissionIsLinearizedWithBarrierStart() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      Board board = boardWithHistory(emptyRootHistory(0));
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      BlockingStartupConfig config = allocate(BlockingStartupConfig.class);
+      config.doubleEngineQueryEntered = new CountDownLatch(1);
+      config.allowDoubleEngineQuery = new CountDownLatch(1);
+      Lizzie.config = config;
+      AtomicReference<Throwable> sendFailure = new AtomicReference<>();
+      Thread liveUpdateThread =
+          new Thread(
+              () -> {
+                try {
+                  engine.sendCommand("play B Q4");
+                } catch (Throwable failure) {
+                  sendFailure.set(failure);
+                }
+              },
+              "issue-223-live-update-admission-race");
+      liveUpdateThread.start();
+
+      assertTrue(
+          config.doubleEngineQueryEntered.await(2, TimeUnit.SECONDS),
+          "the live update must pass its precheck before the barrier starts");
+      engine.beginInitialBoardSynchronization();
+      config.allowDoubleEngineQuery.countDown();
+      liveUpdateThread.join(2_000L);
+
+      assertFalse(liveUpdateThread.isAlive(), "the live update admission race must settle");
+      assertNull(sendFailure.get(), "the live update must be rejected without throwing");
+      assertFalse(
+          engine.commands.contains("play B Q4"),
+          "a live update crossing barrier start must not enter the command queue");
+      engine.endInitialBoardSynchronization();
+    }
+  }
+
+  @Test
+  void lifecycleReservationIsReleasedBeforeReadyPublication() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      Board board = boardWithHistory(emptyRootHistory(0));
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      AtomicBoolean observeReady = new AtomicBoolean(false);
+      AtomicReference<Boolean> reservationReleasedAtReady = new AtomicReference<>();
+      java.util.function.Consumer<EngineStartupStatus.Snapshot> listener =
+          snapshot -> {
+            if (!observeReady.get() || snapshot.state != EngineStartupStatus.State.READY) {
+              return;
+            }
+            Leelaz.ExclusiveGtpLifecycleReservation reservation =
+                engine.beginExclusiveGtpLifecycleReservation(new Object());
+            reservationReleasedAtReady.set(reservation != null);
+            if (reservation != null) {
+              reservation.close();
+            }
+          };
+      Lizzie.engineStartupStatus.addListener(listener);
+      try {
+        observeReady.set(true);
+        runStartupInThread(startup, engine);
+      } finally {
+        Lizzie.engineStartupStatus.removeListener(listener);
+      }
+
+      assertEquals(
+          Boolean.TRUE,
+          reservationReleasedAtReady.get(),
+          "READY observers must see the lifecycle reservation already released");
+    }
+  }
+
+  @Test
   void navigationDuringStartupConvergesWithCatchUpRoute() throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       StartupSyncLeelaz engine = new StartupSyncLeelaz();
@@ -89,8 +175,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -117,6 +202,63 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   @Test
+  void delayedFakeGtpConvergesToMoveFiveBeforeAnalysis() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      BoardHistoryList history = emptyRootHistory(5);
+      history.toStart();
+      Board board = boardWithHistory(history);
+      env.publish(engine, board);
+
+      CountDownLatch firstClearBoardReceived = new CountDownLatch(1);
+      CountDownLatch navigationCompleted = new CountDownLatch(1);
+      AtomicBoolean delayFirstClearBoard = new AtomicBoolean(true);
+      AtomicReference<Throwable> navigationFailure = new AtomicReference<>();
+      engine.beforeCommand =
+          command -> {
+            if (command.equals("clear_board") && delayFirstClearBoard.compareAndSet(true, false)) {
+              firstClearBoardReceived.countDown();
+              if (!navigationCompleted.await(2, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("navigation did not complete while GTP was delayed");
+              }
+            }
+          };
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      engine.startEngine(0);
+      Thread navigationThread =
+          new Thread(
+              () -> {
+                try {
+                  if (!firstClearBoardReceived.await(2, TimeUnit.SECONDS)) {
+                    throw new AssertionError("fake GTP did not receive the frozen clear_board");
+                  }
+                  for (int move = 1; move <= 5; move++) {
+                    assertTrue(board.nextMove(false), "navigation must reach move " + move);
+                  }
+                } catch (Throwable failure) {
+                  navigationFailure.set(failure);
+                } finally {
+                  navigationCompleted.countDown();
+                }
+              },
+              "issue-223-delayed-gtp-navigation");
+      navigationThread.start();
+
+      runStartupInThread(startup, engine);
+      navigationThread.join(2_000L);
+
+      assertFalse(navigationThread.isAlive(), "navigation thread must settle");
+      assertNull(navigationFailure.get(), "navigation during delayed GTP must succeed");
+      assertEquals(5, board.getHistory().getMoveNumber(), "currentMove");
+      assertEquals(5, engine.enginePosition.get(), "engineMove");
+      assertEquals(5, engine.analyzePosition(), "analyzeAtMove");
+      assertEquals(2, engine.clearBoardCount.get(), "frozen route plus one catch-up route");
+      assertEngineMatchesBoard(engine, board, 19, 19);
+    }
+  }
+
+  @Test
   void navigationForwardThenBackConvergesToFinalNode() throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       StartupSyncLeelaz engine = new StartupSyncLeelaz();
@@ -128,8 +270,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -163,8 +304,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -201,11 +341,10 @@ class EngineManagerInitialStartupSynchronizationTest {
       Board board = boardWithHistory(history);
       env.publish(engine, board);
       BoardHistoryNode node1 = history.getCurrentHistoryNode().next().get();
-      node1.addOrGoto(moveNode(6, 3, Stone.BLACK, false, 2), true, false, false);
+      node1.addOrGoto(moveNode(node1.getData(), 6, 3, Stone.WHITE, true, 2), true, false, false);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -218,6 +357,11 @@ class EngineManagerInitialStartupSynchronizationTest {
       runStartupInThread(startup, engine);
 
       assertEquals(2, engine.analyzePosition(), "engine must converge on the branch child");
+      assertEquals(
+          List.of(play("B", 4, 3), play("W", 6, 3)),
+          engine.playsAfterLastClear(),
+          "catch-up replay must select the branch child, not the same-number main-line node");
+      assertEngineMatchesBoard(engine, board, 19, 19);
       assertEquals(1, engine.ponderCount);
       assertFalse(engine.isInitialBoardSynchronizationActive());
     }
@@ -232,8 +376,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       AtomicReference<Double> postReopenKomi = new AtomicReference<>();
       startup.beforeRestore =
@@ -250,9 +393,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       runStartupInThread(startup, engine);
 
       List<String> boardSizeCommands =
-          engine.commands.stream()
-              .filter(command -> command.startsWith("boardsize"))
-              .toList();
+          engine.commands.stream().filter(command -> command.startsWith("boardsize")).toList();
       assertEquals(
           List.of("boardsize 9"),
           boardSizeCommands,
@@ -284,8 +425,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -313,6 +453,86 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   @Test
+  void clearDuringFinalHandoffIsCaughtUpBeforeReady() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      Board board = boardWithHistory(emptyRootHistory(1));
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      AtomicInteger handoffs = new AtomicInteger();
+      AtomicReference<Boolean> barrierActiveAfterRelease = new AtomicReference<>();
+      startup.afterReservationRelease =
+          () -> {
+            if (handoffs.getAndIncrement() == 0) {
+              barrierActiveAfterRelease.set(engine.isInitialBoardSynchronizationActive());
+              board.clear(false);
+            }
+          };
+
+      runStartupInThread(startup, engine);
+
+      assertEquals(
+          Boolean.TRUE,
+          barrierActiveAfterRelease.get(),
+          "the initial-sync barrier must stay active until the post-release frame judgment");
+      assertEquals(
+          2,
+          engine.clearBoardCount.get(),
+          "the board mutation in the final handoff gap must force a catch-up route");
+      assertEquals(0, engine.enginePosition.get());
+      assertTrue(engine.engineStones.isEmpty());
+      assertEquals(0, engine.analyzePosition(), "analysis must start on the cleared board");
+      assertEquals(0, board.getHistory().getData().moveNumber);
+      assertEquals(1, engine.ponderCount);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void catchUpReservationReacquisitionFailureFailsClosed() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      Board board = boardWithHistory(emptyRootHistory(1));
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      AtomicReference<Leelaz.ExclusiveGtpLifecycleReservation> conflictingReservation =
+          new AtomicReference<>();
+      AtomicInteger releases = new AtomicInteger();
+      startup.afterReservationRelease =
+          () -> {
+            if (releases.getAndIncrement() == 0) {
+              board.clear(false);
+              conflictingReservation.set(
+                  engine.beginExclusiveGtpLifecycleReservation(new Object()));
+              assertNotNull(
+                  conflictingReservation.get(),
+                  "fixture must occupy the lifecycle before catch-up reacquisition");
+            }
+          };
+      int readyBaseline = env.readyTransitions.get();
+
+      RuntimeException failure = runStartupExpectingFailure(startup, engine);
+      Leelaz.ExclusiveGtpLifecycleReservation blocker = conflictingReservation.getAndSet(null);
+      if (blocker != null) {
+        blocker.close();
+      }
+
+      assertNotNull(failure, "rejected catch-up reservation must fail closed");
+      assertFalse(engine.isLoaded);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertEquals(0, engine.ponderCount);
+      assertEquals(0, engine.analyzeCount());
+      assertEquals(0, env.readyTransitions.get() - readyBaseline);
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
   void ordinaryBoardResyncIsSkippedWhileBarrierActive() throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       StartupSyncLeelaz engine = new StartupSyncLeelaz();
@@ -321,8 +541,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -362,8 +581,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       int readyBaseline = env.readyTransitions.get();
 
       RuntimeException failure = runStartupExpectingFailure(startup, engine);
@@ -382,6 +600,116 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   @Test
+  void failureCleanupKeepsBarrierActiveUntilReservationIsReleased() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      Board board = boardWithHistory(emptyRootHistory(1));
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      startup.beforeRestore =
+          () -> {
+            throw new IllegalStateException("controlled startup failure");
+          };
+      Object arbitrationLock = engineArbitrationLock(engine);
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+      Thread cleanupThread =
+          new Thread(
+              () -> {
+                try {
+                  startup.run();
+                } catch (Throwable thrown) {
+                  failure.set(thrown);
+                } finally {
+                  startup.close();
+                }
+              },
+              "initial-startup-failure-cleanup-test");
+
+      synchronized (arbitrationLock) {
+        cleanupThread.start();
+        long deadline = System.nanoTime() + 2_000_000_000L;
+        while (cleanupThread.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+          Thread.sleep(10L);
+        }
+        assertEquals(
+            Thread.State.BLOCKED,
+            cleanupThread.getState(),
+            "failure cleanup must reach the blocked reservation-release phase");
+        assertTrue(
+            engine.isInitialBoardSynchronizationActive(),
+            "the barrier must remain active while failure cleanup still holds the reservation");
+      }
+
+      cleanupThread.join(2_000L);
+      assertFalse(cleanupThread.isAlive(), "failure cleanup must settle after reservation release");
+      assertNotNull(failure.get(), "controlled startup failure must surface");
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void cleanupEndsBarrierWhenReservationReleaseFails() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      Board board = boardWithHistory(emptyRootHistory(1));
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      setLeelazField(engine, "exclusiveGtpLifecycleQueueGate", true);
+      sendFailOnErrorCommand(engine, "name");
+      engine.installCommandOutputForTest(new FailingOutputStream());
+
+      RuntimeException failure = assertThrows(RuntimeException.class, startup::close);
+
+      assertTrue(
+          failure.getMessage().contains("Failed to send GTP command"),
+          "reservation release failure must propagate");
+      assertFalse(
+          engine.isInitialBoardSynchronizationActive(),
+          "cleanup must end the startup barrier even when reservation release fails");
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void captureFailureRetainsPrimaryFailureWhenReservationCleanupAlsoFails() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      RuntimeException captureFailure = new IllegalStateException("controlled route capture failure");
+      CaptureFailureBoard board = allocate(CaptureFailureBoard.class);
+      board.startStonelist = new ArrayList<>();
+      board.movelistwr = new ArrayList<>();
+      board.hasStartStone = false;
+      board.setHistory(emptyRootHistory(0));
+      board.captureFailure = captureFailure;
+      board.failOnHistoryRead = true;
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      setLeelazField(engine, "exclusiveGtpLifecycleQueueGate", true);
+      sendFailOnErrorCommand(engine, "name");
+      engine.installCommandOutputForTest(new FailingOutputStream());
+
+      RuntimeException failure =
+          assertThrows(
+              RuntimeException.class,
+              () -> EngineManager.InitialEngineStartupSynchronization.capture(engine, board, false));
+
+      assertSame(captureFailure, failure, "capture failure must remain the primary exception");
+      assertEquals(1, failure.getSuppressed().length, "cleanup failure must be attached once");
+      assertTrue(
+          failure.getSuppressed()[0].getMessage().contains("Failed to send GTP command"),
+          "reservation cleanup failure must remain diagnosable");
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
   void catchUpRestoreFailureFailsClosed() throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       StartupSyncLeelaz engine = new StartupSyncLeelaz();
@@ -391,8 +719,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -424,8 +751,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger rounds = new AtomicInteger();
       startup.beforeRestore =
           () -> {
@@ -454,8 +780,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       AtomicInteger readyDuringBarrier = new AtomicInteger(-1);
       startup.beforeRestore =
           () -> {
@@ -475,7 +800,9 @@ class EngineManagerInitialStartupSynchronizationTest {
           readyDuringBarrier.get(),
           "markEngineReady must be deferred while the initial synchronization barrier is active");
       assertEquals(
-          1, env.readyTransitions.get() - readyBaseline, "marked ready exactly once at the stable point");
+          1,
+          env.readyTransitions.get() - readyBaseline,
+          "marked ready exactly once at the stable point");
     }
   }
 
@@ -487,8 +814,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       env.publish(engine, board);
       engine.startEngine(0);
 
-      EngineManager.InitialEngineStartupSynchronization startup =
-          captureStartup(engine, board);
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
       try {
         assertNull(
             engine.beginExclusiveGtpLifecycleReservation(new Object()),
@@ -559,6 +885,36 @@ class EngineManagerInitialStartupSynchronizationTest {
     method.invoke(engine);
   }
 
+  private static Object engineArbitrationLock(Leelaz engine) throws Exception {
+    Field field = Leelaz.class.getDeclaredField("engineArbitrationLock");
+    field.setAccessible(true);
+    return field.get(engine);
+  }
+
+  private static void setLeelazField(Leelaz engine, String name, Object value) throws Exception {
+    Field field = Leelaz.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(engine, value);
+  }
+
+  private static void sendFailOnErrorCommand(Leelaz engine, String command) throws Exception {
+    Method method =
+        Leelaz.class.getDeclaredMethod(
+            "sendCommand", String.class, Runnable.class, boolean.class, boolean.class);
+    method.setAccessible(true);
+    method.invoke(engine, command, null, true, false);
+  }
+
+  private static final class FailingOutputStream extends OutputStream {
+    @Override
+    public void write(int value) {}
+
+    @Override
+    public void flush() throws IOException {
+      throw new IOException("controlled startup send failure");
+    }
+  }
+
   private static Board boardWithHistory(BoardHistoryList history) throws Exception {
     Board board = allocate(StartupTestBoard.class);
     board.startStonelist = new ArrayList<>();
@@ -575,7 +931,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       int x = 3 + move;
       int y = 3;
       Stone color = move % 2 == 1 ? Stone.BLACK : Stone.WHITE;
-      history.add(moveNode(x, y, color, color != Stone.BLACK, move));
+      history.add(moveNode(history.getData(), x, y, color, color != Stone.BLACK, move));
     }
     return history;
   }
@@ -603,16 +959,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       Stone[] passStones = tailStones.clone();
       history.add(
           BoardData.pass(
-              passStones,
-              Stone.WHITE,
-              true,
-              new Zobrist(88L),
-              5,
-              new int[19 * 19],
-              0,
-              0,
-              50,
-              0));
+              passStones, Stone.WHITE, true, new Zobrist(88L), 5, new int[19 * 19], 0, 0, 50, 0));
     }
     return history;
   }
@@ -640,26 +987,52 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   private static BoardData moveNode(
-      int x, int y, Stone color, boolean blackToPlay, int moveNumber) {
-    Stone[] stones = new Stone[19 * 19];
-    Arrays.fill(stones, Stone.EMPTY);
+      BoardData parent, int x, int y, Stone color, boolean blackToPlay, int moveNumber) {
+    Stone[] stones = parent.stones.clone();
     stones[Board.getIndex(x, y)] = color;
+    int[] moveNumberList = parent.moveNumberList.clone();
+    moveNumberList[Board.getIndex(x, y)] = moveNumber;
+    Zobrist zobrist = parent.zobrist.clone();
+    zobrist.toggleStone(x, y, color);
     return BoardData.move(
         stones,
         new int[] {x, y},
         color,
         blackToPlay,
-        new Zobrist(x * 131L + y * 17L),
+        zobrist,
         moveNumber,
-        new int[19 * 19],
+        moveNumberList,
         0,
         0,
         50,
         0);
   }
 
+  private static void assertEngineMatchesBoard(
+      StartupSyncLeelaz engine, Board board, int expectedWidth, int expectedHeight) {
+    BoardData application = board.getHistory().getData();
+    assertEquals(application.blackToPlay, engine.engineBlackToPlay, "side-to-play must match");
+    assertEquals(expectedWidth, engine.engineBoardWidth, "board width must match");
+    assertEquals(expectedHeight, engine.engineBoardHeight, "board height must match");
+    assertEquals(
+        board.getHistory().getGameInfo().getKomi(), engine.engineKomi, 0.0001, "komi must match");
+    for (int x = 0; x < expectedWidth; x++) {
+      for (int y = 0; y < expectedHeight; y++) {
+        assertEquals(
+            application.stones[Board.getIndex(x, y)],
+            engine.stoneAt(x, y),
+            "stone mismatch at " + x + "," + y);
+      }
+    }
+  }
+
   private static String play(String color, int x, int y) {
     return "play " + color + " " + Board.convertCoordinatesToName(x, y);
+  }
+
+  @FunctionalInterface
+  private interface CommandDelay {
+    void beforeCommand(String command) throws Exception;
   }
 
   private static final class StartupSyncLeelaz extends Leelaz {
@@ -669,22 +1042,53 @@ class EngineManagerInitialStartupSynchronizationTest {
     private final AtomicInteger analyzeCount = new AtomicInteger();
     private final AtomicInteger loadSgfCount = new AtomicInteger();
     private final AtomicInteger clearBoardCount = new AtomicInteger();
+    private final Map<String, Stone> engineStones = new HashMap<>();
+    private CommandDelay beforeCommand;
     private int snapshotBaseMove;
     private int failLoadSgfAt = Integer.MAX_VALUE;
     private int ponderCount;
     private int responseFreshenedCount;
+    private int engineBoardWidth = 19;
+    private int engineBoardHeight = 19;
+    private double engineKomi = Double.NaN;
+    private boolean engineBlackToPlay = true;
 
     private StartupSyncLeelaz() throws Exception {
       super("");
       ExactSnapshotRestoreProtocolFixture.install(
           this,
           command -> {
+            if (beforeCommand != null) {
+              beforeCommand.beforeCommand(command);
+            }
             commands.add(command);
             if (command.startsWith("play ")) {
               enginePosition.incrementAndGet();
+              String[] parts = command.split("\\s+");
+              if (!"pass".equalsIgnoreCase(parts[2])) {
+                engineStones.put(
+                    parts[2].toUpperCase(Locale.ROOT),
+                    "B".equalsIgnoreCase(parts[1]) ? Stone.BLACK : Stone.WHITE);
+              }
+              engineBlackToPlay = "W".equalsIgnoreCase(parts[1]);
             } else if (command.equals("clear_board")) {
               clearBoardCount.incrementAndGet();
               enginePosition.set(0);
+              engineStones.clear();
+              engineBlackToPlay = true;
+            } else if (command.startsWith("boardsize ")) {
+              engineBoardWidth = Integer.parseInt(command.substring("boardsize ".length()).trim());
+              engineBoardHeight = engineBoardWidth;
+              engineStones.clear();
+              engineBlackToPlay = true;
+            } else if (command.startsWith("rectangular_boardsize ")) {
+              String[] parts = command.split("\\s+");
+              engineBoardWidth = Integer.parseInt(parts[1]);
+              engineBoardHeight = Integer.parseInt(parts[2]);
+              engineStones.clear();
+              engineBlackToPlay = true;
+            } else if (command.startsWith("komi ")) {
+              engineKomi = Double.parseDouble(command.substring("komi ".length()).trim());
             } else if (command.startsWith("loadsgf ")) {
               int count = loadSgfCount.incrementAndGet();
               enginePosition.set(snapshotBaseMove);
@@ -737,6 +1141,11 @@ class EngineManagerInitialStartupSynchronizationTest {
       return analyzePosition.get();
     }
 
+    private Stone stoneAt(int x, int y) {
+      return engineStones.getOrDefault(
+          Board.convertCoordinatesToName(x, y).toUpperCase(Locale.ROOT), Stone.EMPTY);
+    }
+
     private List<String> tailPlays() {
       List<String> plays = new ArrayList<>();
       boolean tailStarted = false;
@@ -784,6 +1193,47 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
   }
 
+  private static final class CaptureFailureBoard extends Board {
+    private RuntimeException captureFailure;
+    private boolean failOnHistoryRead;
+
+    @Override
+    public void clearAfterMove() {
+      // Avoid headless UI dependencies during capture failure setup.
+    }
+
+    @Override
+    public BoardHistoryList getHistory() {
+      if (failOnHistoryRead) {
+        throw captureFailure;
+      }
+      return super.getHistory();
+    }
+  }
+
+  private static final class BlockingStartupConfig extends Config {
+    private CountDownLatch doubleEngineQueryEntered;
+    private CountDownLatch allowDoubleEngineQuery;
+
+    private BlockingStartupConfig() throws IOException {
+      super();
+    }
+
+    @Override
+    public boolean isDoubleEngineMode() {
+      doubleEngineQueryEntered.countDown();
+      try {
+        if (!allowDoubleEngineQuery.await(2, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("double-engine query was not released");
+        }
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("double-engine query was interrupted", interrupted);
+      }
+      return false;
+    }
+  }
+
   private static final class StartupTestEnvironment implements AutoCloseable {
     private final Leelaz previousPrimary = Lizzie.leelaz;
     private final Leelaz previousSecondary = Lizzie.leelaz2;
@@ -817,6 +1267,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       EngineManager.currentEngineNo2 = -1;
       Board.boardWidth = 19;
       Board.boardHeight = 19;
+      Zobrist.init();
       readyListener =
           snapshot -> {
             if (snapshot.state == EngineStartupStatus.State.READY) {
@@ -861,6 +1312,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       EngineManager.currentEngineNo2 = previousEngineNo2;
       Board.boardWidth = previousBoardWidth;
       Board.boardHeight = previousBoardHeight;
+      Zobrist.init();
       LizzieFrame.winrateGraph = previousWinrateGraph;
     }
   }

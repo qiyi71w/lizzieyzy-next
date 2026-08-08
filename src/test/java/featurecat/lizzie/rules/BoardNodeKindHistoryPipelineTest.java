@@ -637,6 +637,57 @@ class BoardNodeKindHistoryPipelineTest {
   }
 
   @Test
+  void issue223ReporterGameRoundTripPreservesMovesAndAnalysisOwnership() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    boolean previousEngineGame = EngineManager.isEngineGame;
+    try {
+      java.net.URL fixtureResource =
+          BoardNodeKindHistoryPipelineTest.class.getResource(
+              "/featurecat/lizzie/rules/issue223-reporter-205-moves.sgf");
+      assertTrue(fixtureResource != null, "Issue #223 reporter SGF fixture must be available.");
+      String reporterSgf = Files.readString(Path.of(fixtureResource.toURI()));
+      List<String> expectedMoves = moveProperties(reporterSgf);
+      assertEquals(205, expectedMoves.size(), "fixture must retain all 205 reporter moves.");
+
+      Board.boardWidth = 19;
+      Board.boardHeight = 19;
+      Zobrist.init();
+      BoardHistoryList imported = SGFParser.parseSgf(reporterSgf, false);
+      assertEquals(
+          expectedMoves,
+          canonicalMoveSequence(imported),
+          "import must preserve every reporter move color, coordinate, and order.");
+
+      BoardData analyzed = historyNodeAtMove(imported, 137).getData();
+      analyzed.engineName = "Issue223FixtureEngine";
+      analyzed.winrate = 61.5;
+      analyzed.setPlayouts(12_000);
+      Lizzie.board.setHistory(imported);
+      EngineManager.isEngineGame = false;
+
+      String exported = SGFParser.saveToString(false);
+      BoardHistoryList roundTrip = SGFParser.parseSgf(exported, false);
+
+      assertEquals(
+          expectedMoves,
+          canonicalMoveSequence(roundTrip),
+          "save/load must preserve every reporter move color, coordinate, and order.");
+      assertSinglePrimaryAnalysisOwner(roundTrip, 137);
+      assertEquals(
+          1,
+          countOccurrences(exported, "LZ[") + countOccurrences(exported, "LZOP["),
+          "the analyzed node must export exactly one primary analysis property.");
+      BoardData roundTripAnalysis = historyNodeAtMove(roundTrip, 137).getData();
+      assertEquals("Issue223FixtureEngine", roundTripAnalysis.engineName);
+      assertEquals(12_000, roundTripAnalysis.getPlayouts());
+      assertEquals(61.5, roundTripAnalysis.winrate, 0.0001);
+    } finally {
+      EngineManager.isEngineGame = previousEngineGame;
+      env.close();
+    }
+  }
+
+  @Test
   void parseSgfSetupUsesSgfRectSizeWhenGlobalBoardSizeDiffers() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
@@ -1111,8 +1162,7 @@ class BoardNodeKindHistoryPipelineTest {
   }
 
   @Test
-  void loadFromStringYikeHandicapHeaderOrderUsesSgfKomiWhenReadKomiDisabled()
-      throws Exception {
+  void loadFromStringYikeHandicapHeaderOrderUsesSgfKomiWhenReadKomiDisabled() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     int previousCurrentEngineNo = EngineManager.currentEngineNo;
     try {
@@ -1144,7 +1194,8 @@ class BoardNodeKindHistoryPipelineTest {
       assertFalse(history.getStart().getData().hasAnyAnalysisPayload());
       assertTrue(leelaz.recordedCommands().contains("komi 0"));
       assertFalse(
-          (boolean) requireMethod(Leelaz.class, "shouldApplyInitialEngineKomiToCurrentGame")
+          (boolean)
+              requireMethod(Leelaz.class, "shouldApplyInitialEngineKomiToCurrentGame")
               .invoke(leelaz),
           "engine startup must not overwrite a loaded handicap SGF komi after parsing.");
 
@@ -4241,6 +4292,8 @@ class BoardNodeKindHistoryPipelineTest {
     assertTrue(
         data.estimateArray == null || data.estimateArray.isEmpty(),
         source + " should keep primary ownership array neutral.");
+    assertEquals(
+        0, data.analysisHeaderSlots, source + " should keep primary header slots neutral.");
   }
 
   private static void assertNeutralSecondaryAnalysis(BoardData data, String source) {
@@ -4435,13 +4488,26 @@ class BoardNodeKindHistoryPipelineTest {
         };
       case 8:
         return new int[][] {
-          sequence[2], sequence[0], sequence[1], sequence[3], sequence[7], sequence[8], sequence[5],
+          sequence[2],
+          sequence[0],
+          sequence[1],
+          sequence[3],
+          sequence[7],
+          sequence[8],
+          sequence[5],
           sequence[6]
         };
       case 9:
         return new int[][] {
-          sequence[2], sequence[0], sequence[1], sequence[3], sequence[7], sequence[8], sequence[5],
-          sequence[6], sequence[4]
+          sequence[2],
+          sequence[0],
+          sequence[1],
+          sequence[3],
+          sequence[7],
+          sequence[8],
+          sequence[5],
+          sequence[6],
+          sequence[4]
         };
       default:
         return new int[0][];
@@ -4508,6 +4574,74 @@ class BoardNodeKindHistoryPipelineTest {
     } finally {
       env.close();
     }
+  }
+
+  private static List<String> moveProperties(String sgf) {
+    List<String> moves = new ArrayList<>();
+    Matcher matcher = Pattern.compile(";([BW])\\[([^\\]]*)\\]").matcher(sgf);
+    while (matcher.find()) {
+      moves.add(matcher.group(1) + "[" + matcher.group(2) + "]");
+    }
+    return moves;
+  }
+
+  private static List<String> canonicalMoveSequence(BoardHistoryList history) {
+    List<String> moves = new ArrayList<>();
+    BoardHistoryNode node = history.getStart();
+    while (node.next().isPresent()) {
+      node = node.next().orElseThrow();
+      BoardData data = node.getData();
+      if (!data.isMoveNode() && !data.isPassNode()) {
+        continue;
+      }
+      String color = data.lastMoveColor == Stone.BLACK ? "B" : "W";
+      String coordinate = data.isPassNode() ? "" : SGFParser.asCoord(data.lastMove.orElseThrow());
+      moves.add(color + "[" + coordinate + "]");
+    }
+    return moves;
+  }
+
+  private static BoardHistoryNode historyNodeAtMove(BoardHistoryList history, int moveNumber) {
+    BoardHistoryNode node = history.getStart();
+    while (node.next().isPresent()) {
+      node = node.next().orElseThrow();
+      if (node.getData().moveNumber == moveNumber) {
+        return node;
+      }
+    }
+    throw new AssertionError("Missing history node at move " + moveNumber);
+  }
+
+  private static void assertSinglePrimaryAnalysisOwner(
+      BoardHistoryList history, int expectedMoveNumber) {
+    BoardHistoryNode node = history.getStart();
+    while (true) {
+      BoardData data = node.getData();
+      if (data.moveNumber != expectedMoveNumber) {
+        assertNoPrimaryAnalysisPayload(
+            data, "round-trip move " + data.moveNumber + " non-owner payload");
+      }
+      Optional<BoardHistoryNode> next = node.next();
+      if (next.isEmpty()) {
+        return;
+      }
+      node = next.orElseThrow();
+    }
+  }
+
+  private static void assertNoPrimaryAnalysisPayload(BoardData data, String source) {
+    assertFalse(data.hasPrimaryAnalysisPayload(), source + " must not own primary analysis.");
+    assertEquals("", data.engineName, source + " must not retain the primary engine.");
+    assertEquals(0, data.getPlayouts(), source + " must not retain primary playouts.");
+    assertTrue(data.bestMoves.isEmpty(), source + " must not retain primary best-moves.");
+    assertFalse(data.isKataData, source + " must not retain the primary kata flag.");
+    assertEquals(0, data.analysisHeaderSlots, source + " must not retain primary header slots.");
+    assertEquals(0.0, data.scoreMean, 0.0001, source + " must not retain primary scoreMean.");
+    assertEquals(0.0, data.scoreStdev, 0.0001, source + " must not retain primary scoreStdev.");
+    assertEquals(0.0, data.pda, 0.0001, source + " must not retain primary pda.");
+    assertTrue(
+        data.estimateArray == null || data.estimateArray.isEmpty(),
+        source + " must not retain the primary ownership array.");
   }
 
   private static final class TestEnvironment implements AutoCloseable {

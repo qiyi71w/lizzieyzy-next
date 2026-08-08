@@ -163,11 +163,11 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 初始启动捕获发生在首个外部 lifecycle 副作用之前：frozen immutable route（exact 或 root replay）与 board frame 同时冻结；此后不重新 prepare、不修改正在执行的旧 plan。
 - 启动期间 UI / history 导航继续正常工作，但目标引擎不能交错接收普通 live-board `play/undo/clear/resync/analyze`。该窄 admission 只作用于 initial synchronization 活跃的目标引擎，`name/version/list_commands/komi/boardsize` 等启动握手命令不受影响；frozen / catch-up route 自身在 exact restore admission 语境下发送的命令也明确绕过该 gate。
 - board frame 至少包含：history root identity、current node identity、Zobrist / 盘面、side-to-play、komi、`Board.contextRevision`（以及盘尺寸）。frame 捕获与每轮稳定性判断在 `synchronized (Board)` 内完成；restore 执行必须在锁外完成，不能阻塞 EDT。
-- 每轮流程固定为：执行当前 immutable route（loadEngine=false）→ 在锁内重新捕获 frame → 与 route 捕获时的 frame 一致则达到稳定恢复点；不一致则在同一 lifecycle owner 下捕获新的 immutable catch-up route 并再执行一轮。
+- 每轮流程固定为：在当前 reservation 下执行 immutable route（loadEngine=false）→ 保持 initial synchronization active 并在 Board monitor 外释放 reservation → 在锁内重新捕获 frame。frame 一致时，reservation 已释放，在线性化判断的同一临界区结束屏障；不一致时在同一 lifecycle owner 下捕获新的 immutable catch-up route，退出 Board monitor 后重新获取 reservation（拒绝则 fail-closed），再执行下一轮。
 - route 执行前，在同一 admission 语境下把引擎盘尺寸与 route 捕获 frame 对齐（exact route 由 SGF SZ 语义承担，root replay 必须显式 `boardsize`）；komi 由 route 捕获值在恢复时收敛，普通入口不补发。
 - 普通 history-overwrite 入口（`clear` / `clearForOnline` / `reopen` / `setHistory`）与 frame 捕获共用同一个 Board monitor；屏障期间的普通 live-board resync（`resendMoveToEngine`、`clearAndSyncBoard`、`resendCurrentPositionToPrimaryEngine`、增量同步、`reopen` 的 engine resize）整体跳过，靠 catch-up 收敛。
-- 结束恢复屏障必须与最后一次 frame 判断线性化：判断稳定的同一临界区内清除 initial synchronization 状态；屏障清除后到达引擎的导航命令基于与引擎局面一致的棋盘。
-- `markEngineReady`、ponder 与 analyze 只能在稳定恢复点之后执行一次，按既有启动策略（`initializeAfterVersionCheck`）触发；name 响应路径在屏障活跃期间不得提前 `markEngineReady`。
+- 最终 handoff 必须是两阶段提交：当前 route 完成后屏障保持 active，先锁外释放 reservation，再在 `synchronized (Board)` 内重查 frame；只有重查一致时才在该临界区结束屏障。这样导航要么发生在重查前（普通命令仍被屏障抑制，并触发新 catch-up），要么发生在屏障结束后（reservation 已释放，普通命令可直接到达已对齐的引擎），不存在“屏障已结束但 reservation 仍持有”的丢转发窗口。
+- `markEngineReady`、ponder 与 analyze 只能在 reservation 已释放、屏障已结束的稳定恢复点之后执行一次，按既有启动策略（`initializeAfterVersionCheck`）触发；name 响应路径在屏障活跃期间不得提前 `markEngineReady`。
 - 任一初始或 catch-up restore 失败都 fail-closed：目标引擎置为 unavailable、不发送 ponder/analyze、释放 lifecycle reservation、结束 initial synchronization 状态、走既有引擎同步失败提示；不执行猜测性 root fallback。
 - `ExactSnapshotEngineRestore` 继续只负责单份 immutable exact plan；追赶最新棋盘的 lifecycle 收敛逻辑只属于 EngineManager 的 initial startup owner，不进入 exact module。
 

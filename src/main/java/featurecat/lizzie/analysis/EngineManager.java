@@ -3486,6 +3486,12 @@ public class EngineManager {
     /** Test seam: runs outside the board lock before each restore route execution. */
     Runnable beforeRestore;
 
+    /** Test seam: runs outside the board lock immediately before each reservation release. */
+    Runnable beforeReservationRelease;
+
+    /** Test seam: runs outside the board lock immediately after each reservation release. */
+    Runnable afterReservationRelease;
+
     private InitialEngineStartupSynchronization(
         Leelaz targetEngine, Board board) {
       this.targetEngine = targetEngine;
@@ -3511,36 +3517,18 @@ public class EngineManager {
           new InitialEngineStartupSynchronization(targetEngine, board);
       targetEngine.beginInitialBoardSynchronization();
       try {
-        Leelaz.ExclusiveGtpLifecycleReservation reservation =
-            targetEngine.beginExclusiveGtpLifecycleReservation(coordination.lifecycleOwner);
-        if (reservation == null) {
-          throw new IllegalStateException(
-              "Initial engine startup lifecycle reservation was rejected");
-        }
-        coordination.reservation = reservation;
+        coordination.acquireReservation();
         synchronized (board) {
-          BoardHistoryList history = board.getHistory();
-          BoardHistoryNode historyTarget =
-              forceRootReplay || history == null ? null : history.getCurrentHistoryNode();
-          Double currentGameKomi =
-              history == null || history.getGameInfo() == null
-                  ? null
-                  : history.getGameInfo().getKomi();
-          coordination.pendingRoute =
-              PreparedLifecycleRestore.capture(
-                  null,
-                  targetEngine,
-                  null,
-                  coordination.lifecycleOwner,
-                  historyTarget,
-                  currentGameKomi,
-                  Movelist.copyList(board.getMoveList()),
-                  false);
+          coordination.pendingRoute = coordination.captureRoute(forceRootReplay);
           coordination.capturedFrame = BoardFrame.capture(board);
         }
         return coordination;
       } catch (RuntimeException failure) {
-        coordination.close();
+        try {
+          coordination.close();
+        } catch (RuntimeException cleanupFailure) {
+          failure.addSuppressed(cleanupFailure);
+        }
         throw failure;
       }
     }
@@ -3552,18 +3540,28 @@ public class EngineManager {
           beforeRestore.run();
         }
         executePendingRoute();
+        if (beforeReservationRelease != null) {
+          beforeReservationRelease.run();
+        }
+        releaseReservation();
+        if (afterReservationRelease != null) {
+          afterReservationRelease.run();
+        }
         synchronized (board) {
-          if (capturedFrame.matches(BoardFrame.capture(board))) {
-            // Linearize the end of the restore barrier with the final frame judgment: any
-            // navigation either happened before this judgment (its plays were dropped and the
-            // next round re-captures) or happens after the flag is cleared (the engine is already
-            // at the matching position).
+          BoardFrame currentFrame = BoardFrame.capture(board);
+          if (capturedFrame.matches(currentFrame)) {
+            // The route reservation is already free. A board mutation before this judgment keeps
+            // the barrier active and changes the frame; one after the flag clears can forward
+            // ordinary commands without being rejected by the startup lifecycle owner.
             targetEngine.endInitialBoardSynchronization();
             stable = true;
           } else {
-            capturedFrame = BoardFrame.capture(board);
-            pendingRoute = captureRoute();
+            capturedFrame = currentFrame;
+            pendingRoute = captureRoute(false);
           }
+        }
+        if (!stable) {
+          acquireReservation();
         }
       }
       initializeAfterRestore();
@@ -3606,10 +3604,10 @@ public class EngineManager {
           });
     }
 
-    private PreparedLifecycleRestore captureRoute() {
+    private PreparedLifecycleRestore captureRoute(boolean forceRootReplay) {
       BoardHistoryList history = board.getHistory();
       BoardHistoryNode historyTarget =
-          history == null ? null : history.getCurrentHistoryNode();
+          forceRootReplay || history == null ? null : history.getCurrentHistoryNode();
       Double currentGameKomi =
           history == null || history.getGameInfo() == null
               ? null
@@ -3625,6 +3623,38 @@ public class EngineManager {
           false);
     }
 
+    private void acquireReservation() {
+      Leelaz.ExclusiveGtpLifecycleReservation nextReservation =
+          targetEngine.beginExclusiveGtpLifecycleReservation(lifecycleOwner);
+      if (nextReservation == null) {
+        throw new IllegalStateException(
+            "Initial engine startup lifecycle reservation was rejected");
+      }
+      boolean accepted = false;
+      synchronized (this) {
+        if (!closed.get() && reservation == null) {
+          reservation = nextReservation;
+          accepted = true;
+        }
+      }
+      if (!accepted) {
+        nextReservation.close();
+        throw new IllegalStateException(
+            "Initial engine startup lifecycle reservation could not be installed");
+      }
+    }
+
+    private void releaseReservation() {
+      Leelaz.ExclusiveGtpLifecycleReservation activeReservation;
+      synchronized (this) {
+        activeReservation = reservation;
+        reservation = null;
+      }
+      if (activeReservation != null) {
+        activeReservation.close();
+      }
+    }
+
     private void initializeAfterRestore() {
       if (initialized.compareAndSet(false, true)) {
         Lizzie.initializeAfterVersionCheck(false, targetEngine);
@@ -3632,15 +3662,16 @@ public class EngineManager {
     }
 
     /**
-     * Ends the initial-sync barrier and releases the lifecycle reservation. Idempotent and safe to
-     * call from any thread.
+     * Releases the lifecycle reservation before ending the initial-sync barrier. Idempotent and
+     * safe to call from any thread.
      */
     @Override
     public void close() {
       if (closed.compareAndSet(false, true)) {
-        targetEngine.endInitialBoardSynchronization();
-        if (reservation != null) {
-          reservation.close();
+        try {
+          releaseReservation();
+        } finally {
+          targetEngine.endInitialBoardSynchronization();
         }
       }
     }

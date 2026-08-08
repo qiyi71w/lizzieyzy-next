@@ -14,8 +14,10 @@ import featurecat.lizzie.analysis.ExactSnapshotEngineRestore;
 import featurecat.lizzie.analysis.ExactSnapshotRestoreProtocolFixture;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.analysis.ReadBoard;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
+import featurecat.lizzie.gui.WinrateGraph;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -301,7 +303,8 @@ class BoardMovelistExportTest {
           engine.fileExistedDuringConsumption(),
           "the delayed loadsgf consumer should still see the temp SGF on disk.");
       restoreThread.join(2000L);
-      assertFalse(restoreThread.isAlive(), "exact snapshot restore should finish after consumption.");
+      assertFalse(
+          restoreThread.isAlive(), "exact snapshot restore should finish after consumption.");
       assertNull(restoreFailure.get(), "delayed exact snapshot restore should not fail.");
       assertTempFileEventuallyDeleted(
           engine.lastConsumedSgf(),
@@ -642,9 +645,7 @@ class BoardMovelistExportTest {
 
       assertEquals(
           List.of("clear_board", "play B pass"),
-          List.of(
-              engine.recordedCommands().get(0),
-              engine.recordedCommands().get(2)),
+          List.of(engine.recordedCommands().get(0), engine.recordedCommands().get(2)),
           "load-engine replay should replay only later real actions after the removed-stone snapshot restore.");
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
@@ -686,12 +687,8 @@ class BoardMovelistExportTest {
       board.resendMoveToEngine(engine, true);
 
       assertEquals(
-          List.of(
-              "clear_board",
-              "play W " + Board.convertCoordinatesToName(0, 1)),
-          List.of(
-              engine.recordedCommands().get(0),
-              engine.recordedCommands().get(2)),
+          List.of("clear_board", "play W " + Board.convertCoordinatesToName(0, 1)),
+          List.of(engine.recordedCommands().get(0), engine.recordedCommands().get(2)),
           "load-engine replay should replay only later real actions after the nearest removed-stone snapshot restore.");
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
@@ -972,6 +969,96 @@ class BoardMovelistExportTest {
           "save/load replay should ignore setup stones and keep real history only.");
     } finally {
       env.close();
+    }
+  }
+
+  @Test
+  void setHistoryNotifiesReadBoardAfterReleasingBoardMonitor() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    Board previousBoard = Lizzie.board;
+    try {
+      Board board = allocate(Board.class);
+      Lizzie.board = board;
+      ReadBoard readBoard = allocate(ReadBoard.class);
+      Lizzie.frame.readBoard = readBoard;
+      CountDownLatch readBoardHeld = new CountDownLatch(1);
+      CountDownLatch attemptBoardLock = new CountDownLatch(1);
+
+      Thread readBoardThread =
+          new Thread(
+              () -> {
+                synchronized (readBoard) {
+                  readBoardHeld.countDown();
+                  try {
+                    if (!attemptBoardLock.await(2, TimeUnit.SECONDS)) {
+                      throw new AssertionError("Timed out waiting to attempt the board monitor");
+                    }
+                  } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(ex);
+                  }
+                  synchronized (board) {
+                    // Exercises the existing ReadBoard -> Board edge.
+                  }
+                }
+              },
+              "readboard-to-board-lock-test");
+      Thread historyThread =
+          new Thread(
+              () -> board.setHistory(new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE))),
+              "board-history-overwrite-lock-test");
+      readBoardThread.setDaemon(true);
+      historyThread.setDaemon(true);
+
+      readBoardThread.start();
+      assertTrue(
+          readBoardHeld.await(2, TimeUnit.SECONDS), "fixture must hold the ReadBoard monitor");
+      historyThread.start();
+      awaitBlocked(historyThread, "history overwrite must reach the ReadBoard callback");
+      attemptBoardLock.countDown();
+
+      readBoardThread.join(2_000L);
+      historyThread.join(2_000L);
+      assertFalse(
+          readBoardThread.isAlive() || historyThread.isAlive(),
+          "Board.setHistory must not create a Board <-> ReadBoard monitor deadlock");
+    } finally {
+      Lizzie.board = previousBoard;
+      env.close();
+    }
+  }
+
+  @Test
+  void deletingRootPondersOnlyAfterEngineClearAndKomi() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    Board previousBoard = Lizzie.board;
+    Leelaz previousLeelaz = Lizzie.leelaz;
+    WinrateGraph previousWinrateGraph = LizzieFrame.winrateGraph;
+    try {
+      TrackingLeelaz engine = allocate(TrackingLeelaz.class);
+      engine.testPondering = true;
+      Lizzie.leelaz = engine;
+      LizzieFrame.winrateGraph = allocate(WinrateGraph.class);
+      Board board = new TrackingBoard();
+      board.setHistory(new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE)));
+      Lizzie.board = board;
+
+      board.deleteMoveNoHint();
+
+      List<String> commands = engine.recordedCommands();
+      int clearIndex = commands.indexOf("clear_board");
+      int analyzeIndex = commands.indexOf("analyze");
+      assertTrue(clearIndex >= 0, "root deletion must clear the engine");
+      assertTrue(analyzeIndex > clearIndex, "analysis must start only after clear_board");
+      assertEquals(
+          1,
+          commands.stream().filter("analyze"::equals).count(),
+          "root deletion must re-ponder exactly once");
+    } finally {
+      Lizzie.board = previousBoard;
+      Lizzie.leelaz = previousLeelaz;
+      env.close();
+      LizzieFrame.winrateGraph = previousWinrateGraph;
     }
   }
 
@@ -1336,6 +1423,14 @@ class BoardMovelistExportTest {
     return config;
   }
 
+  private static void awaitBlocked(Thread thread, String message) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (thread.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+      Thread.sleep(10L);
+    }
+    assertEquals(Thread.State.BLOCKED, thread.getState(), message);
+  }
+
   @SuppressWarnings("unchecked")
   private static <T> T allocate(Class<T> type) throws Exception {
     if (Leelaz.class.isAssignableFrom(type)) {
@@ -1354,7 +1449,8 @@ class BoardMovelistExportTest {
     private final LizzieFrame previousFrame;
 
     private TestEnvironment(
-        int previousBoardWidth, int previousBoardHeight,
+        int previousBoardWidth,
+        int previousBoardHeight,
         Config previousConfig,
         LizzieFrame previousFrame) {
       this.previousBoardWidth = previousBoardWidth;
@@ -1417,9 +1513,16 @@ class BoardMovelistExportTest {
 
     @Override
     public void refresh() {}
+
+    @Override
+    public void resetTitle() {}
+
+    @Override
+    public void clearKataEstimate() {}
   }
 
   private static final class TrackingLeelaz extends Leelaz {
+    private boolean testPondering;
     private List<String> commands;
 
     private TrackingLeelaz() throws Exception {
@@ -1468,7 +1571,28 @@ class BoardMovelistExportTest {
 
     @Override
     public boolean isPondering() {
-      return false;
+      return testPondering;
+    }
+
+    @Override
+    public void ponder() {
+      sendCommand("analyze");
+    }
+
+    @Override
+    public boolean forwardBoardClearWithKomi(
+        String komiCommand, double komi, boolean applyKomiSideEffects) {
+      assertFalse(
+          Lizzie.board != null && Thread.holdsLock(Lizzie.board),
+          "board-clear engine forwarding must run outside the Board monitor");
+      sendCommand("clear_board");
+      if (komiCommand != null) {
+        sendCommand(komiCommand);
+      }
+      if (testPondering) {
+        ponder();
+      }
+      return true;
     }
 
     @Override
@@ -1628,8 +1752,7 @@ class BoardMovelistExportTest {
     public void updateMenuStatusForEngine() {}
   }
 
-  private static final class SnapshotSgfAwareFakeLeelaz
-      extends Leelaz {
+  private static final class SnapshotSgfAwareFakeLeelaz extends Leelaz {
     private List<String> commands;
     private Stone[] stones;
     private boolean blackToPlay = true;
