@@ -8,6 +8,7 @@ import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
 import featurecat.lizzie.gui.SgfWinLossList;
 import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.EngineCountDown;
@@ -94,22 +95,16 @@ public class EngineManager {
         if (engineDt.isDefault) index = engineDt.index;
         Board restoreBoard = Lizzie.board;
         boolean boardShapeChanges = e.oriWidth != 19 || e.oriHeight != 19;
-        PreparedLifecycleRestore startupRestoreRoute = null;
+        InitialEngineStartupSynchronization startupSynchronization = null;
         if (restoreBoard != null) {
-          BoardHistoryList history = restoreBoard.getHistory();
-          BoardHistoryNode historyTarget =
-              boardShapeChanges || history == null ? null : history.getCurrentHistoryNode();
-          Double currentGameKomi =
-              history == null || history.getGameInfo() == null ? null : history.getGameInfo().getKomi();
-          startupRestoreRoute =
-              PreparedLifecycleRestore.capture(
-                  null,
-                  e,
-                  null,
-                  historyTarget,
-                  currentGameKomi,
-                  Movelist.copyList(restoreBoard.getMoveList()),
-                  false);
+          try {
+            startupSynchronization =
+                InitialEngineStartupSynchronization.capture(e, restoreBoard, boardShapeChanges);
+          } catch (RuntimeException startupBarrierFailure) {
+            startupBarrierFailure.printStackTrace();
+            e.isLoaded = false;
+            showEngineSynchronizationFailure(e);
+          }
         }
         if (boardShapeChanges) {
           Board.boardWidth = e.oriWidth;
@@ -120,39 +115,43 @@ public class EngineManager {
         Lizzie.leelaz = e;
         e.preload = true;
         e.firstLoad = true;
-        final PreparedLifecycleRestore frozenStartupRestoreRoute = startupRestoreRoute;
-        new Thread() {
-          public void run() {
-            try {
-              e.startEngine(engineDt.index);
-              Menu.engineMenu.setText("[" + (e.currentEngineN() + 1) + "]: " + e.oriEnginename);
-            } catch (IOException e2) {
-              e2.printStackTrace();
-              return;
-            }
-            while (!e.isLoaded() || e.isCheckingName) {
+        final InitialEngineStartupSynchronization frozenStartupSynchronization =
+            startupSynchronization;
+        if (restoreBoard == null || frozenStartupSynchronization != null) {
+          new Thread() {
+            public void run() {
               try {
-                Thread.sleep(100);
-              } catch (InterruptedException e1) {
-                Thread.currentThread().interrupt();
-                return;
+                try {
+                  e.startEngine(engineDt.index);
+                  Menu.engineMenu.setText(
+                      "[" + (e.currentEngineN() + 1) + "]: " + e.oriEnginename);
+                } catch (IOException e2) {
+                  e2.printStackTrace();
+                  return;
+                }
+                if (currentEngineNo > 20) LizzieFrame.menu.changeEngineIcon(20, 3);
+                else LizzieFrame.menu.changeEngineIcon(currentEngineNo, 3);
+                if (restoreBoard == null || frozenStartupSynchronization == null) {
+                  return;
+                }
+                if (!waitForEngineSynchronizationReadiness(e)) {
+                  e.isLoaded = false;
+                  showEngineSynchronizationFailure(e);
+                  return;
+                }
+                frozenStartupSynchronization.run();
+              } catch (RuntimeException failure) {
+                failure.printStackTrace();
+                e.isLoaded = false;
+                showEngineSynchronizationFailure(e);
+              } finally {
+                if (frozenStartupSynchronization != null) {
+                  frozenStartupSynchronization.close();
+                }
               }
             }
-            if (currentEngineNo > 20) LizzieFrame.menu.changeEngineIcon(20, 3);
-            else LizzieFrame.menu.changeEngineIcon(currentEngineNo, 3);
-            if (restoreBoard == null) {
-              return;
-            }
-            if (frozenStartupRestoreRoute == null) {
-              restoreBoard.resendMoveToEngine(e, true);
-            } else if (frozenStartupRestoreRoute.exactRestore.isPresent()) {
-              restoreBoard.resendMoveToEngine(
-                  e, true, frozenStartupRestoreRoute.exactRestore.orElseThrow());
-            } else {
-              frozenStartupRestoreRoute.executeRootReplay(restoreBoard, true, false);
-            }
-          }
-        }.start();
+          }.start();
+        }
       } else {
         if (e.preload) {
           new Thread() {
@@ -3272,6 +3271,29 @@ public class EngineManager {
           resumePonder,
           null);
     }
+    private static PreparedLifecycleRestore capture(
+        Leelaz previousEngine,
+        Leelaz targetEngine,
+        Leelaz mirrorEngine,
+        Object owner,
+        BoardHistoryNode historyTarget,
+        Double komi,
+        ArrayList<Movelist> rootMoves,
+        boolean resumePonder) {
+      if (owner == null) {
+        throw new IllegalArgumentException("owner");
+      }
+      return capture(
+          previousEngine,
+          targetEngine,
+          mirrorEngine,
+          historyTarget,
+          komi,
+          rootMoves,
+          resumePonder,
+          owner);
+    }
+
 
     private static PreparedLifecycleRestore capture(
         Leelaz previousEngine,
@@ -3435,6 +3457,255 @@ public class EngineManager {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Initial engine startup restore barrier (Issue #223).
+   *
+   * <p>Owns one lifecycle owner identity, one lifecycle reservation and the immutable startup
+   * route captured before the first external lifecycle side effect. While the barrier is active
+   * the target engine drops ordinary live-board updates (play/undo/clear/analyze). After the
+   * engine becomes ready the initial frozen route executes with loadEngine=false; each subsequent
+   * round re-captures the board frame and, when stale, captures a new immutable catch-up route
+   * under the same lifecycle owner and executes it. The barrier ends linearly with the final frame
+   * judgment inside {@code synchronized (board)}; only then is the engine marked ready and one
+   * analysis started per the existing startup policy.
+   */
+  static final class InitialEngineStartupSynchronization implements AutoCloseable {
+    private final Leelaz targetEngine;
+    private final Board board;
+    private final Object lifecycleOwner = new Object();
+    private Leelaz.ExclusiveGtpLifecycleReservation reservation;
+    private PreparedLifecycleRestore pendingRoute;
+    private BoardFrame capturedFrame;
+    private boolean stable;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final AtomicBoolean initialized = new AtomicBoolean(false);
+
+    /** Test seam: runs outside the board lock before each restore route execution. */
+    Runnable beforeRestore;
+
+    private InitialEngineStartupSynchronization(
+        Leelaz targetEngine, Board board) {
+      this.targetEngine = targetEngine;
+      this.board = board;
+    }
+
+    /**
+     * Captures the immutable startup route, the initial board frame, the lifecycle reservation and
+     * the initial-sync admission, all before the engine is started. The route inputs, route
+     * capture and frame capture happen atomically inside {@code synchronized (board)} so the
+     * frozen route always restores exactly the captured frame. Fails closed by throwing when the
+     * reservation or admission cannot be established.
+     */
+    static InitialEngineStartupSynchronization capture(
+        Leelaz targetEngine, Board board, boolean forceRootReplay) {
+      if (targetEngine == null) {
+        throw new IllegalArgumentException("targetEngine");
+      }
+      if (board == null) {
+        throw new IllegalArgumentException("board");
+      }
+      InitialEngineStartupSynchronization coordination =
+          new InitialEngineStartupSynchronization(targetEngine, board);
+      targetEngine.beginInitialBoardSynchronization();
+      try {
+        Leelaz.ExclusiveGtpLifecycleReservation reservation =
+            targetEngine.beginExclusiveGtpLifecycleReservation(coordination.lifecycleOwner);
+        if (reservation == null) {
+          throw new IllegalStateException(
+              "Initial engine startup lifecycle reservation was rejected");
+        }
+        coordination.reservation = reservation;
+        synchronized (board) {
+          BoardHistoryList history = board.getHistory();
+          BoardHistoryNode historyTarget =
+              forceRootReplay || history == null ? null : history.getCurrentHistoryNode();
+          Double currentGameKomi =
+              history == null || history.getGameInfo() == null
+                  ? null
+                  : history.getGameInfo().getKomi();
+          coordination.pendingRoute =
+              PreparedLifecycleRestore.capture(
+                  null,
+                  targetEngine,
+                  null,
+                  coordination.lifecycleOwner,
+                  historyTarget,
+                  currentGameKomi,
+                  Movelist.copyList(board.getMoveList()),
+                  false);
+          coordination.capturedFrame = BoardFrame.capture(board);
+        }
+        return coordination;
+      } catch (RuntimeException failure) {
+        coordination.close();
+        throw failure;
+      }
+    }
+
+    /** Executes the restore rounds and, on a stable restore point, marks the engine ready once. */
+    void run() {
+      while (!stable) {
+        if (beforeRestore != null) {
+          beforeRestore.run();
+        }
+        executePendingRoute();
+        synchronized (board) {
+          if (capturedFrame.matches(BoardFrame.capture(board))) {
+            // Linearize the end of the restore barrier with the final frame judgment: any
+            // navigation either happened before this judgment (its plays were dropped and the
+            // next round re-captures) or happens after the flag is cleared (the engine is already
+            // at the matching position).
+            targetEngine.endInitialBoardSynchronization();
+            stable = true;
+          } else {
+            capturedFrame = BoardFrame.capture(board);
+            pendingRoute = captureRoute();
+          }
+        }
+      }
+      initializeAfterRestore();
+    }
+
+    private void executePendingRoute() {
+      reconcileCapturedBoardSize();
+      PreparedLifecycleRestore route = pendingRoute;
+      if (route.exactRestore.isPresent()) {
+        board.resendMoveToEngine(targetEngine, false, route.exactRestore.orElseThrow());
+      } else {
+        route.executeRootReplay(board, false, false);
+      }
+    }
+
+    /**
+     * Aligns the engine's board size with the size the pending route was captured for. Exact
+     * routes carry SZ in the snapshot SGF, but root-replay routes have no size semantics, so the
+     * reconcile is performed explicitly as restore-owned work (under the route's admission) and
+     * covers both route kinds. The command and cache update deliberately avoid
+     * {@code boardSizeForEngine}'s first-load komi/board side effects.
+     */
+    private void reconcileCapturedBoardSize() {
+      int frameWidth = capturedFrame.boardWidth;
+      int frameHeight = capturedFrame.boardHeight;
+      if (targetEngine.width == frameWidth && targetEngine.height == frameHeight) {
+        return;
+      }
+      String command =
+          frameWidth != frameHeight
+              ? "rectangular_boardsize " + frameWidth + " " + frameHeight
+              : "boardsize " + frameWidth;
+      PreparedLifecycleRestore route = pendingRoute;
+      targetEngine.withExactSnapshotRestoreAdmission(
+          route.admission,
+          () -> {
+            targetEngine.sendCapturedRestoreCommand(command);
+            targetEngine.width = frameWidth;
+            targetEngine.height = frameHeight;
+          });
+    }
+
+    private PreparedLifecycleRestore captureRoute() {
+      BoardHistoryList history = board.getHistory();
+      BoardHistoryNode historyTarget =
+          history == null ? null : history.getCurrentHistoryNode();
+      Double currentGameKomi =
+          history == null || history.getGameInfo() == null
+              ? null
+              : history.getGameInfo().getKomi();
+      return PreparedLifecycleRestore.capture(
+          null,
+          targetEngine,
+          null,
+          lifecycleOwner,
+          historyTarget,
+          currentGameKomi,
+          Movelist.copyList(board.getMoveList()),
+          false);
+    }
+
+    private void initializeAfterRestore() {
+      if (initialized.compareAndSet(false, true)) {
+        Lizzie.initializeAfterVersionCheck(false, targetEngine);
+      }
+    }
+
+    /**
+     * Ends the initial-sync barrier and releases the lifecycle reservation. Idempotent and safe to
+     * call from any thread.
+     */
+    @Override
+    public void close() {
+      if (closed.compareAndSet(false, true)) {
+        targetEngine.endInitialBoardSynchronization();
+        if (reservation != null) {
+          reservation.close();
+        }
+      }
+    }
+  }
+
+  /**
+   * Immutable identity of the board position the startup restore route was captured for. Captured
+   * and compared inside {@code synchronized (Board)} so it is consistent with history navigation.
+   */
+  static final class BoardFrame {
+    private final BoardHistoryNode root;
+    private final BoardHistoryNode current;
+    private final long contextRevision;
+    private final boolean blackToPlay;
+    private final double komi;
+    private final Zobrist zobrist;
+    private final int boardWidth;
+    private final int boardHeight;
+
+    private BoardFrame(
+        BoardHistoryNode root,
+        BoardHistoryNode current,
+        long contextRevision,
+        boolean blackToPlay,
+        double komi,
+        Zobrist zobrist,
+        int boardWidth,
+        int boardHeight) {
+      this.root = root;
+      this.current = current;
+      this.contextRevision = contextRevision;
+      this.blackToPlay = blackToPlay;
+      this.komi = komi;
+      this.zobrist = zobrist;
+      this.boardWidth = boardWidth;
+      this.boardHeight = boardHeight;
+    }
+
+    static BoardFrame capture(Board board) {
+      BoardHistoryList history = board == null ? null : board.getHistory();
+      BoardData data = history == null ? null : history.getData();
+      Zobrist zobrist = data == null ? null : data.zobrist;
+      return new BoardFrame(
+          history == null ? null : history.getStart(),
+          history == null ? null : history.getCurrentHistoryNode(),
+          board == null ? 0L : board.getContextRevision(),
+          history != null && history.isBlacksTurn(),
+          history == null || history.getGameInfo() == null
+              ? Double.NaN
+              : history.getGameInfo().getKomi(),
+          zobrist == null ? null : zobrist.clone(),
+          Board.boardWidth,
+          Board.boardHeight);
+    }
+
+    boolean matches(BoardFrame other) {
+      return other != null
+          && root == other.root
+          && current == other.current
+          && contextRevision == other.contextRevision
+          && blackToPlay == other.blackToPlay
+          && Double.compare(komi, other.komi) == 0
+          && java.util.Objects.equals(zobrist, other.zobrist)
+          && boardWidth == other.boardWidth
+          && boardHeight == other.boardHeight;
     }
   }
 

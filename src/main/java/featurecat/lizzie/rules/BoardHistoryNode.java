@@ -768,6 +768,12 @@ public class BoardHistoryNode {
   }
 
   public void clearAndSyncBoard(boolean stepIn) {
+    if (Lizzie.leelaz != null && Lizzie.leelaz.isInitialBoardSynchronizationActive()) {
+      // The initial engine startup restore barrier owns the engine; skip the ordinary
+      // board-following resync. The startup coordination's catch-up restore converges on the
+      // current position before the barrier ends.
+      return;
+    }
     if (stepIn) {
       Leelaz engine = Lizzie.leelaz;
       boolean resumePonder = engine.isPonderingOrWasPonderingBeforeTracking();

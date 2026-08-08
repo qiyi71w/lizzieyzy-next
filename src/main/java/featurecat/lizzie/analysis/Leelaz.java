@@ -324,6 +324,7 @@ public class Leelaz {
   public volatile boolean started = false;
   public volatile boolean isDownWithError = false;
   public volatile boolean isLoaded = false;
+  private volatile boolean initialBoardSynchronizationActive = false;
   private volatile long bundledStartupToken = 0L;
   private volatile boolean openClFp32CompatibilityActive = false;
   private volatile boolean launchCommandSetsKataGoThreads = false;
@@ -3492,6 +3493,51 @@ public class Leelaz {
     }
   }
 
+  /**
+   * Board-clear engine forwarding with a single lifecycle admission: holds the engine
+   * arbitration lock across the whole clear_board + komi pair, so a competing exclusive
+   * transition cannot interleave between them and leave a cleared engine with a stale komi.
+   * Rejected as a group when exclusive lifecycle work (e.g. the initial startup restore
+   * barrier) owns the engine. Preserves the original forwarding semantics per path: komi
+   * mirrors to the secondary engine when supplied (null komiCommand = clear-only, as in the
+   * SGF editor clear path), the regular clear path also applies the gameInfo komi and
+   * best-move invalidation side effects of {@link #komi(double)}, and a single re-ponder fires
+   * when already pondering (the legacy chain could analyze the intermediate cleared board twice
+   * before the komi landed; the final state is identical). The caller supplies the exact komi
+   * command serialization.
+   */
+  public boolean forwardBoardClearWithKomi(
+      String komiCommand, double komi, boolean applyKomiSideEffects) {
+    synchronized (this) {
+      synchronized (engineArbitrationLock()) {
+        if (!sendStatefulOrdinaryCommand("clear_board")) {
+          return false;
+        }
+        if (komiCommand != null && !sendStatefulOrdinaryCommand(komiCommand)) {
+          return false;
+        }
+      }
+      mirrorStatefulOrdinaryCommand("clear_board");
+      if (komiCommand != null) {
+        mirrorStatefulOrdinaryCommand(komiCommand);
+        this.komi = (float) komi;
+        if (applyKomiSideEffects) {
+          Lizzie.board.getHistory().getGameInfo().setKomi(komi);
+          Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
+        }
+      }
+      if (isKatago) {
+        scoreMean = 0;
+        scoreStdev = 0;
+      }
+      bestMoves = new ArrayList<>();
+      currentTotalPlayouts = 0;
+      if (isPondering) ponder();
+      currentCmdNum = Math.max(cmdNumber - 2, currentCmdNum);
+      return true;
+    }
+  }
+
   public void komiNoMenu(double komi) {
     synchronized (this) {
       if (!sendStatefulOrdinaryCommand("komi " + (komi == 0.0 ? "0" : komi))) return;
@@ -4551,7 +4597,8 @@ public class Leelaz {
       boolean rejectForExclusiveWinner,
       ReaderStreamBinding readBoardGmaResponseBinding) {
     if (shouldDropStaleForegroundRestoreCommand()
-        || shouldSuppressNormalCommandForForegroundAnalysis()) {
+        || shouldSuppressNormalCommandForForegroundAnalysis()
+        || shouldDropCommandDuringInitialBoardSynchronization(command)) {
       return false;
     }
     if (Lizzie.config.isDoubleEngineMode()) {
@@ -5478,6 +5525,26 @@ public class Leelaz {
       foregroundRestoreSession.restoreInvalidated = true;
     }
     return suppress;
+  }
+
+  private boolean shouldDropCommandDuringInitialBoardSynchronization(String command) {
+    return initialBoardSynchronizationActive
+        && !isExactSnapshotRestoreAdmissionContextActive()
+        && isInitialBoardSynchronizationLiveUpdateCommand(command);
+  }
+
+  private static boolean isInitialBoardSynchronizationLiveUpdateCommand(String command) {
+    if (command == null) {
+      return false;
+    }
+    return command.startsWith("play ")
+        || command.startsWith("undo")
+        || command.startsWith("clear_board")
+        || command.startsWith("lz-analyze")
+        || command.startsWith("kata-analyze")
+        || command.startsWith("analyze ")
+        || command.startsWith("kata-raw")
+        || command.startsWith("heat");
   }
   private PendingResponseHandler buildPendingResponseHandler(
       String command, Runnable handler, QueuedCommand queuedCommand) {
@@ -11520,6 +11587,10 @@ public class Leelaz {
 
   public void ponder(boolean addPlayer, boolean blackToPlay) {
     if (noAnalyze) return;
+    if (initialBoardSynchronizationActive) {
+      YikeSyncDebugLog.log("Leelaz ponder deferred: initial board synchronization active");
+      return;
+    }
     YikeSyncDebugLog.log(
         "Leelaz ponder request addPlayer="
             + addPlayer
@@ -11948,6 +12019,25 @@ public class Leelaz {
     return isLoaded;
   }
 
+  /**
+   * Marks this engine as the target of the initial engine startup restore barrier. While active,
+   * ordinary live-board updates (play/undo/clear/analyze) are dropped instead of interleaving with
+   * the frozen startup restore route; the initial startup coordination performs catch-up restores
+   * until the captured board frame is stable, then ends this barrier.
+   */
+  public void beginInitialBoardSynchronization() {
+    initialBoardSynchronizationActive = true;
+  }
+
+  /** Ends the initial startup restore barrier (idempotent; safe to call repeatedly). */
+  public void endInitialBoardSynchronization() {
+    initialBoardSynchronizationActive = false;
+  }
+
+  public boolean isInitialBoardSynchronizationActive() {
+    return initialBoardSynchronizationActive;
+  }
+
   long engineStartupSynchronizationTimeoutMillis() {
     if (useRemoteCompute || useJavaSSH) {
       return 60000L;
@@ -12090,7 +12180,7 @@ public class Leelaz {
   }
 
   private void closeBundledStartupDialog() {
-    if (isLoaded && this == Lizzie.leelaz) {
+    if (isLoaded && this == Lizzie.leelaz && !initialBoardSynchronizationActive) {
       Lizzie.markEngineReady();
     }
   }
