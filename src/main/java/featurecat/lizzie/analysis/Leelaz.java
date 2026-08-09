@@ -2,9 +2,9 @@ package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.gtpconfig.GtpConfigurationProbe;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
-import featurecat.lizzie.analysis.gtpconfig.GtpConfigurationProbe;
 import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.gui.EngineFailedMessage;
 import featurecat.lizzie.gui.JFontCheckBox;
@@ -12,8 +12,8 @@ import featurecat.lizzie.gui.JFontLabel;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Message;
 import featurecat.lizzie.rules.Board;
-import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.BoardData;
+import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Movelist;
 import featurecat.lizzie.rules.Stone;
@@ -324,7 +324,7 @@ public class Leelaz {
   public volatile boolean started = false;
   public volatile boolean isDownWithError = false;
   public volatile boolean isLoaded = false;
-  private volatile boolean initialBoardSynchronizationActive = false;
+  private volatile int initialBoardSynchronizationDepth = 0;
   private volatile Object initialBoardSynchronizationLock = new Object();
   private volatile long bundledStartupToken = 0L;
   private volatile boolean openClFp32CompatibilityActive = false;
@@ -3495,17 +3495,16 @@ public class Leelaz {
   }
 
   /**
-   * Board-clear engine forwarding with a single lifecycle admission: holds the engine
-   * arbitration lock across the whole clear_board + komi pair, so a competing exclusive
-   * transition cannot interleave between them and leave a cleared engine with a stale komi.
-   * Rejected as a group when exclusive lifecycle work (e.g. the initial startup restore
-   * barrier) owns the engine. Preserves the original forwarding semantics per path: komi
-   * mirrors to the secondary engine when supplied (null komiCommand = clear-only, as in the
-   * SGF editor clear path), the regular clear path also applies the gameInfo komi and
-   * best-move invalidation side effects of {@link #komi(double)}, and a single re-ponder fires
-   * when already pondering (the legacy chain could analyze the intermediate cleared board twice
-   * before the komi landed; the final state is identical). The caller supplies the exact komi
-   * command serialization.
+   * Board-clear engine forwarding with a single lifecycle admission: holds the engine arbitration
+   * lock across the whole clear_board + komi pair, so a competing exclusive transition cannot
+   * interleave between them and leave a cleared engine with a stale komi. Rejected as a group when
+   * exclusive lifecycle work (e.g. the initial startup restore barrier) owns the engine. Preserves
+   * the original forwarding semantics per path: komi mirrors to the secondary engine when supplied
+   * (null komiCommand = clear-only, as in the SGF editor clear path), the regular clear path also
+   * applies the gameInfo komi and best-move invalidation side effects of {@link #komi(double)}, and
+   * a single re-ponder fires when already pondering (the legacy chain could analyze the
+   * intermediate cleared board twice before the komi landed; the final state is identical). The
+   * caller supplies the exact komi command serialization.
    */
   public boolean forwardBoardClearWithKomi(
       String komiCommand, double komi, boolean applyKomiSideEffects) {
@@ -5544,7 +5543,7 @@ public class Leelaz {
   }
 
   private boolean shouldDropCommandDuringInitialBoardSynchronization(String command) {
-    return initialBoardSynchronizationActive
+    return isInitialBoardSynchronizationActive()
         && !isExactSnapshotRestoreAdmissionContextActive()
         && isInitialBoardSynchronizationLiveUpdateCommand(command);
   }
@@ -11612,7 +11611,7 @@ public class Leelaz {
 
   public void ponder(boolean addPlayer, boolean blackToPlay) {
     if (noAnalyze) return;
-    if (initialBoardSynchronizationActive) {
+    if (isInitialBoardSynchronizationActive()) {
       YikeSyncDebugLog.log("Leelaz ponder deferred: initial board synchronization active");
       return;
     }
@@ -12045,26 +12044,27 @@ public class Leelaz {
   }
 
   /**
-   * Marks this engine as the target of the initial engine startup restore barrier. While active,
+   * Marks this engine as a target or captured mirror of a lifecycle board restore. While active,
    * ordinary live-board updates (play/undo/clear/analyze) are dropped instead of interleaving with
-   * the frozen startup restore route; the initial startup coordination performs catch-up restores
-   * until the captured board frame is stable, then ends this barrier.
+   * a frozen or catch-up restore route. The depth keeps overlapping owner-local barriers isolated.
    */
   public void beginInitialBoardSynchronization() {
     synchronized (initialBoardSynchronizationLock()) {
-      initialBoardSynchronizationActive = true;
+      initialBoardSynchronizationDepth++;
     }
   }
 
-  /** Ends the initial startup restore barrier (idempotent; safe to call repeatedly). */
+  /** Ends one lifecycle board synchronization barrier. */
   public void endInitialBoardSynchronization() {
     synchronized (initialBoardSynchronizationLock()) {
-      initialBoardSynchronizationActive = false;
+      if (initialBoardSynchronizationDepth > 0) {
+        initialBoardSynchronizationDepth--;
+      }
     }
   }
 
   public boolean isInitialBoardSynchronizationActive() {
-    return initialBoardSynchronizationActive;
+    return initialBoardSynchronizationDepth > 0;
   }
 
   long engineStartupSynchronizationTimeoutMillis() {
@@ -12209,7 +12209,7 @@ public class Leelaz {
   }
 
   private void closeBundledStartupDialog() {
-    if (isLoaded && this == Lizzie.leelaz && !initialBoardSynchronizationActive) {
+    if (isLoaded && this == Lizzie.leelaz && !isInitialBoardSynchronizationActive()) {
       Lizzie.markEngineReady();
     }
   }

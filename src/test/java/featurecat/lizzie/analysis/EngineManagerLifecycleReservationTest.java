@@ -1,16 +1,17 @@
 package featurecat.lizzie.analysis;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.Config;
+import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.BoardRenderer;
@@ -268,7 +269,8 @@ class EngineManagerLifecycleReservationTest {
       manager.synchronization.run();
       manager.afterSync.run();
       assertEquals(1, executedTarget.boardSynchronizationConfirmations);
-      assertTrue(executedTarget.hasExclusiveGtpWorkInProgress());
+      assertFalse(executedTarget.hasExclusiveGtpWorkInProgress(),
+          "the convergent route releases reservations before the stable frame/fence handoff");
       executedTarget.completeBoardSynchronization();
       assertFalse(executedTarget.hasExclusiveGtpWorkInProgress());
       assertEquals(
@@ -2294,6 +2296,15 @@ class EngineManagerLifecycleReservationTest {
       Runnable confirmation = secondary.confirmation;
       secondary.confirmation = null;
       confirmation.run();
+
+      assertNotNull(
+          primary.confirmation,
+          "secondary restart must also wait for the captured primary mirror fence");
+      assertEquals(0, secondary.secondaryTerminalCount);
+      assertTrue(secondary.hasExclusiveGtpWorkInProgress());
+      Runnable mirrorConfirmation = primary.confirmation;
+      primary.confirmation = null;
+      mirrorConfirmation.run();
 
       assertEquals(1, secondary.secondaryTerminalCount);
       assertTrue(secondary.secondaryTerminalWhileLifecycleHeld);
