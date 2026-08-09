@@ -21,12 +21,15 @@ import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.BoardHistoryNode;
+import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -307,6 +310,417 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertEquals(1, engine.ponderCount, "analysis starts once at the stable position");
       assertEngineMatchesBoard(engine, board, 19, 19);
       assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void foregroundActivationSnapshotNavigationConvergesWithRemovedStoneTailBranchAndJump()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.delayReadyAfterStart = true;
+      engine.snapshotBaseMove = 2;
+      BoardHistoryList history = loadRemovedStoneSnapshotFixture();
+      history.toStart();
+      Board board = boardWithHistory(history);
+      Lizzie.board = board;
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(engine)));
+      Lizzie.engineManager = manager;
+      env.expectedReadyEngineIndex = 0;
+
+      assertTrue(manager.switchEngineIfAvailable(0, true));
+      assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS), "engine startup must begin");
+
+      // 前进 through the mid-history SNAPSHOT and the real tail: root -> B dd -> W ee ->
+      // SNAPSHOT(AB fd / AW ff / AE dd / PL W) -> W hh -> B pass
+      for (int step = 1; step <= 5; step++) {
+        assertTrue(board.nextMove(false), "forward navigation must reach step " + step);
+      }
+      // 后退 back onto the tail MOVE
+      assertTrue(board.previousMove(false), "backward navigation must return to the tail MOVE");
+      // 分支: enter a variation child off the tail MOVE
+      BoardHistoryNode tailMoveNode = board.getHistory().getCurrentHistoryNode();
+      tailMoveNode.addOrGoto(
+          moveNode(tailMoveNode.getData(), 8, 8, Stone.WHITE, true, 4), true, false, false);
+      assertTrue(board.nextVariation(1), "navigation must enter the branch child");
+      // 跳转: jump back to the tail MOVE, then forward to the main-line tail PASS
+      assertTrue(board.goToMoveNumber(3), "jump must return to the tail MOVE");
+      assertTrue(board.goToMoveNumber(4), "jump must reach the main-line tail PASS");
+      engine.publishReady();
+
+      assertTrue(
+          engine.analysisStarted.await(2, TimeUnit.SECONDS),
+          "analysis must start after the production activation converges");
+      assertTrue(
+          manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS),
+          "production synchronization worker must complete before assertions");
+      assertTrue(
+          env.readyObservedCommittedOwner.get(),
+          "READY observers must see the committed foreground owner");
+
+      assertEquals(4, board.getHistory().getMoveNumber(), "history cursor at the tail PASS");
+      assertSame(history.getEnd(), board.getHistory().getCurrentHistoryNode());
+      assertRemovedStoneSnapshotShape(history);
+      assertEquals(
+          Stone.EMPTY,
+          board.getHistory().getData().stones[Board.getIndex(3, 3)],
+          "the AE-removed stone must stay removed on the board");
+      assertEquals(1, engine.loadSgfCount.get(), "only the exact catch-up route uses loadsgf");
+      assertEquals(1, engine.clearBoardCount.get(), "the frozen route is a root replay");
+      assertEquals(4, engine.enginePosition.get(), "engine position");
+      assertEquals(4, engine.analyzePosition(), "analysis position");
+      assertEquals(1, engine.ponderCount, "analysis starts once at the stable position");
+      assertEquals(
+          List.of("play W " + Board.convertCoordinatesToName(7, 7), "play B pass"),
+          engine.playsAfterLastLoadSgf(),
+          "the final catch-up route must replay only the real SNAPSHOT tail");
+      assertFalse(
+          engine.containsCommand("play B " + Board.convertCoordinatesToName(3, 3)),
+          "the AE-removed stone must not be faked as a MOVE command");
+      assertFalse(
+          engine.containsCommand("play B " + Board.convertCoordinatesToName(5, 3)),
+          "snapshot static stones must not be faked as MOVE commands");
+      assertFalse(
+          engine.containsCommand("play W " + Board.convertCoordinatesToName(5, 5)),
+          "snapshot AW static stones must not be faked as MOVE commands");
+      assertFalse(
+          engine.containsCommand("play W " + Board.convertCoordinatesToName(4, 4)),
+          "snapshot static stones must not be faked as MOVE commands");
+      assertEngineMatchesBoard(engine, board, 19, 19);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void foregroundActivationSnapshotExactRestoreKeepsLoadsgfTailThenFenceOrder() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.delayReadyAfterStart = true;
+      engine.snapshotBaseMove = 2;
+      // Capture at the tail PASS so the frozen route itself carries the full real tail.
+      BoardHistoryList history = loadRemovedStoneSnapshotFixture();
+      history.setHead(history.getEnd());
+      Board board = boardWithHistory(history);
+      Lizzie.board = board;
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(engine)));
+      Lizzie.engineManager = manager;
+      env.expectedReadyEngineIndex = 0;
+
+      assertTrue(manager.switchEngineIfAvailable(0, true));
+      assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS), "engine startup must begin");
+      engine.publishReady();
+
+      assertTrue(
+          engine.analysisStarted.await(2, TimeUnit.SECONDS),
+          "analysis must start after the production activation converges");
+      assertTrue(
+          manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS),
+          "production synchronization worker must complete before assertions");
+
+      assertEquals(
+          1, engine.loadSgfCount.get(), "no navigation must execute only the frozen route");
+      assertEquals(
+          List.of("play W " + Board.convertCoordinatesToName(7, 7), "play B pass"),
+          engine.playsAfterLastLoadSgf(),
+          "the frozen route must send loadsgf first, then the real tail");
+      assertEquals(
+          List.of("play W " + Board.convertCoordinatesToName(7, 7), "play B pass"),
+          engine.tailPlays(),
+          "the tail must contain only the real MOVE/PASS after the snapshot");
+      String sgf = engine.loadedSgfContent(0);
+      assertTrue(sgf.contains("PL[W]"), "materialized snapshot SGF must carry the explicit PL");
+      assertTrue(sgf.contains("KM[6.5]"), "materialized snapshot SGF must carry the game komi");
+      assertTrue(sgf.contains("SZ[19]"), "materialized snapshot SGF must carry the board size");
+      assertTrue(
+          sgf.contains("AB[" + sgfCoord(5, 3) + "]"),
+          "materialized snapshot SGF must carry the static black stones");
+      assertTrue(
+          sgf.contains("AW[" + sgfCoord(4, 4) + "]"),
+          "materialized snapshot SGF must carry the inherited white stone");
+      assertTrue(
+          sgf.contains("AW[" + sgfCoord(5, 5) + "]"),
+          "materialized snapshot SGF must carry the AW setup white stone");
+      assertFalse(
+          sgf.contains("AB[" + sgfCoord(3, 3) + "]"),
+          "the AE-removed stone must not be re-materialized");
+      assertFalse(
+          engine.containsCommand("play B " + Board.convertCoordinatesToName(3, 3)),
+          "the snapshot anchor must not be replayed as a MOVE");
+      assertFalse(
+          engine.containsCommand("play W " + Board.convertCoordinatesToName(4, 4)),
+          "the inherited white stone must not be replayed as a MOVE");
+      assertFalse(
+          engine.containsCommand("play W " + Board.convertCoordinatesToName(5, 5)),
+          "the AW setup stone must not be replayed as a MOVE");
+      assertEquals(4, engine.enginePosition.get(), "engine position after the tail");
+      assertEquals(4, engine.analyzePosition(), "analysis position");
+      assertEquals(1, engine.ponderCount, "analysis starts once after the stable restore point");
+      assertEquals(Stone.EMPTY, engine.stoneAt(3, 3), "removed stone stays removed on the engine");
+      assertEngineMatchesBoard(engine, board, 19, 19);
+      assertFalse(
+          engine.isInitialBoardSynchronizationActive(),
+          "the Board fence must end the barrier at the stable restore point");
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void snapshotExactRouteKeepsTailBeforeFenceThenAnalyze() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.snapshotBaseMove = 2;
+      BoardHistoryList history = loadRemovedStoneSnapshotFixture();
+      history.setHead(history.getEnd());
+      Board board = boardWithHistory(history);
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      AtomicBoolean fenceActiveWhenTailCommitted = new AtomicBoolean();
+      AtomicReference<String> lastCommandBeforeFence = new AtomicReference<>();
+      startup.beforeReservationRelease =
+          () -> {
+            // The exact route (loadsgf + real tail) has just been committed; the Board fence must
+            // still be active and the last committed command must be the final tail action.
+            fenceActiveWhenTailCommitted.set(engine.isInitialBoardSynchronizationActive());
+            List<String> commands = engine.commands;
+            if (!commands.isEmpty()) {
+              lastCommandBeforeFence.set(commands.get(commands.size() - 1));
+            }
+          };
+
+      runStartupInThread(startup, engine);
+
+      assertTrue(
+          fenceActiveWhenTailCommitted.get(),
+          "the tail must be committed before the Board fence ends the barrier");
+      assertEquals(
+          "play B pass",
+          lastCommandBeforeFence.get(),
+          "the final tail action must be the last command before the fence");
+      assertEquals(4, engine.analyzePosition(), "analyze must start after the fence");
+      assertEquals(1, engine.ponderCount, "ponder must run exactly once after the fence");
+      assertFalse(
+          engine.isInitialBoardSynchronizationActive(),
+          "the fence must end the barrier only after the tail");
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void snapshotNavigationAndOrdinarySyncDuringBarrierNeverThrowAdmissionException()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.snapshotBaseMove = 2;
+      BoardHistoryList admissionHistory = loadRemovedStoneSnapshotFixture();
+      admissionHistory.toStart();
+      Board board = boardWithHistory(admissionHistory);
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      AtomicInteger rounds = new AtomicInteger();
+      AtomicReference<Throwable> navigationFailure = new AtomicReference<>();
+      startup.beforeRestore =
+          () -> {
+            if (rounds.getAndIncrement() == 0) {
+              try {
+                int commandsBefore = engine.commands.size();
+                // H3 stepIn admission path on the removed-stone snapshot anchor itself.
+                BoardHistoryNode snapshotNode =
+                    board.getHistory().getStart().next().orElseThrow().next().orElseThrow()
+                        .next().orElseThrow();
+                snapshotNode.clearAndSyncBoard(true);
+                // Forward over the SNAPSHOT and the real tail with refresh.
+                for (int step = 1; step <= 5; step++) {
+                  assertTrue(board.nextMove(true), "forward navigation must reach step " + step);
+                }
+                // Backward onto the tail MOVE, then variation navigation.
+                assertTrue(board.previousMove(true));
+                BoardHistoryNode tailMove = board.getHistory().getCurrentHistoryNode();
+                tailMove.addOrGoto(
+                    moveNode(tailMove.getData(), 8, 8, Stone.WHITE, true, 4), true, false, false);
+                assertTrue(board.nextVariation(1));
+                // Ordinary live-board sync must be refused by the barrier, not admitted.
+                assertFalse(board.resendCurrentPositionToPrimaryEngine());
+                assertFalse(
+                    board.trySyncCurrentPositionToPrimaryEngineIncrementally(
+                        board.getHistory().getData(), 19, 19));
+                board.resendMoveToEngine(engine, false);
+                assertEquals(
+                    commandsBefore,
+                    engine.commands.size(),
+                    "ordinary live-board sync must not reach the engine while the barrier is active");
+              } catch (Throwable failure) {
+                navigationFailure.set(failure);
+              }
+            }
+          };
+
+      runStartupInThread(startup, engine);
+
+      assertNull(
+          navigationFailure.get(),
+          "snapshot navigation and ordinary sync during the barrier must never throw");
+      assertEquals(4, engine.analyzePosition(), "engine must converge on the branch child");
+      assertEquals(1, engine.ponderCount, "analysis waits for the stable restore point");
+      assertEngineMatchesBoard(engine, board, 19, 19);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void foregroundActivationSnapshotRestoreFailureFailsClosedAndRetryRecovers() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz failingEngine = new StartupSyncLeelaz();
+      failingEngine.delayReadyAfterStart = true;
+      failingEngine.snapshotBaseMove = 2;
+      failingEngine.failLoadSgfAt = 1;
+      StartupSyncLeelaz recoveryEngine = new StartupSyncLeelaz();
+      // Capture at the tail PASS so the frozen route itself is an exact snapshot restore.
+      BoardHistoryList history = loadRemovedStoneSnapshotFixture();
+      history.setHead(history.getEnd());
+      Lizzie.board = boardWithHistory(history);
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(failingEngine, recoveryEngine)));
+      Lizzie.engineManager = manager;
+      int readyBaseline = env.readyTransitions.get();
+
+      assertTrue(manager.switchEngineIfAvailable(0, true));
+      assertTrue(failingEngine.startCompleted.await(2, TimeUnit.SECONDS));
+      failingEngine.publishReady();
+      assertTrue(manager.synchronizationFailed.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+
+      assertTrue(EngineManager.isEmpty, "failed snapshot restore must remain an empty owner");
+      assertEquals(-1, EngineManager.currentEngineNo);
+      assertFalse(failingEngine.isLoaded);
+      assertFalse(failingEngine.isInitialBoardSynchronizationActive());
+      assertEquals(1, failingEngine.loadSgfCount.get(), "only the failed loadsgf attempt");
+      assertEquals(0, failingEngine.ponderCount, "no analysis after a failed snapshot restore");
+      assertEquals(0, failingEngine.analyzeCount(), "no analyze command after a failed restore");
+      assertEquals(
+          0,
+          env.readyTransitions.get() - readyBaseline,
+          "never marked ready on restore failure");
+      assertLifecycleReservationReleased(failingEngine);
+
+      assertTrue(manager.switchEngineIfAvailable(1, true), "a later activation must retry startup");
+      assertTrue(recoveryEngine.startCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(recoveryEngine.analysisStarted.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.secondSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+
+      assertFalse(EngineManager.isEmpty);
+      assertEquals(1, EngineManager.currentEngineNo);
+      assertFalse(recoveryEngine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(recoveryEngine);
+    }
+  }
+
+  @Test
+  void foregroundActivationSnapshotCatchUpRestoreFailureFailsClosed() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.delayReadyAfterStart = true;
+      engine.snapshotBaseMove = 2;
+      engine.failLoadSgfAt = 2;
+      // Capture at the tail PASS (frozen exact route, loadsgf #1), then navigate back onto the
+      // removed-stone SNAPSHOT anchor (catch-up exact route, loadsgf #2 which fails).
+      BoardHistoryList history = loadRemovedStoneSnapshotFixture();
+      history.setHead(history.getEnd());
+      Board board = boardWithHistory(history);
+      Lizzie.board = board;
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(engine)));
+      Lizzie.engineManager = manager;
+      int readyBaseline = env.readyTransitions.get();
+
+      assertTrue(manager.switchEngineIfAvailable(0, true));
+      assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS));
+      // 后退 onto the mid-history SNAPSHOT while the engine is not ready.
+      assertTrue(board.previousMove(false));
+      assertTrue(board.previousMove(false));
+      engine.publishReady();
+
+      assertTrue(manager.synchronizationFailed.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+
+      assertEquals(2, engine.loadSgfCount.get(), "frozen route then failed catch-up route");
+      assertTrue(EngineManager.isEmpty, "failed snapshot catch-up must remain an empty owner");
+      assertEquals(-1, EngineManager.currentEngineNo);
+      assertFalse(engine.isLoaded);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertEquals(0, engine.ponderCount, "no analysis after a failed catch-up restore");
+      assertEquals(0, engine.analyzeCount(), "no analyze command after a failed catch-up");
+      assertEquals(
+          0,
+          env.readyTransitions.get() - readyBaseline,
+          "never marked ready on catch-up failure");
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void snapshotCatchUpReservationReacquisitionFailureFailsClosed() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.snapshotBaseMove = 2;
+      BoardHistoryList history = loadRemovedStoneSnapshotFixture();
+      history.setHead(history.getEnd());
+      Board board = boardWithHistory(history);
+      env.publish(engine, board);
+      engine.startEngine(0);
+
+      EngineManager.InitialEngineStartupSynchronization startup = captureStartup(engine, board);
+      AtomicReference<Leelaz.ExclusiveGtpLifecycleReservation> conflictingReservation =
+          new AtomicReference<>();
+      AtomicInteger releases = new AtomicInteger();
+      startup.afterReservationRelease =
+          () -> {
+            if (releases.getAndIncrement() == 0) {
+              // Navigate back onto the removed-stone SNAPSHOT anchor so a catch-up would be
+              // needed, then occupy the lifecycle reservation.
+              assertTrue(board.previousMove(false));
+              assertTrue(board.previousMove(false));
+              conflictingReservation.set(
+                  engine.beginExclusiveGtpLifecycleReservation(new Object()));
+              assertNotNull(
+                  conflictingReservation.get(),
+                  "fixture must occupy the lifecycle before catch-up reacquisition");
+            }
+          };
+      int readyBaseline = env.readyTransitions.get();
+
+      RuntimeException failure = runStartupExpectingFailure(startup, engine);
+      Leelaz.ExclusiveGtpLifecycleReservation blocker = conflictingReservation.getAndSet(null);
+      if (blocker != null) {
+        blocker.close();
+      }
+
+      assertNotNull(failure, "rejected snapshot catch-up reservation must fail closed");
+      assertFalse(engine.isLoaded);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertEquals(0, engine.ponderCount);
+      assertEquals(0, engine.analyzeCount());
+      assertEquals(0, env.readyTransitions.get() - readyBaseline);
       assertLifecycleReservationReleased(engine);
     }
   }
@@ -1090,6 +1504,65 @@ class EngineManagerInitialStartupSynchronizationTest {
     return history;
   }
 
+  /**
+   * Loads the Issue #223 removed-stone SNAPSHOT fixture through the real SGF parser, matching the
+   * spec's {@code exact-snapshot-manual-test.sgf} shape: two real moves, then a mid-history
+   * {@code SNAPSHOT} node carrying {@code AB/AE/PL} (the {@code AE} removes a stone that was
+   * really played earlier), followed by a real MOVE and PASS tail.
+   *
+   * <p>Parsed history: root SNAPSHOT -> MOVE B(3,3) -> MOVE W(4,4) -> SNAPSHOT (AB B(5,3), AW
+   * W(5,5), removed (3,3), PL[W]) -> MOVE W(7,7) -> PASS B.
+   */
+  private static BoardHistoryList loadRemovedStoneSnapshotFixture() throws Exception {
+    java.net.URL fixtureResource =
+        EngineManagerInitialStartupSynchronizationTest.class.getResource(
+            "/featurecat/lizzie/rules/issue223-snapshot-removed-stone.sgf");
+    if (fixtureResource == null) {
+      throw new IllegalStateException(
+          "Issue #223 removed-stone snapshot fixture must be available.");
+    }
+    String sgf = Files.readString(Path.of(fixtureResource.toURI()));
+    // SGFParser requires a live board and engine context for its parse-side effects, and the KM
+    // tag only reaches game info when readKomi is enabled (the production default).
+    Lizzie.leelaz = new Leelaz("");
+    Lizzie.board = boardWithHistory(emptyRootHistory(0));
+    Lizzie.config.readKomi = true;
+    Board.boardWidth = 19;
+    Board.boardHeight = 19;
+    Zobrist.init();
+    // first=true mirrors the production load path, which is the only path that propagates the KM
+    // tag into game info (parseValue gates KM handling on firstTime).
+    return SGFParser.parseSgf(sgf, true);
+  }
+
+  /** Asserts the parsed fixture's mid-history removed-stone SNAPSHOT keeps its AE/PL shape. */
+  private static void assertRemovedStoneSnapshotShape(BoardHistoryList history) {
+    BoardHistoryNode snapshotNode =
+        history.getStart().next().orElseThrow().next().orElseThrow().next().orElseThrow();
+    BoardData data = snapshotNode.getData();
+    assertTrue(data.isSnapshotNode(), "fixture node 3 must be a SNAPSHOT");
+    assertTrue(
+        snapshotNode.hasRemovedStone(),
+        "fixture SNAPSHOT must carry the AE removed-stone marker");
+    assertFalse(data.blackToPlay, "fixture SNAPSHOT must carry PL[W]");
+    assertEquals(
+        Stone.EMPTY,
+        data.stones[Board.getIndex(3, 3)],
+        "the AE-removed stone must be gone from the SNAPSHOT position");
+    assertEquals(
+        Stone.BLACK,
+        data.stones[Board.getIndex(5, 3)],
+        "AB[fd] must place the black stone in the SNAPSHOT position");
+    assertEquals(
+        Stone.WHITE,
+        data.stones[Board.getIndex(5, 5)],
+        "AW[ff] must place the white stone in the SNAPSHOT position");
+    assertEquals(
+        Stone.WHITE,
+        data.stones[Board.getIndex(4, 4)],
+        "the earlier white stone must remain in the SNAPSHOT position");
+  }
+
   private static BoardHistoryList snapshotHistoryWithTail(boolean withPass) {
     BoardData root = snapshotRoot();
     BoardHistoryList history = new BoardHistoryList(root);
@@ -1184,6 +1657,10 @@ class EngineManagerInitialStartupSynchronizationTest {
     return "play " + color + " " + Board.convertCoordinatesToName(x, y);
   }
 
+  private static String sgfCoord(int x, int y) {
+    return "" + (char) ('a' + x) + (char) ('a' + y);
+  }
+
   @FunctionalInterface
   private interface CommandDelay {
     void beforeCommand(String command) throws Exception;
@@ -1191,6 +1668,7 @@ class EngineManagerInitialStartupSynchronizationTest {
 
   private static final class StartupSyncLeelaz extends Leelaz {
     private final List<String> commands = new ArrayList<>();
+    private final List<String> loadedSgfContents = new ArrayList<>();
     private final AtomicInteger enginePosition = new AtomicInteger();
     private final AtomicInteger analyzePosition = new AtomicInteger(-1);
     private final AtomicInteger analyzeCount = new AtomicInteger();
@@ -1254,6 +1732,15 @@ class EngineManagerInitialStartupSynchronizationTest {
               if (count >= failLoadSgfAt) {
                 return ExactSnapshotRestoreProtocolFixture.Response.error(
                     "controlled startup restore failure");
+              }
+              String sgfPath = command.substring("loadsgf ".length()).trim();
+              try {
+                String sgf = Files.readString(Path.of(sgfPath));
+                loadedSgfContents.add(sgf);
+                applySnapshotSgf(sgf);
+              } catch (IOException ioFailure) {
+                return ExactSnapshotRestoreProtocolFixture.Response.error(
+                    "snapshot sgf unreadable: " + sgfPath);
               }
             } else if (command.startsWith("lz-analyze") || command.startsWith("kata-analyze")) {
               analyzeCount.incrementAndGet();
@@ -1360,6 +1847,71 @@ class EngineManagerInitialStartupSynchronizationTest {
         }
       }
       return plays;
+    }
+
+    private String loadedSgfContent(int index) {
+      return loadedSgfContents.get(index);
+    }
+
+    private boolean containsCommand(String command) {
+      return commands.contains(command);
+    }
+
+    private void applySnapshotSgf(String sgf) {
+      engineStones.clear();
+      engineBlackToPlay = true;
+      String sizeValue = firstSgfValue(sgf, "SZ");
+      if (sizeValue != null && !sizeValue.isEmpty()) {
+        String[] parts = sizeValue.split(":");
+        engineBoardWidth = Integer.parseInt(parts[0]);
+        engineBoardHeight = parts.length > 1 ? Integer.parseInt(parts[1]) : engineBoardWidth;
+      }
+      String pl = firstSgfValue(sgf, "PL");
+      if ("W".equalsIgnoreCase(pl)) {
+        engineBlackToPlay = false;
+      }
+      String km = firstSgfValue(sgf, "KM");
+      if (km != null && !km.isEmpty()) {
+        engineKomi = Double.parseDouble(km);
+      }
+      applySgfStones(sgf, "AB", Stone.BLACK);
+      applySgfStones(sgf, "AW", Stone.WHITE);
+    }
+
+    private void applySgfStones(String sgf, String property, Stone color) {
+      for (String coord : sgfPropertyValues(sgf, property)) {
+        if (coord == null || coord.length() < 2) {
+          continue;
+        }
+        int x = coord.charAt(0) - 'a';
+        int y = coord.charAt(1) - 'a';
+        if (x >= 0 && x < 52 && y >= 0 && y < 52) {
+          engineStones.put(Board.convertCoordinatesToName(x, y).toUpperCase(Locale.ROOT), color);
+        }
+      }
+    }
+
+    private static String firstSgfValue(String sgf, String property) {
+      List<String> values = sgfPropertyValues(sgf, property);
+      return values.isEmpty() ? null : values.get(0);
+    }
+
+    private static List<String> sgfPropertyValues(String sgf, String property) {
+      // The materialized snapshot SGF appends one property token per stone, so the same property
+      // may repeat adjacently (e.g. AW[ee]AW[ff]); the group repeats the full token, not just the
+      // bracket values.
+      java.util.regex.Matcher propertyMatcher =
+          java.util.regex.Pattern.compile("(" + property + "\\[[^\\]]*\\])+").matcher(sgf);
+      if (!propertyMatcher.find()) {
+        return List.of();
+      }
+      java.util.regex.Matcher valueMatcher =
+          java.util.regex.Pattern.compile("\\[([^\\]]*)\\]").matcher(propertyMatcher.group());
+      List<String> values = new ArrayList<>();
+      while (valueMatcher.find()) {
+        values.add(valueMatcher.group(1));
+      }
+      return values;
     }
   }
 
