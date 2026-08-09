@@ -11,7 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.gui.BoardRenderer;
 import featurecat.lizzie.gui.BottomToolbar;
+import featurecat.lizzie.gui.JFontMenu;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
 import featurecat.lizzie.gui.WinrateGraph;
@@ -255,6 +257,158 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertEquals(5, engine.analyzePosition(), "analyzeAtMove");
       assertEquals(2, engine.clearBoardCount.get(), "frozen route plus one catch-up route");
       assertEngineMatchesBoard(engine, board, 19, 19);
+    }
+  }
+
+  @Test
+  void foregroundActivationConvergesAfterDelayedReadyAndOrdinaryMoveNavigation() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.delayReadyAfterStart = true;
+      BoardHistoryList history = emptyRootHistory(9);
+      history.toStart();
+      Board board = boardWithHistory(history);
+      Lizzie.board = board;
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(engine)));
+      Lizzie.engineManager = manager;
+      env.expectedReadyEngineIndex = 0;
+
+      assertTrue(manager.switchEngineIfAvailable(0, true));
+      assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS), "engine startup must begin");
+
+      for (int move = 1; move <= 8; move++) {
+        assertTrue(board.nextMove(false), "navigation must reach move " + move);
+      }
+      assertTrue(board.nextMove(false), "navigation must reach move 9");
+      assertTrue(board.previousMove(false), "navigation must return to move 8");
+      engine.publishReady();
+
+      assertTrue(
+          engine.analysisStarted.await(2, TimeUnit.SECONDS),
+          "analysis must start after the production activation converges");
+      assertTrue(
+          manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS),
+          "production synchronization worker must complete before assertions");
+      assertTrue(
+          env.readyObservedCommittedOwner.get(),
+          "READY observers must see the committed foreground owner");
+      assertEquals(8, board.getHistory().getMoveNumber(), "history cursor");
+      for (int move = 1; move <= 8; move++) {
+        assertFalse(
+            board.getHistory().getData().stones[Board.getIndex(3 + move, 3)] == Stone.EMPTY,
+            "ordinary move prefix stone " + move + " must remain present");
+      }
+      assertEquals(8, engine.enginePosition.get(), "engine position");
+      assertEquals(8, engine.analyzePosition(), "analysis position");
+      assertEquals(1, engine.ponderCount, "analysis starts once at the stable position");
+      assertEngineMatchesBoard(engine, board, 19, 19);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void foregroundActivationCaptureFailureIsNotReportedAsLeaseConflict() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.reservationFailure = new IllegalStateException("controlled capture failure");
+      BoardHistoryList history = emptyRootHistory(1);
+      history.toStart();
+      Lizzie.board = boardWithHistory(history);
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(engine)));
+      Lizzie.engineManager = manager;
+
+      assertFalse(manager.switchEngineIfAvailable(0, true));
+
+      assertEquals(1, manager.synchronizationFailureCount);
+      assertEquals(0, manager.leaseConflictCount);
+      assertFalse(engine.isLoaded);
+      assertTrue(EngineManager.isEmpty);
+      assertEquals(-1, EngineManager.currentEngineNo);
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
+    }
+  }
+
+  @Test
+  void foregroundActivationReadyTimeoutPreservesEmptyStateAndCanRetry() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz timedOutEngine = new StartupSyncLeelaz();
+      timedOutEngine.delayReadyAfterStart = true;
+      StartupSyncLeelaz recoveryEngine = new StartupSyncLeelaz();
+      BoardHistoryList history = emptyRootHistory(3);
+      history.toStart();
+      Lizzie.board = boardWithHistory(history);
+      Lizzie.leelaz = null;
+      Lizzie.config.fastChange = true;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(
+              new ArrayList<>(List.of(timedOutEngine, recoveryEngine)));
+      manager.timeoutMillis = 25L;
+      Lizzie.engineManager = manager;
+
+      assertTrue(manager.switchEngineIfAvailable(0, true));
+      assertTrue(timedOutEngine.startCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.synchronizationFailed.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+
+      assertTrue(EngineManager.isEmpty, "failed first activation must remain an empty owner");
+      assertEquals(-1, EngineManager.currentEngineNo);
+      assertFalse(timedOutEngine.isLoaded);
+      assertFalse(timedOutEngine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(timedOutEngine);
+
+      assertTrue(manager.switchEngineIfAvailable(1, true), "a later activation must retry startup");
+      assertTrue(recoveryEngine.startCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(recoveryEngine.analysisStarted.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.secondSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+
+      assertFalse(EngineManager.isEmpty);
+      assertEquals(1, EngineManager.currentEngineNo);
+      assertEquals(0, recoveryEngine.enginePosition.get());
+      assertFalse(recoveryEngine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(recoveryEngine);
+    }
+  }
+
+  @Test
+  void foregroundActivationInitializationFailureRollsBackCommittedOwner() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.ponderFailure = new IllegalStateException("controlled initialization failure");
+      BoardHistoryList history = emptyRootHistory(2);
+      history.toStart();
+      Lizzie.board = boardWithHistory(history);
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      EngineManager.currentEngineNo = -1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(engine)));
+      Lizzie.engineManager = manager;
+
+      assertTrue(manager.switchEngineIfAvailable(0, true));
+      assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.synchronizationFailed.await(2, TimeUnit.SECONDS));
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+
+      assertEquals(1, manager.synchronizationFailureCount);
+      assertTrue(EngineManager.isEmpty);
+      assertEquals(-1, EngineManager.currentEngineNo);
+      assertFalse(engine.isLoaded);
+      assertEquals(1, engine.ponderCount);
+      assertEquals(0, engine.analyzeCount());
+      assertFalse(engine.isInitialBoardSynchronizationActive());
+      assertLifecycleReservationReleased(engine);
     }
   }
 
@@ -1043,6 +1197,8 @@ class EngineManagerInitialStartupSynchronizationTest {
     private final AtomicInteger loadSgfCount = new AtomicInteger();
     private final AtomicInteger clearBoardCount = new AtomicInteger();
     private final Map<String, Stone> engineStones = new HashMap<>();
+    private final CountDownLatch startCompleted = new CountDownLatch(1);
+    private final CountDownLatch analysisStarted = new CountDownLatch(1);
     private CommandDelay beforeCommand;
     private int snapshotBaseMove;
     private int failLoadSgfAt = Integer.MAX_VALUE;
@@ -1052,6 +1208,9 @@ class EngineManagerInitialStartupSynchronizationTest {
     private int engineBoardHeight = 19;
     private double engineKomi = Double.NaN;
     private boolean engineBlackToPlay = true;
+    private boolean delayReadyAfterStart;
+    private RuntimeException reservationFailure;
+    private RuntimeException ponderFailure;
 
     private StartupSyncLeelaz() throws Exception {
       super("");
@@ -1099,14 +1258,29 @@ class EngineManagerInitialStartupSynchronizationTest {
             } else if (command.startsWith("lz-analyze") || command.startsWith("kata-analyze")) {
               analyzeCount.incrementAndGet();
               analyzePosition.set(enginePosition.get());
+              analysisStarted.countDown();
             }
             return ExactSnapshotRestoreProtocolFixture.Response.success();
           });
     }
 
     @Override
+    ExclusiveGtpLifecycleReservation beginExclusiveGtpLifecycleReservation(Object owner) {
+      if (reservationFailure != null) {
+        throw reservationFailure;
+      }
+      return super.beginExclusiveGtpLifecycleReservation(owner);
+    }
+
+    @Override
     public void startEngine(int index) {
       started = true;
+      isLoaded = !delayReadyAfterStart;
+      isCheckingName = delayReadyAfterStart;
+      startCompleted.countDown();
+    }
+
+    private void publishReady() {
       isLoaded = true;
       isCheckingName = false;
     }
@@ -1114,6 +1288,9 @@ class EngineManagerInitialStartupSynchronizationTest {
     @Override
     public void ponder(boolean addPlayer, boolean blackToPlay) {
       ponderCount++;
+      if (ponderFailure != null) {
+        throw ponderFailure;
+      }
       if (noAnalyze) {
         return;
       }
@@ -1234,6 +1411,57 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
   }
 
+  private static final class ProductionEntryEngineManager extends EngineManager {
+    private final AtomicInteger synchronizationCompletionCount = new AtomicInteger();
+    private final CountDownLatch firstSynchronizationCompleted = new CountDownLatch(1);
+    private final CountDownLatch secondSynchronizationCompleted = new CountDownLatch(1);
+    private final CountDownLatch synchronizationFailed = new CountDownLatch(1);
+    private int synchronizationFailureCount;
+    private int leaseConflictCount;
+    private long timeoutMillis = TimeUnit.SECONDS.toMillis(5);
+
+    private ProductionEntryEngineManager(List<Leelaz> engines) {
+      super(engines);
+    }
+
+    @Override
+    protected void synchronizeEngineWhenReady(
+        Leelaz engine, Runnable synchronization, Runnable afterSync) {
+      super.synchronizeEngineWhenReady(
+          engine,
+          synchronization,
+          () -> {
+            try {
+              if (afterSync != null) {
+                afterSync.run();
+              }
+            } finally {
+              if (synchronizationCompletionCount.incrementAndGet() == 1) {
+                firstSynchronizationCompleted.countDown();
+              } else {
+                secondSynchronizationCompleted.countDown();
+              }
+            }
+          });
+    }
+
+    @Override
+    protected long engineSynchronizationTimeoutMillis(Leelaz engine) {
+      return timeoutMillis;
+    }
+
+    @Override
+    protected void showEngineSynchronizationFailure(Leelaz engine) {
+      synchronizationFailureCount++;
+      synchronizationFailed.countDown();
+    }
+
+    @Override
+    protected void showForegroundEngineLeaseInUse() {
+      leaseConflictCount++;
+    }
+  }
+
   private static final class StartupTestEnvironment implements AutoCloseable {
     private final Leelaz previousPrimary = Lizzie.leelaz;
     private final Leelaz previousSecondary = Lizzie.leelaz2;
@@ -1241,6 +1469,9 @@ class EngineManagerInitialStartupSynchronizationTest {
     private final LizzieFrame previousFrame = Lizzie.frame;
     private final BottomToolbar previousToolbar = LizzieFrame.toolbar;
     private final Menu previousMenu = LizzieFrame.menu;
+    private final EngineManager previousEngineManager = Lizzie.engineManager;
+    private final JFontMenu previousEngineMenu = Menu.engineMenu;
+    private final BoardRenderer previousBoardRenderer = LizzieFrame.boardRenderer;
     private final Config previousConfig = Lizzie.config;
     private final boolean previousEmpty = EngineManager.isEmpty;
     private final boolean previousEngineGame = EngineManager.isEngineGame;
@@ -1252,12 +1483,16 @@ class EngineManagerInitialStartupSynchronizationTest {
     private final WinrateGraph previousWinrateGraph = LizzieFrame.winrateGraph;
     private final AtomicInteger readyTransitions = new AtomicInteger();
     private final java.util.function.Consumer<EngineStartupStatus.Snapshot> readyListener;
+    private final AtomicBoolean readyObservedCommittedOwner = new AtomicBoolean();
+    private volatile Integer expectedReadyEngineIndex;
 
     private StartupTestEnvironment() throws Exception {
       Lizzie.config = allocate(Config.class);
       Lizzie.frame = allocate(SilentStartupFrame.class);
       LizzieFrame.toolbar = allocate(SilentStartupToolbar.class);
       LizzieFrame.menu = allocate(SilentStartupMenu.class);
+      Menu.engineMenu = allocate(SilentStartupEngineMenu.class);
+      LizzieFrame.boardRenderer = new BoardRenderer(false);
       LizzieFrame.winrateGraph = allocate(WinrateGraph.class);
       Lizzie.leelaz2 = null;
       EngineManager.isEmpty = false;
@@ -1272,6 +1507,11 @@ class EngineManagerInitialStartupSynchronizationTest {
           snapshot -> {
             if (snapshot.state == EngineStartupStatus.State.READY) {
               readyTransitions.incrementAndGet();
+              Integer expectedEngineIndex = expectedReadyEngineIndex;
+              if (expectedEngineIndex != null) {
+                readyObservedCommittedOwner.set(
+                    !EngineManager.isEmpty && EngineManager.currentEngineNo == expectedEngineIndex);
+              }
             }
           };
       Lizzie.engineStartupStatus.addListener(readyListener);
@@ -1304,6 +1544,9 @@ class EngineManagerInitialStartupSynchronizationTest {
       Lizzie.frame = previousFrame;
       LizzieFrame.toolbar = previousToolbar;
       LizzieFrame.menu = previousMenu;
+      Lizzie.engineManager = previousEngineManager;
+      Menu.engineMenu = previousEngineMenu;
+      LizzieFrame.boardRenderer = previousBoardRenderer;
       Lizzie.config = previousConfig;
       EngineManager.isEmpty = previousEmpty;
       EngineManager.isEngineGame = previousEngineGame;
@@ -1356,6 +1599,11 @@ class EngineManagerInitialStartupSynchronizationTest {
 
     @Override
     public void changeEngineIcon(int index, int mode) {}
+  }
+
+  private static final class SilentStartupEngineMenu extends JFontMenu {
+    @Override
+    public void setText(String text) {}
   }
 
   @SuppressWarnings("unchecked")

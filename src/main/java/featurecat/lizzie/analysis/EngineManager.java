@@ -2639,13 +2639,33 @@ public class EngineManager {
         showForegroundEngineLeaseInUse();
       }
       return false;
+    } catch (InitialStartupReservationException conflict) {
+      if (showConflict) {
+        showForegroundEngineLeaseInUse();
+      }
+      return false;
+    } catch (RuntimeException startupFailure) {
+      if (!foregroundActivation) {
+        throw startupFailure;
+      }
+      startupFailure.printStackTrace();
+      Leelaz failedTarget = engineList.get(index);
+      failedTarget.isLoaded = false;
+      showEngineSynchronizationFailure(failedTarget);
+      return false;
     }
     Leelaz targetEngine =
         preparedSwitch == null ? engineList.get(index) : preparedSwitch.targetEngine;
     if (preparedSwitch != null) {
       currentForegroundEngine = preparedSwitch.lifecycleRestore.previousEngine;
     }
-    EngineLifecycleReservations reservations =
+    InitialEngineStartupSynchronization initialStartupSynchronization =
+        preparedSwitch == null ? null : preparedSwitch.initialStartupSynchronization;
+    EngineLifecycleReservations reservations;
+    if (initialStartupSynchronization != null) {
+      reservations = null;
+    } else {
+      reservations =
         reservePreparedEngineSwitch(currentForegroundEngine, targetEngine, preparedSwitch);
     if (reservations == null) {
       if (showConflict) {
@@ -2653,11 +2673,11 @@ public class EngineManager {
       }
       return false;
     }
-    switchEngineInternal(
-        index,
-        isMain,
-        preparedSwitch,
-        targetEngine == currentForegroundEngine && !foregroundActivation
+    }
+    Runnable afterSync =
+        initialStartupSynchronization != null
+            ? initialStartupSynchronization::close
+            : targetEngine == currentForegroundEngine && !foregroundActivation
             ? reservations::close
             : releaseEngineLifecycleAfterBoardSync(
                 currentForegroundEngine,
@@ -2665,7 +2685,8 @@ public class EngineManager {
                 isMain,
                 false,
                 reservations,
-                preparedSwitch == null ? null : preparedSwitch.lifecycleRestore));
+                    preparedSwitch == null ? null : preparedSwitch.lifecycleRestore);
+    switchEngineInternal(index, isMain, preparedSwitch, afterSync);
     return true;
   }
 
@@ -2829,7 +2850,7 @@ public class EngineManager {
       if (rejectSameEngineSelection(index, isMain)) {
       return;
     }
-    if (isEmpty) isEmpty = false;
+      if (isEmpty && preparedSwitch.initialStartupSynchronization == null) isEmpty = false;
       Leelaz newEng = preparedSwitch.targetEngine;
     if (newEng == null) return;
     Optional<ExactSnapshotEngineRestore.PreparedRestore> preparedRestore =
@@ -2909,6 +2930,9 @@ public class EngineManager {
             new Runnable() {
               public void run() {
                 newEng.notPondering();
+                if (preparedSwitch.initialStartupSynchronization != null) {
+                  preparedSwitch.initialStartupSynchronization.runUntilStable();
+                } else {
                 if (preparedRestore.isPresent()) {
                   Lizzie.board.resendMoveToEngine(newEng, false, preparedRestore.orElseThrow());
                 } else {
@@ -2917,12 +2941,30 @@ public class EngineManager {
                 if (!preparedSwitch.explicitRestart) {
                   preparedSwitch.lifecycleRestore.initializeAfterRestore(false);
                 }
+                }
                 if (newEng == Lizzie.leelaz) {
+                  boolean foregroundStartup = preparedSwitch.initialStartupSynchronization != null;
+                  if (foregroundStartup) {
+                    currentEngineNo = index;
+                    isEmpty = false;
+                    try {
+                      preparedSwitch.initialStartupSynchronization.initializeAfterRestore();
+                    } catch (RuntimeException initializationFailure) {
+                      if (Lizzie.leelaz == newEng && currentEngineNo == index) {
+                        currentEngineNo = -1;
+                        isEmpty = true;
+                      }
+                      throw initializationFailure;
+                    }
+                  }
                   Lizzie.board.clearBestMovesAfterForFirstEngine(
                       Lizzie.board.getHistory().getStart());
+                  if (!foregroundStartup) {
                   currentEngineNo = index;
+                  }
+                  int selectedEngineNo = foregroundStartup ? index : currentEngineNo;
                   Menu.engineMenu.setText(
-                      "[" + (currentEngineNo + 1) + "]: " + newEng.oriEnginename);
+                      "[" + (selectedEngineNo + 1) + "]: " + newEng.oriEnginename);
 
                   changeEngIco(1);
                   LizzieFrame.toolbar.reSetButtonLocation();
@@ -2931,9 +2973,9 @@ public class EngineManager {
                     Lizzie.frame.floatBoard.boardRenderer.removeKataEstimateImage();
                   if (Lizzie.config.showSubBoard)
                     LizzieFrame.subBoardRenderer.removeKataEstimateImage();
-                  if (currentEngineNo > 20) LizzieFrame.menu.changeEngineIcon(20, 3);
-                  else LizzieFrame.menu.changeEngineIcon(currentEngineNo, 3);
-                  if (!preparedSwitch.explicitRestart) {
+                  if (selectedEngineNo > 20) LizzieFrame.menu.changeEngineIcon(20, 3);
+                  else LizzieFrame.menu.changeEngineIcon(selectedEngineNo, 3);
+                  if (!preparedSwitch.explicitRestart && !foregroundStartup) {
                     newEng.setResponseUpToDate();
                   }
                 }
@@ -3023,7 +3065,14 @@ public class EngineManager {
         targetEngine.oriWidth != boardWidth || targetEngine.oriHeight != boardHeight;
     Leelaz proposedRestoreMirror =
         Lizzie.config.isDoubleEngineMode() ? (isMain ? Lizzie.leelaz2 : Lizzie.leelaz) : null;
-    PreparedLifecycleRestore lifecycleRestore =
+    InitialEngineStartupSynchronization initialStartupSynchronization = null;
+    PreparedLifecycleRestore lifecycleRestore;
+    if (foregroundActivation) {
+      initialStartupSynchronization =
+          InitialEngineStartupSynchronization.capture(targetEngine, restoreBoard, false);
+      lifecycleRestore = initialStartupSynchronization.pendingRoute;
+    } else {
+      lifecycleRestore =
         PreparedLifecycleRestore.capture(
             previousEngine,
             targetEngine,
@@ -3033,6 +3082,7 @@ public class EngineManager {
             rootMoves,
             resumePonder,
             retainedLifecycleOwner);
+    }
     float targetKomi =
         !isMain || history.getGameInfo().changedKomi || lifecycleRestore.exactRestore.isPresent()
             ? (float) currentGameKomi
@@ -3041,6 +3091,7 @@ public class EngineManager {
         targetEngine,
         previousEngine,
         lifecycleRestore,
+        initialStartupSynchronization,
         boardWidth,
         boardHeight,
         boardEmpty,
@@ -3387,11 +3438,13 @@ public class EngineManager {
     private final boolean targetOriginalBoardSizeChanges;
     private final float targetKomi;
     private final boolean explicitRestart;
+    private final InitialEngineStartupSynchronization initialStartupSynchronization;
 
     private PreparedEngineSwitch(
         Leelaz targetEngine,
         Leelaz previousEngine,
         PreparedLifecycleRestore lifecycleRestore,
+        InitialEngineStartupSynchronization initialStartupSynchronization,
         int boardWidth,
         int boardHeight,
         boolean boardEmpty,
@@ -3403,6 +3456,7 @@ public class EngineManager {
       this.previousEngine = previousEngine;
       this.exactRestore = lifecycleRestore.exactRestore;
       this.lifecycleRestore = lifecycleRestore;
+      this.initialStartupSynchronization = initialStartupSynchronization;
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
       this.boardEmpty = boardEmpty;
@@ -3457,6 +3511,12 @@ public class EngineManager {
           }
         }
       }
+    }
+  }
+
+  private static final class InitialStartupReservationException extends IllegalStateException {
+    private InitialStartupReservationException(String message) {
+      super(message);
     }
   }
 
@@ -3535,6 +3595,12 @@ public class EngineManager {
 
     /** Executes the restore rounds and, on a stable restore point, marks the engine ready once. */
     void run() {
+      runUntilStable();
+      initializeAfterRestore();
+    }
+
+    /** Executes immutable restore and catch-up rounds without publishing engine readiness. */
+    private void runUntilStable() {
       while (!stable) {
         if (beforeRestore != null) {
           beforeRestore.run();
@@ -3564,7 +3630,6 @@ public class EngineManager {
           acquireReservation();
         }
       }
-      initializeAfterRestore();
     }
 
     private void executePendingRoute() {
@@ -3627,7 +3692,7 @@ public class EngineManager {
       Leelaz.ExclusiveGtpLifecycleReservation nextReservation =
           targetEngine.beginExclusiveGtpLifecycleReservation(lifecycleOwner);
       if (nextReservation == null) {
-        throw new IllegalStateException(
+        throw new InitialStartupReservationException(
             "Initial engine startup lifecycle reservation was rejected");
       }
       boolean accepted = false;
@@ -3639,7 +3704,7 @@ public class EngineManager {
       }
       if (!accepted) {
         nextReservation.close();
-        throw new IllegalStateException(
+        throw new InitialStartupReservationException(
             "Initial engine startup lifecycle reservation could not be installed");
       }
     }
