@@ -250,14 +250,14 @@ class WebTrialSingleStreamExclusionTest {
 
   @Test
   void inactiveTrialLeavesAutomaticRecoveryAdmissionUnchanged() throws Exception {
-    Method method = Leelaz.class.getDeclaredMethod("beginAutomaticEngineRestartReservation");
+    Method method = Leelaz.class.getDeclaredMethod("beginAutomaticEngineRestartAttempt");
     method.setAccessible(true);
 
-    Leelaz.ExclusiveGtpLifecycleReservation reservation =
-        (Leelaz.ExclusiveGtpLifecycleReservation) method.invoke(engine);
+    Leelaz.AutomaticRestartAttempt attempt =
+        (Leelaz.AutomaticRestartAttempt) method.invoke(engine);
 
-    assertNotNull(reservation);
-    reservation.close();
+    assertNotNull(attempt);
+    attempt.close();
   }
 
   private void assertTrialExcludesEngineOwners() throws Exception {

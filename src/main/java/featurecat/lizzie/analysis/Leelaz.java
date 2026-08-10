@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.Box;
@@ -250,6 +251,8 @@ public class Leelaz {
       new ThreadLocal<>();
   private static final ThreadLocal<ExactSnapshotRestoreAdmission>
       exactSnapshotRestoreAdmissionContext = new ThreadLocal<>();
+  private static final ThreadLocal<LifecycleCompletionClaim> lifecycleCompletionCommandContext =
+      new ThreadLocal<>();
   private final ThreadLocal<AtomicReference<RuntimeException>> deferredDefaultMirrorFailure =
       new ThreadLocal<>();
   private volatile boolean foregroundRestoreInProgress;
@@ -277,8 +280,11 @@ public class Leelaz {
   private final ThreadLocal<RestartBootstrapReceipt> restartBootstrapReceiptContext =
       new ThreadLocal<>();
   private RestartBootstrapReceipt restartBootstrapReceipt;
-  private volatile RestartRestorePreparation automaticRestartRestorePreparation;
-  private volatile ExclusiveGtpLifecycleReservation automaticRestartReservation;
+  /** Serializes the rare identity-hash collision case for two-endpoint lifecycle claims. */
+  private static final Object LIFECYCLE_COMPLETION_PAIR_TIE_LOCK = new Object();
+
+  /** Active owner-identified lifecycle completion on this authority or frozen mirror endpoint. */
+  private volatile LifecycleCompletionClaim lifecycleCompletionClaim;
 
   private BufferedReader inputStream;
   private BufferedOutputStream outputStream;
@@ -966,105 +972,88 @@ public class Leelaz {
     restartClosedEngine(index, null);
   }
 
+  /** Convenience entry for manual/GMA callers that do not preflight an automatic attempt. */
   public void restartClosedEngine(int index, Runnable afterBoardRestore) throws IOException {
-    boolean restoreScheduled = false;
-    Runnable restoreCompletion = afterBoardRestore;
+    if (engineCommand.trim().isEmpty()) {
+      if (afterBoardRestore != null) {
+        afterBoardRestore.run();
+      }
+      return;
+    }
+    AutomaticRestartAttempt attempt = beginAutomaticRestartAttempt(true);
+    if (attempt == null) {
+      throw new IllegalStateException("Automatic restart is not admitted");
+    }
+    attempt.restartClosedEngine(index, afterBoardRestore);
+  }
+
+  /**
+   * Captures and owns one complete automatic restart attempt before any process side effect. The
+   * returned opaque attempt atomically owns its frozen round, reservation, barriers and completion
+   * claim; callers may either start it once or abandon it with {@link AutoCloseable#close()}.
+   */
+  public AutomaticRestartAttempt beginAutomaticEngineRestartAttempt() { return beginAutomaticRestartAttempt(false); }
+
+  private AutomaticRestartAttempt beginAutomaticRestartAttempt(boolean allowUnrestoredState) {
+    if (!allowUnrestoredState
+        && (engineStateUnrestored
+            || readBoardGmaReservation != null
+            || readBoardGmaRestoreBarrier != null)) {
+      return null;
+    }
+    AutomaticRestartRound frozenRound;
     try {
-      if (engineCommand.trim().isEmpty()) {
-        return;
-      }
-      RestartRestorePreparation restorePreparation = consumeAutomaticRestartPreparation();
-      if (restorePreparation == null) {
-        restorePreparation = captureRestartRestore();
-        ExclusiveGtpLifecycleReservation directReservation =
-            beginExclusiveGtpLifecycleReservation(restorePreparation.owner());
-        if (directReservation == null) {
-          return;
-        }
-        Runnable callerCompletion = restoreCompletion;
-        restoreCompletion =
-            () -> {
-              try {
-                directReservation.close();
-              } finally {
-                if (callerCompletion != null) {
-                  callerCompletion.run();
-                }
-              }
-            };
-      }
-      final RestartRestorePreparation frozenRestorePreparation = restorePreparation;
-      final ExactSnapshotEngineRestore.PreparedRestore restorePlan =
-          frozenRestorePreparation == null ? null : frozenRestorePreparation.preparedRestore();
-      final boolean resumePonder =
-          frozenRestorePreparation != null && frozenRestorePreparation.resumePonder();
-      final Runnable boardRestoreCompletion = restoreCompletion;
-      if (useRemoteCompute && isStarted()) {
-        normalQuit();
-      }
-      isLoaded = false;
-      canCheckAlive = false;
-      startEngine(index);
-      Leelaz thisLeelz = this;
-      Runnable syncBoard =
-          new Runnable() {
-            public void run() {
-              boolean completionDelegated = false;
-              try {
-                if (!waitForAutomaticRestartReadiness()) {
-                  isLoaded = false;
-                  markBoardSynchronizationFailed(
-                      "automatic engine restart did not become ready");
-                  return;
-                }
-                if (boardRestoreCompletion == null) {
-                  thisLeelz.restoreClosedEngineBoardState(
-                      resumePonder, restorePlan, frozenRestorePreparation);
-                } else {
-                  completionDelegated = true;
-                  thisLeelz.restoreClosedEngineBoardState(
-                      resumePonder,
-                      restorePlan,
-                      frozenRestorePreparation,
-                      boardRestoreCompletion);
-                }
-              } finally {
-                if (boardRestoreCompletion != null && !completionDelegated) {
-                  boardRestoreCompletion.run();
-                }
-              }
-            }
-          };
-      Thread syncBoardTh = new Thread(withCurrentRestartBootstrapReceipt(syncBoard));
-      syncBoardTh.start();
-      restoreScheduled = true;
-    } finally {
-      if (!restoreScheduled && restoreCompletion != null) {
-        restoreCompletion.run();
-      }
+      frozenRound = captureAutomaticRestartRound(allowUnrestoredState);
+    } catch (ExactSnapshotRestoreAdmissionException conflict) {
+      return null;
+    }
+    ExclusiveGtpLifecycleReservation initialReservation =
+        beginExclusiveGtpLifecycleReservation(frozenRound.owner());
+    if (initialReservation == null) {
+      return null;
+    }
+    LifecycleCompletionClaim completionClaim =
+        tryBeginLifecycleCompletion(frozenRound.owner(), frozenRound.mirror());
+    if (completionClaim == null) {
+      initialReservation.close();
+      return null;
+    }
+    AutomaticRestartOperation operation =
+        new AutomaticRestartOperation(
+            frozenRound, initialReservation, completionClaim, engineStateUnrestored);
+    try {
+      operation.beginBoardSynchronization();
+      return new AutomaticRestartAttempt(operation);
+    } catch (RuntimeException failure) {
+      operation.abandon();
+      throw failure;
     }
   }
 
   private boolean waitForAutomaticRestartReadiness() {
+    return waitForAutomaticRestartReadiness(this);
+  }
+
+  private static boolean waitForAutomaticRestartReadiness(Leelaz engine) {
     long now = System.nanoTime();
     long deadline =
         now
             + TimeUnit.MILLISECONDS.toNanos(
-                Math.max(1L, engineStartupSynchronizationTimeoutMillis()));
+                Math.max(1L, engine.engineStartupSynchronizationTimeoutMillis()));
     boolean tuningTimeoutApplied = false;
     while (true) {
-      if (!isStarted() || isDownWithError || isNormalEnd) {
+      if (!engine.isStarted() || engine.isDownWithError || engine.isNormalEnd) {
         return false;
       }
-      if (automaticRestartReady(isLoaded(), isCheckingName, endGetCommandList)) {
+      if (automaticRestartReady(engine.isLoaded(), engine.isCheckingName, engine.endGetCommandList)) {
         return true;
       }
       now = System.nanoTime();
-      if (!tuningTimeoutApplied && isTuning) {
+      if (!tuningTimeoutApplied && engine.isTuning) {
         deadline =
             now
                 + TimeUnit.MILLISECONDS.toNanos(
-                    Math.max(1L, engineTuningSynchronizationTimeoutMillis()));
+                    Math.max(1L, engine.engineTuningSynchronizationTimeoutMillis()));
         tuningTimeoutApplied = true;
       }
       if (now >= deadline) {
@@ -1087,19 +1076,8 @@ public class Leelaz {
   }
 
   void restoreClosedEngineBoardState(boolean resumePonder) {
-    restoreClosedEngineBoardState(resumePonder, null, null);
-  }
-
-  private void restoreClosedEngineBoardState(
-      boolean resumePonder,
-      ExactSnapshotEngineRestore.PreparedRestore preparedRestore,
-      RestartRestorePreparation restorePreparation) {
     isPondering = false;
-    if (preparedRestore == null) {
-      restoreRootAfterLifecyclePreparation(restorePreparation);
-    } else {
-      Lizzie.board.resendMoveToEngine(this, false, preparedRestore);
-    }
+    restoreRootAfterLifecyclePreparation();
     if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
       return;
     }
@@ -1115,55 +1093,8 @@ public class Leelaz {
     resumeClosedEngineAfterBoardSynchronization(resumePonder);
   }
 
-  private void restoreClosedEngineBoardState(
-      boolean resumePonder,
-      ExactSnapshotEngineRestore.PreparedRestore preparedRestore,
-      RestartRestorePreparation restorePreparation,
-      Runnable afterBoardRestore) {
-    boolean preserveUnrestoredState = engineStateUnrestored;
-    try {
-      isPondering = false;
-      if (preparedRestore == null) {
-        restoreRootAfterLifecyclePreparation(restorePreparation);
-      } else {
-        Lizzie.board.resendMoveToEngine(this, false, preparedRestore);
-      }
-    } catch (RuntimeException failure) {
-      isLoaded = false;
-      markLifecycleBoardSynchronizationFailed(
-          failure.getMessage() == null
-              ? "automatic engine board restore failed"
-              : failure.getMessage(),
-          preserveUnrestoredState);
-      afterBoardRestore.run();
-      return;
-    }
-    if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
-      afterBoardRestore.run();
-      return;
-    }
-    confirmBoardSynchronization(
-        () -> {
-          try {
-            if (engineStateUnrestored) {
-              completeReadBoardGmaRecoveryAfterBoardSync();
-            }
-            resumeClosedEngineAfterBoardSynchronization(resumePonder);
-          } finally {
-            afterBoardRestore.run();
-          }
-        },
-        detail -> {
-          isLoaded = false;
-          markLifecycleBoardSynchronizationFailed(detail, preserveUnrestoredState);
-          afterBoardRestore.run();
-        });
-  }
-
   void resumeClosedEngineAfterBoardSynchronization(boolean resumePonder) {
-    if (resumePonder) {
-      Lizzie.initializeAfterVersionCheck(false, this);
-    }
+    Lizzie.initializeAfterVersionCheck(false, this, resumePonder);
   }
   void initializeAfterExplicitRestartBoardSynchronization(boolean resumePonder) {
     Lizzie.initializeAfterVersionCheck(false, this, resumePonder);
@@ -1172,7 +1103,6 @@ public class Leelaz {
     notPondering();
     canRestoreDymPda = true;
   }
-
 
   void completeReadBoardGmaRecoveryAfterBoardSync() {
     synchronized (readBoardGmaLock()) {
@@ -1203,72 +1133,74 @@ public class Leelaz {
         && !EngineManager.isEngineGame();
   }
 
-  public ExclusiveGtpLifecycleReservation beginAutomaticEngineRestartReservation() {
-    synchronized (engineArbitrationLock()) {
-      if (engineStateUnrestored
-          || readBoardGmaReservation != null
-          || readBoardGmaRestoreBarrier != null) {
-        return null;
-      }
-      RestartRestorePreparation restorePreparation;
-      try {
-        restorePreparation = captureRestartRestore();
-      } catch (ExactSnapshotRestoreAdmissionException conflict) {
-        return null;
-      }
-      if (!beginExclusiveGtpLifecycleTransition(restorePreparation.owner())) {
-        return null;
-      }
-      try {
-        ExclusiveGtpLifecycleReservation reservation =
-            new ExclusiveGtpLifecycleReservation(this, restorePreparation.owner(), false);
-        automaticRestartRestorePreparation = restorePreparation;
-        automaticRestartReservation = reservation;
-        return reservation;
-      } catch (RuntimeException failure) {
-        endExclusiveGtpLifecycleTransition(restorePreparation.owner());
-        throw failure;
-      }
-    }
-  }
-
-  private RestartRestorePreparation captureRestartRestore() {
+  private AutomaticRestartRound captureAutomaticRestartRound(boolean allowUnrestoredState) {
     Board restoreBoard = Lizzie.board;
-    ArrayList<Movelist> rootMoves =
-        Movelist.copyList(restoreBoard == null ? null : restoreBoard.getMoveList());
-    BoardHistoryList history = restoreBoard == null ? null : restoreBoard.getHistory();
-    BoardHistoryNode target = history == null ? null : history.getCurrentHistoryNode();
-    Double komi =
-        history == null || history.getGameInfo() == null ? null : history.getGameInfo().getKomi();
-    return RestartRestorePreparation.capture(this, target, komi, rootMoves, isPondering);
-  }
-
-  private RestartRestorePreparation consumeAutomaticRestartPreparation() {
-    synchronized (engineArbitrationLock()) {
-      RestartRestorePreparation restorePreparation = automaticRestartRestorePreparation;
-      if (restorePreparation == null && automaticRestartReservation != null) {
-        throw new IllegalStateException("Automatic restart restore has already been claimed.");
+    AutomaticRestartOwner owner = new AutomaticRestartOwner(allowUnrestoredState);
+    if (restoreBoard == null) {
+      return AutomaticRestartRound.capture(
+          this, null, owner, null, null, null, isPondering);
     }
-      automaticRestartRestorePreparation = null;
-      return restorePreparation;
-  }
-  }
-
-  private void clearAutomaticRestartPreparation(EngineModeReservation reservation) {
-    synchronized (engineArbitrationLock()) {
-    if (automaticRestartReservation == reservation) {
-        automaticRestartRestorePreparation = null;
-      automaticRestartReservation = null;
+    synchronized (restoreBoard) {
+      BoardHistoryList history = restoreBoard.getHistory();
+      BoardHistoryNode target = history == null ? null : history.getCurrentHistoryNode();
+      Double komi =
+          history == null || history.getGameInfo() == null
+              ? null
+              : history.getGameInfo().getKomi();
+      return AutomaticRestartRound.capture(
+          this,
+          restoreBoard,
+          owner,
+          target,
+          komi,
+          Movelist.copyList(restoreBoard.getMoveList()),
+          isPondering);
     }
   }
+
+  /**
+   * Atomically acquires completion ownership on this authority and its frozen mirror. The claim
+   * remains installed through final fence settlement and the owner callback.
+   */
+  LifecycleCompletionClaim tryBeginLifecycleCompletion(Object owner, Leelaz frozenMirror) {
+    return LifecycleCompletionClaim.tryAcquire(this, owner, frozenMirror);
   }
 
-  private void restoreRootAfterLifecyclePreparation(RestartRestorePreparation restorePreparation) {
-    if (restorePreparation == null) {
+  private boolean hasLifecycleCompletionLocked() {
+    return lifecycleCompletionClaim != null;
+  }
+  private boolean shouldRejectCommandDuringLifecycleCompletion() {
+    return shouldRejectCommandDuringLifecycleCompletion(null);
+  }
+
+  private boolean shouldRejectCommandDuringLifecycleCompletion(String command) {
+    String commandName = command == null ? "" : command.trim().split("\\s+", 2)[0];
+    if ("name".equals(commandName)
+        || "version".equals(commandName)
+        || "protocol_version".equals(commandName)
+        || "list_commands".equals(commandName)
+        || "komi".equals(commandName)
+        || "boardsize".equals(commandName)
+        || "rectangular_boardsize".equals(commandName)) {
+      return false;
+    }
+    synchronized (engineArbitrationLock()) {
+      LifecycleCompletionClaim claim = lifecycleCompletionClaim;
+      return claim != null
+          && claim != lifecycleCompletionCommandContext.get()
+          && !isExactSnapshotRestoreAdmissionContextActive();
+    }
+  }
+
+  private boolean hasLifecycleCompletionOwnedByOtherLocked(Object owner) {
+    LifecycleCompletionClaim claim = lifecycleCompletionClaim;
+    return claim != null && claim.owner() != owner;
+  }
+
+  private void restoreRootAfterLifecyclePreparation() {
+    if (Lizzie.board != null) {
       Lizzie.board.resendMoveToEngine(this, false);
-      return;
     }
-    restorePreparation.executeRootReplay(Lizzie.board);
   }
 
   void markBoardSynchronizationFailed(String detail) {
@@ -4362,12 +4294,12 @@ public class Leelaz {
         commands, engineExecutable, exitCode, openClFp32CompatibilityActive)) {
       return false;
     }
-    ExclusiveGtpLifecycleReservation reservation = beginAutomaticEngineRestartReservation();
-    if (reservation == null
+    AutomaticRestartAttempt attempt = beginAutomaticEngineRestartAttempt();
+    if (attempt == null
         || !openClCompatibilityRecoveryAttempted.compareAndSet(false, true)
         || !KataGoRuntimeHelper.rememberOpenClFp32Compatibility(commands, engineExecutable)) {
-      if (reservation != null) {
-        reservation.close();
+      if (attempt != null) {
+        attempt.close();
       }
       return false;
     }
@@ -4387,30 +4319,41 @@ public class Leelaz {
     Thread recovery =
         new Thread(
             () -> {
-              boolean restoreScheduled = false;
+              boolean restartStarted = false;
               try {
-                restartClosedEngine(engineIndex, reservation::close);
-                restoreScheduled = true;
+                attempt.restartClosedEngine(
+                    engineIndex,
+                    null,
+                    detail -> {
+                      isDownWithError = true;
+                      SwingUtilities.invokeLater(
+                          () ->
+                              tryToDignostic(
+                                  buildEngineExitDiagnostic(
+                                      text(
+                                          "BundledEngineStartup.openclRecoveryFailed",
+                                          "NVIDIA OpenCL compatibility recovery failed.")),
+                                  false));
+                    });
+                restartStarted = true;
               } catch (IOException | RuntimeException failure) {
                 failure.printStackTrace();
-                isDownWithError = true;
-                SwingUtilities.invokeLater(
-                    () ->
-                        tryToDignostic(
-                            buildEngineExitDiagnostic(
-                                text(
-                                    "BundledEngineStartup.openclRecoveryFailed",
-                                    "NVIDIA OpenCL compatibility recovery failed.")),
-                            false));
               } finally {
-                if (!restoreScheduled) {
-                  reservation.close();
+                if (!restartStarted) {
+                  attempt.close();
                 }
               }
             },
             "katago-opencl-fp32-recovery");
     recovery.setDaemon(true);
-    recovery.start();
+    try {
+      recovery.start();
+    } catch (RuntimeException failure) {
+      attempt.close();
+      isDownWithError = true;
+      failure.printStackTrace();
+      return false;
+    }
     return true;
   }
 
@@ -4598,7 +4541,8 @@ public class Leelaz {
       ReaderStreamBinding readBoardGmaResponseBinding) {
     if (shouldDropStaleForegroundRestoreCommand()
         || shouldSuppressNormalCommandForForegroundAnalysis()
-        || shouldDropCommandDuringInitialBoardSynchronization(command)) {
+        || shouldDropCommandDuringInitialBoardSynchronization(command)
+        || shouldRejectCommandDuringLifecycleCompletion(command)) {
       return false;
     }
     if (Lizzie.config.isDoubleEngineMode()) {
@@ -6239,7 +6183,7 @@ public class Leelaz {
     if (readBoardGmaReservation != null) {
       return ExclusiveGtpLeaseAvailability.READBOARD_GMA;
     }
-    if (exclusiveGtpLifecycleTransition) {
+    if (exclusiveGtpLifecycleTransition || hasLifecycleCompletionLocked()) {
       return ExclusiveGtpLeaseAvailability.ENGINE_LIFECYCLE;
     }
     if (trackingHandoffGate != null) {
@@ -6325,6 +6269,7 @@ public class Leelaz {
         && !session.closing
         && !session.releaseRequested
         && !exclusiveGtpLifecycleTransition
+        && !hasLifecycleCompletionLocked()
         && !normalCommandSendInProgress
         && commandQueue().isEmpty()
         && foregroundRestoreCommandQueue().isEmpty();
@@ -6369,7 +6314,7 @@ public class Leelaz {
     if (readBoardGmaReservation != null) {
       return ExclusiveGtpLeaseAvailability.READBOARD_GMA;
     }
-    if (exclusiveGtpLifecycleTransition) {
+    if (exclusiveGtpLifecycleTransition || hasLifecycleCompletionLocked()) {
       return ExclusiveGtpLeaseAvailability.ENGINE_LIFECYCLE;
     }
     if (trackingHandoffGate != null) {
@@ -6577,7 +6522,14 @@ public class Leelaz {
       return exclusiveGtpSession != null
           || trackingHandoffGate != null
           || foregroundRestoreInProgress
-          || exclusiveGtpLifecycleTransition;
+          || exclusiveGtpLifecycleTransition
+          || hasLifecycleCompletionLocked();
+    }
+  }
+
+  boolean hasExclusiveGtpLifecycleTransitionForTest() {
+    synchronized (engineArbitrationLock()) {
+      return exclusiveGtpLifecycleTransition;
     }
   }
 
@@ -6630,6 +6582,7 @@ public class Leelaz {
           && !engineStateUnrestored
           && (Lizzie.config == null || !Lizzie.config.isDoubleEngineMode())
           && readBoardGmaReservation == null
+          && !hasLifecycleCompletionLocked()
           && trackingHandoffGate == null
           && !foregroundRestoreInProgress
           && !exclusiveGtpLifecycleTransition
@@ -6713,6 +6666,9 @@ public class Leelaz {
     if (exclusiveGtpSession != null || trackingHandoffGate != null) {
       return false;
     }
+    if (hasLifecycleCompletionOwnedByOtherLocked(owner)) {
+      return false;
+    }
     if (exclusiveGtpLifecycleTransition) {
       if (exclusiveGtpLifecycleOwner != owner) {
         return false;
@@ -6783,7 +6739,8 @@ public class Leelaz {
     synchronized (engineArbitrationLock()) {
       if (exclusiveGtpSession != null
           || trackingHandoffGate != null
-          || foregroundRestoreInProgress) {
+          || foregroundRestoreInProgress
+          || hasLifecycleCompletionLocked()) {
         return true;
       }
       return exclusiveGtpLifecycleTransition && exclusiveGtpLifecycleOwner != Thread.currentThread();
@@ -6803,6 +6760,7 @@ public class Leelaz {
       throw new IllegalArgumentException("owner");
     }
     Object capturedOwnerIdentity = ownerIdentity;
+    LifecycleCompletionClaim completionClaim = null;
     synchronized (engineArbitrationLock()) {
       if (owner == ExactSnapshotRestoreOwner.READ_BOARD_GMA && capturedOwnerIdentity == null) {
         capturedOwnerIdentity = readBoardGmaReservation;
@@ -6810,6 +6768,9 @@ public class Leelaz {
       if (!canCaptureExactSnapshotRestoreAdmission(owner, capturedOwnerIdentity)) {
         throw new ExactSnapshotRestoreAdmissionException(
             "Exact snapshot restore is not admitted for owner " + owner);
+      }
+      if (owner == ExactSnapshotRestoreOwner.BOARD_SYNC) {
+        completionClaim = lifecycleCompletionClaim;
       }
     }
     Object authorityIncarnation = null;
@@ -6823,9 +6784,22 @@ public class Leelaz {
       throw new ExactSnapshotRestoreAdmissionException(
           "Exact snapshot restore mirror is not admitted for owner " + owner);
     }
+    LifecycleCompletionClaim.BoardSyncCompletionLease boardSyncLease =
+        completionClaim == null ? null : completionClaim.acquireBoardSyncLease();
+    if (completionClaim != null && boardSyncLease == null) {
+      throw new ExactSnapshotRestoreAdmissionException(
+          "Lifecycle completion is already settling board synchronization.");
+    }
     return new ExactSnapshotRestoreAdmission(
-        this, mirror, owner, capturedOwnerIdentity, authorityIncarnation, mirrorIncarnation);
+        this,
+        mirror,
+        owner,
+        capturedOwnerIdentity,
+        authorityIncarnation,
+        mirrorIncarnation,
+        boardSyncLease);
   }
+
 
   private boolean canCaptureExactSnapshotRestoreAdmission(
       ExactSnapshotRestoreOwner owner, Object ownerIdentity) {
@@ -6859,10 +6833,11 @@ public class Leelaz {
   }
 
   private boolean hasConflictingExactSnapshotRestoreWorkLocked(Object allowedLifecycleOwner) {
-    return engineStateUnrestored
+    return (engineStateUnrestored && !allowsUnrestoredLifecycleOwner(allowedLifecycleOwner))
         || readBoardGmaReservation != null
         || trackingHandoffGate != null
         || foregroundRestoreInProgress
+        || hasLifecycleCompletionOwnedByOtherLocked(allowedLifecycleOwner)
         || (exclusiveGtpLifecycleTransition
             && (allowedLifecycleOwner == null
                 || exclusiveGtpLifecycleOwner != allowedLifecycleOwner))
@@ -6875,6 +6850,11 @@ public class Leelaz {
         || foregroundRestoreInProgress
         || exclusiveGtpLifecycleTransition
         || (exclusiveGtpSession != null && !isTrackingStreamSession(exclusiveGtpSession));
+  }
+
+  private static boolean allowsUnrestoredLifecycleOwner(Object owner) {
+    return owner instanceof AutomaticRestartOwner
+        && ((AutomaticRestartOwner) owner).allowUnrestoredState;
   }
 
   private boolean canAcceptExactSnapshotRestoreAdmission(
@@ -6892,7 +6872,8 @@ public class Leelaz {
       if (this != authority) {
         return owner == ExactSnapshotRestoreOwner.BOARD_SYNC
             ? !hasConflictingBoardSyncRestoreWorkLocked()
-            : !hasConflictingExactSnapshotRestoreWorkLocked();
+            : !hasConflictingExactSnapshotRestoreWorkLocked(
+                owner == ExactSnapshotRestoreOwner.LIFECYCLE ? ownerIdentity : null);
       }
       switch (owner) {
         case ORDINARY:
@@ -6966,7 +6947,10 @@ public class Leelaz {
       synchronized (engineArbitrationLock()) {
         return admission.owner == ExactSnapshotRestoreOwner.BOARD_SYNC
             ? !hasConflictingBoardSyncRestoreWorkLocked()
-            : !hasConflictingExactSnapshotRestoreWorkLocked();
+            : !hasConflictingExactSnapshotRestoreWorkLocked(
+                admission.owner == ExactSnapshotRestoreOwner.LIFECYCLE
+                    ? admission.ownerIdentity
+                    : null);
       }
     }
     return true;
@@ -8932,7 +8916,6 @@ public class Leelaz {
         engine = null;
       }
       if (reservedEngine != null) {
-        reservedEngine.clearAutomaticRestartPreparation(this);
         reservedEngine.endExclusiveGtpLifecycleTransition(owner);
       }
     }
@@ -8945,6 +8928,7 @@ public class Leelaz {
     private final Object ownerIdentity;
     private final Object authorityIncarnation;
     private final Object mirrorIncarnation;
+    private final LifecycleCompletionClaim.BoardSyncCompletionLease boardSyncLease;
 
     private ExactSnapshotRestoreAdmission(
         Leelaz authority,
@@ -8952,13 +8936,15 @@ public class Leelaz {
         ExactSnapshotRestoreOwner owner,
         Object ownerIdentity,
         Object authorityIncarnation,
-        Object mirrorIncarnation) {
+        Object mirrorIncarnation,
+        LifecycleCompletionClaim.BoardSyncCompletionLease boardSyncLease) {
       this.authority = authority;
       this.mirror = mirror;
       this.owner = owner;
       this.ownerIdentity = ownerIdentity;
       this.authorityIncarnation = authorityIncarnation;
       this.mirrorIncarnation = mirrorIncarnation;
+      this.boardSyncLease = boardSyncLease;
     }
 
     Leelaz authority() {
@@ -8976,71 +8962,216 @@ public class Leelaz {
     private boolean includes(Leelaz engine) {
       return engine == authority || engine == mirror;
     }
+
+    void completeBoardSync() {
+      if (boardSyncLease != null) {
+        boardSyncLease.close();
+      }
+    }
   }
 
-  private static final class RestartRestorePreparation {
+  public static final class AutomaticRestartAttempt implements AutoCloseable {
+    private AutomaticRestartOperation operation;
+
+    private AutomaticRestartAttempt(AutomaticRestartOperation operation) {
+      this.operation = operation;
+    }
+
+    public void restartClosedEngine(int index) throws IOException {
+      restartClosedEngine(index, null);
+    }
+
+    public void restartClosedEngine(int index, Runnable afterBoardRestore) throws IOException {
+      restartClosedEngine(index, afterBoardRestore, null);
+    }
+
+    void restartClosedEngine(
+        int index, Runnable afterBoardRestore, Consumer<String> onFailure) throws IOException {
+      AutomaticRestartOperation ownedOperation;
+      synchronized (this) {
+        ownedOperation = operation;
+        operation = null;
+      }
+      if (ownedOperation == null) {
+        throw new IllegalStateException("Automatic restart attempt has already been consumed");
+      }
+      ownedOperation.start(index, afterBoardRestore, onFailure);
+    }
+
+    @Override
+    public void close() {
+      AutomaticRestartOperation ownedOperation;
+      synchronized (this) {
+        ownedOperation = operation;
+        operation = null;
+      }
+      if (ownedOperation != null) {
+        ownedOperation.abandon();
+      }
+    }
+  }
+
+  private enum AutomaticRestartState {
+    RESERVED,
+    STARTING,
+    CONVERGING,
+    FENCE_PENDING,
+    COMPLETED,
+    FAILED,
+    ABANDONED
+  }
+
+  private static final class AutomaticRestartOwner {
+    private final boolean allowUnrestoredState;
+
+    private AutomaticRestartOwner(boolean allowUnrestoredState) {
+      this.allowUnrestoredState = allowUnrestoredState;
+    }
+  }
+
+  /** One immutable automatic-restart restore round: route, admission and Board frame move together. */
+  private static final class AutomaticRestartRound {
     private final Leelaz target;
     private final Leelaz mirror;
+    private final Board board;
     private final Object owner;
     private final ExactSnapshotRestoreAdmission admission;
     private final ExactSnapshotEngineRestore.PreparedRestore preparedRestore;
     private final ArrayList<Movelist> rootMoves;
     private final Double rootKomi;
     private final boolean resumePonder;
+    private final EngineManager.BoardFrame capturedFrame;
     private final AtomicBoolean rootReplayExecuted = new AtomicBoolean(false);
 
-    private RestartRestorePreparation(
+    private AutomaticRestartRound(
         Leelaz target,
         Leelaz mirror,
+        Board board,
         Object owner,
         ExactSnapshotRestoreAdmission admission,
         ExactSnapshotEngineRestore.PreparedRestore preparedRestore,
         ArrayList<Movelist> rootMoves,
         Double rootKomi,
-        boolean resumePonder) {
+        boolean resumePonder,
+        EngineManager.BoardFrame capturedFrame) {
       this.target = target;
       this.mirror = mirror;
+      this.board = board;
       this.owner = owner;
       this.admission = admission;
       this.preparedRestore = preparedRestore;
       this.rootMoves = Movelist.copyList(rootMoves);
       this.rootKomi = rootKomi;
       this.resumePonder = resumePonder;
+      this.capturedFrame = capturedFrame;
     }
 
-    private static RestartRestorePreparation capture(
+    private static AutomaticRestartRound capture(
         Leelaz target,
+        Board board,
+        Object owner,
         BoardHistoryNode historyTarget,
         Double komi,
         ArrayList<Movelist> rootMoves,
         boolean resumePonder) {
-      Leelaz mirror = target.resolveLoadSgfMirrorEngine();
-      Object owner = new Object();
+      return captureWithMirror(
+          target,
+          board,
+          owner,
+          target.resolveLoadSgfMirrorEngine(),
+          historyTarget,
+          komi,
+          rootMoves,
+          resumePonder);
+    }
+
+    private static AutomaticRestartRound captureWithMirror(
+        Leelaz target,
+        Board board,
+        Object owner,
+        Leelaz frozenMirror,
+        BoardHistoryNode historyTarget,
+        Double komi,
+        ArrayList<Movelist> rootMoves,
+        boolean resumePonder) {
+      Leelaz effectiveMirror = frozenMirror == target ? null : frozenMirror;
       ExactSnapshotRestoreAdmission admission =
           target.captureExactSnapshotRestoreAdmission(
-              ExactSnapshotRestoreOwner.LIFECYCLE, owner, mirror);
+              ExactSnapshotRestoreOwner.LIFECYCLE, owner, effectiveMirror);
       ExactSnapshotEngineRestore.PreparedRestore preparedRestore = null;
       if (historyTarget != null) {
         preparedRestore =
-            ExactSnapshotEngineRestore.prepare(admission, historyTarget)
-                .orElse(null);
+            ExactSnapshotEngineRestore.prepare(admission, historyTarget).orElse(null);
       }
-      return new RestartRestorePreparation(
-          target, mirror, owner, admission, preparedRestore, rootMoves, komi, resumePonder);
+      return new AutomaticRestartRound(
+          target,
+          effectiveMirror,
+          board,
+          owner,
+          admission,
+          preparedRestore,
+          rootMoves,
+          komi,
+          resumePonder,
+          EngineManager.BoardFrame.capture(board));
     }
 
     private Object owner() {
       return owner;
     }
-    private ExactSnapshotEngineRestore.PreparedRestore preparedRestore() {
-      return preparedRestore;
+
+    private Leelaz mirror() {
+      return mirror;
     }
 
     private boolean resumePonder() {
       return resumePonder;
     }
 
-    private void executeRootReplay(Board board) {
+    private void execute() {
+      reconcileCapturedBoardSize();
+      if (preparedRestore != null) {
+        board.resendMoveToEngine(target, false, preparedRestore);
+      } else if (board != null) {
+        executeRootReplay();
+      }
+    }
+
+    private void reconcileCapturedBoardSize() {
+      int boardWidth = capturedFrame.boardWidth();
+      int boardHeight = capturedFrame.boardHeight();
+      Runnable reconcile =
+          () -> {
+            reconcileEngineBoardSize(target, boardWidth, boardHeight);
+            if (mirror != null) {
+              reconcileEngineBoardSize(mirror, boardWidth, boardHeight);
+            }
+          };
+      target.withExactSnapshotRestoreAdmission(
+          admission,
+          () -> {
+            if (mirror == null) {
+              reconcile.run();
+            } else {
+              mirror.withExactSnapshotRestoreAdmission(admission, reconcile);
+            }
+          });
+    }
+
+    private static void reconcileEngineBoardSize(Leelaz engine, int boardWidth, int boardHeight) {
+      if (engine.width == boardWidth && engine.height == boardHeight) {
+        return;
+      }
+      String command =
+          boardWidth == boardHeight
+              ? "boardsize " + boardWidth
+              : "rectangular_boardsize " + boardWidth + " " + boardHeight;
+      engine.sendCapturedRestoreCommand(command);
+      engine.width = boardWidth;
+      engine.height = boardHeight;
+    }
+
+    private void executeRootReplay() {
       if (!rootReplayExecuted.compareAndSet(false, true)) {
         throw new IllegalStateException("Restart root replay has already been executed");
       }
@@ -9059,6 +9190,537 @@ public class Leelaz {
               mirror.withExactSnapshotRestoreAdmission(admission, replay);
             }
           });
+    }
+  }
+
+  /** Owner-local automatic restart operation from frozen capture through final fence settlement. */
+  private final class AutomaticRestartOperation {
+    private final Board board;
+    private final Object owner;
+    private final Leelaz frozenMirror;
+    private final boolean resumePonder;
+    private final boolean preserveUnrestoredState;
+    private final LifecycleCompletionClaim completionClaim;
+    private final AtomicReference<AutomaticRestartState> state =
+        new AtomicReference<>(AutomaticRestartState.RESERVED);
+    private final AtomicBoolean barriersEnded = new AtomicBoolean(false);
+    private final AtomicBoolean completionNotified = new AtomicBoolean(false);
+    private AutomaticRestartRound pendingRound;
+    private ExclusiveGtpLifecycleReservation roundReservation;
+    private Runnable afterBoardRestore;
+    private Consumer<String> failureHandler;
+
+    private AutomaticRestartOperation(
+        AutomaticRestartRound frozenRound,
+        ExclusiveGtpLifecycleReservation initialReservation,
+        LifecycleCompletionClaim completionClaim,
+        boolean preserveUnrestoredState) {
+      this.board = frozenRound.board;
+      this.owner = frozenRound.owner();
+      this.frozenMirror = frozenRound.mirror();
+      this.resumePonder = frozenRound.resumePonder();
+      this.pendingRound = frozenRound;
+      this.roundReservation = initialReservation;
+      this.completionClaim = completionClaim;
+      this.preserveUnrestoredState = preserveUnrestoredState;
+    }
+
+    private void beginBoardSynchronization() {
+      beginInitialBoardSynchronization();
+      if (frozenMirror != null) {
+        frozenMirror.beginInitialBoardSynchronization();
+      }
+    }
+
+    private void start(int index, Runnable completion, Consumer<String> onFailure)
+        throws IOException {
+      if (!state.compareAndSet(AutomaticRestartState.RESERVED, AutomaticRestartState.STARTING)) {
+        throw new IllegalStateException("Automatic restart attempt has already been settled");
+      }
+      afterBoardRestore = completion;
+      failureHandler = onFailure;
+      try {
+        if (useRemoteCompute && isStarted()) {
+          normalQuit();
+        }
+        isPondering = false;
+        isLoaded = false;
+        canCheckAlive = false;
+        startEngine(index);
+        Thread synchronization =
+            new Thread(
+                withCurrentRestartBootstrapReceipt(this::awaitReadinessAndConverge),
+                "lizzie-automatic-engine-restart");
+        synchronization.start();
+      } catch (IOException | RuntimeException failure) {
+        failBeforeFence(
+            failure.getMessage() == null ? "automatic engine restart failed" : failure.getMessage());
+        throw failure;
+      }
+    }
+
+    private void awaitReadinessAndConverge() {
+      if (!waitForAutomaticRestartReadiness()) {
+        failBeforeFence("automatic engine restart did not become ready");
+        return;
+      }
+      if (!state.compareAndSet(AutomaticRestartState.STARTING, AutomaticRestartState.CONVERGING)) {
+        return;
+      }
+      try {
+        converge();
+      } catch (RuntimeException failure) {
+        failBeforeFence(
+            failure.getMessage() == null
+                ? "automatic engine board restore failed"
+                : failure.getMessage());
+        return;
+      }
+      if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
+        completeWithoutFence();
+        return;
+      }
+      if (!state.compareAndSet(
+          AutomaticRestartState.CONVERGING, AutomaticRestartState.FENCE_PENDING)) {
+        return;
+      }
+      completionClaim.confirmFinalBoardSynchronization(
+          this::completeAfterFence, this::failAfterFence);
+    }
+
+    private void converge() {
+      try {
+        if (board == null) {
+          pendingRound.execute();
+          releaseRoundReservation();
+          endBoardSynchronization();
+          return;
+        }
+        while (true) {
+          if (Lizzie.board != board) {
+            throw new IllegalStateException("Automatic restart Board changed during convergence");
+          }
+          pendingRound.execute();
+          releaseRoundReservation();
+          boolean stable;
+          synchronized (board) {
+            EngineManager.BoardFrame currentFrame = EngineManager.BoardFrame.capture(board);
+            stable = pendingRound.capturedFrame.matches(currentFrame);
+            if (stable) {
+              endBoardSynchronization();
+            } else {
+              pendingRound = captureCatchUpRound();
+            }
+          }
+          if (stable) {
+            return;
+          }
+          acquireRoundReservation();
+        }
+      } finally {
+        releaseRoundReservation();
+      }
+    }
+
+    private AutomaticRestartRound captureCatchUpRound() {
+      BoardHistoryList history = board.getHistory();
+      BoardHistoryNode historyTarget = history == null ? null : history.getCurrentHistoryNode();
+      Double komi =
+          history == null || history.getGameInfo() == null
+              ? null
+              : history.getGameInfo().getKomi();
+      return AutomaticRestartRound.captureWithMirror(
+          Leelaz.this,
+          board,
+          owner,
+          frozenMirror,
+          historyTarget,
+          komi,
+          Movelist.copyList(board.getMoveList()),
+          resumePonder);
+    }
+
+    private void acquireRoundReservation() {
+      ExclusiveGtpLifecycleReservation reservation = beginExclusiveGtpLifecycleReservation(owner);
+      if (reservation == null) {
+        throw new IllegalStateException("Automatic restart round reservation was rejected");
+      }
+      roundReservation = reservation;
+    }
+
+    private void releaseRoundReservation() {
+      ExclusiveGtpLifecycleReservation reservation = roundReservation;
+      roundReservation = null;
+      if (reservation != null) {
+        reservation.close();
+      }
+    }
+
+    private void completeAfterFence() {
+      if (state.get() != AutomaticRestartState.FENCE_PENDING) {
+        return;
+      }
+      if (engineStateUnrestored) {
+        completeReadBoardGmaRecoveryAfterBoardSync();
+      }
+      resumeClosedEngineAfterBoardSynchronization(resumePonder);
+      notifyCompletion();
+      state.compareAndSet(AutomaticRestartState.FENCE_PENDING, AutomaticRestartState.COMPLETED);
+    }
+
+    private void completeWithoutFence() {
+      if (state.get() != AutomaticRestartState.CONVERGING) {
+        return;
+      }
+      try {
+        notifyCompletion();
+        state.compareAndSet(AutomaticRestartState.CONVERGING, AutomaticRestartState.COMPLETED);
+      } catch (RuntimeException failure) {
+        failBeforeFence(
+            failure.getMessage() == null
+                ? "automatic engine restart completion failed"
+                : failure.getMessage());
+      } finally {
+        completionClaim.abandonBeforeFence();
+      }
+    }
+
+    private void failAfterFence(String detail) {
+      if (!state.compareAndSet(
+          AutomaticRestartState.FENCE_PENDING, AutomaticRestartState.FAILED)) {
+        return;
+      }
+      failCapturedEndpointsClosed();
+      markLifecycleBoardSynchronizationFailed(
+          detail, preserveUnrestoredState || engineStateUnrestored);
+      endBoardSynchronization();
+      notifyFailure(detail);
+      notifyCompletion();
+    }
+
+    private void failBeforeFence(String detail) {
+      AutomaticRestartState current = state.getAndSet(AutomaticRestartState.FAILED);
+      if (current == AutomaticRestartState.COMPLETED
+          || current == AutomaticRestartState.FAILED
+          || current == AutomaticRestartState.ABANDONED) {
+        return;
+      }
+      failCapturedEndpointsClosed();
+      releaseRoundReservation();
+      endBoardSynchronization();
+      markLifecycleBoardSynchronizationFailed(
+          detail, preserveUnrestoredState || engineStateUnrestored);
+      completionClaim.abandonBeforeFence();
+      notifyFailure(detail);
+      notifyCompletion();
+    }
+
+    private void failCapturedEndpointsClosed() {
+      isLoaded = false;
+      if (frozenMirror != null) {
+        frozenMirror.isLoaded = false;
+      }
+    }
+
+    private void abandon() {
+      if (!state.compareAndSet(AutomaticRestartState.RESERVED, AutomaticRestartState.ABANDONED)) {
+        return;
+      }
+      releaseRoundReservation();
+      endBoardSynchronization();
+      completionClaim.abandonBeforeFence();
+    }
+
+    private void endBoardSynchronization() {
+      if (!barriersEnded.compareAndSet(false, true)) {
+        return;
+      }
+      try {
+        endInitialBoardSynchronization();
+      } finally {
+        if (frozenMirror != null) {
+          frozenMirror.endInitialBoardSynchronization();
+        }
+      }
+    }
+
+    private void notifyFailure(String detail) {
+      Consumer<String> handler = failureHandler;
+      if (handler != null) {
+        handler.accept(detail);
+      }
+    }
+
+    private void notifyCompletion() {
+      Runnable completion = afterBoardRestore;
+      if (completion != null && completionNotified.compareAndSet(false, true)) {
+        completion.run();
+      }
+    }
+  }
+
+  /**
+   * Owner-identified lifecycle completion claim installed atomically on an authority and its
+   * frozen mirror. It owns final dual-leg fencing and holds endpoint exclusion through the owner
+   * callback, then releases both endpoints with identity-safe compare-and-clear.
+   */
+  static final class LifecycleCompletionClaim {
+    private final Leelaz authority;
+    private final Leelaz capturedMirror;
+    private final Object owner;
+    private final AtomicBoolean fenceStarted = new AtomicBoolean(false);
+    private final AtomicBoolean settled = new AtomicBoolean(false);
+    private int pendingBoardSyncCount;
+    private boolean fenceSuccessPending;
+    private Runnable deferredSuccess;
+    private Consumer<String> deferredFailure;
+
+    private LifecycleCompletionClaim(Leelaz authority, Object owner, Leelaz capturedMirror) {
+      this.authority = authority;
+      this.owner = owner;
+      this.capturedMirror = capturedMirror == authority ? null : capturedMirror;
+    }
+
+    private static LifecycleCompletionClaim tryAcquire(
+        Leelaz authority, Object owner, Leelaz capturedMirror) {
+      if (authority == null) {
+        throw new IllegalArgumentException("authority");
+      }
+      if (owner == null) {
+        throw new IllegalArgumentException("owner");
+      }
+      LifecycleCompletionClaim claim =
+          new LifecycleCompletionClaim(authority, owner, capturedMirror);
+      Leelaz mirror = claim.capturedMirror;
+      if (mirror == null) {
+        synchronized (authority.engineArbitrationLock()) {
+          return installLocked(claim) ? claim : null;
+        }
+      }
+      return withOrderedEndpointLocks(
+          authority, mirror, () -> installLocked(claim) ? claim : null);
+    }
+
+    private static <T> T withOrderedEndpointLocks(
+        Leelaz authority, Leelaz mirror, Supplier<T> action) {
+      int authorityOrder = System.identityHashCode(authority);
+      int mirrorOrder = System.identityHashCode(mirror);
+      if (authorityOrder == mirrorOrder) {
+        synchronized (LIFECYCLE_COMPLETION_PAIR_TIE_LOCK) {
+          return withEndpointLocks(authority, mirror, action);
+        }
+      }
+      return authorityOrder < mirrorOrder
+          ? withEndpointLocks(authority, mirror, action)
+          : withEndpointLocks(mirror, authority, action);
+    }
+
+    private static <T> T withEndpointLocks(Leelaz first, Leelaz second, Supplier<T> action) {
+      synchronized (first.engineArbitrationLock()) {
+        synchronized (second.engineArbitrationLock()) {
+          return action.get();
+        }
+      }
+    }
+
+    private static boolean installLocked(LifecycleCompletionClaim claim) {
+      if (claim.authority.lifecycleCompletionClaim != null
+          || claim.authority.hasConflictingExactSnapshotRestoreWorkLocked(claim.owner)
+          || (claim.capturedMirror != null
+              && (claim.capturedMirror.lifecycleCompletionClaim != null
+                  || claim.capturedMirror.hasConflictingExactSnapshotRestoreWorkLocked(
+                      claim.owner)))) {
+        return false;
+      }
+      claim.authority.lifecycleCompletionClaim = claim;
+      if (claim.capturedMirror != null) {
+        claim.capturedMirror.lifecycleCompletionClaim = claim;
+      }
+      return true;
+    }
+
+    Object owner() {
+      return owner;
+    }
+
+    Leelaz capturedMirror() {
+      return capturedMirror;
+    }
+    private void runAsCompletionFenceOwner(Runnable action) {
+      LifecycleCompletionClaim previous = lifecycleCompletionCommandContext.get();
+      lifecycleCompletionCommandContext.set(this);
+      try {
+        action.run();
+      } finally {
+        if (previous == null) {
+          lifecycleCompletionCommandContext.remove();
+        } else {
+          lifecycleCompletionCommandContext.set(previous);
+        }
+      }
+    }
+
+    BoardSyncCompletionLease acquireBoardSyncLease() {
+      synchronized (this) {
+        if (settled.get()) {
+          return null;
+        }
+        pendingBoardSyncCount++;
+        return new BoardSyncCompletionLease(this);
+      }
+    }
+
+    void confirmFinalBoardSynchronization(
+        Runnable onSuccess, Consumer<String> onFailure) {
+      if (!fenceStarted.compareAndSet(false, true)) {
+        throw new IllegalStateException("Lifecycle completion fence has already started");
+      }
+      try {
+        authority.confirmBoardSynchronization(
+            capturedMirror,
+            () -> settleSuccess(onSuccess, onFailure),
+            detail -> settleFailure(detail, onFailure));
+      } catch (RuntimeException failure) {
+        settleFailure(
+            failure.getMessage() == null
+                ? "lifecycle completion fence failed to start"
+                : failure.getMessage(),
+            onFailure);
+      }
+    }
+
+    boolean abandonBeforeFence() {
+      synchronized (this) {
+        if (fenceStarted.get() || !settled.compareAndSet(false, true)) {
+          return false;
+        }
+      }
+      releaseEndpoints();
+      return true;
+    }
+
+    private void settleSuccess(Runnable onSuccess, Consumer<String> onFailure) {
+      synchronized (this) {
+        if (settled.get() || fenceSuccessPending) {
+          return;
+        }
+        if (pendingBoardSyncCount > 0) {
+          fenceSuccessPending = true;
+          deferredSuccess = onSuccess;
+          deferredFailure = onFailure;
+          return;
+        }
+        settled.set(true);
+      }
+      finishSuccess(onSuccess, onFailure);
+    }
+
+    private void settleFailure(String detail, Consumer<String> onFailure) {
+      synchronized (this) {
+        if (settled.get()) {
+          return;
+        }
+        settled.set(true);
+        fenceSuccessPending = false;
+        deferredSuccess = null;
+        deferredFailure = null;
+      }
+      try {
+        if (onFailure != null) {
+          onFailure.accept(detail);
+        }
+      } finally {
+        releaseEndpoints();
+      }
+    }
+
+    private void releaseBoardSyncLease() {
+      Runnable success;
+      Consumer<String> failure;
+      synchronized (this) {
+        if (pendingBoardSyncCount <= 0) {
+          return;
+        }
+        pendingBoardSyncCount--;
+        if (pendingBoardSyncCount != 0 || !fenceSuccessPending || settled.get()) {
+          return;
+        }
+        settled.set(true);
+        fenceSuccessPending = false;
+        success = deferredSuccess;
+        failure = deferredFailure;
+        deferredSuccess = null;
+        deferredFailure = null;
+      }
+      finishSuccess(success, failure);
+    }
+
+    private void finishSuccess(Runnable onSuccess, Consumer<String> onFailure) {
+      try {
+        if (onSuccess != null) {
+          runAsCompletionFenceOwner(onSuccess);
+        }
+      } catch (RuntimeException failure) {
+        authority.isLoaded = false;
+        if (onFailure != null) {
+          runAsCompletionFenceOwner(
+              () ->
+                  onFailure.accept(
+                      failure.getMessage() == null
+                          ? "lifecycle completion callback failed"
+                          : failure.getMessage()));
+        } else {
+          throw failure;
+        }
+      } finally {
+        releaseEndpoints();
+      }
+    }
+
+    private void releaseEndpoints() {
+      Leelaz mirror = capturedMirror;
+      if (mirror == null) {
+        synchronized (authority.engineArbitrationLock()) {
+          clearLocked();
+        }
+        return;
+      }
+      withOrderedEndpointLocks(
+          authority,
+          mirror,
+          () -> {
+            clearLocked();
+            return null;
+          });
+    }
+
+    private void clearLocked() {
+      if (authority.lifecycleCompletionClaim == this) {
+        authority.lifecycleCompletionClaim = null;
+      }
+      if (capturedMirror != null && capturedMirror.lifecycleCompletionClaim == this) {
+        capturedMirror.lifecycleCompletionClaim = null;
+      }
+    }
+
+    static final class BoardSyncCompletionLease implements AutoCloseable {
+      private LifecycleCompletionClaim claim;
+
+      private BoardSyncCompletionLease(LifecycleCompletionClaim claim) {
+        this.claim = claim;
+      }
+
+      @Override
+      public void close() {
+        LifecycleCompletionClaim ownedClaim;
+        synchronized (this) {
+          ownedClaim = claim;
+          claim = null;
+        }
+        if (ownedClaim != null) {
+          ownedClaim.releaseBoardSyncLease();
+        }
+      }
     }
   }
 
@@ -10661,7 +11323,10 @@ public class Leelaz {
   private boolean beginReadBoardGmaSession(TrackingHandoffTarget target) {
     synchronized (engineArbitrationLock()) {
       synchronized (readBoardGmaLock()) {
-        if (isWebTrialEngineBusy() || engineStateUnrestored || readBoardGmaRestoreBarrier != null) {
+        if (isWebTrialEngineBusy()
+            || engineStateUnrestored
+            || hasLifecycleCompletionLocked()
+            || readBoardGmaRestoreBarrier != null) {
           return false;
         }
         if (readBoardGmaReservation != null) {
@@ -11054,27 +11719,46 @@ public class Leelaz {
       completion.run();
     }
   }
-
   void confirmBoardSynchronization(Runnable onSuccess, Consumer<String> onFailure) {
-    new BoardSynchronizationConfirmation(onSuccess, onFailure).start();
+    confirmBoardSynchronization(null, onSuccess, onFailure);
+  }
+
+  /**
+   * Fences the final restore point against the captured authority and, when a distinct captured
+   * mirror exists, against that exact mirror as well. Ready, ponder and analyze only follow after
+   * every leg acknowledges; any leg send failure, error response or timeout fails closed.
+  */
+  void confirmBoardSynchronization(Leelaz mirror, Runnable onSuccess, Consumer<String> onFailure) {
+    new BoardSynchronizationConfirmation(mirror, onSuccess, onFailure).start();
   }
 
   private interface BoardSynchronizationResponseHandler extends Runnable {}
 
   private final class BoardSynchronizationConfirmation {
+    private final Leelaz mirror;
     private final Runnable onSuccess;
     private final Consumer<String> onFailure;
     private final AtomicBoolean settled = new AtomicBoolean(false);
+    private final AtomicInteger remainingLegs;
+    private final AtomicBoolean authorityLegDispatched = new AtomicBoolean(false);
+    private final AtomicBoolean mirrorLegDispatched = new AtomicBoolean(false);
+    private final AtomicBoolean authorityLegConfirmed = new AtomicBoolean(false);
+    private final AtomicBoolean mirrorLegConfirmed = new AtomicBoolean(false);
     private final RestartBootstrapReceipt restartReceipt =
         restartBootstrapReceiptContext.get();
     private final Runnable responseHandler =
         (BoardSynchronizationResponseHandler) this::onResponse;
+    private final Runnable mirrorResponseHandler;
     private Timer timeout;
 
     private BoardSynchronizationConfirmation(
-        Runnable onSuccess, Consumer<String> onFailure) {
+        Leelaz mirror, Runnable onSuccess, Consumer<String> onFailure) {
+      this.mirror = mirror;
       this.onSuccess = onSuccess;
       this.onFailure = onFailure;
+      this.mirrorResponseHandler =
+          mirror == null ? null : (BoardSynchronizationResponseHandler) this::onMirrorResponse;
+      this.remainingLegs = new AtomicInteger(mirror == null ? 1 : 2);
     }
 
     private void start() {
@@ -11084,21 +11768,25 @@ public class Leelaz {
           new TimerTask() {
             @Override
             public void run() {
-              if (!settled.compareAndSet(false, true)) {
-                return;
-              }
-              try {
-                runFailure("board synchronization response timeout");
-              } finally {
-                retireTimedOutNormalCommand(responseHandler);
-              }
+              settleFailure("board synchronization response timeout");
             }
           };
       try {
+        authorityLegDispatched.set(true);
         sendCommand("name", responseHandler, this::onSendFailure, true, false);
       } catch (RuntimeException ex) {
         settleFailure(ex.getMessage());
         return;
+      }
+      if (mirror != null && !settled.get()) {
+        try {
+          mirrorLegDispatched.set(true);
+          mirror.sendCommand(
+              "name", mirrorResponseHandler, this::onMirrorSendFailure, true, false);
+        } catch (RuntimeException ex) {
+          settleFailure(ex.getMessage());
+          return;
+        }
       }
       if (!settled.get()) {
         scheduleBoardSynchronizationTimeout(
@@ -11110,28 +11798,91 @@ public class Leelaz {
     }
 
     private void onResponse() {
+      if (settled.get()) {
+        return;
+      }
+      if (isCurrentCommandResponseError()) {
+        settleFailure("board synchronization failed: " + currentCommandResponseLine());
+        return;
+      }
+      authorityLegConfirmed.set(true);
+      completeLeg();
+    }
+
+    private void onMirrorResponse() {
+      if (settled.get()) {
+        return;
+      }
+      if (mirror.isCurrentCommandResponseError()) {
+        settleFailure("board synchronization failed: " + mirror.currentCommandResponseLine());
+        return;
+      }
+      mirrorLegConfirmed.set(true);
+      completeLeg();
+    }
+
+    private void completeLeg() {
+      if (remainingLegs.decrementAndGet() != 0) {
+        return;
+      }
       if (!settled.compareAndSet(false, true)) {
         return;
       }
       cancelTimeout();
-      if (isCurrentCommandResponseError()) {
-        runFailure("board synchronization failed: " + currentCommandResponseLine());
-      } else if (onSuccess != null) {
+      if (onSuccess != null) {
         runWithRestartBootstrapReceipt(restartReceipt, onSuccess);
       }
     }
 
     private void onSendFailure(RuntimeException failure) {
-      settleFailure(
-          failure == null ? "board synchronization send failed" : failure.getMessage());
+      settleFailure(failure == null ? "board synchronization send failed" : failure.getMessage());
     }
 
+    private void onMirrorSendFailure(RuntimeException failure) {
+      settleFailure(
+          failure == null ? "board synchronization mirror send failed" : failure.getMessage());
+    }
+
+    /**
+     * Linearized failure settlement: atomically claim the settlement, then retire every
+     * dispatched leg handler, mark every captured endpoint that never confirmed unavailable, and
+     * only then invoke the failure callback so the completion gates release after all old
+     * handlers have retired.
+     */
     private void settleFailure(String detail) {
       if (!settled.compareAndSet(false, true)) {
         return;
       }
       cancelTimeout();
-      runFailure(detail);
+      try {
+        retireDispatchedLegs();
+      } finally {
+        markUnconfirmedCapturedEndpointsUnavailable();
+        runFailure(detail);
+      }
+    }
+
+    private void retireDispatchedLegs() {
+      if (authorityLegDispatched.get()) {
+        retireTimedOutNormalCommand(responseHandler);
+      }
+      if (mirror != null && mirrorLegDispatched.get()) {
+        mirror.retireTimedOutNormalCommand(mirrorResponseHandler);
+      }
+    }
+
+    /**
+     * Marks every captured endpoint that never acknowledged its fence unavailable. The failed
+     * endpoint is always unconfirmed; when no leg confirmed yet, the whole captured set fails
+     * closed atomically.
+     */
+    private void markUnconfirmedCapturedEndpointsUnavailable() {
+      if (!authorityLegConfirmed.get()) {
+        isLoaded = false;
+      }
+      if (mirror != null && !mirrorLegConfirmed.get()) {
+        mirror.isLoaded = false;
+      }
     }
 
     private void runFailure(String detail) {
@@ -11555,6 +12306,7 @@ public class Leelaz {
 
   public void analyzeAvoid(
       String type, String coordList, int untilMove, boolean addPlayer, boolean blackToPlay) {
+    if (shouldRejectCommandDuringLifecycleCompletion()) return;
     bestMoves = new ArrayList<>();
     currentTotalPlayouts = 0;
     if (!isPondering) {
@@ -11586,7 +12338,7 @@ public class Leelaz {
   }
 
   public void analyzeAvoid(String parameters) {
-    bestMoves = new ArrayList<>();
+    if (shouldRejectCommandDuringLifecycleCompletion()) return;
     currentTotalPlayouts = 0;
     if (!isPondering) {
       isPondering = true;
@@ -11610,6 +12362,10 @@ public class Leelaz {
   }
 
   public void ponder(boolean addPlayer, boolean blackToPlay) {
+    if (shouldRejectCommandDuringLifecycleCompletion()) {
+      YikeSyncDebugLog.log("Leelaz ponder deferred: lifecycle completion pending");
+      return;
+    }
     if (noAnalyze) return;
     if (isInitialBoardSynchronizationActive()) {
       YikeSyncDebugLog.log("Leelaz ponder deferred: initial board synchronization active");

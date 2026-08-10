@@ -58,12 +58,27 @@ public final class ExactSnapshotEngineRestore {
 
   public static Optional<PreparedRestore> prepare(
       Leelaz.ExactSnapshotRestoreAdmission admission, BoardHistoryNode target) {
-    return RestorePlan.capture(admission, target).map(PreparedRestore::new);
+    try {
+      Optional<PreparedRestore> prepared =
+          RestorePlan.capture(admission, target).map(PreparedRestore::new);
+      if (prepared.isEmpty()) {
+        admission.completeBoardSync();
+      }
+      return prepared;
+    } catch (RuntimeException failure) {
+      admission.completeBoardSync();
+      throw failure;
+    }
   }
 
   public static PreparedRestore prepareCurrentPosition(
       Leelaz.ExactSnapshotRestoreAdmission admission, BoardData positionData) {
-    return new PreparedRestore(RestorePlan.capture(admission, positionData));
+    try {
+      return new PreparedRestore(RestorePlan.capture(admission, positionData));
+    } catch (RuntimeException failure) {
+      admission.completeBoardSync();
+      throw failure;
+    }
   }
 
   private static void validateCurrentPosition(BoardData sourceData) {
@@ -140,6 +155,7 @@ public final class ExactSnapshotEngineRestore {
       return new Completion();
     } finally {
       lifecycle.finishTailReplay();
+      plan.admission.completeBoardSync();
     }
   }
 

@@ -43,6 +43,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
   void restoreAfterEngineSwitchRestartsOnlyThePausedEngine() throws Exception {
     Config previousConfig = Lizzie.config;
     Leelaz previousEngine = Lizzie.leelaz;
+    Board previousBoard = Lizzie.board;
     EngineManager previousManager = Lizzie.engineManager;
     LizzieFrame previousFrame = Lizzie.frame;
     boolean previousEmpty = EngineManager.isEmpty;
@@ -54,6 +55,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     RecordingBenchmarkLeelaz selectedEngine = new RecordingBenchmarkLeelaz();
     try {
       Lizzie.config = config;
+      Lizzie.board = null;
       Lizzie.leelaz = pausedEngine;
       Lizzie.engineManager = engineManager(List.of(pausedEngine, selectedEngine));
       Lizzie.frame = null;
@@ -68,6 +70,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.leelaz = selectedEngine;
       EngineManager.currentEngineNo = 1;
       KataGoRuntimeHelper.restoreAnalysisAfterBenchmark(false);
+      awaitRestartSettlement(pausedEngine);
 
       assertEquals(1, pausedEngine.restartCount);
       assertEquals(0, pausedEngine.lastRestartIndex);
@@ -82,6 +85,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       }
       Lizzie.config = previousConfig;
       Lizzie.leelaz = previousEngine;
+      Lizzie.board = previousBoard;
       Lizzie.engineManager = previousManager;
       Lizzie.frame = previousFrame;
       EngineManager.isEmpty = previousEmpty;
@@ -108,6 +112,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       assertEquals(2, pausedEngine.reservationAttempts);
       assertEquals(1, pausedEngine.restartCount);
       assertEquals(0, pausedEngine.lastRestartIndex);
+      awaitRestartSettlement(pausedEngine);
       assertFalse(pausedEngine.hasExclusiveGtpWorkInProgress());
     }
   }
@@ -151,11 +156,29 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       KataGoRuntimeHelper.restoreAnalysisAfterBenchmark(pause.analysisWasPondering());
 
       assertTrue(board.restoreCompleted.await(2, TimeUnit.SECONDS));
+      awaitRestartSettlement(engine);
       assertTrue(board.preparedRestoreReceived);
       assertFalse(board.genericRestoreReceived);
       assertNull(board.restoreFailure.get());
-      assertTrue(engine.loadedSgf.contains("AB[aa]"), engine.loadedSgf);
-      assertTrue(engine.loadedSgf.contains("KM[6.5]"), engine.loadedSgf);
+      assertEquals(2, engine.loadedSgfs.size(), engine.loadedSgfs.toString());
+      assertTrue(engine.loadedSgfs.get(0).contains("AB[aa]"), engine.loadedSgfs.toString());
+      assertTrue(engine.loadedSgfs.get(0).contains("KM[6.5]"), engine.loadedSgfs.toString());
+      String catchUpSgf = engine.loadedSgfs.get(1);
+      assertFalse(catchUpSgf.contains("AB[aa]"), engine.loadedSgfs.toString());
+      assertTrue(catchUpSgf.contains("AW[ba]"), engine.loadedSgfs.toString());
+      assertTrue(catchUpSgf.contains("KM[7.5]"), engine.loadedSgfs.toString());
+      List<String> restoreCommands = engine.transport.commands();
+      assertEquals(
+          2,
+          restoreCommands.stream().filter(command -> command.equals("play B C1")).count(),
+          restoreCommands.toString());
+      assertTrue(
+          restoreCommands.lastIndexOf("play B C1")
+              > lastCommandIndexStartingWith(restoreCommands, "loadsgf "),
+          restoreCommands.toString());
+      Leelaz.EngineModeReservation nextReservation = engine.beginEngineModeReservation();
+      assertNotNull(nextReservation);
+      nextReservation.close();
     } finally {
       if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
         KataGoRuntimeHelper.restoreAnalysisAfterBenchmark(false);
@@ -246,7 +269,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       assertFalse(KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed());
       assertEquals(2, pausedEngine.reservationAttempts);
       assertEquals(0, pausedEngine.restartCount);
-      assertNull(pausedEngine.pendingRestartCompletion.get());
+      awaitRestartSettlement(pausedEngine);
       assertFalse(pausedEngine.hasExclusiveGtpWorkInProgress());
     }
   }
@@ -302,6 +325,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
         assertFalse(KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed());
         assertEquals(2, pausedEngine.reservationAttempts);
         assertEquals(0, pausedEngine.restartCount);
+        awaitRestartSettlement(pausedEngine);
         assertFalse(pausedEngine.hasExclusiveGtpWorkInProgress());
       } finally {
         pausedEngine.reservationGate.countDown();
@@ -323,7 +347,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       assertFalse(KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed());
       assertEquals(2, pausedEngine.reservationAttempts);
       assertEquals(1, pausedEngine.restartCount);
-      assertNull(pausedEngine.pendingRestartCompletion.get());
+      awaitRestartSettlement(pausedEngine);
       assertFalse(pausedEngine.hasExclusiveGtpWorkInProgress());
       Leelaz.EngineModeReservation nextReservation = pausedEngine.beginEngineModeReservation();
       assertNotNull(nextReservation);
@@ -332,7 +356,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
   }
 
   @Test
-  void asynchronousRestartKeepsReservationUntilExistingCompletionCallback() throws Exception {
+  void asynchronousRestartKeepsCompletionClaimUntilFinalFence() throws Exception {
     try (BenchmarkEnvironment environment = new BenchmarkEnvironment(1)) {
       RecordingBenchmarkLeelaz pausedEngine = environment.engine(0);
       pausedEngine.deferRestartCompletion = true;
@@ -342,12 +366,15 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
 
       assertFalse(KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed());
       assertEquals(1, pausedEngine.restartCount);
-      assertNotNull(pausedEngine.pendingRestartCompletion.get());
-      assertTrue(pausedEngine.hasExclusiveGtpWorkInProgress());
+      pausedEngine.awaitDeferredRestartFence();
+      assertTrue(
+          pausedEngine.hasExclusiveGtpWorkInProgress(),
+          pausedEngine.restartTransport.rawCommands().toString());
       assertNull(pausedEngine.beginEngineModeReservation());
 
       pausedEngine.completeDeferredRestart();
 
+      awaitRestartSettlement(pausedEngine);
       assertFalse(pausedEngine.hasExclusiveGtpWorkInProgress());
       Leelaz.EngineModeReservation nextReservation = pausedEngine.beginEngineModeReservation();
       assertNotNull(nextReservation);
@@ -591,6 +618,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     private final Config previousConfig = Lizzie.config;
     private final Leelaz previousEngine = Lizzie.leelaz;
     private final EngineManager previousManager = Lizzie.engineManager;
+    private final Board previousBoard = Lizzie.board;
     private final LizzieFrame previousFrame = Lizzie.frame;
     private final boolean previousEmpty = EngineManager.isEmpty;
     private final boolean previousEngineGame = EngineManager.isEngineGame;
@@ -608,6 +636,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.config = config;
       Lizzie.engineManager = manager;
       Lizzie.frame = null;
+      Lizzie.board = null;
       EngineManager.isEmpty = false;
       EngineManager.isEngineGame = false;
       select(0);
@@ -632,7 +661,11 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
         KataGoRuntimeHelper.restoreAnalysisAfterBenchmark(false);
       }
+      for (RecordingBenchmarkLeelaz engine : engines) {
+        awaitRestartSettlement(engine);
+      }
       Lizzie.config = previousConfig;
+      Lizzie.board = previousBoard;
       Lizzie.leelaz = previousEngine;
       Lizzie.engineManager = previousManager;
       Lizzie.frame = previousFrame;
@@ -645,7 +678,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
   private static final class RecordingBenchmarkLeelaz extends Leelaz {
     private CountDownLatch reservationEntered = new CountDownLatch(1);
     private final CountDownLatch restartEntered = new CountDownLatch(1);
-    private final AtomicReference<Runnable> pendingRestartCompletion = new AtomicReference<>();
     private CountDownLatch reservationGate;
     private CountDownLatch restartGate;
     private boolean rejectReservation;
@@ -658,6 +690,7 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     private int shutdownCount;
     private int ponderingCallCount;
     private boolean processDead;
+    private volatile ExactSnapshotRestoreProtocolFixture.Transport restartTransport;
 
     private RecordingBenchmarkLeelaz() throws Exception {
       super("");
@@ -678,11 +711,11 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     }
 
     @Override
-    public ExclusiveGtpLifecycleReservation beginAutomaticEngineRestartReservation() {
+    public AutomaticRestartAttempt beginAutomaticEngineRestartAttempt() {
       reservationAttempts++;
       reservationEntered.countDown();
       await(reservationGate);
-      return rejectReservation ? null : super.beginAutomaticEngineRestartReservation();
+      return rejectReservation ? null : super.beginAutomaticEngineRestartAttempt();
     }
 
     @Override
@@ -710,32 +743,73 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     }
 
     @Override
-    public void restartClosedEngine(int index) {
+    public void startEngine(int index) {
       restartCount++;
       lastRestartIndex = index;
       processDead = false;
-    }
-
-    @Override
-    public void restartClosedEngine(int index, Runnable afterBoardRestore) throws IOException {
-      restartClosedEngine(index);
       restartEntered.countDown();
       await(restartGate);
       if (throwBeforeRestartScheduling) {
-        throw new IOException("controlled restart failure before scheduling");
+        throw new IllegalStateException("controlled restart failure before scheduling");
       }
-      if (deferRestartCompletion) {
-        pendingRestartCompletion.set(afterBoardRestore);
-      } else if (afterBoardRestore != null) {
-        afterBoardRestore.run();
+      if (Lizzie.frame == null) {
+        try {
+          Lizzie.frame = allocate(LizzieFrame.class);
+        } catch (Exception failure) {
+          throw new IllegalStateException(failure);
+        }
       }
+      restartTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              this,
+              command -> {
+                if ("name".equals(command)) {
+                  return deferRestartCompletion
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.error(
+                          "controlled benchmark fence settlement");
+                }
+                return ExactSnapshotRestoreProtocolFixture.Response.success();
+              });
+      started = true;
+      isLoaded = true;
+      isCheckingName = false;
+      isNormalEnd = false;
+      setCapabilityDiscoveryComplete(this, true);
     }
 
-    private void completeDeferredRestart() {
-      Runnable completion = pendingRestartCompletion.getAndSet(null);
-      assertNotNull(completion);
-      completion.run();
+    private void awaitDeferredRestartFence() throws Exception {
+      ExactSnapshotRestoreProtocolFixture.Transport transport = restartTransport;
+      long transportDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (transport == null && System.nanoTime() < transportDeadline) {
+        Thread.sleep(10L);
+        transport = restartTransport;
+      }
+      assertNotNull(transport);
+      long commandDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (System.nanoTime() < commandDeadline) {
+        if (transport.rawCommands().stream()
+            .anyMatch(command -> command.endsWith(" name") || "name".equals(command))) {
+          return;
+        }
+        Thread.sleep(10L);
+      }
+      throw new AssertionError(transport.rawCommands().toString());
     }
+
+    private void completeDeferredRestart() throws Exception {
+      awaitDeferredRestartFence();
+      ExactSnapshotRestoreProtocolFixture.Transport transport = restartTransport;
+      String rawName =
+          transport.rawCommands().stream()
+              .filter(command -> command.endsWith(" name") || "name".equals(command))
+              .findFirst()
+              .orElseThrow();
+      int split = rawName.indexOf(' ');
+      String commandId = split > 0 ? rawName.substring(0, split) : "";
+      processCommandResponse(this, "?" + commandId + " controlled benchmark fence settlement");
+    }
+
 
     private static void await(CountDownLatch gate) {
       if (gate == null) {
@@ -754,7 +828,8 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     private Runnable mutateOnReservation;
     private Runnable mutateOnPonder;
     private Runnable mutateOnStart;
-    private String loadedSgf = "";
+    private final List<String> loadedSgfs = new ArrayList<>();
+    private ExactSnapshotRestoreProtocolFixture.Transport transport;
 
     private PreparedBenchmarkLeelaz() throws Exception {
       super("controlled-engine");
@@ -763,23 +838,23 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     }
 
     private void installProtocol() {
-      ExactSnapshotRestoreProtocolFixture.install(
-          this,
-          command -> {
-            if (command.startsWith("loadsgf ")) {
-              loadedSgf =
-                  Files.readString(Path.of(command.substring("loadsgf ".length()).trim()));
-            }
-            return ExactSnapshotRestoreProtocolFixture.Response.success();
-          });
+      transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              this,
+              command -> {
+                if (command.startsWith("loadsgf ")) {
+                  loadedSgfs.add(
+                      Files.readString(Path.of(command.substring("loadsgf ".length()).trim())));
+                }
+                return ExactSnapshotRestoreProtocolFixture.Response.success();
+              });
     }
 
     @Override
-    public ExclusiveGtpLifecycleReservation beginAutomaticEngineRestartReservation() {
-      ExclusiveGtpLifecycleReservation reservation =
-          super.beginAutomaticEngineRestartReservation();
+    public AutomaticRestartAttempt beginAutomaticEngineRestartAttempt() {
+      AutomaticRestartAttempt attempt = super.beginAutomaticEngineRestartAttempt();
       runMutation(() -> mutateOnReservation);
-      return reservation;
+      return attempt;
     }
 
     @Override
@@ -943,6 +1018,39 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     field.setAccessible(true);
     field.set(engine, new BufferedOutputStream(output));
     return output;
+  }
+
+  private static void awaitRestartSettlement(Leelaz engine) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (engine.hasExclusiveGtpWorkInProgress() && System.nanoTime() < deadline) {
+      try {
+        Thread.sleep(10L);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError(interrupted);
+      }
+    }
+    assertFalse(engine.hasExclusiveGtpWorkInProgress());
+  }
+
+  private static int lastCommandIndexStartingWith(List<String> commands, String prefix) {
+    int last = -1;
+    for (int index = 0; index < commands.size(); index++) {
+      if (commands.get(index).startsWith(prefix)) {
+        last = index;
+      }
+    }
+    return last;
+  }
+
+  private static void setCapabilityDiscoveryComplete(Leelaz engine, boolean complete) {
+    try {
+      Field field = Leelaz.class.getDeclaredField("endGetCommandList");
+      field.setAccessible(true);
+      field.set(engine, complete);
+    } catch (ReflectiveOperationException failure) {
+      throw new IllegalStateException(failure);
+    }
   }
 
   private static boolean dispatchExclusiveLine(Leelaz engine, String line) throws Exception {

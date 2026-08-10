@@ -117,6 +117,14 @@ class SnapshotTrackingLeelaz extends Leelaz {
   }
 
   @Override
+  void resumeClosedEngineAfterBoardSynchronization(boolean resumePonder) {
+    isLoaded = true;
+    if (resumePonder) {
+      ponder();
+    }
+  }
+
+  @Override
   public void clear() {
     clearCount++;
     ponderCount = 0;

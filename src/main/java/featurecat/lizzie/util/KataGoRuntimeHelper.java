@@ -2548,7 +2548,7 @@ public final class KataGoRuntimeHelper {
     boolean pausedEngineByShutdown;
     boolean restartQuickAnalysisPreload;
     boolean restartEstimatePreload;
-    Leelaz.ExclusiveGtpLifecycleReservation reservation = null;
+    Leelaz.AutomaticRestartAttempt restartAttempt = null;
     synchronized (BENCHMARK_ANALYSIS_PAUSE_LOCK) {
       if (benchmarkPreviousShowPonderTips != null && Lizzie.config != null) {
         Lizzie.config.showPonderLimitedTips = benchmarkPreviousShowPonderTips.booleanValue();
@@ -2561,11 +2561,11 @@ public final class KataGoRuntimeHelper {
       restartEstimatePreload = benchmarkRestartEstimatePreload;
       if (pausedEngineByShutdown
           && benchmarkPausedEngineIdentityMatchesLocked(pausedEngine, pausedEngineIndex)) {
-        reservation = pausedEngine.beginAutomaticEngineRestartReservation();
-        if (reservation != null
+        restartAttempt = pausedEngine.beginAutomaticEngineRestartAttempt();
+        if (restartAttempt != null
             && !benchmarkPausedEngineIdentityMatchesLocked(pausedEngine, pausedEngineIndex)) {
-          reservation.close();
-          reservation = null;
+          restartAttempt.close();
+          restartAttempt = null;
         }
       }
       benchmarkPausedEngine = null;
@@ -2580,27 +2580,19 @@ public final class KataGoRuntimeHelper {
     }
     restartAuxiliaryComputeAfterBenchmark(restartQuickAnalysisPreload, restartEstimatePreload);
     if (pausedEngineByShutdown) {
-      if (reservation == null) {
+      if (restartAttempt == null) {
         return;
       }
-      AtomicBoolean reservationClosed = new AtomicBoolean(false);
-      Leelaz.ExclusiveGtpLifecycleReservation acquiredReservation = reservation;
-      Runnable closeReservation =
-          () -> {
-            if (reservationClosed.compareAndSet(false, true)) {
-              acquiredReservation.close();
-            }
-          };
       try {
         if (analysisWasPondering) {
           pausedEngine.Pondering();
         } else {
           pausedEngine.notPondering();
         }
-        pausedEngine.restartClosedEngine(pausedEngineIndex, closeReservation);
+        restartAttempt.restartClosedEngine(pausedEngineIndex);
         return;
       } catch (Exception e) {
-        closeReservation.run();
+        restartAttempt.close();
         return;
       }
     }

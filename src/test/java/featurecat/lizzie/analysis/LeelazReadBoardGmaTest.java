@@ -1971,36 +1971,39 @@ class LeelazReadBoardGmaTest {
   }
 
   @Test
-  void automaticRestartKeepsReservationUntilBoardFenceIsAcknowledged() throws Exception {
+  void automaticRestartRejectsDuplicateUntilBoardFenceIsAcknowledged() throws Exception {
     try (Harness harness = Harness.open()) {
       ReadyAutomaticRestartLeelaz engine = new ReadyAutomaticRestartLeelaz();
       configureReadyReadBoardGmaEngine(engine);
       Lizzie.leelaz = engine;
       RecordingOutputStream output = new RecordingOutputStream();
       setOutputStream(engine, output);
-      Leelaz.ExclusiveGtpLifecycleReservation reservation =
-          engine.beginAutomaticEngineRestartReservation();
-      assertTrue(reservation != null);
+      Leelaz.AutomaticRestartAttempt attempt =
+          engine.beginAutomaticEngineRestartAttempt();
+      assertTrue(attempt != null);
       CountDownLatch completed = new CountDownLatch(1);
 
-      engine.restartClosedEngine(
-          0,
-          () -> {
-            reservation.close();
-            completed.countDown();
-          });
+      attempt.restartClosedEngine(0, completed::countDown);
 
       assertTrue(waitForRawCommand(output, "name", 1, TimeUnit.SECONDS));
 
       assertThrows(
           IllegalStateException.class,
           () -> engine.restartClosedEngine(0),
-          "a second restart caller must not fall back to a generic root replay while the first reservation is live");
+          "a second restart caller must not fall back to a generic root replay while the first attempt is live");
       assertEquals(
           1,
           output.commands().stream().filter("name"::equals).count(),
           "a rejected duplicate restart must not start a second engine lifecycle");
-      assertEquals(null, engine.beginEngineModeReservation());
+      assertFalse(
+          engine.hasExclusiveGtpLifecycleTransitionForTest(),
+          "the round reservation must be released before the stable frame recheck");
+      assertTrue(
+          engine.hasExclusiveGtpWorkInProgress(),
+          "the completion claim must keep work in progress while the final fence is pending");
+      assertNull(
+          engine.beginEngineModeReservation(),
+          "unrelated engine-mode owners must be rejected while the final fence is pending");
       assertFalse(completed.await(50, TimeUnit.MILLISECONDS));
       invokeProcessCommandResponseLine(engine, numberedResponseFor(output.rawCommands(), "name"));
       assertTrue(completed.await(1, TimeUnit.SECONDS));
@@ -2019,18 +2022,13 @@ class LeelazReadBoardGmaTest {
       Lizzie.leelaz = engine;
       RecordingOutputStream output = new RecordingOutputStream();
       setOutputStream(engine, output);
-      Leelaz.ExclusiveGtpLifecycleReservation reservation =
-          engine.beginAutomaticEngineRestartReservation();
-      assertTrue(reservation != null);
+      Leelaz.AutomaticRestartAttempt attempt =
+          engine.beginAutomaticEngineRestartAttempt();
+      assertTrue(attempt != null);
       engine.notPondering();
       CountDownLatch completed = new CountDownLatch(1);
 
-      engine.restartClosedEngine(
-          0,
-          () -> {
-            reservation.close();
-            completed.countDown();
-          });
+      attempt.restartClosedEngine(0, completed::countDown);
 
       assertTrue(waitForRawCommand(output, "name", 1, TimeUnit.SECONDS));
       assertFalse(output.commands().stream().anyMatch(command -> command.startsWith("kata-analyze")));
@@ -2044,7 +2042,7 @@ class LeelazReadBoardGmaTest {
     }
   }
   @Test
-  void directRestartExactRestoreKeepsReservationAndPonderUntilBoardFence() throws Exception {
+  void directRestartReleasesRoundReservationBeforeBoardFenceAndDefersPonder() throws Exception {
     try (Harness harness = Harness.open()) {
       ReadyAutomaticRestartPonderLeelaz engine = new ReadyAutomaticRestartPonderLeelaz();
       configureReadyReadBoardGmaEngine(engine);
@@ -2068,7 +2066,12 @@ class LeelazReadBoardGmaTest {
       assertFalse(
           transport.commands().stream().anyMatch(command -> command.startsWith("kata-analyze")));
       assertFalse(completed.await(50, TimeUnit.MILLISECONDS));
-      assertEquals(null, engine.beginEngineModeReservation());
+      assertFalse(
+          engine.hasExclusiveGtpLifecycleTransitionForTest(),
+          "the round reservation must be released before the stable frame recheck");
+      assertNull(
+          engine.beginEngineModeReservation(),
+          "unrelated engine-mode owners must be rejected while the final fence is pending");
 
       invokeProcessCommandResponseLine(
           engine, numberedResponseFor(transport.rawCommands(), "name"));
@@ -2133,10 +2136,12 @@ class LeelazReadBoardGmaTest {
       assertFalse(
           output.commands().stream().anyMatch(command -> command.startsWith("kata-analyze")),
           "Analysis must not start before the board synchronization fence is acknowledged.");
-      assertEquals(
-          null,
+      assertFalse(
+          engine.hasExclusiveGtpLifecycleTransitionForTest(),
+          "direct restart must release the restore reservation before stable publication");
+      assertNull(
           engine.beginEngineModeReservation(),
-          "direct restart must retain its lifecycle identity through board synchronization.");
+          "unrelated engine-mode owners must be rejected while the final fence is pending");
 
       invokeProcessCommandResponseLine(engine, numberedResponseFor(output.rawCommands(), "name"));
 
@@ -2184,7 +2189,12 @@ class LeelazReadBoardGmaTest {
           output.commands().toString());
       assertTrue(engine.isLoaded());
       assertFalse(engine.hasUnrestoredReadBoardGmaState());
-      assertEquals(null, engine.beginEngineModeReservation());
+      assertFalse(
+          engine.hasExclusiveGtpLifecycleTransitionForTest(),
+          "the round reservation must be released before the stable frame recheck");
+      assertNull(
+          engine.beginEngineModeReservation(),
+          "unrelated engine-mode owners must be rejected while the final fence is pending");
       invokeProcessCommandResponseLine(engine, numberedResponseFor(output.rawCommands(), "name"));
       assertTrue(completed.await(1, TimeUnit.SECONDS));
       Leelaz.EngineModeReservation afterRestart = engine.beginEngineModeReservation();
@@ -2194,21 +2204,17 @@ class LeelazReadBoardGmaTest {
   }
 
   @Test
-  void automaticRestartReadinessTimeoutReleasesReservationForManualRecovery() throws Exception {
+  void automaticRestartReadinessTimeoutReleasesReservationWithoutCreatingGmaQuarantine()
+      throws Exception {
     try (Harness harness = Harness.open()) {
       TimeoutAutomaticRestartLeelaz engine = new TimeoutAutomaticRestartLeelaz();
       Lizzie.leelaz = engine;
-      Leelaz.ExclusiveGtpLifecycleReservation reservation =
-          engine.beginAutomaticEngineRestartReservation();
-      assertTrue(reservation != null);
+      Leelaz.AutomaticRestartAttempt attempt =
+          engine.beginAutomaticEngineRestartAttempt();
+      assertTrue(attempt != null);
       CountDownLatch completed = new CountDownLatch(1);
 
-      engine.restartClosedEngine(
-          0,
-          () -> {
-            reservation.close();
-            completed.countDown();
-          });
+      attempt.restartClosedEngine(0, completed::countDown);
 
       boolean completedBeforeControlledRelease =
           completed.await(250, TimeUnit.MILLISECONDS);
@@ -2219,12 +2225,51 @@ class LeelazReadBoardGmaTest {
       }
       assertTrue(completedBeforeControlledRelease);
       assertFalse(engine.isLoaded());
-      assertTrue(engine.hasUnrestoredReadBoardGmaState());
+      assertFalse(
+          engine.hasUnrestoredReadBoardGmaState(),
+          "an ordinary lifecycle readiness timeout must not create a ReadBoard GMA quarantine");
       Leelaz.ExclusiveGtpLifecycleReservation manualRecovery =
           engine.beginExclusiveGtpLifecycleReservation();
       assertTrue(manualRecovery != null);
       manualRecovery.close();
     }
+  }
+
+  @Test
+  void automaticRestartReadinessTimeoutPreservesPreexistingGmaQuarantine() throws Exception {
+    try (Harness harness = Harness.open()) {
+      TimeoutAutomaticRestartLeelaz engine = new TimeoutAutomaticRestartLeelaz();
+      Lizzie.leelaz = engine;
+      setEngineStateUnrestored(engine, true);
+      CountDownLatch completed = new CountDownLatch(1);
+
+      engine.restartClosedEngine(0, completed::countDown);
+
+
+      boolean completedBeforeControlledRelease =
+          completed.await(250, TimeUnit.MILLISECONDS);
+      if (!completedBeforeControlledRelease) {
+        engine.isCheckingName = false;
+        engine.isLoaded = true;
+        completed.await(1, TimeUnit.SECONDS);
+      }
+      assertTrue(completedBeforeControlledRelease);
+      assertFalse(engine.isLoaded());
+      assertTrue(
+          engine.hasUnrestoredReadBoardGmaState(),
+          "a preexisting ReadBoard GMA quarantine must survive an automatic restart readiness"
+              + " timeout");
+      Leelaz.ExclusiveGtpLifecycleReservation manualRecovery =
+          engine.beginExclusiveGtpLifecycleReservation();
+      assertTrue(manualRecovery != null);
+      manualRecovery.close();
+    }
+  }
+
+  private static void setEngineStateUnrestored(Leelaz engine, boolean value) throws Exception {
+    Field field = Leelaz.class.getDeclaredField("engineStateUnrestored");
+    field.setAccessible(true);
+    field.setBoolean(engine, value);
   }
 
   @Test
