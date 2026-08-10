@@ -871,6 +871,215 @@ class EngineManagerLifecycleReservationTest {
   }
 
   @Test
+  void pkRestartCatchesUpNavigationBeforeFinalFenceAndAnalysis() throws Exception {
+    Leelaz previousEngine = Lizzie.leelaz;
+    Board previousBoard = Lizzie.board;
+    LizzieFrame previousFrame = Lizzie.frame;
+    Config previousConfig = Lizzie.config;
+    EngineGameInfo previousEngineGameInfo = EngineManager.engineGameInfo;
+    boolean previousEmpty = EngineManager.isEmpty;
+    int previousEngineNo = EngineManager.currentEngineNo;
+    PkRestoreLeelaz engine = new PkRestoreLeelaz();
+    PreparedRestoreBoard board = preparedRestoreBoard(2);
+    try {
+      Config config = allocate(Config.class);
+      config.extraMode = ExtraMode.Normal;
+      Lizzie.config = config;
+      Lizzie.frame = allocate(SilentSwitchFrame.class);
+      Lizzie.leelaz = engine;
+      Lizzie.board = board;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.engineGameInfo = new EngineGameInfo();
+      EngineManager.engineGameInfo.isGenmove = false;
+      engine.isLoaded = true;
+      engine.blockRestore = true;
+      engine.deferBoardSynchronizationCompletion = true;
+      new EngineManager(List.of(engine)).restartEngineForPk(0);
+
+      assertTrue(engine.restoreEntered.await(2, TimeUnit.SECONDS));
+      assertTrue(board.nextMove(false));
+      engine.allowRestore.countDown();
+      assertTrue(board.restoreCompleted.await(2, TimeUnit.SECONDS));
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (engine.restoreCount < 2 && System.nanoTime() < deadline) {
+        Thread.sleep(10L);
+      }
+      assertTrue(engine.restoreCount >= 2, "navigation must trigger a PK catch-up restore");
+      assertEquals(0, engine.ponderCount, "analysis waits for the final response fence");
+      assertNotNull(engine.pendingBoardSynchronizationCompletion);
+      engine.pendingBoardSynchronizationCompletion.run();
+      assertEquals(1, engine.ponderCount, "PK analysis starts after the final fence");
+    } finally {
+      engine.allowRestore.countDown();
+      Lizzie.leelaz = previousEngine;
+      Lizzie.board = previousBoard;
+      Lizzie.frame = previousFrame;
+      Lizzie.config = previousConfig;
+      EngineManager.isEmpty = previousEmpty;
+      EngineManager.currentEngineNo = previousEngineNo;
+      EngineManager.engineGameInfo = previousEngineGameInfo;
+    }
+  }
+
+  @Test
+  void pkStartCatchesUpNavigationDuringFinalFenceBeforePublishingCompletion()
+      throws Exception {
+    Leelaz previousEngine = Lizzie.leelaz;
+    Board previousBoard = Lizzie.board;
+    LizzieFrame previousFrame = Lizzie.frame;
+    Config previousConfig = Lizzie.config;
+    boolean previousEmpty = EngineManager.isEmpty;
+    int previousEngineNo = EngineManager.currentEngineNo;
+    PkRestoreLeelaz engine = new PkRestoreLeelaz();
+    PreparedRestoreBoard board = preparedRestoreBoard(2);
+    try {
+      Config config = allocate(Config.class);
+      config.extraMode = ExtraMode.Normal;
+      Lizzie.config = config;
+      Lizzie.frame = allocate(SilentSwitchFrame.class);
+      Lizzie.leelaz = engine;
+      Lizzie.board = board;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      engine.started = true;
+      engine.isLoaded = true;
+      engine.width = 19;
+      engine.height = 19;
+      engine.deferBoardSynchronizationCompletion = true;
+      EngineManager manager = new EngineManager(List.of(engine));
+
+      EngineManager.PkEngineSynchronization completion =
+          manager.startEngineForPkSynchronization(0);
+
+      assertTrue(board.restoreCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(engine.isLoaded(), "engine readiness precedes lifecycle convergence");
+      assertFalse(completion.isComplete(), "PK workflow must remain gated on the final fence");
+      long firstFenceDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (engine.pendingBoardSynchronizationCompletion == null
+          && System.nanoTime() < firstFenceDeadline) {
+        Thread.sleep(10L);
+      }
+      Runnable firstFence = engine.pendingBoardSynchronizationCompletion;
+      assertNotNull(firstFence);
+
+      assertTrue(board.nextMove(false));
+      firstFence.run();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while ((engine.restoreCount < 2
+              || engine.pendingBoardSynchronizationCompletion == firstFence)
+          && System.nanoTime() < deadline) {
+        Thread.sleep(10L);
+      }
+      assertTrue(engine.restoreCount >= 2, "fence-time navigation must trigger catch-up");
+      assertFalse(completion.isComplete(), "completion waits for the catch-up response fence");
+
+      Runnable catchUpFence = engine.pendingBoardSynchronizationCompletion;
+      assertNotNull(catchUpFence);
+      assertTrue(catchUpFence != firstFence);
+      catchUpFence.run();
+      assertTrue(completion.await());
+      Leelaz.ExclusiveGtpLifecycleReservation reservation =
+          engine.beginExclusiveGtpLifecycleReservation();
+      assertNotNull(reservation, "completion publishes only after endpoint claims are released");
+      reservation.close();
+    } finally {
+      Lizzie.leelaz = previousEngine;
+      Lizzie.board = previousBoard;
+      Lizzie.frame = previousFrame;
+      Lizzie.config = previousConfig;
+      EngineManager.isEmpty = previousEmpty;
+      EngineManager.currentEngineNo = previousEngineNo;
+    }
+  }
+
+  @Test
+  void pkStartFailureLeavesPreGameOnlyAfterBothOwnersSettle() throws Exception {
+    LizzieFrame previousFrame = Lizzie.frame;
+    boolean previousEngineGame = EngineManager.isEngineGame;
+    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
+    try {
+      Lizzie.frame = allocate(SilentSwitchFrame.class);
+      EngineManager.isEngineGame = false;
+      EngineManager.isPreEngineGame = true;
+      EngineManager manager = new EngineManager(List.of());
+      EngineManager.PkEngineSynchronization black =
+          manager.startEngineForPkSynchronization(-1);
+      EngineManager.PkEngineSynchronization white =
+          manager.startEngineForPkSynchronization(-1);
+
+      assertFalse(manager.finishPkEngineSynchronizations(black, white));
+
+      assertFalse(EngineManager.isPreEngineGame);
+      assertFalse(EngineManager.isEngineGame);
+      assertTrue(black.isComplete());
+      assertTrue(white.isComplete());
+    } finally {
+      Lizzie.frame = previousFrame;
+      EngineManager.isEngineGame = previousEngineGame;
+      EngineManager.isPreEngineGame = previousPreEngineGame;
+    }
+  }
+
+  @Test
+  void pkStartSynchronousFailureStillSettlesBothOwnersAndLeavesPreGame()
+      throws Exception {
+    Leelaz previousEngine = Lizzie.leelaz;
+    Board previousBoard = Lizzie.board;
+    LizzieFrame previousFrame = Lizzie.frame;
+    GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
+    Config previousConfig = Lizzie.config;
+    boolean previousEngineGame = EngineManager.isEngineGame;
+    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
+    PkRestoreLeelaz failing = new PkRestoreLeelaz();
+    PkRestoreLeelaz healthy = new PkRestoreLeelaz();
+    PreparedRestoreBoard board = preparedRestoreBoard();
+    try {
+      Config config = allocate(Config.class);
+      config.extraMode = ExtraMode.Normal;
+      Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
+      Lizzie.config = config;
+      Lizzie.frame = allocate(SilentSwitchFrame.class);
+      Lizzie.leelaz = failing;
+      Lizzie.board = board;
+      EngineManager.isEngineGame = false;
+      EngineManager.isPreEngineGame = true;
+      failing.started = true;
+      failing.isLoaded = true;
+      failing.width = 19;
+      failing.height = 19;
+      failing.mutateOnFirstCommand =
+          () -> {
+            throw new IllegalStateException("controlled synchronous PK start failure");
+          };
+      healthy.started = true;
+      healthy.isLoaded = true;
+      healthy.width = 19;
+      healthy.height = 19;
+      EngineManager manager = new EngineManager(List.of(failing, healthy));
+
+      EngineManager.PkEngineSynchronization black =
+          manager.startEngineForPkSynchronization(0);
+      EngineManager.PkEngineSynchronization white =
+          manager.startEngineForPkSynchronization(1);
+
+      assertFalse(manager.finishPkEngineSynchronizations(black, white));
+      assertTrue(black.isComplete());
+      assertTrue(white.isComplete());
+      assertFalse(EngineManager.isPreEngineGame);
+      assertFalse(EngineManager.isEngineGame);
+    } finally {
+      Lizzie.leelaz = previousEngine;
+      Lizzie.gtpConsole = previousGtpConsole;
+      Lizzie.board = previousBoard;
+      Lizzie.frame = previousFrame;
+      Lizzie.config = previousConfig;
+      EngineManager.isEngineGame = previousEngineGame;
+      EngineManager.isPreEngineGame = previousPreEngineGame;
+    }
+  }
+
+  @Test
   void pkStartClearsTheFrozenTargetWhenCatalogChangesAfterReservation() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     Board previousBoard = Lizzie.board;
@@ -913,7 +1122,7 @@ class EngineManagerLifecycleReservationTest {
   }
 
   @Test
-  void pkStartDoesNotReserveTheMirrorCapturedByRestore() throws Exception {
+  void pkStartCompletionClaimExcludesCapturedMirrorWithoutRoundReservation() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     Leelaz previousMirror = Lizzie.leelaz2;
     Board previousBoard = Lizzie.board;
@@ -945,17 +1154,16 @@ class EngineManagerLifecycleReservationTest {
       new EngineManager(List.of(engine)).startEngineForPk(0);
 
       assertTrue(engine.restoreEntered.await(2, TimeUnit.SECONDS));
-      assertNull(engine.beginExclusiveGtpLifecycleReservation());
-      Leelaz.ExclusiveGtpLifecycleReservation capturedMirrorReservation =
-          capturedMirror.beginExclusiveGtpLifecycleReservation();
-      assertNotNull(capturedMirrorReservation);
-      capturedMirrorReservation.close();
+      assertFalse(capturedMirror.hasExclusiveGtpLifecycleTransitionForTest());
+      assertNull(capturedMirror.beginExclusiveGtpLifecycleReservation());
       Leelaz.ExclusiveGtpLifecycleReservation unrelatedMirrorReservation =
           laterMirror.beginExclusiveGtpLifecycleReservation();
       assertNotNull(unrelatedMirrorReservation);
       unrelatedMirrorReservation.close();
       engine.allowRestore.countDown();
       assertTrue(board.restoreCompleted.await(2, TimeUnit.SECONDS));
+      awaitReservationReleased(engine);
+      awaitReservationReleased(capturedMirror);
       assertFalse(engine.hasExclusiveGtpWorkInProgress());
       assertFalse(capturedMirror.hasExclusiveGtpWorkInProgress());
     } finally {
@@ -1228,10 +1436,8 @@ class EngineManagerLifecycleReservationTest {
       engine.isLoaded = true;
       assertTrue(engine.restoreEntered.await(2, TimeUnit.SECONDS));
       assertNull(engine.beginExclusiveGtpLifecycleReservation());
-      Leelaz.ExclusiveGtpLifecycleReservation mirrorReservation =
-          mirror.beginExclusiveGtpLifecycleReservation();
-      assertNotNull(mirrorReservation);
-      mirrorReservation.close();
+      assertFalse(mirror.hasExclusiveGtpLifecycleTransitionForTest());
+      assertNull(mirror.beginExclusiveGtpLifecycleReservation());
       engine.allowRestore.countDown();
       assertTrue(engine.restoreFailure.await(2, TimeUnit.SECONDS));
       awaitEngineUnavailable(engine);
@@ -1381,10 +1587,19 @@ class EngineManagerLifecycleReservationTest {
   }
 
   private static PreparedRestoreBoard preparedRestoreBoard() throws Exception {
+    return preparedRestoreBoard(0);
+  }
+
+  private static PreparedRestoreBoard preparedRestoreBoard(int moveCount) throws Exception {
     BoardData snapshot = BoardData.empty(19, 19);
     snapshot.stones[Board.getIndex(3, 3)] = Stone.BLACK;
     BoardHistoryList history = new BoardHistoryList(snapshot);
     history.getGameInfo().setKomiNoMenu(6.5);
+    for (int move = 1; move <= moveCount; move++) {
+      Stone color = move % 2 == 1 ? Stone.BLACK : Stone.WHITE;
+      history.add(moveNode(3 + move, 3, color, color != Stone.BLACK, move));
+    }
+    history.toStart();
     PreparedRestoreBoard board = allocate(PreparedRestoreBoard.class);
     board.restoreCompleted = new CountDownLatch(1);
     board.startStonelist = new ArrayList<>();
@@ -1392,6 +1607,7 @@ class EngineManagerLifecycleReservationTest {
     board.setHistory(history);
     return board;
   }
+
 
   private static PreparedRestoreBoard fallbackRestoreBoard() throws Exception {
     BoardHistoryList history = new BoardHistoryList(BoardData.empty(19, 19));
@@ -3784,6 +4000,9 @@ class EngineManagerLifecycleReservationTest {
     public void invalidateTrackingAnalysis() {}
 
     @Override
+    public void addInput(boolean shouldAdd) {}
+
+    @Override
     public void clearKataEstimate() {}
 
     @Override
@@ -3840,11 +4059,14 @@ class EngineManagerLifecycleReservationTest {
     private int clearWithoutPonderCount;
     private boolean commandMutated;
     private boolean readyAfterStart = true;
-
     private boolean failRestore;
     private boolean blockRestore;
     private List<Leelaz> resolvedMirrors = List.of();
     private int mirrorResolutionCount;
+    private volatile int restoreCount;
+    private volatile int ponderCount;
+    private volatile boolean deferBoardSynchronizationCompletion;
+    private volatile Runnable pendingBoardSynchronizationCompletion;
 
     private PkRestoreLeelaz() throws Exception {
       super("");
@@ -3863,6 +4085,7 @@ class EngineManagerLifecycleReservationTest {
                     "controlled PK restore failure");
               }
               loadedSgf = Files.readString(Path.of(command.substring("loadsgf ".length())));
+              restoreCount++;
             }
             return ExactSnapshotRestoreProtocolFixture.Response.success();
           });
@@ -3879,6 +4102,7 @@ class EngineManagerLifecycleReservationTest {
 
     @Override
     public void notPondering() {}
+
 
     @Override
     public void clearBestMoves() {}
@@ -3911,7 +4135,19 @@ class EngineManagerLifecycleReservationTest {
     public void nameCmd() {}
 
     @Override
-    public void ponder() {}
+    public void ponder() {
+      ponderCount++;
+    }
+
+    @Override
+    void confirmBoardSynchronization(
+        Leelaz mirror, Runnable onSuccess, Consumer<String> onFailure) {
+      if (deferBoardSynchronizationCompletion) {
+        pendingBoardSynchronizationCompletion = onSuccess;
+      } else {
+        onSuccess.run();
+      }
+    }
 
     @Override
     Leelaz resolveLoadSgfMirrorEngine() {

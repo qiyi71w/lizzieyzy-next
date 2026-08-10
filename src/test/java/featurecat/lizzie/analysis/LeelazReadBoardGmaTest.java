@@ -1971,6 +1971,22 @@ class LeelazReadBoardGmaTest {
   }
 
   @Test
+  void ordinaryLifecycleFailureDoesNotClearReadBoardGmaQuarantine() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Leelaz engine = readyReadBoardGmaEngine();
+      Lizzie.leelaz = engine;
+      setEngineStateUnrestored(engine, true);
+
+      engine.markLifecycleBoardSynchronizationFailed("ordinary lifecycle failure", false);
+
+      assertTrue(engine.hasUnrestoredReadBoardGmaState());
+      assertEquals(
+          Leelaz.ExclusiveGtpLeaseAvailability.ENGINE_STATE_UNRESTORED,
+          engine.previewForegroundAnalysisLeaseAvailability());
+    }
+  }
+
+  @Test
   void automaticRestartRejectsDuplicateUntilBoardFenceIsAcknowledged() throws Exception {
     try (Harness harness = Harness.open()) {
       ReadyAutomaticRestartLeelaz engine = new ReadyAutomaticRestartLeelaz();

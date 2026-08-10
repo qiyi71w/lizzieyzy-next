@@ -16,6 +16,7 @@ import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
+import featurecat.lizzie.rules.Movelist;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import java.io.BufferedOutputStream;
@@ -1129,7 +1130,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
       waitUntil(() -> completions.get() == 1);
 
       assertEquals(1, engine.ponderCount);
-      assertTrue(engine.lifecycleBusyDuringPonder);
+      assertFalse(engine.lifecycleBusyDuringPonder);
       assertEquals(1, completions.get());
     } finally {
       Lizzie.leelaz = previousEngine;
@@ -1193,7 +1194,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
   }
 
   @Test
-  void foregroundLeaseReleaseFreezesRestoreBeforeFinalStopResponse() throws Exception {
+  void foregroundLeaseReleaseCatchesUpNavigationAfterFinalStopWasSent() throws Exception {
     RestoreHarness harness = RestoreHarness.open(false, false);
     try {
       harness.board.currentMarker = 1;
@@ -1201,14 +1202,94 @@ class LeelazExclusiveRemoteGtpSessionTest {
           harness.engine.endForegroundAnalysisLease(
               harness.owner, harness.completions::incrementAndGet));
 
-      // The final stop has been sent, but its response has not yet allowed restore to start.
+      // Navigation remains available while the final stop response is pending.
       harness.board.currentMarker = 2;
       assertTrue(dispatch(harness.engine, "=800000001"));
       assertTrue(dispatch(harness.engine, ""));
       waitUntil(() -> harness.board.resendCount == 1);
 
-      assertEquals(1, harness.board.restoredMarker);
+      completeForegroundRestore(harness.engine);
+      waitUntil(() -> harness.board.resendCount == 2);
+      assertEquals(2, harness.board.restoredMarker);
+      assertEquals(0, harness.completions.get());
+
+      completeForegroundRestore(harness.engine);
+      waitUntil(() -> harness.completions.get() == 1);
     } finally {
+      harness.close();
+    }
+  }
+
+  @Test
+  void foregroundFinalFrameCheckReleasesLifecycleBeforeNavigationCanResume()
+      throws Exception {
+    RestoreHarness harness = RestoreHarness.open(true, false);
+    AtomicReference<Throwable> completionFailure = new AtomicReference<>();
+    AtomicReference<Throwable> navigationFailure = new AtomicReference<>();
+    Thread completionThread = null;
+    Thread navigationThread = null;
+    try {
+      harness.board.currentMarker = 1;
+      assertTrue(
+          harness.engine.endForegroundAnalysisLease(
+              harness.owner, harness.completions::incrementAndGet));
+      assertTrue(dispatch(harness.engine, "=800000001"));
+      assertTrue(dispatch(harness.engine, ""));
+      waitUntil(() -> harness.board.resendCount == 1);
+      harness.engine.pauseLifecycleRelease();
+
+      completionThread =
+          daemonThread(
+              "foreground-final-frame-completion",
+              () -> {
+                try {
+                  completeForegroundRestore(harness.engine);
+                } catch (Throwable failure) {
+                  completionFailure.set(failure);
+                }
+              });
+      completionThread.start();
+      await(harness.engine.lifecycleReleaseReached);
+
+      CountDownLatch navigationCompleted = new CountDownLatch(1);
+      navigationThread =
+          daemonThread(
+              "foreground-navigation-after-final-frame",
+              () -> {
+                try {
+                  synchronized (harness.board) {
+                    harness.board.currentMarker = 2;
+                    harness.engine.sendCommand("play B D4");
+                  }
+                } catch (Throwable failure) {
+                  navigationFailure.set(failure);
+                } finally {
+                  navigationCompleted.countDown();
+                }
+              });
+      navigationThread.start();
+      assertFalse(
+          navigationCompleted.await(50, TimeUnit.MILLISECONDS),
+          "navigation must wait for the atomic Board/gate handoff");
+
+      harness.engine.continueLifecycleRelease.countDown();
+      completionThread.join(1000L);
+      navigationThread.join(1000L);
+
+      assertNull(completionFailure.get());
+      assertNull(navigationFailure.get());
+      assertEquals(0L, navigationCompleted.getCount());
+      assertTrue(harness.output.toString(StandardCharsets.UTF_8).contains("play B D4"));
+      assertEquals(1, harness.engine.ponderCount);
+      assertFalse(harness.engine.lifecycleBusyDuringPonder);
+    } finally {
+      harness.engine.resumeLifecycleRelease();
+      if (completionThread != null) {
+        completionThread.join(1000L);
+      }
+      if (navigationThread != null) {
+        navigationThread.join(1000L);
+      }
       harness.close();
     }
   }
@@ -2059,12 +2140,36 @@ class LeelazExclusiveRemoteGtpSessionTest {
     }
 
     @Override
+    public void resendMoveToEngineFromRoot(
+        Leelaz engine,
+        Leelaz mirrorEngine,
+        boolean loadEngine,
+        boolean isEngineGame,
+        ArrayList<Movelist> moves,
+        Double gameKomi) {
+      resendMoveToEngine(engine, loadEngine);
+      if (mirrorEngine != null) {
+        resendMoveToEngine(mirrorEngine, loadEngine);
+      }
+    }
+
+    @Override
     public BoardHistoryList getHistory() {
       if (!restorePlanCaptured || frozenMarker != currentMarker) {
         restorePlanCaptured = true;
         frozenMarker = currentMarker;
       }
       return restoreHistory;
+    }
+
+    @Override
+    public ArrayList<Movelist> getMoveList() {
+      return new ArrayList<>();
+    }
+
+    @Override
+    public long getContextRevision() {
+      return currentMarker;
     }
   }
 
@@ -2181,6 +2286,8 @@ class LeelazExclusiveRemoteGtpSessionTest {
     private volatile CountDownLatch releaseTimeoutStarted;
     private volatile CountDownLatch continueReleaseTimeout;
     private volatile CountDownLatch releaseTimeoutCompleted;
+    private volatile CountDownLatch lifecycleReleaseReached;
+    private volatile CountDownLatch continueLifecycleRelease;
 
     private RecordingRestoreLeelaz() throws Exception {
       super("");
@@ -2229,6 +2336,28 @@ class LeelazExclusiveRemoteGtpSessionTest {
       }
       reached.countDown();
       await(proceed);
+    }
+
+    @Override
+    protected void beforeForegroundRestoreLifecycleRelease() {
+      CountDownLatch reached = lifecycleReleaseReached;
+      CountDownLatch proceed = continueLifecycleRelease;
+      if (reached == null || proceed == null) {
+        return;
+      }
+      reached.countDown();
+      await(proceed);
+    }
+
+    private void pauseLifecycleRelease() {
+      lifecycleReleaseReached = new CountDownLatch(1);
+      continueLifecycleRelease = new CountDownLatch(1);
+    }
+
+    private void resumeLifecycleRelease() {
+      if (continueLifecycleRelease != null) {
+        continueLifecycleRelease.countDown();
+      }
     }
 
     private void pauseReleaseBoundaryAndTimeout() {
