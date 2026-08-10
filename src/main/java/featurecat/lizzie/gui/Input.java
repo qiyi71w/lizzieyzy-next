@@ -6,6 +6,7 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.util.Utils;
 import java.awt.event.*;
+import java.util.Optional;
 import javax.swing.SwingUtilities;
 
 public class Input implements MouseListener, KeyListener, MouseWheelListener, MouseMotionListener {
@@ -25,6 +26,24 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
 
   @Override
   public void mousePressed(MouseEvent e) {
+    if (Lizzie.board.isSetupMode()
+        && (e.getButton() == MouseEvent.BUTTON1 || e.getButton() == MouseEvent.BUTTON3)) {
+      Input.tempDrag = false;
+      int setupX = Utils.zoomOut(e.getX());
+      int setupY = Utils.zoomOut(e.getY());
+      Optional<int[]> setupCoords;
+      if (Lizzie.config.isThinkingMode()) {
+        setupCoords = LizzieFrame.boardRenderer2.convertScreenToCoordinates(setupX, setupY);
+        if (!setupCoords.isPresent())
+          setupCoords = LizzieFrame.boardRenderer.convertScreenToCoordinates(setupX, setupY);
+      } else {
+        setupCoords = LizzieFrame.boardRenderer.convertScreenToCoordinates(setupX, setupY);
+      }
+      if (setupCoords.isPresent()) {
+        Lizzie.frame.handleSetupBoardClick(setupCoords.get(), e.getButton() == MouseEvent.BUTTON3);
+      }
+      return;
+    }
     if (Lizzie.frame.isInScoreMode) {
       if (e.getButton() == MouseEvent.BUTTON1)
         Lizzie.frame.leftClickInScoreMode(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));

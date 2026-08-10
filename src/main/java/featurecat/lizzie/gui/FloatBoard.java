@@ -700,7 +700,9 @@ public class FloatBoard extends JDialog {
     if (boardCoordinates.isPresent()) {
       // 增加判断是否为插入模式
       int[] coords = boardCoordinates.get();
-      if (Lizzie.frame.bothSync || editMode) {
+      if (Lizzie.board.isSetupMode()) {
+        Lizzie.frame.handleSetupBoardClick(coords, false);
+      } else if (Lizzie.frame.bothSync || editMode) {
         Lizzie.board.place(coords[0], coords[1]);
       }
     }

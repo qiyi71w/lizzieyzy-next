@@ -314,6 +314,19 @@ public class IndependentMainBoard extends JFrame {
             origin.x = e.getX();
             origin.y = e.getY();
 
+            if (Lizzie.board.isSetupMode()
+                && (e.getButton() == MouseEvent.BUTTON1 || e.getButton() == MouseEvent.BUTTON3)) {
+              tempDrag = false;
+              Optional<int[]> setupCoords =
+                  boardRenderer.convertScreenToCoordinates(
+                      Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
+              if (setupCoords.isPresent()) {
+                Lizzie.frame.handleSetupBoardClick(
+                    setupCoords.get(), e.getButton() == MouseEvent.BUTTON3);
+              }
+              return;
+            }
+
             if (tempDrag) {
               DraggedReleased(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
               tempDrag = false;
@@ -719,11 +732,15 @@ public class IndependentMainBoard extends JFrame {
     Optional<int[]> boardCoordinates = boardRenderer.convertScreenToCoordinates(x, y);
     if (boardCoordinates.isPresent()) {
       int[] coords = boardCoordinates.get();
-      if (Lizzie.frame.blackorwhite == 0) Lizzie.board.placeForManual(coords[0], coords[1]);
-      if (Lizzie.frame.blackorwhite == 1)
-        Lizzie.board.placeForManual(coords[0], coords[1], Stone.BLACK);
-      if (Lizzie.frame.blackorwhite == 2)
-        Lizzie.board.placeForManual(coords[0], coords[1], Stone.WHITE);
+      if (Lizzie.board.isSetupMode()) {
+        Lizzie.frame.handleSetupBoardClick(coords, false);
+      } else {
+        if (Lizzie.frame.blackorwhite == 0) Lizzie.board.placeForManual(coords[0], coords[1]);
+        if (Lizzie.frame.blackorwhite == 1)
+          Lizzie.board.placeForManual(coords[0], coords[1], Stone.BLACK);
+        if (Lizzie.frame.blackorwhite == 2)
+          Lizzie.board.placeForManual(coords[0], coords[1], Stone.WHITE);
+      }
     }
   }
 
@@ -1145,10 +1162,17 @@ public class IndependentMainBoard extends JFrame {
   }
 
   public boolean onClickedRight(int x, int y) {
-    if (Lizzie.frame.blackorwhite == 0) return false;
     Optional<int[]> boardCoordinates;
     boardCoordinates = boardRenderer.convertScreenToCoordinates(x, y);
 
+    if (boardCoordinates.isPresent()) {
+      int[] coords = boardCoordinates.get();
+      if (Lizzie.board.isSetupMode()) {
+        Lizzie.frame.handleSetupBoardClick(coords, true);
+        return true;
+      }
+    }
+    if (Lizzie.frame.blackorwhite == 0) return false;
     if (boardCoordinates.isPresent()) {
       int[] coords = boardCoordinates.get();
       if (!Lizzie.frame.isPlayingAgainstLeelaz && !Lizzie.frame.isAnaPlayingAgainstLeelaz) {

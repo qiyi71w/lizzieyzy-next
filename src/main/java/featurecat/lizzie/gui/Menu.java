@@ -3145,6 +3145,106 @@ public class Menu extends JMenuBar {
         });
     gameMenu.add(flattenBoard);
 
+    final JFontMenu startingPositionSetup =
+        new JFontMenu(resourceBundle.getString("Menu.startingPositionSetup"));
+    gameMenu.add(startingPositionSetup);
+
+    final JFontCheckBoxMenuItem setupModeToggle =
+        new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.setupModeToggle"));
+    setupModeToggle.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            setupModeToggle.setState(Lizzie.frame.toggleSetupMode());
+          }
+        });
+    startingPositionSetup.add(setupModeToggle);
+
+    final JFontMenuItem setupToolBlack =
+        new JFontMenuItem(resourceBundle.getString("Menu.setupToolBlack"));
+    setupToolBlack.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.selectSetupTool(LizzieFrame.SETUP_TOOL_BLACK);
+            setupModeToggle.setState(Lizzie.board.isSetupMode());
+          }
+        });
+    startingPositionSetup.add(setupToolBlack);
+
+    final JFontMenuItem setupToolWhite =
+        new JFontMenuItem(resourceBundle.getString("Menu.setupToolWhite"));
+    setupToolWhite.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.selectSetupTool(LizzieFrame.SETUP_TOOL_WHITE);
+            setupModeToggle.setState(Lizzie.board.isSetupMode());
+          }
+        });
+    startingPositionSetup.add(setupToolWhite);
+
+    final JFontMenuItem setupToolErase =
+        new JFontMenuItem(resourceBundle.getString("Menu.setupToolErase"));
+    setupToolErase.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.selectSetupTool(LizzieFrame.SETUP_TOOL_ERASE);
+            setupModeToggle.setState(Lizzie.board.isSetupMode());
+          }
+        });
+    startingPositionSetup.add(setupToolErase);
+    startingPositionSetup.addSeparator();
+
+    final JFontMenuItem setupClearAll =
+        new JFontMenuItem(resourceBundle.getString("Menu.setupClearAll"));
+    setupClearAll.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.setupClearAllCommand();
+          }
+        });
+    startingPositionSetup.add(setupClearAll);
+    startingPositionSetup.addSeparator();
+
+    final JFontMenuItem setupBlackToPlay =
+        new JFontMenuItem(resourceBundle.getString("Menu.setupBlackToPlay"));
+    setupBlackToPlay.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.setupSetSideToPlayCommand(true);
+          }
+        });
+    startingPositionSetup.add(setupBlackToPlay);
+
+    final JFontMenuItem setupWhiteToPlay =
+        new JFontMenuItem(resourceBundle.getString("Menu.setupWhiteToPlay"));
+    setupWhiteToPlay.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.setupSetSideToPlayCommand(false);
+          }
+        });
+    startingPositionSetup.add(setupWhiteToPlay);
+
+    startingPositionSetup.addMenuListener(
+        new MenuListener() {
+          @Override
+          public void menuSelected(MenuEvent e) {
+            setupModeToggle.setState(Lizzie.board.isSetupMode());
+          }
+
+          @Override
+          public void menuDeselected(MenuEvent e) {}
+
+          @Override
+          public void menuCanceled(MenuEvent e) {}
+        });
+
     final JFontMenuItem continueLadder =
         new JFontMenuItem(resourceBundle.getString("Menu.game.continueLadder"));
     continueLadder.addActionListener(
