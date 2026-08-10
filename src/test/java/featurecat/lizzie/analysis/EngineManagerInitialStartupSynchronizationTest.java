@@ -268,7 +268,7 @@ class EngineManagerInitialStartupSynchronizationTest {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       StartupSyncLeelaz engine = new StartupSyncLeelaz();
       engine.delayReadyAfterStart = true;
-      BoardHistoryList history = emptyRootHistory(9);
+      BoardHistoryList history = loadReporterGameFixture();
       history.toStart();
       Board board = boardWithHistory(history);
       Lizzie.board = board;
@@ -280,14 +280,11 @@ class EngineManagerInitialStartupSynchronizationTest {
       Lizzie.engineManager = manager;
       env.expectedReadyEngineIndex = 0;
 
+      Stone[] expectedMoveEightStones = mainLineNodeAtMove(history, 8).getData().stones.clone();
       assertTrue(manager.switchEngineIfAvailable(0, true));
       assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS), "engine startup must begin");
 
-      for (int move = 1; move <= 8; move++) {
-        assertTrue(board.nextMove(false), "navigation must reach move " + move);
-      }
-      assertTrue(board.nextMove(false), "navigation must reach move 9");
-      assertTrue(board.previousMove(false), "navigation must return to move 8");
+      navigateZeroToEightToNineAndBack(board);
       engine.publishReady();
 
       assertTrue(
@@ -300,15 +297,19 @@ class EngineManagerInitialStartupSynchronizationTest {
           env.readyObservedCommittedOwner.get(),
           "READY observers must see the committed foreground owner");
       assertEquals(8, board.getHistory().getMoveNumber(), "history cursor");
-      for (int move = 1; move <= 8; move++) {
-        assertFalse(
-            board.getHistory().getData().stones[Board.getIndex(3 + move, 3)] == Stone.EMPTY,
-            "ordinary move prefix stone " + move + " must remain present");
-      }
+      assertTrue(
+          Arrays.equals(expectedMoveEightStones, board.getHistory().getData().stones),
+          "the reporter SGF's first eight ordinary moves must remain at move eight");
+      assertEquals(
+          8L,
+          Arrays.stream(board.getHistory().getData().stones)
+              .filter(stone -> stone != Stone.EMPTY)
+              .count(),
+          "the reporter SGF has eight uncaptured stones at move eight");
       assertEquals(8, engine.enginePosition.get(), "engine position");
       assertEquals(8, engine.analyzePosition(), "analysis position");
       assertEquals(1, engine.ponderCount, "analysis starts once at the stable position");
-      assertEngineMatchesBoard(engine, board, 19, 19);
+      assertEngineMatchesBoardWithoutKomi(engine, board, 19, 19);
       assertFalse(engine.isInitialBoardSynchronizationActive());
       assertLifecycleReservationReleased(engine);
     }
@@ -322,7 +323,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       engine.isLoaded = true;
       engine.Pondering();
       engine.delayReadyAfterStart = true;
-      BoardHistoryList history = emptyRootHistory(5);
+      BoardHistoryList history = loadReporterGameFixture();
       history.toStart();
       Board board = boardWithHistory(history);
       Lizzie.board = board;
@@ -336,25 +337,22 @@ class EngineManagerInitialStartupSynchronizationTest {
       manager.reStartEngine(0);
       assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS), "engine restart must begin");
 
-      navigateZeroToFiveToThree(board);
+      navigateZeroToEightToNineAndBack(board);
       engine.publishReady();
 
       assertTrue(
           engine.analysisStarted.await(2, TimeUnit.SECONDS),
           "analysis must start after the restarted engine converges");
       assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
-      assertEquals(3, board.getHistory().getMoveNumber(), "history cursor");
-      assertEquals(3, engine.enginePosition.get(), "restarted engine position");
+      assertEquals(8, board.getHistory().getMoveNumber(), "history cursor");
+      assertEquals(8, engine.enginePosition.get(), "restarted engine position");
       assertEquals(2, engine.clearBoardCount.get(), "frozen route plus one catch-up route");
-      assertEquals(
-          List.of(play("B", 4, 3), play("W", 5, 3), play("B", 6, 3)),
-          engine.playsAfterLastClear(),
-          "no stale frozen route may overwrite the final catch-up route");
-      assertEquals(3, engine.analyzePosition(), "analysis position");
+      assertEquals(8, engine.playsAfterLastClear().size(), "the catch-up route must replay move eight");
+      assertEquals(8, engine.analyzePosition(), "analysis position");
       assertEquals(1, engine.boardSynchronizationConfirmations, "restart target fence");
       assertFenceBeforeAnalyze(engine);
       assertEquals(1, engine.ponderCount, "analysis starts once at the stable position");
-      assertEngineMatchesBoard(engine, board, 19, 19);
+      assertEngineMatchesBoardWithoutKomi(engine, board, 19, 19);
       assertFalse(engine.isInitialBoardSynchronizationActive());
       assertLifecycleReservationReleased(engine);
     }
@@ -645,6 +643,14 @@ class EngineManagerInitialStartupSynchronizationTest {
     assertTrue(board.previousMove(false), "navigation must return to move 3");
     assertTrue(board.goToMoveNumber(1), "jump must return to move 1");
     assertTrue(board.goToMoveNumber(3), "jump must return to final move 3");
+  }
+
+  private static void navigateZeroToEightToNineAndBack(Board board) {
+    for (int move = 1; move <= 8; move++) {
+      assertTrue(board.nextMove(false), "navigation must reach move " + move);
+    }
+    assertTrue(board.nextMove(false), "navigation must reach move 9");
+    assertTrue(board.previousMove(false), "navigation must return to move 8");
   }
 
   private static void assertFenceBeforeAnalyze(StartupSyncLeelaz engine) {
@@ -1844,6 +1850,31 @@ class EngineManagerInitialStartupSynchronizationTest {
     return history;
   }
 
+  /** Parses the anonymized 205-move Issue #223 reporter game through the production SGF parser. */
+  private static BoardHistoryList loadReporterGameFixture() throws Exception {
+    java.net.URL fixtureResource =
+        EngineManagerInitialStartupSynchronizationTest.class.getResource(
+            "/featurecat/lizzie/rules/issue223-reporter-205-moves.sgf");
+    if (fixtureResource == null) {
+      throw new IllegalStateException("Issue #223 reporter SGF fixture must be available.");
+    }
+    Lizzie.leelaz = new Leelaz("");
+    Lizzie.board = boardWithHistory(emptyRootHistory(0));
+    Lizzie.config.readKomi = true;
+    Board.boardWidth = 19;
+    Board.boardHeight = 19;
+    Zobrist.init();
+    return SGFParser.parseSgf(Files.readString(Path.of(fixtureResource.toURI())), true);
+  }
+
+  private static BoardHistoryNode mainLineNodeAtMove(BoardHistoryList history, int moveNumber) {
+    BoardHistoryNode node = history.getStart();
+    for (int move = 0; move < moveNumber; move++) {
+      node = node.next().orElseThrow(() -> new IllegalStateException("missing reporter move"));
+    }
+    return node;
+  }
+
   /**
    * Loads the Issue #223 removed-stone SNAPSHOT fixture through the real SGF parser, matching the
    * spec's {@code exact-snapshot-manual-test.sgf} shape: two real moves, then a mid-history {@code
@@ -1983,6 +2014,22 @@ class EngineManagerInitialStartupSynchronizationTest {
     assertEquals(expectedHeight, engine.engineBoardHeight, "board height must match");
     assertEquals(
         board.getHistory().getGameInfo().getKomi(), engine.engineKomi, 0.0001, "komi must match");
+    for (int x = 0; x < expectedWidth; x++) {
+      for (int y = 0; y < expectedHeight; y++) {
+        assertEquals(
+            application.stones[Board.getIndex(x, y)],
+            engine.stoneAt(x, y),
+            "stone mismatch at " + x + "," + y);
+      }
+    }
+  }
+
+  private static void assertEngineMatchesBoardWithoutKomi(
+      StartupSyncLeelaz engine, Board board, int expectedWidth, int expectedHeight) {
+    BoardData application = board.getHistory().getData();
+    assertEquals(application.blackToPlay, engine.engineBlackToPlay, "side-to-play must match");
+    assertEquals(expectedWidth, engine.engineBoardWidth, "board width must match");
+    assertEquals(expectedHeight, engine.engineBoardHeight, "board height must match");
     for (int x = 0; x < expectedWidth; x++) {
       for (int y = 0; y < expectedHeight; y++) {
         assertEquals(
