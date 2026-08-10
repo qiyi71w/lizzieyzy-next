@@ -45,9 +45,26 @@ import javax.swing.JComboBox;
 import javax.swing.SwingUtilities;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class EngineManagerLifecycleReservationTest {
+  private JFontMenu previousEngineMenu;
+
+  @BeforeEach
+  void installHeadlessEngineMenu() {
+    previousEngineMenu = Menu.engineMenu;
+    if (Menu.engineMenu == null) {
+      Menu.engineMenu = new SilentJFontMenu();
+    }
+  }
+
+  @AfterEach
+  void restoreHeadlessEngineMenu() {
+    Menu.engineMenu = previousEngineMenu;
+  }
+
 
   @Test
   void switchReservesCurrentAndFrozenTargetWithoutSeparateMirrorReservation() throws Exception {
@@ -3777,6 +3794,9 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
+    protected void showSameEngineSelection() {}
+
+    @Override
     protected void showEngineSynchronizationFailure(Leelaz engine) {
       failureCount++;
     }
@@ -4836,6 +4856,9 @@ class EngineManagerLifecycleReservationTest {
       this.synchronization = synchronization;
       this.afterSync = afterSync;
     }
+
+    @Override
+    protected void showSameEngineSelection() {}
   }
 
   private static final class CountingRestartGateFrame extends LizzieFrame {

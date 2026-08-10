@@ -2372,6 +2372,9 @@ class EngineManagerInitialStartupSynchronizationTest {
     protected void showForegroundEngineLeaseInUse() {
       leaseConflictCount++;
     }
+
+    @Override
+    protected void showContributingEngineSwitchUnavailable() {}
   }
 
   private static final class StartupTestEnvironment implements AutoCloseable {
