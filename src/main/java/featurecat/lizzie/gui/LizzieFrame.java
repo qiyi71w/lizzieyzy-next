@@ -18165,8 +18165,7 @@ public class LizzieFrame extends JFrame {
       }
     }
     if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
-      for (int i = 0; i < movesToAdvance; i++) Lizzie.board.nextMove(false);
-      Lizzie.board.clearAfterMove();
+      Lizzie.board.navigateHistorySteps(movesToAdvance);
     }
   }
 
@@ -18213,8 +18212,7 @@ public class LizzieFrame extends JFrame {
       }
     }
     if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
-      for (int i = 0; i < movesToAdvance; i++) Lizzie.board.previousMove(false);
-      Lizzie.board.clearAfterMove();
+      Lizzie.board.navigateHistorySteps(-movesToAdvance);
     }
   }
 

@@ -26,6 +26,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Stack;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -48,6 +50,17 @@ public class Board {
   private static final String alphabetWithI = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   private static final int MOVELIST_REFRESH_NAVIGATION_PAUSE_MS = 450;
   private BoardHistoryList history;
+  private static final ExecutorService HISTORY_RESTORE_EXECUTOR =
+      Executors.newSingleThreadExecutor(
+          runnable -> {
+            Thread thread = new Thread(runnable, "lizzie-history-restore");
+            thread.setDaemon(true);
+            return thread;
+          });
+  private ArrayDeque<Boolean> pendingHistoryNavigationDirections = new ArrayDeque<>();
+  private boolean historyRestoreInFlight;
+  private BoardHistoryList historyNavigationHistory;
+  private BoardHistoryList activeHistoryRestoreHistory;
   // private boolean scoreMode;
   private boolean analysisMode;
   private boolean setupMode = false;
@@ -1732,6 +1745,22 @@ public class Board {
     return null;
   }
 
+  private Leelaz captureHistoryNavigationMirrorEngine(Leelaz engine) {
+    if (engine == null || Lizzie.config == null || !Lizzie.config.isDoubleEngineMode()) {
+      return null;
+    }
+    if (Lizzie.leelaz == null || Lizzie.leelaz2 == null || Lizzie.leelaz == Lizzie.leelaz2) {
+      return null;
+    }
+    if (engine == Lizzie.leelaz) {
+      return Lizzie.leelaz2;
+    }
+    if (engine == Lizzie.leelaz2) {
+      return Lizzie.leelaz;
+    }
+    return null;
+  }
+
   public ArrayList<Movelist> getMoveList() {
     ArrayList<Movelist> movelist = new ArrayList<Movelist>();
     BoardHistoryNode node = history.getCurrentHistoryNode();
@@ -3170,42 +3199,335 @@ public class Board {
     }
   }
 
+  private static final class HistoryNavigationRestore {
+    private final Runnable restore;
+    private final Runnable successfulDisposition;
+
+    private HistoryNavigationRestore(Runnable restore, Runnable successfulDisposition) {
+      this.restore = restore;
+      this.successfulDisposition = successfulDisposition;
+    }
+
+    private void execute() {
+      restore.run();
+    }
+
+    private void applySuccessfulDisposition() {
+      if (successfulDisposition != null) {
+        successfulDisposition.run();
+      }
+    }
+  }
+
+  private static final class HistoryNavigationMutation {
+    private static final HistoryNavigationMutation NOT_MOVED =
+        new HistoryNavigationMutation(false, false, null, null);
+    private static final HistoryNavigationMutation STALE =
+        new HistoryNavigationMutation(false, true, null, null);
+
+    private final boolean moved;
+    private final boolean stale;
+    private final HistoryNavigationRestore engineRestore;
+    private final RuntimeException restorePreparationFailure;
+
+    private HistoryNavigationMutation(
+        boolean moved,
+        boolean stale,
+        HistoryNavigationRestore engineRestore,
+        RuntimeException restorePreparationFailure) {
+      this.moved = moved;
+      this.stale = stale;
+      this.engineRestore = engineRestore;
+      this.restorePreparationFailure = restorePreparationFailure;
+    }
+
+    private static HistoryNavigationMutation moved(
+        HistoryNavigationRestore engineRestore, RuntimeException restorePreparationFailure) {
+      return new HistoryNavigationMutation(true, false, engineRestore, restorePreparationFailure);
+    }
+
+    private boolean needsEngineRestore() {
+      return engineRestore != null;
+    }
+
+    private void restoreEngine() {
+      if (restorePreparationFailure != null) {
+        throw restorePreparationFailure;
+      }
+      if (engineRestore != null) {
+        engineRestore.execute();
+      }
+    }
+
+    private void applySuccessfulRestoreDisposition() {
+      if (engineRestore != null) {
+        engineRestore.applySuccessfulDisposition();
+      }
+    }
+  }
+
+  public void navigateHistorySteps(int delta) {
+    if (delta == 0) {
+      return;
+    }
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> navigateHistorySteps(delta));
+      return;
+    }
+    synchronized (this) {
+      ArrayDeque<Boolean> directions = pendingHistoryNavigationDirections();
+      if (historyNavigationHistory != history) {
+        directions.clear();
+        historyNavigationHistory = history;
+      }
+      boolean forward = delta > 0;
+      long steps = Math.abs((long) delta);
+      for (long step = 0; step < steps; step++) {
+        directions.addLast(forward);
+      }
+    }
+    drainHistoryNavigationOnEdt();
+  }
+
+  private ArrayDeque<Boolean> pendingHistoryNavigationDirections() {
+    if (pendingHistoryNavigationDirections == null) {
+      pendingHistoryNavigationDirections = new ArrayDeque<>();
+    }
+    return pendingHistoryNavigationDirections;
+  }
+
+  private void drainHistoryNavigationOnEdt() {
+    while (true) {
+      BoardHistoryList expectedHistory;
+      Boolean forward;
+      synchronized (this) {
+        ArrayDeque<Boolean> directions = pendingHistoryNavigationDirections();
+        if (historyRestoreInFlight) {
+          return;
+        }
+        if (historyNavigationHistory == null || historyNavigationHistory != history) {
+          directions.clear();
+          historyNavigationHistory = null;
+          return;
+        }
+        expectedHistory = historyNavigationHistory;
+        forward = directions.pollFirst();
+        if (forward == null) {
+          historyNavigationHistory = null;
+          return;
+        }
+      }
+
+      HistoryNavigationMutation mutation =
+          forward
+              ? moveHistoryForward(expectedHistory)
+              : moveHistoryBackward(expectedHistory);
+      if (mutation.stale) {
+        discardPendingHistoryNavigation();
+        return;
+      }
+      if (!mutation.moved) {
+        continue;
+      }
+
+      clearAfterMove();
+      if (Lizzie.frame != null) {
+        Lizzie.frame.refresh();
+      }
+      if (mutation.restorePreparationFailure != null) {
+        failHistoryNavigation(expectedHistory);
+        return;
+      }
+      if (!mutation.needsEngineRestore()) {
+        continue;
+      }
+
+      synchronized (this) {
+        if (Lizzie.board != this || history != expectedHistory) {
+          pendingHistoryNavigationDirections().clear();
+          historyNavigationHistory = null;
+          return;
+        }
+        historyRestoreInFlight = true;
+        activeHistoryRestoreHistory = expectedHistory;
+      }
+      HISTORY_RESTORE_EXECUTOR.execute(
+          () -> {
+            RuntimeException failure = null;
+            try {
+              mutation.restoreEngine();
+            } catch (RuntimeException restoreFailure) {
+              failure = restoreFailure;
+            }
+            RuntimeException completionFailure = failure;
+            SwingUtilities.invokeLater(
+                () -> completeHistoryRestore(expectedHistory, mutation, completionFailure));
+          });
+      return;
+    }
+  }
+
+  private void completeHistoryRestore(
+      BoardHistoryList expectedHistory,
+      HistoryNavigationMutation mutation,
+      RuntimeException failure) {
+    RuntimeException dispositionFailure = null;
+    boolean continueNavigation = false;
+    synchronized (this) {
+      if (activeHistoryRestoreHistory != expectedHistory) {
+        return;
+      }
+      historyRestoreInFlight = false;
+      activeHistoryRestoreHistory = null;
+      if (Lizzie.board != this) {
+        pendingHistoryNavigationDirections().clear();
+        historyNavigationHistory = null;
+      } else if (historyNavigationHistory == expectedHistory && failure != null) {
+        pendingHistoryNavigationDirections().clear();
+        historyNavigationHistory = null;
+      } else {
+        if (historyNavigationHistory != null && historyNavigationHistory != history) {
+          pendingHistoryNavigationDirections().clear();
+          historyNavigationHistory = null;
+        }
+        if (failure == null && history == expectedHistory) {
+          try {
+            mutation.applySuccessfulRestoreDisposition();
+          } catch (RuntimeException restoreDispositionFailure) {
+            dispositionFailure = restoreDispositionFailure;
+            pendingHistoryNavigationDirections().clear();
+            historyNavigationHistory = null;
+          }
+        }
+        continueNavigation = dispositionFailure == null && historyNavigationHistory == history;
+      }
+    }
+    if (failure != null || dispositionFailure != null) {
+      showHistoryRestoreFailure();
+    }
+    if (dispositionFailure != null) {
+      return;
+    }
+    if (continueNavigation) {
+      drainHistoryNavigationOnEdt();
+    }
+  }
+
+  private void failHistoryNavigation(BoardHistoryList expectedHistory) {
+    synchronized (this) {
+      if (historyNavigationHistory == expectedHistory) {
+        pendingHistoryNavigationDirections().clear();
+        historyNavigationHistory = null;
+      }
+    }
+    showHistoryRestoreFailure();
+  }
+
+  private static void showHistoryRestoreFailure() {
+    if (Lizzie.resourceBundle != null
+        && Lizzie.frame != null
+        && Lizzie.frame.isDisplayable()) {
+      Utils.showMsg(Lizzie.resourceBundle.getString("Leelaz.engineFailed"));
+    }
+  }
+
+  private synchronized void discardPendingHistoryNavigation() {
+    pendingHistoryNavigationDirections().clear();
+    historyNavigationHistory = null;
+  }
+
+  private HistoryNavigationRestore prepareHistoryNavigationRestore(boolean stepIn) {
+    Leelaz engine = Lizzie.leelaz;
+    if (engine == null || engine.isInitialBoardSynchronizationActive()) {
+      return null;
+    }
+    if (!stepIn && KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
+      return null;
+    }
+    boolean resumePonder = engine.isPonderingOrWasPonderingBeforeTracking();
+    BoardHistoryNode targetNode = history.getCurrentHistoryNode();
+    Leelaz.ExactSnapshotRestoreAdmission admission =
+        engine.captureBoardSyncExactSnapshotRestoreAdmission();
+    Optional<ExactSnapshotEngineRestore.PreparedRestore> preparedRestore =
+        ExactSnapshotEngineRestore.prepare(admission, targetNode);
+    Runnable successfulDisposition = resumePonder ? engine::ponder : null;
+    if (stepIn) {
+      ExactSnapshotEngineRestore.PreparedRestore exactRestore = preparedRestore.orElseThrow();
+      return new HistoryNavigationRestore(
+          () -> {
+            engine.notPondering();
+            exactRestore.execute();
+          },
+          successfulDisposition);
+    }
+    if (preparedRestore.isPresent()) {
+      ExactSnapshotEngineRestore.PreparedRestore exactRestore = preparedRestore.get();
+      return new HistoryNavigationRestore(
+          () -> restoreEnginePosition(engine, null, exactRestore, false), successfulDisposition);
+    }
+    List<String> fallbackCommands = captureHistoryNavigationRootReplayCommands(getMoveList());
+    Optional<Double> gameKomi = captureNonDefaultCurrentGameKomi(engine);
+    Leelaz mirrorEngine = captureHistoryNavigationMirrorEngine(engine);
+    return new HistoryNavigationRestore(
+        () -> restoreEnginePositionFromRoot(engine, mirrorEngine, fallbackCommands, gameKomi),
+        successfulDisposition);
+  }
+
   /** Goes to the next coordinate, thread safe */
   public boolean nextMove(boolean needRefresh) {
-    // canGetBestMoves = false;
+    synchronized (this) {
+      HistoryNavigationMutation mutation = moveHistoryForward(null);
+      if (!mutation.moved) {
+        return false;
+      }
+      mutation.restoreEngine();
+      mutation.applySuccessfulRestoreDisposition();
+    }
+    if (needRefresh) {
+      clearAfterMove();
+      Lizzie.frame.refresh();
+    }
+    return true;
+  }
+
+  private HistoryNavigationMutation moveHistoryForward(BoardHistoryList expectedHistory) {
     markMoveNavigationForMovelistRefresh();
     synchronized (this) {
+      if (expectedHistory != null && history != expectedHistory) {
+        return HistoryNavigationMutation.STALE;
+      }
       modifyStart();
       updateWinrate();
       Optional<BoardData> data = history.getNext();
-      if (data.isPresent()) {
-        if (Lizzie.config.playSound) Utils.playVoiceFile();
-        // update leelaz board position, before updating to next node
-        if (data.get().isMoveNode()) {
-          int[] lastMove = data.get().lastMove.get();
-          String name = convertCoordinatesToName(lastMove[0], lastMove[1]);
-          Lizzie.leelaz.playMove(data.get().lastMoveColor, name, true, data.get().blackToPlay);
-        } else if (isKnownPass(data.get())) {
-          Lizzie.leelaz.playMove(data.get().lastMoveColor, "pass", true, data.get().blackToPlay);
+      if (data.isEmpty()) {
+        modifyEnd();
+        return HistoryNavigationMutation.NOT_MOVED;
+      }
+      if (Lizzie.config.playSound) Utils.playVoiceFile();
+      if (data.get().isMoveNode()) {
+        int[] lastMove = data.get().lastMove.get();
+        String name = convertCoordinatesToName(lastMove[0], lastMove[1]);
+        Lizzie.leelaz.playMove(data.get().lastMoveColor, name, true, data.get().blackToPlay);
+      } else if (isKnownPass(data.get())) {
+        Lizzie.leelaz.playMove(data.get().lastMoveColor, "pass", true, data.get().blackToPlay);
+      }
+      history.next();
+      advanceContextRevision();
+      history.getCurrentHistoryNode().placeExtraStones();
+      HistoryNavigationRestore engineRestore = null;
+      RuntimeException restorePreparationFailure = null;
+      if (history.getCurrentHistoryNode().hasRemovedStone()
+          || history.getCurrentHistoryNode().getData().isSnapshotNode()) {
+        try {
+          engineRestore = prepareHistoryNavigationRestore(true);
+        } catch (RuntimeException failure) {
+          restorePreparationFailure = failure;
         }
-        history.next();
-        advanceContextRevision();
-        history.getCurrentHistoryNode().placeExtraStones();
-        if (history.getCurrentHistoryNode().hasRemovedStone()
-            || history.getCurrentHistoryNode().getData().isSnapshotNode())
-          history.getCurrentHistoryNode().clearAndSyncBoard(true);
-        updateIsBest();
-        notifyReadBoardLocalHistoryNavigation();
-        clearPressStoneInfo(null);
-        if (needRefresh) {
-          clearAfterMove();
-          Lizzie.frame.refresh();
-        }
-        return true;
-      } // else modifyEnd();
-      // canGetBestMoves = true;
-      modifyEnd();
-      return false;
+      }
+      updateIsBest();
+      notifyReadBoardLocalHistoryNavigation();
+      clearPressStoneInfo(null);
+      return HistoryNavigationMutation.moved(engineRestore, restorePreparationFailure);
     }
   }
 
@@ -3303,7 +3625,11 @@ public class Board {
   }
 
   private void replayMovesToEngine(Leelaz engine, ArrayList<Movelist> moves) {
-    Leelaz mirrorEngine = resolveReplayMirrorEngine(engine);
+    replayMovesToEngine(engine, resolveReplayMirrorEngine(engine), moves);
+  }
+
+  private void replayMovesToEngine(
+      Leelaz engine, Leelaz mirrorEngine, ArrayList<Movelist> moves) {
     int length = moves.size();
     for (int i = 0; i < length; i++) {
       Movelist move = moves.get(length - 1 - i);
@@ -3311,6 +3637,56 @@ public class Board {
       sendEngineMove(engine, move.isblack, moveName);
       if (mirrorEngine != null) {
         sendEngineMoveWithoutMirror(mirrorEngine, move.isblack, moveName);
+      }
+    }
+  }
+
+  private List<String> captureHistoryNavigationRootReplayCommands(ArrayList<Movelist> moves) {
+    ArrayList<String> commands = new ArrayList<>(moves.size());
+    for (int index = moves.size() - 1; index >= 0; index--) {
+      Movelist move = moves.get(index);
+      String moveName = move.ispass ? "pass" : convertCoordinatesToName(move.x, move.y);
+      commands.add("play " + (move.isblack ? "B" : "W") + " " + moveName);
+    }
+    return List.copyOf(commands);
+  }
+
+  private void restoreEnginePositionFromRoot(
+      Leelaz engine,
+      Leelaz mirrorEngine,
+      List<String> commands,
+      Optional<Double> gameKomi) {
+    gameKomi.ifPresent(
+        value -> {
+          syncFrozenRestoreKomi(engine, value);
+          if (mirrorEngine != null) {
+            syncFrozenRestoreKomi(mirrorEngine, value);
+          }
+        });
+    engine.sendCommandNoLeelaz2("clear_board");
+    if (mirrorEngine != null) {
+      mirrorEngine.sendCommandNoLeelaz2("clear_board");
+    }
+    replayCommandsToFrozenRestoreTargets(engine, mirrorEngine, commands);
+  }
+
+  private void syncFrozenRestoreKomi(Leelaz engine, double komi) {
+    float normalizedKomi = (float) (komi == 0.0 ? 0.0 : komi);
+    synchronized (engine) {
+      if (Float.compare(engine.komi, normalizedKomi) == 0) {
+        return;
+      }
+      engine.sendCommandNoLeelaz2("komi " + (komi == 0.0 ? "0" : komi));
+      engine.komi = normalizedKomi;
+    }
+  }
+
+  private void replayCommandsToFrozenRestoreTargets(
+      Leelaz engine, Leelaz mirrorEngine, List<String> commands) {
+    for (String command : commands) {
+      engine.sendCommandNoLeelaz2(command);
+      if (mirrorEngine != null) {
+        mirrorEngine.sendCommandNoLeelaz2(command);
       }
     }
   }
@@ -4044,8 +4420,27 @@ public class Board {
 
   /** Goes to the previous coordinate, thread safe */
   public boolean previousMove(boolean needRefresh) {
+    synchronized (this) {
+      HistoryNavigationMutation mutation = moveHistoryBackward(null);
+      if (!mutation.moved) {
+        return false;
+      }
+      mutation.restoreEngine();
+      mutation.applySuccessfulRestoreDisposition();
+    }
+    if (needRefresh) {
+      clearAfterMove();
+      Lizzie.frame.refresh();
+    }
+    return true;
+  }
+
+  private HistoryNavigationMutation moveHistoryBackward(BoardHistoryList expectedHistory) {
     markMoveNavigationForMovelistRefresh();
     synchronized (this) {
+      if (expectedHistory != null && history != expectedHistory) {
+        return HistoryNavigationMutation.STALE;
+      }
       modifyStart();
       BoardData currentData = history.getData();
       boolean isPass = isKnownPass(currentData);
@@ -4054,32 +4449,36 @@ public class Board {
           history.getCurrentHistoryNode().hasRemovedStone() || currentData.isSnapshotNode();
       if (history.getCurrentHistoryNode().next().isPresent())
         updateIsBest(history.getCurrentHistoryNode().next().get());
-      if (history.getPrevious().isPresent()) {
-        if (isHistoryAction
-            && history.getData().lastMoveColor != Stone.EMPTY
-            && !Lizzie.board.isLoadingFile) {
-          boolean nopass = false;
-          if (!Lizzie.leelaz.isKatago || Lizzie.leelaz.isSai) {
-            if (isPass && history.getCurrentHistoryNode().previous().isPresent()) nopass = true;
-          }
-          if (!nopass) Lizzie.leelaz.undo(true, history.getPrevious().get().blackToPlay);
-          else modifyEnd();
-        }
-        history.getCurrentHistoryNode().undoExtraStones();
-        history.previous();
-        advanceContextRevision();
-        if (needSync) history.getCurrentHistoryNode().clearAndSyncBoard(false);
-        notifyReadBoardLocalHistoryNavigation();
-        if (needRefresh) {
-          clearAfterMove();
-          Lizzie.frame.refresh();
-        }
-        updateMovelistNext(Lizzie.board.getHistory().getCurrentHistoryNode());
-        clearPressStoneInfo(null);
-        return true;
+      if (history.getPrevious().isEmpty()) {
+        modifyEnd();
+        return HistoryNavigationMutation.NOT_MOVED;
       }
-      modifyEnd();
-      return false;
+      if (isHistoryAction
+          && history.getData().lastMoveColor != Stone.EMPTY
+          && !Lizzie.board.isLoadingFile) {
+        boolean nopass = false;
+        if (!Lizzie.leelaz.isKatago || Lizzie.leelaz.isSai) {
+          if (isPass && history.getCurrentHistoryNode().previous().isPresent()) nopass = true;
+        }
+        if (!nopass) Lizzie.leelaz.undo(true, history.getPrevious().get().blackToPlay);
+        else modifyEnd();
+      }
+      history.getCurrentHistoryNode().undoExtraStones();
+      history.previous();
+      advanceContextRevision();
+      HistoryNavigationRestore engineRestore = null;
+      RuntimeException restorePreparationFailure = null;
+      if (needSync) {
+        try {
+          engineRestore = prepareHistoryNavigationRestore(false);
+        } catch (RuntimeException failure) {
+          restorePreparationFailure = failure;
+        }
+      }
+      notifyReadBoardLocalHistoryNavigation();
+      updateMovelistNext(Lizzie.board.getHistory().getCurrentHistoryNode());
+      clearPressStoneInfo(null);
+      return HistoryNavigationMutation.moved(engineRestore, restorePreparationFailure);
     }
   }
 
