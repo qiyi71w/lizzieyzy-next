@@ -2958,11 +2958,12 @@ public class EngineManager {
     return () -> {
       if (Lizzie.leelaz != target || !target.isStarted() || !target.isLoaded()) {
         if (explicitRestart) {
-          settleBoardSynchronizationFailure(
+          failLifecycleBoardSynchronization(
+              target,
               target,
               "restart engine was unavailable before board synchronization",
               targetWasUnrestored,
-              reservations);
+              releaseLifecycle);
           return;
         }
         releaseLifecycle.run();
@@ -3253,7 +3254,8 @@ public class EngineManager {
                 proposedRestoreMirror,
                 restoreBoard,
                 false,
-            resumePonder);
+                resumePonder,
+                retainedLifecycleOwner);
     PreparedLifecycleRestore lifecycleRestore = lifecycleSynchronization.pendingRoute;
     BoardFrame frame = lifecycleSynchronization.capturedFrame;
     int boardWidth = frame.boardWidth;
@@ -3834,7 +3836,7 @@ public class EngineManager {
     private final Board board;
     private final boolean resumePonder;
     private final boolean ensureRootReplayKomiTransport;
-    private final Object lifecycleOwner = new Object();
+    private final Object lifecycleOwner;
     private Leelaz.LifecycleCompletionClaim completionClaim;
     private EngineLifecycleReservations reservations;
     private LizzieFrame.RestartInteractionGate interactionGate;
@@ -3862,13 +3864,15 @@ public class EngineManager {
         Leelaz mirrorEngine,
         Board board,
         boolean resumePonder,
-        boolean ensureRootReplayKomiTransport) {
+        boolean ensureRootReplayKomiTransport,
+        Object retainedLifecycleOwner) {
       this.previousEngine = previousEngine;
       this.targetEngine = targetEngine;
       this.mirrorEngine = mirrorEngine == targetEngine ? null : mirrorEngine;
       this.board = board;
       this.resumePonder = resumePonder;
       this.ensureRootReplayKomiTransport = ensureRootReplayKomiTransport;
+      this.lifecycleOwner = retainedLifecycleOwner == null ? new Object() : retainedLifecycleOwner;
     }
 
     static InitialEngineStartupSynchronization capture(
@@ -3895,7 +3899,7 @@ public class EngineManager {
       }
       InitialEngineStartupSynchronization coordination =
           new InitialEngineStartupSynchronization(
-              previousEngine, targetEngine, mirrorEngine, board, resumePonder, false);
+              previousEngine, targetEngine, mirrorEngine, board, resumePonder, false, null);
       coordination.beginSynchronizationBarriers();
       try {
         coordination.acquireReservation();
@@ -3921,6 +3925,24 @@ public class EngineManager {
         Board board,
         boolean forceRootReplay,
         boolean resumePonder) {
+      return capturePrepared(
+          previousEngine,
+          targetEngine,
+          mirrorEngine,
+          board,
+          forceRootReplay,
+          resumePonder,
+          null);
+    }
+
+    static InitialEngineStartupSynchronization capturePrepared(
+        Leelaz previousEngine,
+        Leelaz targetEngine,
+        Leelaz mirrorEngine,
+        Board board,
+        boolean forceRootReplay,
+        boolean resumePonder,
+        Object retainedLifecycleOwner) {
       if (targetEngine == null) {
         throw new IllegalArgumentException("targetEngine");
       }
@@ -3929,7 +3951,13 @@ public class EngineManager {
       }
       InitialEngineStartupSynchronization coordination =
           new InitialEngineStartupSynchronization(
-              previousEngine, targetEngine, mirrorEngine, board, resumePonder, true);
+              previousEngine,
+              targetEngine,
+              mirrorEngine,
+              board,
+              resumePonder,
+              true,
+              retainedLifecycleOwner);
       coordination.beginSynchronizationBarriers();
       try {
         synchronized (board) {

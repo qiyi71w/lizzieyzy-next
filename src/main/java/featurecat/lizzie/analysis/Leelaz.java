@@ -1605,17 +1605,22 @@ public class Leelaz {
   private void failRestartBootstrapReceipt(
       RestartBootstrapReceipt receipt, String detail, boolean quarantineEngineState) {
     GtpCommandStateReset reset = null;
+    boolean releaseLifecycleTransition = false;
     synchronized (engineArbitrationLock()) {
       synchronized (commandQueue()) {
         if (isCurrentRestartBootstrapReceiptLocked(receipt)) {
           if (quarantineEngineState) {
-          engineStateUnrestored = true;
+            engineStateUnrestored = true;
           }
           restartBootstrapReceipt = null;
           receipt.binding.restartBootstrapReceipt = null;
           reset = resetGtpCommandStateLocked(detail);
+          releaseLifecycleTransition = true;
         }
       }
+    }
+    if (releaseLifecycleTransition) {
+      endExclusiveGtpLifecycleTransition(receipt.lifecycleOwner);
     }
     if (reset != null) {
       rememberRecentLine(

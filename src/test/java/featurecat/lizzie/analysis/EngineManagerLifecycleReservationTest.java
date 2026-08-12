@@ -924,6 +924,11 @@ class EngineManagerLifecycleReservationTest {
       }
       assertTrue(engine.restoreCount >= 2, "navigation must trigger a PK catch-up restore");
       assertEquals(0, engine.ponderCount, "analysis waits for the final response fence");
+      long fenceDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (engine.pendingBoardSynchronizationCompletion == null
+          && System.nanoTime() < fenceDeadline) {
+        Thread.sleep(10L);
+      }
       assertNotNull(engine.pendingBoardSynchronizationCompletion);
       engine.pendingBoardSynchronizationCompletion.run();
       assertEquals(1, engine.ponderCount, "PK analysis starts after the final fence");
@@ -4267,7 +4272,7 @@ class EngineManagerLifecycleReservationTest {
     private final UpdateForegroundLeelaz previousSecondaryEngine;
     private final UpdateBoard board;
     private final EngineManager manager;
-    private final String commandPrefix;
+    private final Path commandScript;
     private final Path commandLog;
     private final Path startupGate;
     private final Path boardFenceGate;
