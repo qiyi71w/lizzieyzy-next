@@ -493,6 +493,39 @@ class ExactSnapshotEngineRestoreContractTest {
           "a rejected tail command must not be reported as a completed exact restore.");
     }
   }
+  @Test
+  void discardedPreparedRestoreReleasesLifecycleCompletionLeaseWithoutSendingCommands()
+      throws Exception {
+    try (TestHarness harness = TestHarness.open(false)) {
+      Leelaz engine = new Leelaz("");
+      RecordingOutputStream output = new RecordingOutputStream(null);
+      setOutputStream(engine, output);
+      Lizzie.setPrimaryEngine(engine);
+      Object owner = new Object();
+      Leelaz.LifecycleCompletionClaim claim = engine.tryBeginLifecycleCompletion(owner, null);
+      assertNotNull(claim);
+      Leelaz.ExactSnapshotRestoreAdmission admission =
+          engine.captureBoardSyncExactSnapshotRestoreAdmission();
+      ExactSnapshotEngineRestore.PreparedRestore preparedRestore =
+          ExactSnapshotEngineRestore.prepareCurrentPosition(admission, snapshotRoot());
+      AtomicInteger completionCount = new AtomicInteger();
+      claim.completeSuccess(completionCount::incrementAndGet, detail -> {});
+      assertEquals(0, completionCount.get(), "the live board-sync lease must defer completion.");
+
+      preparedRestore.discard();
+
+      assertEquals(1, completionCount.get(), "discard must release the live completion lease.");
+      assertTrue(output.commands().isEmpty());
+      IllegalStateException repeatedDiscard =
+          assertThrows(IllegalStateException.class, preparedRestore::discard);
+      assertEquals("Exact snapshot restore has already been executed", repeatedDiscard.getMessage());
+      IllegalStateException executeAfterDiscard =
+          assertThrows(IllegalStateException.class, preparedRestore::execute);
+      assertEquals("Exact snapshot restore has already been executed", executeAfterDiscard.getMessage());
+      assertNotNull(engine.tryBeginLifecycleCompletion(new Object(), null));
+    }
+  }
+
 
   @Test
   void exactSnapshotRestoreDeletesSgfWhenAdmissionRejectsBeforeLoadDispatch() throws Exception {

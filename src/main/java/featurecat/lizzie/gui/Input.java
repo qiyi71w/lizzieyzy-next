@@ -198,7 +198,7 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
   public void keyTyped(KeyEvent e) {}
 
   public static void undo() {
-    LizzieFrame.undo(1);
+    LizzieFrame.undoNoRefresh(1);
   }
 
   private void undoToChildOfPreviousWithVariation() {
@@ -227,7 +227,7 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
   }
 
   public static void redo() {
-    LizzieFrame.redo(1);
+    LizzieFrame.redoNoRefresh(1);
   }
 
   //  private void startRawBoard() {

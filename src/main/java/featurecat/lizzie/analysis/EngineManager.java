@@ -113,7 +113,7 @@ public class EngineManager {
           Zobrist.init();
           Lizzie.board.clear(false);
         }
-        Lizzie.leelaz = e;
+        Lizzie.setPrimaryEngine(e);
         e.preload = true;
         e.firstLoad = true;
         final InitialEngineStartupSynchronization frozenStartupSynchronization =
@@ -1391,9 +1391,9 @@ public class EngineManager {
                 }
               }
               if (Lizzie.board.getHistory().isBlacksTurn()) {
-                Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
+                Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.blackEngineIndex));
               } else {
-                Lizzie.leelaz = engineList.get(engineGameInfo.whiteEngineIndex);
+                Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.whiteEngineIndex));
               }
               int cmdNumberTemp = Lizzie.leelaz.cmdNumber;
               Runnable runnable1 =
@@ -1511,13 +1511,13 @@ public class EngineManager {
                 }
               }
               if (Lizzie.board.getHistory().isBlacksTurn()) {
-                Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
+                Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.blackEngineIndex));
                 Lizzie.leelaz.genmoveForPk("b");
-                Lizzie.leelaz = engineList.get(engineGameInfo.whiteEngineIndex);
+                Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.whiteEngineIndex));
               } else {
-                Lizzie.leelaz = engineList.get(engineGameInfo.whiteEngineIndex);
+                Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.whiteEngineIndex));
                 Lizzie.leelaz.genmoveForPk("w");
-                Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
+                Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.blackEngineIndex));
               }
               setInfoAfterEngineGame();
               if (firstTime) {
@@ -1796,7 +1796,7 @@ public class EngineManager {
             Zobrist.init();
             Lizzie.board.clear(false);
           }
-          Lizzie.leelaz = e;
+          Lizzie.setPrimaryEngine(e);
           e.preload = true;
           e.firstLoad = true;
           currentEngineNo = i;
@@ -2688,10 +2688,10 @@ public class EngineManager {
                           newEng, engineGameInfo.timeBlack);
                     }
                     if (Lizzie.board.getHistory().isBlacksTurn()) {
-                      Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
+                      Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.blackEngineIndex));
                       Lizzie.leelaz.genmoveForPk("b");
                     } else {
-                      Lizzie.leelaz = engineList.get(engineGameInfo.whiteEngineIndex);
+                      Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.whiteEngineIndex));
                       Lizzie.leelaz.genmoveForPk("w");
                     }
                   } else if (Lizzie.board.getHistory().isBlacksTurn()) {
@@ -3077,7 +3077,7 @@ public class EngineManager {
         }
         curEng.notPondering();
       }
-      if (isMain) Lizzie.leelaz = newEng;
+      if (isMain) Lizzie.setPrimaryEngine(newEng);
       else Lizzie.leelaz2 = newEng;
       if (isMain && Lizzie.frame != null) {
         Lizzie.frame.invalidateTrackingAnalysis();
@@ -4346,13 +4346,13 @@ public class EngineManager {
     Menu.engineMenu.setEnabled(true);
     if (Lizzie.board.getData().blackToPlay) {
       // switchEngine(Lizzie.frame.toolbar.engineWhite);
-      Lizzie.leelaz = engineList.get(engineGameInfo.firstEngineIndex);
+      Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.firstEngineIndex));
       engineList.get(engineGameInfo.firstEngineIndex).nameCmd();
 
       // switchEngine(Lizzie.frame.toolbar.engineBlack);
     } else {
       // switchEngine(Lizzie.frame.toolbar.engineBlack);
-      Lizzie.leelaz = engineList.get(engineGameInfo.secondEngineIndex);
+      Lizzie.setPrimaryEngine(engineList.get(engineGameInfo.secondEngineIndex));
       engineList.get(engineGameInfo.secondEngineIndex).nameCmd();
       // engineList.get(Lizzie.frame.toolbar.engineWhite).clear();
       // switchEngine(Lizzie.frame.toolbar.engineWhite);

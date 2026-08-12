@@ -68,6 +68,32 @@ public class Lizzie {
   public static Board board;
   public static Leelaz leelaz;
   public static Leelaz leelaz2;
+  private static final Object PRIMARY_ENGINE_LOCK = new Object();
+  private static long primaryEngineGeneration;
+
+  public static void setPrimaryEngine(Leelaz engine) {
+    synchronized (PRIMARY_ENGINE_LOCK) {
+      leelaz = engine;
+      primaryEngineGeneration++;
+    }
+  }
+
+  public static long capturePrimaryEngineGeneration(Leelaz expected) {
+    synchronized (PRIMARY_ENGINE_LOCK) {
+      return leelaz == expected ? primaryEngineGeneration : -1L;
+    }
+  }
+
+  public static boolean runIfPrimaryEngine(
+      Leelaz expected, long expectedGeneration, Runnable action) {
+    synchronized (PRIMARY_ENGINE_LOCK) {
+      if (leelaz != expected || primaryEngineGeneration != expectedGeneration) {
+        return false;
+      }
+      action.run();
+      return true;
+    }
+  }
   public static String appName = "LizzieYzy Next";
   public static String lizzieVersion = "2.5.3";
   private static final String DEFAULT_NEXT_VERSION = "next-dev";

@@ -20,8 +20,11 @@ import featurecat.lizzie.gui.BoardRenderer;
 import featurecat.lizzie.gui.Input;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
+import featurecat.lizzie.gui.VariationTree;
+import featurecat.lizzie.gui.VariationTreeBig;
 import featurecat.lizzie.gui.WinrateGraph;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseWheelEvent;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -3921,6 +3924,7 @@ class BoardNodeKindHistoryPipelineTest {
     CountDownLatch boardMonitorAcquired = new CountDownLatch(1);
     Thread boardMonitorProbe = null;
     try {
+      activatePrimaryEngine(leelaz);
       EngineManager.isEngineGame = false;
       EngineManager.isPreEngineGame = false;
       BoardHistoryList history =
@@ -4026,6 +4030,450 @@ class BoardNodeKindHistoryPipelineTest {
   }
 
   @Test
+  void wheelNavigationAcrossSnapshotRepaintsBeforeDelayedRestoreAndSerializesQueuedNavigation()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    boolean previousEngineGame = EngineManager.isEngineGame;
+    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
+    TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+    TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+    try {
+      EngineManager.isEngineGame = false;
+      EngineManager.isPreEngineGame = false;
+      activatePrimaryEngine(leelaz);
+      BoardHistoryList history =
+          SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
+      while (history.previous().isPresent()) {}
+      Lizzie.board.setHistory(history);
+      assertTrue(Lizzie.board.nextMove(false));
+      assertTrue(Lizzie.board.nextMove(false));
+      LizzieFrame.boardRenderer = new BoardRenderer(false);
+      frame.clearRefreshedNodeKinds();
+      frame.expectNavigationTransitions(3);
+      leelaz.blockNextLoadSgf();
+      int commandStart = leelaz.recordedCommands().size();
+      Input input = new Input();
+      JPanel wheelSource = new JPanel();
+      CountDownLatch firstWheelReturned = new CountDownLatch(1);
+
+      SwingUtilities.invokeLater(
+          () -> {
+            input.mouseWheelMoved(mouseWheel(wheelSource, 1L, 1));
+            firstWheelReturned.countDown();
+          });
+
+      assertTrue(leelaz.awaitBlockedLoadSgf(), "wheel Down must start the snapshot exact restore.");
+      assertTrue(firstWheelReturned.await(500, TimeUnit.MILLISECONDS));
+      assertTrue(Lizzie.board.getHistory().getData().isSnapshotNode());
+      assertEquals(List.of(BoardNodeKind.SNAPSHOT), frame.refreshedNodeKinds());
+
+      CountDownLatch queuedWheelsReturned = new CountDownLatch(2);
+      SwingUtilities.invokeLater(
+          () -> {
+            input.mouseWheelMoved(mouseWheel(wheelSource, 2L, 1));
+            queuedWheelsReturned.countDown();
+            input.mouseWheelMoved(mouseWheel(wheelSource, 3L, -1));
+            queuedWheelsReturned.countDown();
+          });
+      assertTrue(
+          queuedWheelsReturned.await(500, TimeUnit.MILLISECONDS),
+          "later wheel navigation must queue without blocking the EDT.");
+      assertTrue(Lizzie.board.getHistory().getData().isSnapshotNode());
+
+      leelaz.releaseBlockedLoadSgf();
+      assertTrue(frame.awaitNavigationTransitions());
+      awaitHistoryNavigationIdle(Lizzie.board);
+      assertEquals(
+          List.of(BoardNodeKind.SNAPSHOT, BoardNodeKind.MOVE, BoardNodeKind.SNAPSHOT),
+          frame.refreshedNodeKinds());
+      BoardData current = Lizzie.board.getHistory().getData();
+      assertArrayEquals(current.stones, leelaz.copyStones());
+      assertEquals(current.blackToPlay, leelaz.isBlackToPlay());
+      List<String> navigationCommands =
+          new ArrayList<>(
+              leelaz.recordedCommands().subList(commandStart, leelaz.recordedCommands().size()));
+      int loadIndex = -1;
+      for (int index = 0; index < navigationCommands.size(); index++) {
+        if (navigationCommands.get(index).startsWith("loadsgf ")) {
+          loadIndex = index;
+          break;
+        }
+      }
+      int playIndex = navigationCommands.indexOf("play B B2");
+      int undoIndex = navigationCommands.indexOf("undo");
+      assertTrue(
+          loadIndex >= 0 && loadIndex < playIndex && playIndex < undoIndex,
+          "queued wheel navigation must preserve loadsgf -> play -> undo command order: "
+              + navigationCommands);
+    } finally {
+      leelaz.releaseBlockedLoadSgf();
+      awaitHistoryNavigationIdle(Lizzie.board);
+      EngineManager.isEngineGame = previousEngineGame;
+      EngineManager.isPreEngineGame = previousPreEngineGame;
+      LizzieFrame.boardRenderer = previousRenderer;
+      env.close();
+    }
+  }
+
+  @Test
+  void historyNavigationAcrossSnapshotWithPlaceholderEngineStaysLocalWithoutGtpOrPopup()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+    TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+    try {
+      usePlaceholderEngine(leelaz);
+      BoardHistoryList history =
+          SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
+      while (history.previous().isPresent()) {}
+      BoardHistoryNode target =
+          history.getStart().next().orElseThrow().next().orElseThrow().next().orElseThrow().next().orElseThrow();
+      Lizzie.board.setHistory(history);
+      assertTrue(Lizzie.board.nextMove(false));
+      assertTrue(Lizzie.board.nextMove(false));
+      LizzieFrame.boardRenderer = new BoardRenderer(false);
+      frame.clearRefreshedNodeKinds();
+      frame.expectNavigationTransitions(2);
+      frame.expectFailureHandling();
+      int commandStart = leelaz.recordedCommands().size();
+
+      SwingUtilities.invokeAndWait(() -> Lizzie.board.navigateHistorySteps(2));
+      assertTrue(frame.awaitNavigationTransitions());
+      awaitHistoryNavigationIdle(Lizzie.board);
+
+      assertSame(target, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertEquals(List.of(BoardNodeKind.SNAPSHOT, BoardNodeKind.MOVE), frame.refreshedNodeKinds());
+      assertTrue(
+          leelaz.recordedCommands().subList(commandStart, leelaz.recordedCommands().size()).isEmpty(),
+          "a placeholder engine must not receive GTP during local history navigation.");
+      assertFalse(frame.failureHandlingWasRequested(), "local navigation without an engine is not a restore failure.");
+    } finally {
+      awaitHistoryNavigationIdle(Lizzie.board);
+      LizzieFrame.boardRenderer = previousRenderer;
+      env.close();
+    }
+  }
+
+  @Test
+  void variationTreeClickBeyondSnapshotReachesTargetWithoutBlockingEdt() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+    TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+    try {
+      activatePrimaryEngine(leelaz);
+      BoardHistoryList history =
+          SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
+      while (history.previous().isPresent()) {}
+      BoardHistoryNode target =
+          history.getStart().next().orElseThrow().next().orElseThrow().next().orElseThrow().next().orElseThrow();
+      Lizzie.board.setHistory(history);
+      LizzieFrame.boardRenderer = new BoardRenderer(false);
+      frame.clearRefreshedNodeKinds();
+      frame.expectNavigationTransitions(3);
+      int commandStart = leelaz.recordedCommands().size();
+      leelaz.blockNextLoadSgf();
+      VariationTree tree = new VariationTree();
+      tree.draw(null, 0, 0, 200, 200, true);
+      CountDownLatch clickReturned = new CountDownLatch(1);
+
+      SwingUtilities.invokeLater(
+          () -> {
+            tree.onClicked(25, 105);
+            clickReturned.countDown();
+          });
+
+      assertTrue(leelaz.awaitBlockedLoadSgf(), "tree click must restore the snapshot anchor.");
+      assertTrue(clickReturned.await(500, TimeUnit.MILLISECONDS), "tree click must not block the EDT.");
+      assertTrue(Lizzie.board.getHistory().getData().isSnapshotNode());
+      assertEquals(List.of(BoardNodeKind.MOVE, BoardNodeKind.SNAPSHOT), frame.refreshedNodeKinds());
+
+      leelaz.releaseBlockedLoadSgf();
+      assertTrue(frame.awaitNavigationTransitions());
+      awaitHistoryNavigationIdle(Lizzie.board);
+      assertSame(target, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertEquals(
+          List.of(BoardNodeKind.MOVE, BoardNodeKind.SNAPSHOT, BoardNodeKind.MOVE),
+          frame.refreshedNodeKinds());
+      assertArrayEquals(target.getData().stones, leelaz.copyStones());
+      assertEquals(target.getData().blackToPlay, leelaz.isBlackToPlay());
+      List<String> navigationCommands =
+          new ArrayList<>(leelaz.recordedCommands().subList(commandStart, leelaz.recordedCommands().size()));
+      int clearIndex = navigationCommands.indexOf("clear_board");
+      int loadIndex = -1;
+      for (int index = 0; index < navigationCommands.size(); index++) {
+        if (navigationCommands.get(index).startsWith("loadsgf ")) {
+          loadIndex = index;
+          break;
+        }
+      }
+      int playIndex = navigationCommands.indexOf("play B B2");
+      assertTrue(
+          clearIndex >= 0 && clearIndex < loadIndex && loadIndex < playIndex,
+          "ready tree restore must issue clear_board -> loadsgf -> tail play: "
+              + navigationCommands);
+      assertFalse(navigationCommands.contains("undo"));
+    } finally {
+      leelaz.releaseBlockedLoadSgf();
+      awaitHistoryNavigationIdle(Lizzie.board);
+      LizzieFrame.boardRenderer = previousRenderer;
+      env.close();
+    }
+  }
+  @Test
+  void queuedLinearThenTreeNavigationUsesLogicalQueueEndpoint() throws Exception {
+    assertQueuedTreeNavigationUsesLogicalQueueEndpoint(false);
+  }
+
+  @Test
+  void queuedTreeThenTreeNavigationUsesLogicalQueueEndpoint() throws Exception {
+    assertQueuedTreeNavigationUsesLogicalQueueEndpoint(true);
+  }
+
+  private static void assertQueuedTreeNavigationUsesLogicalQueueEndpoint(boolean queueFirstTree)
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+    try {
+      activatePrimaryEngine(leelaz);
+      BoardHistoryList history =
+          SGFParser.parseSgf(
+              "(;SZ[3];B[aa];W[ba]AE[aa]AB[cc](;B[bb])(;B[cb]))", false);
+      while (history.previous().isPresent()) {}
+      BoardHistoryNode snapshot =
+          history.getStart().next().orElseThrow().next().orElseThrow().next().orElseThrow();
+      BoardHistoryNode mainChild = snapshot.next().orElseThrow();
+      BoardHistoryNode sibling = snapshot.getVariations().get(1);
+      Lizzie.board.setHistory(history);
+      assertTrue(Lizzie.board.nextMove(false));
+      assertTrue(Lizzie.board.nextMove(false));
+      leelaz.blockNextLoadSgf();
+      CountDownLatch queued = new CountDownLatch(2);
+      SwingUtilities.invokeLater(
+          () -> {
+            if (queueFirstTree) {
+              Lizzie.board.navigateToNode(mainChild);
+            } else {
+              Lizzie.board.navigateHistorySteps(1);
+            }
+            queued.countDown();
+            Lizzie.board.navigateToNode(sibling);
+            queued.countDown();
+          });
+      assertTrue(leelaz.awaitBlockedLoadSgf());
+      assertTrue(queued.await(500, TimeUnit.MILLISECONDS));
+      leelaz.releaseBlockedLoadSgf();
+      awaitHistoryNavigationIdle(Lizzie.board);
+      assertSame(sibling, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertArrayEquals(sibling.getData().stones, leelaz.copyStones());
+      assertEquals(sibling.getData().blackToPlay, leelaz.isBlackToPlay());
+    } finally {
+      leelaz.releaseBlockedLoadSgf();
+      awaitHistoryNavigationIdle(Lizzie.board);
+      env.close();
+    }
+  }
+  @Test
+  void stalePrimaryIsRejectedBeforeRestorePrecommandsOrGtp() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    TrackingLeelaz original = (TrackingLeelaz) Lizzie.leelaz;
+    TrackingLeelaz replacement = allocate(TrackingLeelaz.class);
+    TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+    try {
+      activatePrimaryEngine(original);
+      BoardHistoryList history =
+          SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
+      while (history.previous().isPresent()) {}
+      BoardHistoryNode target =
+          history.getStart().next().orElseThrow().next().orElseThrow().next().orElseThrow().next().orElseThrow();
+      Lizzie.board.setHistory(history);
+      assertTrue(Lizzie.board.nextMove(false));
+      assertTrue(Lizzie.board.nextMove(false));
+      frame.expectFailureHandling();
+      original.trackPondering();
+      int notPonderingStart = original.notPonderingCallCount();
+      TrackingBoard board = (TrackingBoard) Lizzie.board;
+      board.blockNextHistoryNavigationRestoreExecution();
+      SwingUtilities.invokeAndWait(() -> Lizzie.board.navigateHistorySteps(2));
+      assertTrue(board.awaitBlockedHistoryNavigationRestoreExecution());
+      int commandStart = original.recordedCommands().size();
+      activatePrimaryEngine(replacement);
+      Lizzie.setPrimaryEngine(replacement);
+      board.releaseBlockedHistoryNavigationRestoreExecution();
+      original.releaseBlockedInitialBoardSynchronizationCheck();
+      awaitHistoryNavigationIdle(Lizzie.board);
+      List<String> staleCommands =
+          new ArrayList<>(
+              original.recordedCommands().subList(commandStart, original.recordedCommands().size()));
+      assertTrue(
+          staleCommands.isEmpty(),
+          "a primary replacement before restore execution must send no commands to the old engine: "
+              + staleCommands);
+      assertEquals(
+          notPonderingStart,
+          original.notPonderingCallCount(),
+          "a stale primary must be rejected before the restore precommand.");
+      assertSame(target, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertFalse(frame.failureHandlingWasRequested());
+    } finally {
+      ((TrackingBoard) Lizzie.board).releaseBlockedHistoryNavigationRestoreExecution();
+      original.releaseBlockedInitialBoardSynchronizationCheck();
+      Lizzie.setPrimaryEngine(original);
+      awaitHistoryNavigationIdle(Lizzie.board);
+      env.close();
+    }
+  }
+  @Test
+  void backwardNavigationRestoresEarlierSnapshotAnchorAndTail() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    TrackingLeelaz engine = (TrackingLeelaz) Lizzie.leelaz;
+    try {
+      activatePrimaryEngine(engine);
+      BoardHistoryList history =
+          SGFParser.parseSgf("(;SZ[3]AB[aa]PL[W];W[bb];B[cc];AE[aa]AB[ba])", false);
+      while (history.next().isPresent()) {}
+      BoardHistoryNode laterSnapshot = history.getCurrentHistoryNode();
+      laterSnapshot.addExtraStones(2, 0, true);
+      BoardHistoryNode target = laterSnapshot.previous().orElseThrow();
+      Lizzie.board.setHistory(history);
+      engine.recordedCommands().clear();
+
+      assertTrue(Lizzie.board.previousMove(false));
+
+      List<String> commands = engine.recordedCommands();
+      int clearIndex = commands.indexOf("clear_board");
+      int loadIndex = -1;
+      for (int index = 0; index < commands.size(); index++) {
+        if (commands.get(index).startsWith("loadsgf ")) {
+          loadIndex = index;
+          break;
+        }
+      }
+      int playIndex = commands.indexOf("play W B2");
+      assertTrue(
+          clearIndex >= 0 && clearIndex < loadIndex && loadIndex < playIndex,
+          "backward exact restore must preserve clear_board -> loadsgf -> tail order: " + commands);
+      assertFalse(commands.contains("undo"), "exact restore must not send undo: " + commands);
+      assertSame(target, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertArrayEquals(target.getData().stones, engine.copyStones());
+      assertEquals(target.getData().blackToPlay, engine.isBlackToPlay());
+    } finally {
+      env.close();
+    }
+  }
+  @Test
+  void forwardSnapshotExactRestoreSkipsIncrementalExtraStones() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    TrackingLeelaz engine = (TrackingLeelaz) Lizzie.leelaz;
+    try {
+      activatePrimaryEngine(engine);
+      BoardHistoryList history = SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc])", false);
+      while (history.previous().isPresent()) {}
+      Lizzie.board.setHistory(history);
+      assertTrue(Lizzie.board.nextMove(false));
+      assertTrue(Lizzie.board.nextMove(false));
+      BoardHistoryNode snapshot =
+          Lizzie.board.getHistory().getCurrentHistoryNode().next().orElseThrow();
+      assertTrue(snapshot.getData().isSnapshotNode());
+      snapshot.addExtraStones(2, 0, true);
+      engine.recordedCommands().clear();
+      assertTrue(Lizzie.board.nextMove(false));
+
+      List<String> commands = engine.recordedCommands();
+      assertFalse(
+          commands.contains("play B C3"),
+          "SNAPSHOT extra stones must be materialized by exact restore, not incremental play: "
+              + commands);
+      int clearIndex = commands.indexOf("clear_board");
+      int loadIndex = -1;
+      for (int index = 0; index < commands.size(); index++) {
+        if (commands.get(index).startsWith("loadsgf ")) {
+          loadIndex = index;
+          break;
+        }
+      }
+      assertTrue(
+          clearIndex >= 0 && clearIndex < loadIndex,
+          "forward exact restore must preserve clear_board -> loadsgf order: " + commands);
+      assertSame(snapshot, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertArrayEquals(snapshot.getData().stones, engine.copyStones());
+      assertEquals(snapshot.getData().blackToPlay, engine.isBlackToPlay());
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void previewOnlyInputNavigationRepaintsWithoutHistoryMutation() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+    try {
+      BoardRenderer renderer = new BoardRenderer(false);
+      setField(BoardRenderer.class, renderer, "isShowingBranch", true);
+      LizzieFrame.boardRenderer = renderer;
+      int refreshes = frame.refreshCallCount();
+
+      Input.redo();
+      assertEquals(2, renderer.getDisplayedBranchLength());
+      assertEquals(refreshes + 1, frame.refreshCallCount());
+
+      Input.undo();
+      assertEquals(1, renderer.getDisplayedBranchLength());
+      assertEquals(refreshes + 2, frame.refreshCallCount());
+    } finally {
+      LizzieFrame.boardRenderer = previousRenderer;
+      env.close();
+    }
+  }
+
+
+
+
+  @Test
+  void variationTreeClickBeyondSnapshotWithPlaceholderEngineLandsLocally() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+    TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+    try {
+      usePlaceholderEngine(leelaz);
+      BoardHistoryList history =
+          SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
+      while (history.previous().isPresent()) {}
+      BoardHistoryNode target =
+          history.getStart().next().orElseThrow().next().orElseThrow().next().orElseThrow().next().orElseThrow();
+      Lizzie.board.setHistory(history);
+      LizzieFrame.boardRenderer = new BoardRenderer(false);
+      frame.clearRefreshedNodeKinds();
+      frame.expectNavigationTransitions(3);
+      frame.expectFailureHandling();
+      int commandStart = leelaz.recordedCommands().size();
+      VariationTreeBig tree = new VariationTreeBig();
+      tree.draw(null, 0, 0, 200, 300, true);
+
+      SwingUtilities.invokeAndWait(() -> tree.onClicked(25, 235));
+      assertTrue(frame.awaitNavigationTransitions());
+      awaitHistoryNavigationIdle(Lizzie.board);
+
+      assertSame(target, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertEquals(
+          List.of(BoardNodeKind.MOVE, BoardNodeKind.SNAPSHOT, BoardNodeKind.MOVE),
+          frame.refreshedNodeKinds());
+      assertTrue(
+          leelaz.recordedCommands().subList(commandStart, leelaz.recordedCommands().size()).isEmpty(),
+          "a placeholder engine must not receive GTP from the large variation tree.");
+      assertFalse(frame.failureHandlingWasRequested());
+    } finally {
+      awaitHistoryNavigationIdle(Lizzie.board);
+      LizzieFrame.boardRenderer = previousRenderer;
+      env.close();
+    }
+  }
+
+  @Test
   void historyReplacementKeepsFirstDownForTheNewTree() throws Exception {
     assertHistoryReplacementKeepsFirstDownForTheNewTree(false);
   }
@@ -4044,6 +4492,7 @@ class BoardNodeKindHistoryPipelineTest {
     TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
     TrackingFrame frame = (TrackingFrame) Lizzie.frame;
     try {
+      activatePrimaryEngine(leelaz);
       EngineManager.isEngineGame = false;
       EngineManager.isPreEngineGame = false;
       BoardHistoryList original =
@@ -4119,6 +4568,7 @@ class BoardNodeKindHistoryPipelineTest {
     TrackingLeelaz mirror = new TrackingLeelaz();
     TrackingFrame frame = (TrackingFrame) Lizzie.frame;
     try {
+      activatePrimaryEngine(primary);
       Lizzie.config.extraMode = ExtraMode.Double_Engine;
       Lizzie.leelaz2 = mirror;
       BoardHistoryList history =
@@ -4139,7 +4589,7 @@ class BoardNodeKindHistoryPipelineTest {
       awaitHistoryNavigationIdle(Lizzie.board);
       List<String> rootReplayCommands = List.of("clear_board", "play B A3", "play W B3");
       List<String> primaryCommands = primary.recordedCommands();
-      assertEquals("undo", primaryCommands.get(0));
+      assertEquals("clear_board", primaryCommands.get(0));
       assertEquals(
           rootReplayCommands,
           primaryCommands.subList(primaryCommands.indexOf("clear_board"), primaryCommands.size()));
@@ -4156,12 +4606,48 @@ class BoardNodeKindHistoryPipelineTest {
       env.close();
     }
   }
+  @Test
+  void rootFallbackStopsOldPrimaryBeforeTailAfterReplacement() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    TrackingLeelaz primary = (TrackingLeelaz) Lizzie.leelaz;
+    TrackingLeelaz replacement = allocate(TrackingLeelaz.class);
+    TrackingBoard board = (TrackingBoard) Lizzie.board;
+    try {
+      activatePrimaryEngine(primary);
+      BoardHistoryList history =
+          SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc])", false);
+      while (history.previous().isPresent()) {}
+      Lizzie.board.setHistory(history);
+      assertTrue(Lizzie.board.nextMove(false));
+      assertTrue(Lizzie.board.nextMove(false));
+      assertTrue(Lizzie.board.nextMove(false));
+      primary.recordedCommands().clear();
+      primary.trackPondering();
+      board.blockHistoryNavigationRootReplayCommand("play B A3");
+
+      SwingUtilities.invokeAndWait(() -> Lizzie.board.navigateHistorySteps(-1));
+      assertTrue(board.awaitBlockedHistoryNavigationRootReplayCommand());
+      activatePrimaryEngine(replacement);
+      board.releaseBlockedHistoryNavigationRootReplayCommand();
+      awaitHistoryNavigationIdle(Lizzie.board);
+
+      assertEquals(List.of("clear_board"), primary.recordedCommands());
+      assertEquals(0, primary.ponderCallCount());
+    } finally {
+      board.releaseBlockedHistoryNavigationRootReplayCommand();
+      Lizzie.setPrimaryEngine(primary);
+      awaitHistoryNavigationIdle(Lizzie.board);
+      env.close();
+    }
+  }
+
 
   @Test
   void rootFallbackFreezesCommandsBeforeBoardSizeChanges() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     TrackingLeelaz primary = (TrackingLeelaz) Lizzie.leelaz;
     try {
+      activatePrimaryEngine(primary);
       BoardHistoryList history =
           SGFParser.parseSgf("(;SZ[19];B[aa];W[bb]AE[aa]AB[cc])", false);
       while (history.previous().isPresent()) {}
@@ -4183,7 +4669,7 @@ class BoardNodeKindHistoryPipelineTest {
       primary.releaseBlockedFrozenClearBoard();
       awaitHistoryNavigationIdle(Lizzie.board);
       List<String> primaryCommands = primary.recordedCommands();
-      assertEquals("undo", primaryCommands.get(0));
+      assertEquals("clear_board", primaryCommands.get(0));
       assertEquals(
           List.of("clear_board", "play B A19", "play W B18"),
           primaryCommands.subList(primaryCommands.indexOf("clear_board"), primaryCommands.size()),
@@ -4205,6 +4691,7 @@ class BoardNodeKindHistoryPipelineTest {
     TrackingLeelaz primary = (TrackingLeelaz) Lizzie.leelaz;
     Thread adoption = null;
     try {
+      activatePrimaryEngine(primary);
       BoardHistoryList history =
           SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc])", false);
       while (history.previous().isPresent()) {}
@@ -4272,9 +4759,24 @@ class BoardNodeKindHistoryPipelineTest {
         KeyEvent.CHAR_UNDEFINED);
   }
 
+  private static MouseWheelEvent mouseWheel(JPanel source, long when, int rotation) {
+    return new MouseWheelEvent(
+        source,
+        MouseWheelEvent.MOUSE_WHEEL,
+        when,
+        0,
+        0,
+        0,
+        0,
+        false,
+        MouseWheelEvent.WHEEL_UNIT_SCROLL,
+        1,
+        rotation);
+  }
+
   private static void awaitHistoryNavigationIdle(Board board) throws Exception {
     Field inFlight = Board.class.getDeclaredField("historyRestoreInFlight");
-    Field pending = Board.class.getDeclaredField("pendingHistoryNavigationDirections");
+    Field pending = Board.class.getDeclaredField("pendingHistoryNavigationSteps");
     Field queueHistory = Board.class.getDeclaredField("historyNavigationHistory");
     inFlight.setAccessible(true);
     pending.setAccessible(true);
@@ -4283,9 +4785,9 @@ class BoardNodeKindHistoryPipelineTest {
     while (true) {
       SwingUtilities.invokeAndWait(() -> {});
       synchronized (board) {
-        Object queuedDirections = pending.get(board);
+        Object queuedSteps = pending.get(board);
         boolean queueEmpty =
-            queuedDirections == null || ((java.util.ArrayDeque<?>) queuedDirections).isEmpty();
+            queuedSteps == null || ((java.util.ArrayDeque<?>) queuedSteps).isEmpty();
         if (!inFlight.getBoolean(board) && queueEmpty && queueHistory.get(board) == null) {
           return;
         }
@@ -4308,6 +4810,7 @@ class BoardNodeKindHistoryPipelineTest {
     TrackingFrame frame = (TrackingFrame) Lizzie.frame;
     boolean lifecycleTransitionStarted = false;
     try {
+      activatePrimaryEngine(leelaz);
       EngineManager.isEngineGame = false;
       EngineManager.isPreEngineGame = false;
       Lizzie.resourceBundle =
@@ -4389,6 +4892,7 @@ class BoardNodeKindHistoryPipelineTest {
   void aeMidgameSetupMarksRemovedStoneAndRebuildsWhenSteppingForward() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
+      activatePrimaryEngine((TrackingLeelaz) Lizzie.leelaz);
       BoardHistoryList history = SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc])", false);
       while (history.previous().isPresent()) {}
       Lizzie.board.setHistory(history);
@@ -4432,6 +4936,7 @@ class BoardNodeKindHistoryPipelineTest {
   void moveToAnyPositionRestoresSnapshotBranchAnchorBeforeLaterRealMove() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
+      activatePrimaryEngine((TrackingLeelaz) Lizzie.leelaz);
       TrackingBoard board = (TrackingBoard) Lizzie.board;
       BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
       BoardHistoryNode root = history.getCurrentHistoryNode();
@@ -4905,6 +5410,13 @@ class BoardNodeKindHistoryPipelineTest {
     constructor.setAccessible(true);
     return constructor.newInstance(sgf);
   }
+  private static void setField(Class<?> type, Object target, String fieldName, Object value)
+      throws NoSuchFieldException, IllegalAccessException {
+    Field field = type.getDeclaredField(fieldName);
+    field.setAccessible(true);
+    field.set(target, value);
+  }
+
 
   private static Method requireMethod(Class<?> type, String name, Class<?>... parameterTypes) {
     try {
@@ -5024,6 +5536,19 @@ class BoardNodeKindHistoryPipelineTest {
     Field startedField = Leelaz.class.getDeclaredField("started");
     startedField.setAccessible(true);
     startedField.setBoolean(engine, started);
+  }
+
+  private static void activatePrimaryEngine(TrackingLeelaz engine) throws Exception {
+    EngineManager.isEmpty = false;
+    engine.isLoaded = true;
+    Lizzie.setPrimaryEngine(engine);
+    setStarted(engine, true);
+  }
+
+  private static void usePlaceholderEngine(TrackingLeelaz engine) throws Exception {
+    EngineManager.isEmpty = true;
+    engine.isLoaded = true;
+    setStarted(engine, false);
   }
 
   private static void assertLiveLoadHandicapSetupSyncsPrimaryEngine(boolean loadSgfLast)
@@ -5211,7 +5736,7 @@ class BoardNodeKindHistoryPipelineTest {
       Lizzie.frame = previousFrame;
       LizzieFrame.menu = previousMenu;
       LizzieFrame.winrateGraph = previousWinrateGraph;
-      Lizzie.leelaz = previousLeelaz;
+      Lizzie.setPrimaryEngine(previousLeelaz);
       Lizzie.config = previousConfig;
       EngineManager.isEmpty = previousEngineEmpty;
     }
@@ -5220,6 +5745,95 @@ class BoardNodeKindHistoryPipelineTest {
   private static final class TrackingBoard extends Board {
     private TrackingBoard() {
       super();
+    }
+    private volatile CountDownLatch blockedHistoryNavigationRestoreExecutionStarted;
+    private volatile CountDownLatch blockedHistoryNavigationRestoreExecutionRelease;
+    private volatile String blockedHistoryNavigationRootReplayCommand;
+    private volatile CountDownLatch blockedHistoryNavigationRootReplayCommandStarted;
+    private volatile CountDownLatch blockedHistoryNavigationRootReplayCommandRelease;
+
+    @Override
+    void beforeHistoryNavigationRootReplayCommand(String command) {
+      CountDownLatch started = blockedHistoryNavigationRootReplayCommandStarted;
+      CountDownLatch release = blockedHistoryNavigationRootReplayCommandRelease;
+      if (!command.equals(blockedHistoryNavigationRootReplayCommand)
+          || started == null
+          || release == null) {
+        return;
+      }
+      started.countDown();
+      try {
+        if (!release.await(2, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("Timed out waiting to release root replay command");
+        }
+      } catch (InterruptedException failure) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("Interrupted while blocking root replay command", failure);
+      } finally {
+        if (blockedHistoryNavigationRootReplayCommandStarted == started) {
+          blockedHistoryNavigationRootReplayCommand = null;
+          blockedHistoryNavigationRootReplayCommandStarted = null;
+          blockedHistoryNavigationRootReplayCommandRelease = null;
+        }
+      }
+    }
+
+    private void blockHistoryNavigationRootReplayCommand(String command) {
+      blockedHistoryNavigationRootReplayCommand = command;
+      blockedHistoryNavigationRootReplayCommandStarted = new CountDownLatch(1);
+      blockedHistoryNavigationRootReplayCommandRelease = new CountDownLatch(1);
+    }
+
+    private boolean awaitBlockedHistoryNavigationRootReplayCommand() throws InterruptedException {
+      CountDownLatch started = blockedHistoryNavigationRootReplayCommandStarted;
+      return started != null && started.await(2, TimeUnit.SECONDS);
+    }
+
+    private void releaseBlockedHistoryNavigationRootReplayCommand() {
+      CountDownLatch release = blockedHistoryNavigationRootReplayCommandRelease;
+      if (release != null) {
+        release.countDown();
+      }
+    }
+
+    @Override
+    void beforeHistoryNavigationRestoreExecution() {
+      CountDownLatch started = blockedHistoryNavigationRestoreExecutionStarted;
+      CountDownLatch release = blockedHistoryNavigationRestoreExecutionRelease;
+      if (started == null || release == null) {
+        return;
+      }
+      started.countDown();
+      try {
+        if (!release.await(2, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("Timed out waiting to release history restore execution");
+        }
+      } catch (InterruptedException failure) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("Interrupted while blocking history restore execution", failure);
+      } finally {
+        if (blockedHistoryNavigationRestoreExecutionStarted == started) {
+          blockedHistoryNavigationRestoreExecutionStarted = null;
+          blockedHistoryNavigationRestoreExecutionRelease = null;
+        }
+      }
+    }
+
+    private void blockNextHistoryNavigationRestoreExecution() {
+      blockedHistoryNavigationRestoreExecutionStarted = new CountDownLatch(1);
+      blockedHistoryNavigationRestoreExecutionRelease = new CountDownLatch(1);
+    }
+
+    private boolean awaitBlockedHistoryNavigationRestoreExecution() throws InterruptedException {
+      CountDownLatch started = blockedHistoryNavigationRestoreExecutionStarted;
+      return started != null && started.await(2, TimeUnit.SECONDS);
+    }
+
+    private void releaseBlockedHistoryNavigationRestoreExecution() {
+      CountDownLatch release = blockedHistoryNavigationRestoreExecutionRelease;
+      if (release != null) {
+        release.countDown();
+      }
     }
 
     @Override
@@ -5344,6 +5958,11 @@ class BoardNodeKindHistoryPipelineTest {
       return failureHandling != null && failureHandling.await(2, TimeUnit.SECONDS);
     }
 
+    private boolean failureHandlingWasRequested() {
+      CountDownLatch failureHandling = expectedFailureHandling;
+      return failureHandling != null && failureHandling.getCount() == 0;
+    }
+
     private String currentWhitePlayerTitle() {
       return whitePlayerTitle;
     }
@@ -5365,14 +5984,19 @@ class BoardNodeKindHistoryPipelineTest {
     private volatile CountDownLatch blockedLoadSgfStarted;
     private volatile CountDownLatch blockedLoadSgfRelease;
     private volatile RuntimeException nextLoadSgfFailure;
+    private volatile CountDownLatch blockedNotPonderingStarted;
+    private volatile CountDownLatch blockedNotPonderingRelease;
     private volatile CountDownLatch blockedFrozenClearStarted;
     private volatile CountDownLatch blockedFrozenClearRelease;
+    private volatile CountDownLatch blockedInitialBoardSynchronizationCheckStarted;
+    private volatile CountDownLatch blockedInitialBoardSynchronizationCheckRelease;
     private List<Stone[]> undoStones;
     private List<Boolean> undoBlackToPlay;
     private String lastLoadedSgfContent = "";
     private boolean trackPonderCalls;
     private boolean pretendingToPonder;
     private int ponderCallCount;
+    private int notPonderingCallCount;
 
     private TrackingLeelaz() throws IOException {
       super("");
@@ -5401,6 +6025,8 @@ class BoardNodeKindHistoryPipelineTest {
 
     @Override
     public void notPondering() {
+      notPonderingCallCount += 1;
+      waitForBlockedNotPonderingRelease();
       if (trackPonderCalls) {
         pretendingToPonder = false;
         return;
@@ -5408,6 +6034,13 @@ class BoardNodeKindHistoryPipelineTest {
       super.notPondering();
     }
 
+    @Override
+    public boolean isInitialBoardSynchronizationActive() {
+      if (Thread.currentThread().getName().equals("lizzie-history-restore")) {
+        waitForBlockedInitialBoardSynchronizationCheckRelease();
+      }
+      return super.isInitialBoardSynchronizationActive();
+    }
     @Override
     public void ponder() {
       if (trackPonderCalls) {
@@ -5519,6 +6152,50 @@ class BoardNodeKindHistoryPipelineTest {
     private int ponderCallCount() {
       return ponderCallCount;
     }
+    private int notPonderingCallCount() {
+      return notPonderingCallCount;
+    }
+
+    private void blockNextInitialBoardSynchronizationCheck() {
+      blockedInitialBoardSynchronizationCheckStarted = new CountDownLatch(1);
+      blockedInitialBoardSynchronizationCheckRelease = new CountDownLatch(1);
+    }
+
+    private boolean awaitBlockedInitialBoardSynchronizationCheck() throws InterruptedException {
+      CountDownLatch started = blockedInitialBoardSynchronizationCheckStarted;
+      return started != null && started.await(2, TimeUnit.SECONDS);
+    }
+
+    private void releaseBlockedInitialBoardSynchronizationCheck() {
+      CountDownLatch release = blockedInitialBoardSynchronizationCheckRelease;
+      if (release != null) {
+        release.countDown();
+      }
+    }
+
+    private void waitForBlockedInitialBoardSynchronizationCheckRelease() {
+      CountDownLatch started = blockedInitialBoardSynchronizationCheckStarted;
+      CountDownLatch release = blockedInitialBoardSynchronizationCheckRelease;
+      if (started == null || release == null) {
+        return;
+      }
+      started.countDown();
+      try {
+        if (!release.await(2, TimeUnit.SECONDS)) {
+          throw new IllegalStateException(
+              "Timed out waiting to release blocked initial synchronization check");
+        }
+      } catch (InterruptedException failure) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException(
+            "Interrupted while blocking initial synchronization check", failure);
+      } finally {
+        if (blockedInitialBoardSynchronizationCheckStarted == started) {
+          blockedInitialBoardSynchronizationCheckStarted = null;
+          blockedInitialBoardSynchronizationCheckRelease = null;
+        }
+      }
+    }
 
     private void blockNextPonder() {
       blockedPonderStarted = new CountDownLatch(1);
@@ -5558,6 +6235,45 @@ class BoardNodeKindHistoryPipelineTest {
         }
       }
     }
+    private void blockNextNotPondering() {
+      blockedNotPonderingStarted = new CountDownLatch(1);
+      blockedNotPonderingRelease = new CountDownLatch(1);
+    }
+
+    private boolean awaitBlockedNotPondering() throws InterruptedException {
+      CountDownLatch started = blockedNotPonderingStarted;
+      return started != null && started.await(2, TimeUnit.SECONDS);
+    }
+
+    private void releaseBlockedNotPondering() {
+      CountDownLatch release = blockedNotPonderingRelease;
+      if (release != null) {
+        release.countDown();
+      }
+    }
+
+    private void waitForBlockedNotPonderingRelease() {
+      CountDownLatch started = blockedNotPonderingStarted;
+      CountDownLatch release = blockedNotPonderingRelease;
+      if (started == null || release == null) {
+        return;
+      }
+      started.countDown();
+      try {
+        if (!release.await(2, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("Timed out waiting to release blocked notPondering fixture");
+        }
+      } catch (InterruptedException failure) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("Interrupted while blocking notPondering fixture", failure);
+      } finally {
+        if (blockedNotPonderingStarted == started) {
+          blockedNotPonderingStarted = null;
+          blockedNotPonderingRelease = null;
+        }
+      }
+    }
+
 
 
     private void blockNextFrozenClearBoard() {

@@ -120,9 +120,11 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - lifecycle root replay 继续使用入口既有的 live-board/root-movelist 产品语义，但由 owner 在 captured target/mirror/admission 下一次性执行；root 路径不通过 exact failure fallback，也不在副作用后重新 `prepare`。
 - captured mirror 不是独立 lifecycle reservation endpoint。secondary switch 只 reserve frozen previous secondary 与 frozen target；PK start/restart 只 reserve target；mirror 竞争在 exact/root enqueue 时按 captured admission fail-closed。
 - exact Board restore 的 preclear 只发给 plan capture 时的 target set，不能在执行时重新解析 `Lizzie.leelaz2`。exact module 完成边界是所有 target 已接受 `loadsgf` tail 命令，调用方随后按自己的 fence 与 disposition 收敛 owner 状态。
+- 异步 history navigation 的 exact admission 额外冻结 primary-engine generation。主引擎替换后，旧 generation 在 `notPondering`、preclear、`loadsgf`、tail 与 ponder disposition 前均 fail-closed；secondary/third-engine resend 使用既有非 primary-bound Board sync admission，不受该 generation fence 扩面。
 - foreground/GMA adapter 只负责把自己的 session/reservation identity 映射为 opaque admission，再调用 generic history/current-position capture；产品-specific stop、name、komi、clear、quarantine 与 completion policy 留在 adapter/owner。
 - 自动/直接 restart 的 exact 与 root 路线都经过同一个 owner board synchronization fence；owner 只能在 fence 成功后恢复 captured ponder，失败或不可用时不启动分析，并在既有 completion boundary 释放 reservation。
 - `Leelaz` 继续唯一拥有 ordinary command queue、response handler、timeout、late-response retirement、output-stream invalidation 与 engine arbitration；exact module 只通过窄 admission-aware seam 使用这些能力。
+- `PreparedRestore` 可在首次 `execute()` 前由捕获它的 owner 调用 one-shot `discard()` 释放 captured admission；`discard()` 不写临时 SGF、不发任何命令。首次 `execute()` 或 `discard()` 后，另一操作必须以既有 `Exact snapshot restore has already been executed` 失败；一旦 execute 开始，所有失败仍按 owner 的既有 fail-closed 语义处理。
 - 没有可用静态锚点时，调用方保留既有 root replay；默认空 root 不是 exact 锚点。exact 一旦开始，`loadsgf`、tail 或 arbitration 失败都原样失败，禁止猜测性 root fallback。
 - lifecycle exact/root 抛错时，owner 将 frozen target 标为 unavailable，并在既有 completion boundary 释放 reservation；不因本票据新建 `ENGINE_STATE_UNRESTORED` 或通用 retry。ReadBoard GMA 固定点既有 quarantine/retirement 行为保持独立。
 - ponder 只由 lifecycle owner 在全部目标恢复和自身 board fence 成功后按 capture 时的 disposition 决定；restore module 不擅自停止或启动 ponder。

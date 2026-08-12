@@ -169,6 +169,12 @@ public class BoardHistoryList {
     return n.map(x -> x.getData());
   }
 
+  Optional<BoardData> nextVariationWithoutEngineSync(int idx) {
+    Optional<BoardHistoryNode> next = head.getVariation(idx);
+    next.ifPresent(node -> head = node);
+    return next.map(BoardHistoryNode::getData);
+  }
+
   /**
    * Does not change the pointer position
    *

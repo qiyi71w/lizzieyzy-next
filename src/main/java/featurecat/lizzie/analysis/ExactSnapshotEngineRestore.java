@@ -413,6 +413,13 @@ public final class ExactSnapshotEngineRestore {
       }
       return ExactSnapshotEngineRestore.execute(plan);
     }
+
+    public void discard() {
+      if (!executed.compareAndSet(false, true)) {
+        throw new IllegalStateException("Exact snapshot restore has already been executed");
+      }
+      plan.admission.completeBoardSync();
+    }
   }
 
   private static final class RestorePlan {

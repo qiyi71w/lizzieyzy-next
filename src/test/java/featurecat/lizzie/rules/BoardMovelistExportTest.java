@@ -12,6 +12,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.ExactSnapshotEngineRestore;
 import featurecat.lizzie.analysis.ExactSnapshotRestoreProtocolFixture;
+import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.ReadBoard;
@@ -853,6 +854,7 @@ class BoardMovelistExportTest {
     Board previousBoard = Lizzie.board;
     Leelaz previousLeelaz = Lizzie.leelaz;
     Config previousConfig = Lizzie.config;
+    boolean previousEngineEmpty = EngineManager.isEmpty;
     try {
       Board board = allocate(Board.class);
       board.startStonelist = new ArrayList<>();
@@ -865,6 +867,7 @@ class BoardMovelistExportTest {
       Lizzie.board = board;
       TrackingLeelaz engine = allocate(TrackingLeelaz.class);
       Lizzie.leelaz = engine;
+      activatePrimaryEngine(engine);
       Lizzie.config = minimalConfig();
 
       assertTrue(board.nextMove(false), "history should still advance onto the snapshot anchor.");
@@ -891,6 +894,7 @@ class BoardMovelistExportTest {
           engine.recordedCommands().get(5),
           "explicit passes should keep replaying after snapshot anchors.");
     } finally {
+      EngineManager.isEmpty = previousEngineEmpty;
       Lizzie.board = previousBoard;
       Lizzie.leelaz = previousLeelaz;
       Lizzie.config = previousConfig;
@@ -1421,6 +1425,14 @@ class BoardMovelistExportTest {
     config.showWinrateGraph = false;
     config.showMouseOverWinrateGraph = false;
     return config;
+  }
+
+  private static void activatePrimaryEngine(TrackingLeelaz engine) throws Exception {
+    EngineManager.isEmpty = false;
+    engine.isLoaded = true;
+    Field startedField = Leelaz.class.getDeclaredField("started");
+    startedField.setAccessible(true);
+    startedField.setBoolean(engine, true);
   }
 
   private static void awaitBlocked(Thread thread, String message) throws InterruptedException {

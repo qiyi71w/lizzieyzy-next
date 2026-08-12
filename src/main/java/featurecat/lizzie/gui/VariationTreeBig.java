@@ -387,8 +387,7 @@ public class VariationTreeBig {
       // if (node.isPresent()) Lizzie.frame.noautocounting();
       if (node.isPresent()) {
         Lizzie.frame.clearSuggestionTablePreview();
-        Lizzie.board.moveToAnyPosition(node.get());
-        Lizzie.frame.refresh();
+        Lizzie.board.navigateToNode(node.get());
       }
     }
   }
