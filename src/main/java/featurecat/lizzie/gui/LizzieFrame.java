@@ -7792,19 +7792,24 @@ public class LizzieFrame extends JFrame {
   /**
    * Enters starting-position setup mode.
    *
-   * <p>Only a root-only history (empty/new game or an existing root setup SGF) can be edited as a
-   * starting position. Histories with real moves belong to the explicit conversion flow.
+   * <p>When the displayed position has real move/pass history, entering setup mode first reuses
+   * the destructive current-position conversion confirmation. A canceled conversion leaves the
+   * game history and setup-mode state unchanged.
    *
    * @return {@code true} when setup mode is now active
    */
   public boolean enterSetupMode() {
+    if (!canEnterSetupMode()) {
+      Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupModeEngineNotReady"));
+      return false;
+    }
+    if (Lizzie.board.hasRealMoveOrPassHistory()
+        && !convertCurrentPositionToStartingPositionCommand()) {
+      return false;
+    }
     BoardHistoryNode root = Lizzie.board.getHistory().getStart();
     if (root == null || root.numberOfChildren() > 0) {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupModeRequiresRootOnly"));
-      return false;
-    }
-    if (!canEnterSetupMode()) {
-      Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupModeEngineNotReady"));
       return false;
     }
     clearSetupOverlayState();
@@ -19778,5 +19783,52 @@ public class LizzieFrame extends JFrame {
                 - Lizzie.frame.getInsets().bottom
                 - Lizzie.frame.toolbarHeight)
         .setVisible(true);
+  }
+  static void configureCommentHtmlStyle(
+      javax.swing.text.html.StyleSheet styleSheet, Color fontColor, String fontName, int fontSize) {
+    Color safeFontColor = fontColor == null ? Color.WHITE : fontColor;
+    String safeFontName = fontName == null || fontName.trim().isEmpty() ? "SansSerif" : fontName;
+    int safeFontSize = Math.max(1, fontSize);
+    String foreground =
+        String.format("#%02x%02x%02x", safeFontColor.getRed(), safeFontColor.getGreen(), safeFontColor.getBlue());
+    styleSheet.addRule("body {font-family:" + safeFontName + "; font-size:" + safeFontSize + "px; color:" + foreground + ";}");
+  }
+
+  static void configureCommentDisplaySurface(JPaintTextPane pane, javax.swing.JScrollPane scrollPane) {
+    Color transparent = new Color(0, 0, 0, 0);
+    if (pane != null) {
+      pane.setOpaque(false);
+      pane.setBackground(transparent);
+    }
+    if (scrollPane != null) {
+      scrollPane.setOpaque(false);
+      scrollPane.setBackground(transparent);
+      if (scrollPane.getViewport() != null) {
+        scrollPane.getViewport().setOpaque(false);
+        scrollPane.getViewport().setBackground(transparent);
+      }
+    }
+  }
+
+  static boolean isRulesEngineReady(featurecat.lizzie.analysis.Leelaz engine) {
+    return engine != null && engine.isLoaded() && engine.isStarted();
+  }
+
+  static boolean quickAnalysisDependsOnPrimary(
+      boolean remotePrimary, boolean bundledOpenClPrimary, boolean bundledNvidiaPrimary, boolean reusePrimary) {
+    return remotePrimary || bundledOpenClPrimary || bundledNvidiaPrimary || reusePrimary;
+  }
+
+  static boolean shouldReplaceAutomaticQuickAnalysisEngine(
+      boolean wantsDedicatedLightweightModel,
+      boolean currentUsesDedicatedLightweightModel,
+      boolean wantsAutomaticPrimaryForegroundReuse,
+      boolean currentUsesAutomaticPrimaryForegroundReuse,
+      boolean currentMatchesBackend,
+      boolean currentAnalysisInProgress) {
+    return currentAnalysisInProgress
+        || !currentMatchesBackend
+        || wantsDedicatedLightweightModel != currentUsesDedicatedLightweightModel
+        || wantsAutomaticPrimaryForegroundReuse != currentUsesAutomaticPrimaryForegroundReuse;
   }
 }

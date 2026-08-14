@@ -435,6 +435,66 @@ class BoardRootSetupSeamTest {
   }
 
   @Test
+  void setupModeEntryCancellationPreservesRealHistory() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    boolean previousEmpty = EngineManager.isEmpty;
+    try {
+      EngineManager.isEmpty = true;
+      BoardHistoryList history = SGFParser.parseSgf("(;SZ[3];B[aa];W[bb])", false);
+      Lizzie.board.setHistory(history);
+      BoardHistoryNode originalRoot = history.getStart();
+      TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+      frame.confirmStartingPositionConversion = false;
+
+      assertFalse(
+          frame.enterSetupMode(),
+          "canceling setup entry should not discard the existing game history.");
+      assertFalse(Lizzie.board.isSetupMode(), "canceled setup entry must remain inactive.");
+      assertEquals(1, frame.startingPositionConversionConfirmations);
+      assertTrue(
+          Lizzie.board.getHistory().getStart() == originalRoot,
+          "canceling setup entry should preserve the original history identity.");
+      assertTrue(originalRoot.numberOfChildren() > 0, "canceling should preserve real moves.");
+    } finally {
+      EngineManager.isEmpty = previousEmpty;
+      env.close();
+    }
+  }
+
+  @Test
+  void setupModeEntryConfirmationFlattensDisplayedPosition() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    boolean previousEmpty = EngineManager.isEmpty;
+    try {
+      EngineManager.isEmpty = true;
+      BoardHistoryList history = SGFParser.parseSgf("(;SZ[3];B[aa];W[bb])", false);
+      history.toStart();
+      history.next();
+      history.next();
+      Lizzie.board.setHistory(history);
+      TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+      frame.confirmStartingPositionConversion = true;
+
+      assertTrue(
+          frame.enterSetupMode(),
+          "confirming setup entry should flatten the displayed position and activate setup mode.");
+      assertTrue(Lizzie.board.isSetupMode(), "confirmed setup entry should be active.");
+      BoardHistoryNode root = Lizzie.board.getHistory().getStart();
+      assertTrue(root.getData().isSnapshotNode(), "setup entry should produce a root snapshot.");
+      assertEquals(0, root.numberOfChildren(), "setup entry should discard moves and variations.");
+      assertEquals(Stone.BLACK, root.getData().stones[Board.getIndex(0, 0)]);
+      assertEquals(Stone.WHITE, root.getData().stones[Board.getIndex(1, 1)]);
+      assertFalse(
+          Lizzie.board.hasRealMoveOrPassHistory(),
+          "the active setup tree should contain no real move/pass history.");
+      assertEquals(1, frame.startingPositionConversionConfirmations);
+    } finally {
+      EngineManager.isEmpty = previousEmpty;
+      env.close();
+    }
+  }
+
+  @Test
   void setupModeEntryRejectsActiveEngine() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     boolean previousEmpty = EngineManager.isEmpty;
@@ -684,6 +744,8 @@ class BoardRootSetupSeamTest {
     private final WinrateGraph previousWinrateGraph;
     private final Leelaz previousLeelaz;
     private final Config previousConfig;
+    private final boolean previousEngineGame;
+    private final EngineFollowController previousEngineFollowController;
 
     private TestEnvironment(
         int previousBoardWidth,
@@ -693,7 +755,9 @@ class BoardRootSetupSeamTest {
         Menu previousMenu,
         WinrateGraph previousWinrateGraph,
         Leelaz previousLeelaz,
-        Config previousConfig) {
+        Config previousConfig,
+        boolean previousEngineGame,
+        EngineFollowController previousEngineFollowController) {
       this.previousBoardWidth = previousBoardWidth;
       this.previousBoardHeight = previousBoardHeight;
       this.previousBoard = previousBoard;
@@ -702,6 +766,8 @@ class BoardRootSetupSeamTest {
       this.previousWinrateGraph = previousWinrateGraph;
       this.previousLeelaz = previousLeelaz;
       this.previousConfig = previousConfig;
+      this.previousEngineGame = previousEngineGame;
+      this.previousEngineFollowController = previousEngineFollowController;
     }
 
     private static TestEnvironment open() throws Exception {
@@ -713,6 +779,8 @@ class BoardRootSetupSeamTest {
       WinrateGraph previousWinrateGraph = LizzieFrame.winrateGraph;
       Leelaz previousLeelaz = Lizzie.leelaz;
       Config previousConfig = Lizzie.config;
+      boolean previousEngineGame = EngineManager.isEngineGame;
+      EngineFollowController previousEngineFollowController = Lizzie.engineFollowController;
 
       Board.boardWidth = BOARD_SIZE;
       Board.boardHeight = BOARD_SIZE;
@@ -731,6 +799,8 @@ class BoardRootSetupSeamTest {
       Config config = allocate(Config.class);
       config.newMoveNumberInBranch = false;
       config.playSound = false;
+      EngineManager.isEngineGame = false;
+      Lizzie.engineFollowController = null;
       config.initialMaxScoreLead = 10;
       Lizzie.config = config;
       LizzieFrame.winrateGraph = allocate(WinrateGraph.class);
@@ -742,7 +812,9 @@ class BoardRootSetupSeamTest {
           previousMenu,
           previousWinrateGraph,
           previousLeelaz,
-          previousConfig);
+          previousConfig,
+          previousEngineGame,
+          previousEngineFollowController);
     }
 
     @Override
@@ -756,6 +828,8 @@ class BoardRootSetupSeamTest {
       LizzieFrame.winrateGraph = previousWinrateGraph;
       Lizzie.leelaz = previousLeelaz;
       Lizzie.config = previousConfig;
+      EngineManager.isEngineGame = previousEngineGame;
+      Lizzie.engineFollowController = previousEngineFollowController;
     }
   }
 
@@ -895,6 +969,15 @@ class BoardRootSetupSeamTest {
     @Override
     public void playMove(Stone color, String move) {
       playedMoves.add(color + " " + move);
+    }
+    @Override
+    public boolean isLoaded() {
+      return true;
+    }
+
+    @Override
+    public boolean isStarted() {
+      return true;
     }
 
     @Override

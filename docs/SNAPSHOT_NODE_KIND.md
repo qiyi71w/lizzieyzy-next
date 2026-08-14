@@ -70,8 +70,8 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 起始局面编辑只允许原地修改 root-only `SNAPSHOT`；黑/白设置子、擦除、清空和
   `side-to-play` 修改都不能创建 `MOVE/PASS`、手数或 variation，也不经过提子、打劫、
   自杀等普通落子规则。
-- “将当前盘面设为起始局面”是独立的显式破坏性命令。树中存在非 dummy 的真实
-  `MOVE/PASS` 时必须先确认；取消确认不能修改 history。
+- “将当前盘面设为起始局面”是显式的破坏性转换路径，也可在进入起始局面设置模式时触发。
+  树中存在非 dummy 的真实 `MOVE/PASS` 时必须先确认；取消确认不能修改 history。
 - 确认转换后，当前显示棋子与当前 `side-to-play` 形成新的 root-only `SNAPSHOT`；原有
   手顺和 variation 全部删除，同时保留 `GameInfo`、root comment 与非 setup SGF 属性。
 - 转换后的 history 必须通过 `Board.setHistory(...)` 正式采用，使棋盘尺寸、Kata/PK 派生

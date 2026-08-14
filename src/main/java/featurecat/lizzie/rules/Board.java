@@ -2111,8 +2111,7 @@ public class Board {
       newState.dummy = dummy;
       history.addOrGoto(newState, newBranch);
       // update leelaz with pass
-      if (!Lizzie.leelaz.isInputCommand && !EngineManager.isEngineGame)
-        feedEngineForMainlineMove(color, "pass");
+      if (!EngineManager.isEngineGame) feedEngineForMainlineMove(color, "pass");
 
       if (Lizzie.frame.isPlayingAgainstLeelaz
           && Lizzie.frame.playerIsBlack != getData().blackToPlay)
@@ -2707,27 +2706,24 @@ public class Board {
 
   /** for handicap */
   public void flatten() {
- @theirs
- @theirs
- @theirs
- @theirs
+    synchronized (this) {
+      Stone[] stones = history.getStones();
+      boolean blackToPlay = history.isBlacksTurn();
+      Zobrist zobrist = history.getZobrist().clone();
+      BoardHistoryList oldHistory = history;
+      history =
+          new BoardHistoryList(
+              BoardData.snapshot(
+                  stones, Optional.empty(), Stone.EMPTY, blackToPlay, zobrist, 0,
+                  new int[boardWidth * boardHeight], 0, 0, 0.0, 0));
+      history.setGameInfo(oldHistory.getGameInfo());
+    }
   }
 
-  /**
-   * Replaces the current position with a standard 19x19 fixed-handicap root position.
-   *
-   * <p>Handicap stones are setup stones, not a sequence of Black moves. Keeping them on the root
-   * preserves move number zero and guarantees that White is next for every handicap count.
-   *
-   * @return {@code true} when the requested fixed handicap was applied
-   */
   public boolean setupFixedHandicap(int handicap) {
     synchronized (this) {
       int[][] points = fixedHandicapPoints(handicap);
-      if (boardWidth != 19 || boardHeight != 19 || points.length == 0) {
-        return false;
-      }
-
+      if (boardWidth != 19 || boardHeight != 19 || points.length == 0) return false;
       Stone[] stones = new Stone[boardWidth * boardHeight];
       Arrays.fill(stones, Stone.EMPTY);
       Zobrist zobrist = new Zobrist();
@@ -2735,38 +2731,35 @@ public class Board {
         stones[getIndex(point[0], point[1])] = Stone.BLACK;
         zobrist.toggleStone(point[0], point[1], Stone.BLACK);
       }
-
- @theirs
- @theirs
- @theirs
+      GameInfo gameInfo = history == null ? new GameInfo() : history.getGameInfo();
+      gameInfo.setHandicap(handicap);
+      BoardHistoryList fixedHandicapHistory = new BoardHistoryList(
+          BoardData.snapshot(stones, Optional.empty(), Stone.EMPTY, false, zobrist, 0,
+              new int[boardWidth * boardHeight], 0, 0, 50, 0));
+      fixedHandicapHistory.setGameInfo(gameInfo);
+      history = fixedHandicapHistory;
+      hasStartStone = false;
+      startStonelist = new ArrayList<Movelist>();
+      advanceContextRevision();
+    }
     notifyReadBoardHistoryOverwritten();
     return true;
   }
 
   private static int[][] fixedHandicapPoints(int handicap) {
     switch (handicap) {
-      case 2:
-        return new int[][] {{3, 15}, {15, 3}};
-      case 3:
-        return new int[][] {{3, 3}, {15, 3}, {3, 15}};
-      case 4:
-        return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}};
-      case 5:
-        return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {9, 9}};
-      case 6:
-        return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {3, 9}, {15, 9}};
-      case 7:
-        return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {15, 9}, {3, 9}, {9, 9}};
-      case 8:
-        return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {9, 3}, {9, 15}, {3, 9}, {15, 9}};
-      case 9:
-        return new int[][] {
-          {3, 3}, {3, 15}, {15, 3}, {15, 15}, {9, 3}, {9, 15}, {3, 9}, {15, 9}, {9, 9}
-        };
-      default:
-        return new int[0][];
+      case 2: return new int[][] {{3, 15}, {15, 3}};
+      case 3: return new int[][] {{3, 3}, {15, 3}, {3, 15}};
+      case 4: return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}};
+      case 5: return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {9, 9}};
+      case 6: return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {3, 9}, {15, 9}};
+      case 7: return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {15, 9}, {3, 9}, {9, 9}};
+      case 8: return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {9, 3}, {9, 15}, {3, 9}, {15, 9}};
+      case 9: return new int[][] {{3, 3}, {3, 15}, {15, 3}, {15, 15}, {9, 3}, {9, 15}, {3, 9}, {15, 9}, {9, 9}};
+      default: return new int[0][];
     }
   }
+
 
   public void flattenWithCondition(
       Stone[] stones,
@@ -2774,12 +2767,35 @@ public class Board {
       boolean blackToPlay,
       List<extraMoveForTsumego> extraStones,
       double komi) {
- @theirs
- @theirs
+    List<extraMoveForTsumego> collectedExtraStones;
+    boolean barrierActiveAtMutation;
+    synchronized (this) {
+      history =
+          new BoardHistoryList(
+              BoardData.snapshot(
+                  stones, Optional.empty(), Stone.EMPTY, blackToPlay, zobrist, 0,
+                  new int[boardWidth * boardHeight], 0, 0, 0.0, 0));
+      if (!hasStartStone) {
+        hasStartStone = true;
+        startStonelist = new ArrayList<Movelist>();
+      }
+      collectedExtraStones = extraStones == null ? List.of() : new ArrayList<>(extraStones);
+      if (!collectedExtraStones.isEmpty()) {
+        int moveNum = 1;
+        for (extraMoveForTsumego stone : collectedExtraStones) {
+          Movelist move = new Movelist();
+          move.x = stone.x;
+          move.y = stone.y;
+          move.ispass = false;
+          move.isblack = stone.color == Stone.BLACK;
+          move.movenum = moveNum++;
+          startStonelist.add(move);
+        }
+      }
+      history.getGameInfo().setKomi(komi);
+      history.getGameInfo().changeKomi();
+      barrierActiveAtMutation = Lizzie.leelaz.isInitialBoardSynchronizationActive();
     }
-    // Engine feeds run after the board monitor; when the initial startup restore barrier owned
-    // the board at mutation time they stay suppressed permanently (the catch-up route reconciles
-    // the engine), and the live flag is re-checked for a barrier that began afterwards.
     if (!barrierActiveAtMutation && !Lizzie.leelaz.isInitialBoardSynchronizationActive()) {
       for (extraMoveForTsumego stone : collectedExtraStones) {
         feedEngineForMainlineMove(stone.color, convertCoordinatesToName(stone.x, stone.y));
