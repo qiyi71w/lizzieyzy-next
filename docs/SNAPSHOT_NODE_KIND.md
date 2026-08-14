@@ -67,6 +67,18 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 根节点 `handicap`、`AB/AW`、`PL`、`hasStartStone`、`startStonelist` 也属于 setup 静态语义，随静态局面挂载到 `SNAPSHOT`。
 - 根节点 setup/save round-trip 时，根节点 setup 语义只落在根节点一次，不能派生额外 SGF 子节点。
 - 根节点 setup/save 连续保存结果必须稳定，不能在重复保存时增量生成新的 setup 子节点。
+- 起始局面编辑只允许原地修改 root-only `SNAPSHOT`；黑/白设置子、擦除、清空和
+  `side-to-play` 修改都不能创建 `MOVE/PASS`、手数或 variation，也不经过提子、打劫、
+  自杀等普通落子规则。
+- “将当前盘面设为起始局面”是独立的显式破坏性命令。树中存在非 dummy 的真实
+  `MOVE/PASS` 时必须先确认；取消确认不能修改 history。
+- 确认转换后，当前显示棋子与当前 `side-to-play` 形成新的 root-only `SNAPSHOT`；原有
+  手顺和 variation 全部删除，同时保留 `GameInfo`、root comment 与非 setup SGF 属性。
+- 转换后的 history 必须通过 `Board.setHistory(...)` 正式采用，使棋盘尺寸、Kata/PK 派生
+  标志和 history-overwrite 通知与新 root 保持一致；不能直接替换 history 引用。
+- 设置模式内的编辑只在本地生效，不向引擎发送普通 `play`。退出设置模式后，通过
+  `EngineFollowController` 排队并使用既有 exact snapshot restore 同步最终 root setup；
+  setup stones 不能进入普通引擎手顺重放。
 - SGF 中“首手前但非 root 的独立 setup 节点”必须保留为独立 `SNAPSHOT` 子节点，`moveNumber` 保持 `0`，不能并入 root setup。
 - 根节点 setup / handicap 的 `side-to-play` 只由显式 `PL` 或固定默认规则决定。
 - 根节点 `AB/AW` 属性顺序不参与 `side-to-play` 判定。
@@ -445,3 +457,12 @@ save-load movelist 只保存和恢复真实 `MOVE/PASS` 序列。
 41. `LZ/LZ2/LZOP/LZOP2` 单行 header-only analysis payload 在 `parseSgf(...) -> setHistory(...)` adopt -> `saveToString(...)` -> round-trip 全链路保持等价；header 的 `engineName`、playouts、`scoreMean`、`scoreStdev`、`pda` 持续保留。
 42. 同节点 move + analysis + setup 场景里，analysis payload owner 固定挂载 setup `SNAPSHOT`；后继独立 setup `SNAPSHOT` 的 analysis 继承保持为空；`saveToString()` 只在 owner 节点输出一次完整 payload，导出无重复且无残缺数值 payload 壳。
 43. “首手前但非 root 的独立 setup 节点”里，analysis 标签先于 setup 属性出现时，analysis payload owner 仍固定挂载该 setup `SNAPSHOT`；父节点与 root 不保留该组 scalar/collection 字段；`saveToString()` 仅在 owner 节点输出一次完整 payload，primary/secondary 与 `playouts == 0` / `playouts > 0` 语义一致。
+44. 起始局面编辑在 root-only `SNAPSHOT` 上原地完成，设置子工具与轮次选择不创建真实
+    `MOVE/PASS`、手数或 variation，也不执行普通落子合法性与提子规则。
+45. 显式当前盘面转换在真实 `MOVE/PASS` 存在时先确认；确认后保留显示盘面、
+    `side-to-play`、`GameInfo` 和 root 非 setup metadata，删除全部手顺/variation，并以 root
+    `AB/AW/PL` 稳定 round-trip，不生成伪普通落子。
+46. 当前盘面转换通过标准 history adoption seam 重新推导尺寸与 Kata/PK 标志；被删除子树
+    独占的 analysis payload 不能在转换后遗留 board flag 或伪造 root `DZ`。
+47. 设置模式期间不发送普通引擎落子；退出时通过既有 exact snapshot restore 异步同步最终
+    root setup，且 setup stones 不进入 movelist、save-load movelist 或普通引擎重放。
