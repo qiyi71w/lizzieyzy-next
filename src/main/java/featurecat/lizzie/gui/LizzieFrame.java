@@ -7821,22 +7821,7 @@ public class LizzieFrame extends JFrame {
     if (controller != null && controller.isTrialActive()) {
       return false;
     }
-    if (EngineManager.isEmpty || Lizzie.leelaz == null) {
-      return true;
-    }
-    if (!isSetupEngineReady(Lizzie.leelaz)) {
-      return false;
-    }
-    return !Lizzie.config.isDoubleEngineMode()
-        || Lizzie.leelaz2 == null
-        || isSetupEngineReady(Lizzie.leelaz2);
-  }
-
-  private boolean isSetupEngineReady(Leelaz engine) {
-    return engine.isStarted()
-        && engine.isLoaded()
-        && !engine.isCheckingName
-        && !engine.isInitialBoardSynchronizationActive();
+    return EngineManager.isEmpty;
   }
 
   /** Exits starting-position setup mode. */

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.Branch;
+import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
@@ -35,8 +36,10 @@ class SnapshotNodeRenderGateTest {
   @Test
   void enteringSetupModeClearsStaleBranchOverlay() throws Exception {
     TestEnvironment env = TestEnvironment.open();
+    boolean previousEmpty = EngineManager.isEmpty;
     BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
     try {
+      EngineManager.isEmpty = true;
       Board board = boardWithRoot(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
       Lizzie.board = board;
       BoardRenderer renderer = new BoardRenderer(false);
@@ -51,6 +54,7 @@ class SnapshotNodeRenderGateTest {
           renderer.isShowingBranch(), "setup mode must not retain a stale branch overlay.");
       assertTrue(renderer.branchOpt.isEmpty(), "setup mode must clear the branch selection.");
     } finally {
+      EngineManager.isEmpty = previousEmpty;
       LizzieFrame.boardRenderer = previousRenderer;
       env.close();
     }

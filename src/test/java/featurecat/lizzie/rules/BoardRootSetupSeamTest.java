@@ -435,22 +435,17 @@ class BoardRootSetupSeamTest {
   }
 
   @Test
-  void setupModeEntryRejectsEngineStartup() throws Exception {
+  void setupModeEntryRejectsActiveEngine() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     boolean previousEmpty = EngineManager.isEmpty;
-    TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
     try {
       EngineManager.isEmpty = false;
-      leelaz.started = false;
-      leelaz.isLoaded = false;
 
       assertFalse(
           Lizzie.frame.enterSetupMode(),
-          "setup mode must wait until the active engine has finished loading.");
+          "setup mode must be unavailable while a foreground engine is open.");
       assertFalse(Lizzie.board.isSetupMode(), "a rejected setup entry must leave setup inactive.");
     } finally {
-      leelaz.started = true;
-      leelaz.isLoaded = true;
       EngineManager.isEmpty = previousEmpty;
       env.close();
     }
