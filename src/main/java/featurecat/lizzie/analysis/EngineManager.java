@@ -2665,7 +2665,6 @@ public class EngineManager {
                 targetEngine,
                 isMain,
                 false,
-                false,
                 reservations,
                 preparedSwitch == null ? null : preparedSwitch.lifecycleRestore));
     return true;
@@ -2677,8 +2676,15 @@ public class EngineManager {
         || index != (isMain ? currentEngineNo2 : currentEngineNo)) {
       return false;
     }
-    Utils.showMsg(resourceBundle.getString("EngineManager.sameEngineHint"));
+    showSameEngineSelectionHint();
     return true;
+  }
+
+  protected void showSameEngineSelectionHint() {
+    if (Lizzie.frame == null || !Lizzie.frame.isShowing()) {
+      return;
+    }
+    Utils.showMsg(resourceBundle.getString("EngineManager.sameEngineHint"));
   }
 
   private Runnable releaseEngineLifecycleAfterBoardSync(
