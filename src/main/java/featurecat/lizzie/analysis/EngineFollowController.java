@@ -64,6 +64,11 @@ public class EngineFollowController {
         });
   }
 
+  /** Queues a final root-position resync when starting-position setup mode exits. */
+  public void onSetupModeExit(BoardHistoryNode rootSetup) {
+    executor.submit(() -> forceResync(rootSetup));
+  }
+
   public void onMainlineAdvance(BoardHistoryNode newTail) {
     if (trialActive) return;
     // sync 路径上 Board.place 已发过 play，这里只对账游标避免双发。

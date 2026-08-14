@@ -14,6 +14,7 @@ import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.analysis.AnalysisResourceCoordinator;
 import featurecat.lizzie.analysis.CaptureTsumeGo;
 import featurecat.lizzie.analysis.ContributeEngine;
+import featurecat.lizzie.analysis.EngineFollowController;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.KataEstimate;
@@ -7806,6 +7807,10 @@ public class LizzieFrame extends JFrame {
   /** Exits starting-position setup mode. */
   public void exitSetupMode() {
     Lizzie.board.setSetupMode(false);
+    EngineFollowController controller = Lizzie.engineFollowController;
+    if (controller != null) {
+      controller.onSetupModeExit(Lizzie.board.getHistory().getCurrentHistoryNode());
+    }
     refresh();
   }
 

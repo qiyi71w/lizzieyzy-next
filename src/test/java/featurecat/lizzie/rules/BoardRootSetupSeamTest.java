@@ -1,11 +1,14 @@
 package featurecat.lizzie.rules;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.EngineCommandSink;
+import featurecat.lizzie.analysis.EngineFollowController;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.BoardRenderer;
@@ -19,7 +22,12 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -427,6 +435,57 @@ class BoardRootSetupSeamTest {
 
 
   @Test
+  void setupModeExitResyncsFinalRootSnapshotWithoutReplayingSetupStones() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    EngineFollowController previousController = Lizzie.engineFollowController;
+    try {
+      RecordingEngineCommandSink sink = new RecordingEngineCommandSink();
+      EngineFollowController controller = new EngineFollowController(sink);
+      Lizzie.engineFollowController = controller;
+
+      Lizzie.board.setSetupMode(true);
+      Lizzie.board.setupPlaceStone(0, 0, Stone.BLACK);
+      Lizzie.board.setupPlaceStone(1, 1, Stone.WHITE);
+      Lizzie.board.setupSetSideToPlay(false);
+
+      assertTrue(
+          sink.calls.isEmpty(), "setup edits must not send engine commands while the mode is active.");
+
+      BoardHistoryNode finalSetup = Lizzie.board.getHistory().getStart();
+      sink.blockResync = true;
+      CompletableFuture<Void> exitCall =
+          CompletableFuture.runAsync(Lizzie.frame::exitSetupMode);
+      try {
+        assertTrue(
+            sink.resyncStarted.await(1, TimeUnit.SECONDS),
+            "setup-mode exit should dispatch the engine resync.");
+        assertDoesNotThrow(
+            () -> exitCall.get(1, TimeUnit.SECONDS),
+            "setup-mode exit must not block its caller on the engine restore.");
+      } finally {
+        sink.allowResync.countDown();
+        exitCall.get(2, TimeUnit.SECONDS);
+      }
+      controller.awaitIdle();
+
+      assertFalse(Lizzie.board.isSetupMode());
+      assertEquals(
+          List.of("resync", "clearBestMoves"),
+          sink.calls,
+          "mode exit should use one history resync instead of ordinary play replay.");
+      assertTrue(sink.resyncTarget == finalSetup, "the final root snapshot should be synchronized.");
+      assertEquals(Stone.BLACK, sink.resyncTarget.getData().stones[Board.getIndex(0, 0)]);
+      assertEquals(Stone.WHITE, sink.resyncTarget.getData().stones[Board.getIndex(1, 1)]);
+      assertFalse(
+          sink.resyncTarget.getData().blackToPlay,
+          "snapshot synchronization must preserve White to play.");
+    } finally {
+      Lizzie.engineFollowController = previousController;
+      env.close();
+    }
+  }
+
+  @Test
   void setupModeRoutesMainBoardLeftClickThroughSeam() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
@@ -648,6 +707,49 @@ class BoardRootSetupSeamTest {
     @Override
     public Optional<int[]> convertScreenToCoordinates(int x, int y) {
       return Optional.of(new int[] {1, 1});
+    }
+  }
+
+  private static final class RecordingEngineCommandSink implements EngineCommandSink {
+    private final List<String> calls = new CopyOnWriteArrayList<>();
+    private volatile BoardHistoryNode resyncTarget;
+    private final CountDownLatch resyncStarted = new CountDownLatch(1);
+    private final CountDownLatch allowResync = new CountDownLatch(1);
+    private volatile boolean blockResync;
+
+    @Override
+    public void playMove(Stone color, String coord) {
+      calls.add("play");
+    }
+
+    @Override
+    public void undo() {
+      calls.add("undo");
+    }
+
+    @Override
+    public void clear() {
+      calls.add("clear");
+    }
+
+    @Override
+    public void clearBestMoves() {
+      calls.add("clearBestMoves");
+    }
+
+    @Override
+    public void resyncFromCurrentHistory(BoardHistoryNode target) {
+      calls.add("resync");
+      resyncTarget = target;
+      resyncStarted.countDown();
+      if (blockResync) {
+        try {
+          allowResync.await();
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException("Interrupted while blocking test resync", ex);
+        }
+      }
     }
   }
 
