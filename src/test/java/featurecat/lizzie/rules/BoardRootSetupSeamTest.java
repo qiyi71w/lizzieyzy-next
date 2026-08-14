@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.BoardRenderer;
 import featurecat.lizzie.gui.HumanSlGameController;
@@ -22,8 +23,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * Focused behavior tests for the root starting-position setup seam (tickets 01 and 02 of issue
- * 217).
+ * Focused behavior tests for root starting-position setup and current-position conversion (tickets
+ * 01 through 03 of issue 217).
  *
  * <p>The seam mutates the root SNAPSHOT in place: placement, replacement, erase, clear-all and
  * side-to-play changes never create {@code MOVE}/{@code PASS} nodes or variations, never apply
@@ -303,6 +304,127 @@ class BoardRootSetupSeamTest {
       env.close();
     }
   }
+  @Test
+  void currentPositionConversionPreservesSetupStateAndGameMetadata() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      BoardHistoryList history =
+          SGFParser.parseSgf(
+              "(;SZ[3]RU[Japanese]KM[6.5]PB[Black]PW[White]RE[W+R]"
+                  + ";B[aa](;W[])(;W[cc]))",
+              false);
+      history.toStart();
+      history.next();
+      history.next();
+      Lizzie.board.setHistory(history);
+      GameInfo gameInfo = history.getGameInfo();
+      gameInfo.setKomi(6.5);
+      gameInfo.setPlayerBlack("Black");
+      gameInfo.setPlayerWhite("White");
+      gameInfo.setResult("W+R");
+
+      assertTrue(
+          Lizzie.board.hasRealMoveOrPassHistory(),
+          "the source tree should require destructive-conversion confirmation.");
+      assertTrue(Lizzie.board.convertCurrentPositionToStartingPosition());
+
+      BoardHistoryNode root = Lizzie.board.getHistory().getStart();
+      assertTrue(root.getData().isSnapshotNode(), "conversion should produce a root snapshot.");
+      assertEquals(0, root.numberOfChildren(), "conversion should discard moves and variations.");
+      assertEquals(0, root.getData().moveNumber, "the converted root should have no move count.");
+      assertEquals(Stone.BLACK, root.getData().stones[Board.getIndex(0, 0)]);
+      assertTrue(root.getData().blackToPlay, "conversion should preserve the displayed side-to-play.");
+      assertEquals(
+          "Japanese",
+          root.getData().getProperty("RU"),
+          "root game properties such as rules should survive conversion.");
+      assertTrue(
+          Lizzie.board.getHistory().getGameInfo() == gameInfo,
+          "conversion should preserve the existing GameInfo object.");
+      assertFalse(
+          Lizzie.board.hasRealMoveOrPassHistory(),
+          "the converted root-only tree should contain no real history actions.");
+
+      String saved = SGFParser.saveToString(false);
+      assertTrue(saved.contains("AB[aa]"), "the displayed black stone should save as root setup.");
+      assertTrue(saved.contains("PL[B]"), "the displayed side-to-play should save as root PL.");
+      assertTrue(saved.contains("RU[Japanese]"), "rules metadata should remain in the root.");
+      assertTrue(saved.contains("KM[6.5]"), "komi should survive conversion.");
+      assertTrue(saved.contains("PB[Black]") && saved.contains("PW[White]"));
+      assertTrue(saved.contains("RE[W+R]"), "result metadata should survive conversion.");
+      assertFalse(
+          saved.contains(";B[") || saved.contains(";W["),
+          "converted setup stones must not save as ordinary moves or passes.");
+
+      BoardHistoryList reopened = SGFParser.parseSgf(saved, false);
+      assertEquals(0, reopened.getStart().numberOfChildren(), "reopened SGF should remain root-only.");
+      assertEquals(Stone.BLACK, reopened.getStart().getData().stones[Board.getIndex(0, 0)]);
+      assertTrue(reopened.getStart().getData().blackToPlay);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void conversionDropsBoardFlagsDerivedOnlyFromDiscardedHistory() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      BoardHistoryList history = SGFParser.parseSgf("(;SZ[3];B[aa])", false);
+      history.toStart();
+      history.next();
+      history.getData().isKataData = true;
+      Lizzie.board.setHistory(history);
+      assertTrue(Lizzie.board.isKataBoard, "the source child payload should classify the board.");
+
+      assertTrue(Lizzie.board.convertCurrentPositionToStartingPosition());
+
+      assertFalse(
+          Lizzie.board.isKataBoard,
+          "conversion should rederive board flags after discarding descendant analysis.");
+      assertFalse(
+          SGFParser.saveToString(false).contains("DZ[G]"),
+          "discarded descendant analysis must not create root Kata metadata.");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void conversionCommandConfirmsBeforeDiscardingRealHistory() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      BoardHistoryList history = SGFParser.parseSgf("(;SZ[3];B[aa];W[bb])", false);
+      Lizzie.board.setHistory(history);
+      TrackingFrame frame = (TrackingFrame) Lizzie.frame;
+      BoardHistoryNode originalRoot = history.getStart();
+
+      frame.confirmStartingPositionConversion = false;
+      assertFalse(
+          frame.convertCurrentPositionToStartingPositionCommand(),
+          "canceling the warning should leave the game tree untouched.");
+      assertEquals(1, frame.startingPositionConversionConfirmations);
+      assertTrue(
+          Lizzie.board.getHistory().getStart() == originalRoot,
+          "canceling should preserve the original history identity.");
+      assertTrue(originalRoot.numberOfChildren() > 0, "canceling should preserve real moves.");
+
+      frame.confirmStartingPositionConversion = true;
+      assertTrue(frame.convertCurrentPositionToStartingPositionCommand());
+      assertEquals(2, frame.startingPositionConversionConfirmations);
+      assertEquals(0, Lizzie.board.getHistory().getStart().numberOfChildren());
+
+      assertTrue(
+          frame.convertCurrentPositionToStartingPositionCommand(),
+          "root-only positions should convert without a destructive-history warning.");
+      assertEquals(
+          2,
+          frame.startingPositionConversionConfirmations,
+          "the warning should only be requested when real MOVE/PASS history exists.");
+    } finally {
+      env.close();
+    }
+  }
+
 
   @Test
   void setupModeRoutesMainBoardLeftClickThroughSeam() throws Exception {
@@ -560,6 +682,9 @@ class BoardRootSetupSeamTest {
   }
 
   private static final class TrackingFrame extends LizzieFrame {
+    private boolean confirmStartingPositionConversion;
+    private int startingPositionConversionConfirmations;
+
     private TrackingFrame() {
       super();
     }
@@ -581,6 +706,12 @@ class BoardRootSetupSeamTest {
 
     @Override
     public void tryToResetByoTime() {}
+
+    @Override
+    protected boolean confirmStartingPositionConversion() {
+      startingPositionConversionConfirmations++;
+      return confirmStartingPositionConversion;
+    }
   }
 
   private static final class TrackingLeelaz extends Leelaz {

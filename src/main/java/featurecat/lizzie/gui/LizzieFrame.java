@@ -7873,6 +7873,31 @@ public class LizzieFrame extends JFrame {
   }
 
   /**
+   * Explicitly converts the displayed board into a root-only starting position.
+   *
+   * <p>Real move/pass history is destructive data, so it is discarded only after confirmation.
+   *
+   * @return {@code true} when conversion completed
+   */
+  public boolean convertCurrentPositionToStartingPositionCommand() {
+    if (Lizzie.board.hasRealMoveOrPassHistory() && !confirmStartingPositionConversion()) {
+      return false;
+    }
+    return Lizzie.board.convertCurrentPositionToStartingPosition();
+  }
+
+  /** Confirmation seam for the destructive current-position conversion command. */
+  protected boolean confirmStartingPositionConversion() {
+    return JOptionPane.showConfirmDialog(
+            this,
+            Lizzie.resourceBundle.getString("LizzieFrame.convertStartingPositionConfirmMessage"),
+            Lizzie.resourceBundle.getString("LizzieFrame.convertStartingPositionConfirmTitle"),
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE)
+        == JOptionPane.YES_OPTION;
+  }
+
+  /**
    * Checks whether or not something was clicked and performs the appropriate action
    *
    * @param x x coordinate
@@ -19467,12 +19492,6 @@ public class LizzieFrame extends JFrame {
     if (processClockHelper != null) processClockHelper.destroy();
   }
 
-  public void flattenBoard() {
-    Lizzie.board.hasStartStone = true;
-    Lizzie.board.addStartListAll();
-    Lizzie.board.flatten();
-    refresh();
-  }
 
   public void addContributeLine(String line, boolean stdout) {
     // TODO Auto-generated method stub

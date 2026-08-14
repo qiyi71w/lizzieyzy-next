@@ -3134,16 +3134,6 @@ public class Menu extends JMenuBar {
         });
     gameMenu.add(playPassMove);
 
-    final JFontMenuItem flattenBoard =
-        new JFontMenuItem(resourceBundle.getString("Menu.flattenBoard"));
-    flattenBoard.addActionListener(
-        new ActionListener() {
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            Lizzie.frame.flattenBoard();
-          }
-        });
-    gameMenu.add(flattenBoard);
 
     final JFontMenu startingPositionSetup =
         new JFontMenu(resourceBundle.getString("Menu.startingPositionSetup"));
@@ -3230,6 +3220,19 @@ public class Menu extends JMenuBar {
           }
         });
     startingPositionSetup.add(setupWhiteToPlay);
+    startingPositionSetup.addSeparator();
+
+    final JFontMenuItem convertCurrentPosition =
+        new JFontMenuItem(
+            resourceBundle.getString("Menu.convertCurrentPositionToStartingPosition"));
+    convertCurrentPosition.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.convertCurrentPositionToStartingPositionCommand();
+          }
+        });
+    startingPositionSetup.add(convertCurrentPosition);
 
     startingPositionSetup.addMenuListener(
         new MenuListener() {

@@ -1117,6 +1117,76 @@ public class Board {
     }
   }
 
+  /** Returns whether any variation in the current tree contains a real move or pass. */
+  public boolean hasRealMoveOrPassHistory() {
+    synchronized (this) {
+      if (history == null || history.getStart() == null) {
+        return false;
+      }
+      ArrayDeque<BoardHistoryNode> pending = new ArrayDeque<>();
+      pending.push(history.getStart());
+      while (!pending.isEmpty()) {
+        BoardHistoryNode node = pending.pop();
+        BoardData data = node.getData();
+        if (data != null && data.isHistoryActionNode() && !data.dummy) {
+          return true;
+        }
+        for (BoardHistoryNode variation : node.getVariations()) {
+          pending.push(variation);
+        }
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Converts the currently displayed position into a root-only starting position.
+   *
+   * <p>The displayed stones and side-to-play become a root {@code SNAPSHOT}. All moves, passes and
+   * variations are discarded. GameInfo and non-setup root SGF properties are preserved; current
+   * setup properties are materialized from the converted board when saving.
+   *
+   * @return {@code false} when no current position is available
+   */
+  public boolean convertCurrentPositionToStartingPosition() {
+    synchronized (this) {
+      if (history == null
+          || history.getStart() == null
+          || history.getCurrentHistoryNode() == null
+          || history.getData() == null) {
+        return false;
+      }
+
+      BoardHistoryNode oldRoot = history.getStart();
+      BoardData current = history.getData();
+      GameInfo gameInfo = history.getGameInfo();
+      BoardData startingPosition =
+          BoardData.snapshot(
+              current.stones,
+              Optional.empty(),
+              Stone.EMPTY,
+              current.blackToPlay,
+              current.zobrist,
+              0,
+              new int[boardWidth * boardHeight],
+              0,
+              0,
+              50,
+              0);
+      startingPosition.setProperties(oldRoot.getData().getProperties());
+      startingPosition.comment = oldRoot.getData().comment;
+
+      BoardHistoryList converted = new BoardHistoryList(startingPosition);
+      converted.setGameInfo(gameInfo);
+      setHistory(converted);
+      hasStartStone = false;
+      startStonelist = new ArrayList<>();
+      advanceContextRevision();
+      Lizzie.frame.refresh();
+      return true;
+    }
+  }
+
   /**
    * Add a key and value to node
    *
