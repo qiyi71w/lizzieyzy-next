@@ -134,6 +134,13 @@ public class FloatBoardRenderer {
     if (paint == null) {
       gainPaint();
     }
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) {
+      drawGoban(g);
+      clearBranch();
+      drawStones(Lizzie.board.getData(), Lizzie.board.getStones());
+      drawSetupStones(g);
+      return;
+    }
     if (editMode) drawGoban(g);
     if (Lizzie.frame.isShowingHeatmap
         && !Lizzie.frame.isAnaPlayingAgainstLeelaz
@@ -708,6 +715,10 @@ public class FloatBoardRenderer {
 
   /** Draw the 'ghost stones' which show a variationOpt Leelaz is thinking about */
   private void drawBranch() {
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) {
+      clearBranch();
+      return;
+    }
     if (cachedBoardWidth != boardWidth || cachedBoardHeight != boardHeight) {
       cachedBoardWidth = boardWidth;
       cachedBoardHeight = boardHeight;
@@ -3190,6 +3201,12 @@ public class FloatBoardRenderer {
       // lastInScoreMode = false;
     }
     //   if (Lizzie.board.inScoreMode()) lastInScoreMode = true;
+  }
+
+  private void drawSetupStones(Graphics2D g) {
+    g.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_OFF);
+    g.drawImage(cachedStonesShadowImage, x, y, null);
+    g.drawImage(cachedStonesImage, x, y, null);
   }
 
   private void drawStoneSimple(

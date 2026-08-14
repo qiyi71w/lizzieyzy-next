@@ -33,6 +33,52 @@ class SnapshotNodeRenderGateTest {
   private static final int SQUARE_SIZE = 40;
 
   @Test
+  void enteringSetupModeClearsStaleBranchOverlay() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    try {
+      Board board = boardWithRoot(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+      Lizzie.board = board;
+      BoardRenderer renderer = new BoardRenderer(false);
+      renderer.branchOpt = Optional.of(branchWith(branchLinePreview()));
+      setBooleanField(renderer, "isShowingBranch", true);
+      LizzieFrame.boardRenderer = renderer;
+
+      assertTrue(renderer.isShowingBranch(), "fixture should start with a visible branch overlay.");
+      assertTrue(Lizzie.frame.enterSetupMode(), "root-only board should enter setup mode.");
+
+      assertFalse(
+          renderer.isShowingBranch(), "setup mode must not retain a stale branch overlay.");
+      assertTrue(renderer.branchOpt.isEmpty(), "setup mode must clear the branch selection.");
+    } finally {
+      LizzieFrame.boardRenderer = previousRenderer;
+      env.close();
+    }
+  }
+
+  @Test
+  void setupModeDrawBranchCannotRecreateSuggestionOverlay() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Board board = boardWithRoot(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+      board.setSetupMode(true);
+      Lizzie.board = board;
+      BoardRenderer renderer = new BoardRenderer(false);
+      renderer.branchOpt = Optional.of(branchWith(branchLinePreview()));
+      setBooleanField(renderer, "isShowingBranch", true);
+
+      Method drawBranch = BoardRenderer.class.getDeclaredMethod("drawBranch");
+      drawBranch.setAccessible(true);
+      drawBranch.invoke(renderer);
+
+      assertFalse(renderer.isShowingBranch(), "setup redraw must not recreate a branch overlay.");
+      assertTrue(renderer.branchOpt.isEmpty(), "setup redraw must keep branch selection empty.");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
   void mainBoardCurrentSnapshotWithMarkerDrawsNoOverlay() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
@@ -214,6 +260,12 @@ class SnapshotNodeRenderGateTest {
     Field field = target.getClass().getDeclaredField(name);
     field.setAccessible(true);
     field.setInt(target, value);
+  }
+
+  private static void setBooleanField(Object target, String name, boolean value) throws Exception {
+    Field field = target.getClass().getDeclaredField(name);
+    field.setAccessible(true);
+    field.setBoolean(target, value);
   }
 
   private static BoardData snapshotWithMarker(

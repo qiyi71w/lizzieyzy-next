@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
+import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineCommandSink;
 import featurecat.lizzie.analysis.EngineFollowController;
@@ -433,6 +434,27 @@ class BoardRootSetupSeamTest {
     }
   }
 
+  @Test
+  void setupModeEntryRejectsEngineStartup() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    boolean previousEmpty = EngineManager.isEmpty;
+    TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+    try {
+      EngineManager.isEmpty = false;
+      leelaz.started = false;
+      leelaz.isLoaded = false;
+
+      assertFalse(
+          Lizzie.frame.enterSetupMode(),
+          "setup mode must wait until the active engine has finished loading.");
+      assertFalse(Lizzie.board.isSetupMode(), "a rejected setup entry must leave setup inactive.");
+    } finally {
+      leelaz.started = true;
+      leelaz.isLoaded = true;
+      EngineManager.isEmpty = previousEmpty;
+      env.close();
+    }
+  }
 
   @Test
   void passOutsideSetupModeKeepsNormalHistoryAndEnginePlay() throws Exception {

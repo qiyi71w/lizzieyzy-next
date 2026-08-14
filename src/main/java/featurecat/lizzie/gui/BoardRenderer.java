@@ -228,6 +228,12 @@ public class BoardRenderer {
   /** Draw a go board */
   public void draw(Graphics2D g) {
     drawGoban(g);
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) {
+      clearBranch();
+      drawStones(Lizzie.board.getData(), Lizzie.board.getStones());
+      drawSetupStones(g);
+      return;
+    }
     featurecat.lizzie.rules.BoardHistoryNode displayNode = Lizzie.frame.getDisplayNode();
     boolean showHeatmap = Lizzie.frame.shouldShowHeatmapFor(displayNode);
     boolean showPolicy = Lizzie.frame.shouldShowPolicyFor(displayNode);
@@ -1452,6 +1458,12 @@ public class BoardRenderer {
     //   if (Lizzie.board.inScoreMode()) lastInScoreMode = true;
   }
 
+  private void drawSetupStones(Graphics2D g) {
+    g.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_OFF);
+    g.drawImage(cachedStonesShadowImage, x, y, null);
+    g.drawImage(cachedStonesImage, x, y, null);
+  }
+
   private void drawBranchForMouseOnStone(BoardData data, Stone[] boardStones) {
     if (data.bestMoves == null || data.bestMoves.size() <= 0) {
       branchStonesImage = emptyImage;
@@ -1543,6 +1555,10 @@ public class BoardRenderer {
 
   /** Draw the 'ghost stones' which show a variationOpt Leelaz is thinking about */
   private void drawBranch() {
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) {
+      clearBranch();
+      return;
+    }
     boolean wasShowingBranch = isShowingBranch;
     String previousMouseOverCoords = mouseOverCoords;
     branchOpt = Optional.empty();

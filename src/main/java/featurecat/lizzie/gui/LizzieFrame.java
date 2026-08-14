@@ -2316,6 +2316,7 @@ public class LizzieFrame extends JFrame {
   }
 
   boolean shouldShowBestMovesFor(BoardHistoryNode node) {
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) return false;
     boolean configured = Lizzie.config != null && Lizzie.config.showBestMovesNow();
     WholeGameAnalysisResultView resultView = wholeGameAnalysisResultView;
     return resultView == null
@@ -2324,6 +2325,7 @@ public class LizzieFrame extends JFrame {
   }
 
   boolean shouldShowBranchesFor(BoardHistoryNode node) {
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) return false;
     boolean configured = Lizzie.config != null && Lizzie.config.showBranchNow();
     WholeGameAnalysisResultView resultView = wholeGameAnalysisResultView;
     return resultView == null
@@ -2332,6 +2334,7 @@ public class LizzieFrame extends JFrame {
   }
 
   boolean shouldShowSuggestionVariationsFor(BoardHistoryNode node) {
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) return false;
     boolean configured = Lizzie.config != null && Lizzie.config.showSuggestionVariations;
     WholeGameAnalysisResultView resultView = wholeGameAnalysisResultView;
     return resultView == null
@@ -2340,6 +2343,7 @@ public class LizzieFrame extends JFrame {
   }
 
   boolean shouldShowCandidatesFor(BoardHistoryNode node) {
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) return false;
     boolean configured =
         Lizzie.config != null
             && node != null
@@ -7799,9 +7803,40 @@ public class LizzieFrame extends JFrame {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupModeRequiresRootOnly"));
       return false;
     }
+    if (!canEnterSetupMode()) {
+      Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupModeEngineNotReady"));
+      return false;
+    }
+    clearSetupOverlayState();
     Lizzie.board.setSetupMode(true);
     refresh();
     return true;
+  }
+
+  private boolean canEnterSetupMode() {
+    if (EngineManager.isEngineGame()) {
+      return false;
+    }
+    EngineFollowController controller = Lizzie.engineFollowController;
+    if (controller != null && controller.isTrialActive()) {
+      return false;
+    }
+    if (EngineManager.isEmpty || Lizzie.leelaz == null) {
+      return true;
+    }
+    if (!isSetupEngineReady(Lizzie.leelaz)) {
+      return false;
+    }
+    return !Lizzie.config.isDoubleEngineMode()
+        || Lizzie.leelaz2 == null
+        || isSetupEngineReady(Lizzie.leelaz2);
+  }
+
+  private boolean isSetupEngineReady(Leelaz engine) {
+    return engine.isStarted()
+        && engine.isLoaded()
+        && !engine.isCheckingName
+        && !engine.isInitialBoardSynchronizationActive();
   }
 
   /** Exits starting-position setup mode. */
@@ -7860,6 +7895,8 @@ public class LizzieFrame extends JFrame {
     }
     if (!applied) {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupEditRequiresRootOnly"));
+    } else {
+      clearSetupOverlayState();
     }
   }
 
@@ -7867,6 +7904,8 @@ public class LizzieFrame extends JFrame {
   public void setupClearAllCommand() {
     if (!Lizzie.board.setupClearAll()) {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupEditRequiresRootOnly"));
+    } else {
+      clearSetupOverlayState();
     }
   }
 
@@ -7874,6 +7913,8 @@ public class LizzieFrame extends JFrame {
   public void setupSetSideToPlayCommand(boolean blackToPlay) {
     if (!Lizzie.board.setupSetSideToPlay(blackToPlay)) {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setupEditRequiresRootOnly"));
+    } else {
+      clearSetupOverlayState();
     }
   }
 
@@ -7888,7 +7929,11 @@ public class LizzieFrame extends JFrame {
     if (Lizzie.board.hasRealMoveOrPassHistory() && !confirmStartingPositionConversion()) {
       return false;
     }
-    return Lizzie.board.convertCurrentPositionToStartingPosition();
+    boolean converted = Lizzie.board.convertCurrentPositionToStartingPosition();
+    if (converted) {
+      clearSetupOverlayState();
+    }
+    return converted;
   }
 
   /** Confirmation seam for the destructive current-position conversion command. */
@@ -8303,6 +8348,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public List<MoveData> getBestMoves() {
+    if (Lizzie.board != null && Lizzie.board.isSetupMode()) return new ArrayList<>();
     List<MoveData> bestMoves;
     if (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame) {
       if (Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent())
@@ -8525,6 +8571,33 @@ public class LizzieFrame extends JFrame {
     mouseOverCoordinate = outOfBoundCoordinate;
     isMouseOver = false;
     clearBoardBranchPreview();
+  }
+
+  /** Clears branch, suggestion and hover state before or during static setup editing. */
+  private void clearSetupOverlayState() {
+    isReplayVariation = false;
+    isMouseOver = false;
+    clickOrder = -1;
+    selectedorder = -1;
+    currentRow = -1;
+    suggestionclick = outOfBoundCoordinate;
+    mouseOverCoordinate = outOfBoundCoordinate;
+    if (boardRenderer != null) {
+      boardRenderer.startNormalBoard();
+      boardRenderer.clearBranch();
+    }
+    if (boardRenderer2 != null) {
+      boardRenderer2.startNormalBoard();
+      boardRenderer2.clearBranch();
+    }
+    if (independentMainBoard != null) {
+      independentMainBoard.mouseOverCoordinate = outOfBoundCoordinate;
+      independentMainBoard.clearMoved();
+    }
+    if (floatBoard != null) {
+      floatBoard.mouseOverCoordinate = outOfBoundCoordinate;
+      floatBoard.clearMoved();
+    }
   }
 
   private void clearBoardBranchPreview() {

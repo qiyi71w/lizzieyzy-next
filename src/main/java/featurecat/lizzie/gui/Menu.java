@@ -3138,6 +3138,7 @@ public class Menu extends JMenuBar {
     final JFontMenu startingPositionSetup =
         new JFontMenu(resourceBundle.getString("Menu.startingPositionSetup"));
     gameMenu.add(startingPositionSetup);
+    ButtonGroup setupToolGroup = new ButtonGroup();
 
     final JFontCheckBoxMenuItem setupModeToggle =
         new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.setupModeToggle"));
@@ -3150,8 +3151,8 @@ public class Menu extends JMenuBar {
         });
     startingPositionSetup.add(setupModeToggle);
 
-    final JFontMenuItem setupToolBlack =
-        new JFontMenuItem(resourceBundle.getString("Menu.setupToolBlack"));
+    final JFontCheckBoxMenuItem setupToolBlack =
+        new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.setupToolBlack"));
     setupToolBlack.addActionListener(
         new ActionListener() {
           @Override
@@ -3162,8 +3163,8 @@ public class Menu extends JMenuBar {
         });
     startingPositionSetup.add(setupToolBlack);
 
-    final JFontMenuItem setupToolWhite =
-        new JFontMenuItem(resourceBundle.getString("Menu.setupToolWhite"));
+    final JFontCheckBoxMenuItem setupToolWhite =
+        new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.setupToolWhite"));
     setupToolWhite.addActionListener(
         new ActionListener() {
           @Override
@@ -3174,8 +3175,8 @@ public class Menu extends JMenuBar {
         });
     startingPositionSetup.add(setupToolWhite);
 
-    final JFontMenuItem setupToolErase =
-        new JFontMenuItem(resourceBundle.getString("Menu.setupToolErase"));
+    final JFontCheckBoxMenuItem setupToolErase =
+        new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.setupToolErase"));
     setupToolErase.addActionListener(
         new ActionListener() {
           @Override
@@ -3185,6 +3186,9 @@ public class Menu extends JMenuBar {
           }
         });
     startingPositionSetup.add(setupToolErase);
+    setupToolGroup.add(setupToolBlack);
+    setupToolGroup.add(setupToolWhite);
+    setupToolGroup.add(setupToolErase);
     startingPositionSetup.addSeparator();
 
     final JFontMenuItem setupClearAll =
@@ -3239,6 +3243,9 @@ public class Menu extends JMenuBar {
           @Override
           public void menuSelected(MenuEvent e) {
             setupModeToggle.setState(Lizzie.board.isSetupMode());
+            setupToolBlack.setState(Lizzie.frame.setupTool == LizzieFrame.SETUP_TOOL_BLACK);
+            setupToolWhite.setState(Lizzie.frame.setupTool == LizzieFrame.SETUP_TOOL_WHITE);
+            setupToolErase.setState(Lizzie.frame.setupTool == LizzieFrame.SETUP_TOOL_ERASE);
           }
 
           @Override
