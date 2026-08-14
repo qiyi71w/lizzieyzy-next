@@ -435,6 +435,49 @@ class BoardRootSetupSeamTest {
 
 
   @Test
+  void passOutsideSetupModeKeepsNormalHistoryAndEnginePlay() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+
+      Lizzie.board.setSetupMode(false);
+      Lizzie.board.pass(Stone.BLACK);
+
+      BoardHistoryNode pass = Lizzie.board.getHistory().getCurrentHistoryNode();
+      assertTrue(pass.getData().isPassNode(), "ordinary PASS must remain a PASS history node.");
+      assertFalse(pass.getData().dummy, "ordinary PASS must remain a real history action.");
+      assertEquals(1, Lizzie.board.getHistory().getStart().numberOfChildren());
+      assertEquals(
+          List.of("BLACK pass"),
+          leelaz.playedMoves,
+          "ordinary PASS must retain its normal engine command.");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void setupModePassIsIgnoredWithoutHistoryOrEnginePlay() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
+      Lizzie.board.setSetupMode(true);
+
+      Lizzie.board.pass(Stone.BLACK);
+
+      BoardHistoryNode root = Lizzie.board.getHistory().getStart();
+      assertEquals(0, root.numberOfChildren(), "setup mode PASS must not create a history child.");
+      assertFalse(
+          Lizzie.board.hasRealMoveOrPassHistory(),
+          "setup mode PASS must not create a real history action.");
+      assertEquals(
+          List.of(), leelaz.playedMoves, "setup mode PASS must not send an engine play command.");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
   void setupModeExitResyncsFinalRootSnapshotWithoutReplayingSetupStones() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     EngineFollowController previousController = Lizzie.engineFollowController;
@@ -817,6 +860,8 @@ class BoardRootSetupSeamTest {
   }
 
   private static final class TrackingLeelaz extends Leelaz {
+    private final List<String> playedMoves = new CopyOnWriteArrayList<>();
+
     private TrackingLeelaz() throws IOException {
       super("");
     }
@@ -831,10 +876,14 @@ class BoardRootSetupSeamTest {
     public void maybeAjustPDA(BoardHistoryNode node) {}
 
     @Override
-    public void playMove(Stone color, String move) {}
+    public void playMove(Stone color, String move) {
+      playedMoves.add(color + " " + move);
+    }
 
     @Override
-    public void playMove(Stone color, String move, boolean addPlayer, boolean blackToPlay) {}
+    public void playMove(Stone color, String move, boolean addPlayer, boolean blackToPlay) {
+      playedMoves.add(color + " " + move);
+    }
 
     @Override
     public void loadSgf(Path sgfFile) {}

@@ -2011,6 +2011,10 @@ public class Board {
 
   public void pass(Stone color, boolean newBranch, boolean dummy, boolean changeMove) {
     synchronized (this) {
+      if (setupMode) {
+        return;
+      }
+
       // check to see if this move is being replayed in history
       if (history.getNext().map(this::isKnownPass).orElse(false) && !newBranch) {
         // this is the next move in history. Just increment history so that we don't
