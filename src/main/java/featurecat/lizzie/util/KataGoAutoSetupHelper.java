@@ -942,8 +942,7 @@ public final class KataGoAutoSetupHelper {
       }
     }
     if (!needsRewrite
-        && (hasRelativeBundledPath(Lizzie.config.uiConfig.optString("analysis-engine-command", ""))
-            || hasRelativeBundledPath(Lizzie.config.uiConfig.optString("estimate-command", "")))) {
+        && hasRelativeBundledPath(Lizzie.config.uiConfig.optString("analysis-engine-command", ""))) {
       needsRewrite = true;
     }
     if (!needsRewrite) {
@@ -1006,15 +1005,7 @@ public final class KataGoAutoSetupHelper {
               snapshot.enginePath,
               snapshot.analysisConfigPath,
               snapshot.activeWeightPath);
-      boolean repairEstimate =
-          shouldRepairAuxCommand(
-              Lizzie.config.uiConfig.optString("estimate-command", ""),
-              snapshot.enginePath,
-              snapshot.estimateConfigPath != null
-                  ? snapshot.estimateConfigPath
-                  : snapshot.gtpConfigPath,
-              snapshot.activeWeightPath);
-      if (!(repairDefault || repairAnalysis || repairEstimate)) {
+      if (!(repairDefault || repairAnalysis)) {
         return false;
       }
       applyAutoSetup(snapshot.withActiveWeight(snapshot.activeWeightPath), false);
@@ -1763,8 +1754,6 @@ public final class KataGoAutoSetupHelper {
 
     Path analysisConfig =
         snapshot.analysisConfigPath != null ? snapshot.analysisConfigPath : snapshot.gtpConfigPath;
-    Path estimateConfig =
-        snapshot.estimateConfigPath != null ? snapshot.estimateConfigPath : snapshot.gtpConfigPath;
 
     String engineCommand =
         quoteCommandPath(snapshot.workingDir, snapshot.enginePath)
@@ -1779,12 +1768,6 @@ public final class KataGoAutoSetupHelper {
             + " -config "
             + quoteCommandPath(snapshot.workingDir, analysisConfig)
             + " -quit-without-waiting";
-    String estimateCommand =
-        quoteCommandPath(snapshot.workingDir, snapshot.enginePath)
-            + " gtp -model "
-            + quoteCommandPath(snapshot.workingDir, snapshot.activeWeightPath)
-            + " -config "
-            + quoteCommandPath(snapshot.workingDir, estimateConfig);
 
     ArrayList<EngineData> engines = Utils.getEngineData();
     // Treat an entirely unspecified startup mode as part of this setup transaction. The engine
@@ -1851,7 +1834,6 @@ public final class KataGoAutoSetupHelper {
       Lizzie.config.analysisEngineCommand = analysisCommand;
       Lizzie.config.uiConfig.put("analysis-engine-command", analysisCommand);
     }
-    Lizzie.config.uiConfig.put("estimate-command", estimateCommand);
     Lizzie.config.uiConfig.put(
         "katago-auto-setup-weight-name", snapshot.activeWeightPath.getFileName().toString());
     Lizzie.config.uiConfig.put(

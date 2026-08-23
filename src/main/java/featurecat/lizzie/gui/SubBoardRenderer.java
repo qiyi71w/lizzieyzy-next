@@ -243,7 +243,6 @@ public class SubBoardRenderer {
   private void drawEstimate() {
     boolean hasDraw = false;
     if (!Lizzie.frame.isInScoreMode
-        && !Lizzie.frame.isCounting
         && !Lizzie.frame.isShowingHeatmap
         && Lizzie.config.showKataGoEstimate
         && Lizzie.config.showKataGoEstimateOnSubbord) {

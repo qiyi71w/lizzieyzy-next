@@ -103,7 +103,7 @@ public class RemoteEngineSettings extends JDialog {
     } else if (isContributeEngine) {
       remoteEngineData = Utils.getContributeRemoteEngineData();
     } else {
-      remoteEngineData = Utils.getEstimateEngineRemoteEngineData();
+      remoteEngineData = new RemoteEngineData();
     }
     txtIP.setText(remoteEngineData.ip);
     txtPort.setText(remoteEngineData.port);
@@ -209,7 +209,6 @@ public class RemoteEngineSettings extends JDialog {
               analysisEngineDataConsumer.accept(remoteEngineData);
             else if (isAnalysisEngine) Utils.saveAnalysisEngineRemoteEngineData(remoteEngineData);
             else if (isContributeEngine) Utils.saveContributeRemoteEngineData(remoteEngineData);
-            else Utils.saveEstimateEngineRemoteEngineData(remoteEngineData);
             setVisible(false);
           }
         });

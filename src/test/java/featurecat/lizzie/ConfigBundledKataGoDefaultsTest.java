@@ -508,7 +508,7 @@ public class ConfigBundledKataGoDefaultsTest {
     assertTrue(engines.getJSONObject(defaultIndex).getBoolean("isDefault"));
     assertFalse(engines.getJSONObject(defaultIndex).getString("command").contains("java -jar"));
     assertFalse(ui.getString("analysis-engine-command").contains("java -jar"));
-    assertFalse(ui.getString("estimate-command").contains("java -jar"));
+    assertEquals("java -jar legacy/missing-estimate.jar", ui.getString("estimate-command"));
     assertTrue(ui.getBoolean("autoload-default"));
     assertFalse(ui.getBoolean("autoload-last"));
     assertFalse(ui.getBoolean("autoload-empty"));
@@ -556,7 +556,7 @@ public class ConfigBundledKataGoDefaultsTest {
 
     assertFalse(ui.getString("analysis-engine-command").contains("java -jar"));
     assertFalse(ui.getBoolean("analysis-engine-command-customized"));
-    assertFalse(ui.getString("estimate-command").contains("java -jar"));
+    assertEquals("java -jar legacy/missing-estimate.jar", ui.getString("estimate-command"));
     assertFalse(ui.optBoolean("migrated-default-transformer-v1", false));
   }
 
@@ -807,7 +807,7 @@ public class ConfigBundledKataGoDefaultsTest {
     assertFalse(migratedCommand.contains("zhizi"));
     assertTrue(ui.getString("analysis-engine-command").contains("default.bin.gz"));
     assertFalse(ui.getString("analysis-engine-command").contains("zhizi"));
-    assertTrue(ui.getString("estimate-command").contains("default.bin.gz"));
+    assertEquals(oldEstimate, ui.getString("estimate-command"));
     assertTrue(ui.getBoolean("migrated-default-transformer-v1"));
     assertFalse(ui.getBoolean("autoload-default"));
     assertTrue(ui.getBoolean("autoload-last"));

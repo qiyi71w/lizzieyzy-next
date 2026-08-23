@@ -5,7 +5,6 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.analysis.AnalysisResourceCoordinator;
 import featurecat.lizzie.analysis.EngineManager;
-import featurecat.lizzie.analysis.KataEstimate;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadCancelledException;
@@ -87,7 +86,6 @@ public final class KataGoRuntimeHelper {
   public enum LaunchPurpose {
     MAIN_GTP,
     ANALYSIS,
-    ESTIMATE,
     HUMAN_SL,
     BENCHMARK
   }
@@ -246,7 +244,6 @@ public final class KataGoRuntimeHelper {
   private static boolean benchmarkPausedEngineByShutdown = false;
   private static boolean benchmarkComputeIsolated = false;
   private static boolean benchmarkRestartQuickAnalysisPreload = false;
-  private static boolean benchmarkRestartEstimatePreload = false;
   private static volatile boolean benchmarkEngineSyncSuppressed = false;
   private static volatile boolean appleAutoOptimizeRunning = false;
   private static volatile AppleSiliconHardwareProbe.HardwareProfile cachedAppleHardwareProfile;
@@ -2409,7 +2406,6 @@ public final class KataGoRuntimeHelper {
         benchmarkPausedEngineByShutdown = false;
         benchmarkComputeIsolated = isEngineComputeIsolated(currentEngine);
         benchmarkRestartQuickAnalysisPreload = false;
-        benchmarkRestartEstimatePreload = false;
         benchmarkEngineSyncSuppressed = true;
       }
 
@@ -2529,17 +2525,6 @@ public final class KataGoRuntimeHelper {
       }
     }
 
-    KataEstimate estimate = Lizzie.frame.zen;
-    if (estimate != null && !Lizzie.frame.isCounting && !Lizzie.frame.isAutocounting) {
-      Lizzie.frame.zen = null;
-      synchronized (BENCHMARK_ANALYSIS_PAUSE_LOCK) {
-        benchmarkRestartEstimatePreload = true;
-      }
-      try {
-        estimate.shutdown();
-      } catch (RuntimeException ignored) {
-      }
-    }
   }
 
   public static void restoreAnalysisAfterBenchmark(boolean analysisWasPondering) {
@@ -2547,7 +2532,6 @@ public final class KataGoRuntimeHelper {
     int pausedEngineIndex;
     boolean pausedEngineByShutdown;
     boolean restartQuickAnalysisPreload;
-    boolean restartEstimatePreload;
     Leelaz.AutomaticRestartAttempt restartAttempt = null;
     synchronized (BENCHMARK_ANALYSIS_PAUSE_LOCK) {
       if (benchmarkPreviousShowPonderTips != null && Lizzie.config != null) {
@@ -2558,7 +2542,6 @@ public final class KataGoRuntimeHelper {
       pausedEngineIndex = benchmarkPausedEngineIndex;
       pausedEngineByShutdown = benchmarkPausedEngineByShutdown;
       restartQuickAnalysisPreload = benchmarkRestartQuickAnalysisPreload;
-      restartEstimatePreload = benchmarkRestartEstimatePreload;
       if (pausedEngineByShutdown
           && benchmarkPausedEngineIdentityMatchesLocked(pausedEngine, pausedEngineIndex)) {
         restartAttempt = pausedEngine.beginAutomaticEngineRestartAttempt();
@@ -2575,10 +2558,9 @@ public final class KataGoRuntimeHelper {
       benchmarkPausedEngineByShutdown = false;
       benchmarkComputeIsolated = false;
       benchmarkRestartQuickAnalysisPreload = false;
-      benchmarkRestartEstimatePreload = false;
       benchmarkEngineSyncSuppressed = false;
     }
-    restartAuxiliaryComputeAfterBenchmark(restartQuickAnalysisPreload, restartEstimatePreload);
+    restartAuxiliaryComputeAfterBenchmark(restartQuickAnalysisPreload);
     if (pausedEngineByShutdown) {
       if (restartAttempt == null) {
         return;
@@ -2608,9 +2590,8 @@ public final class KataGoRuntimeHelper {
     }
   }
 
-  private static void restartAuxiliaryComputeAfterBenchmark(
-      boolean restartQuickAnalysisPreload, boolean restartEstimatePreload) {
-    if ((!restartQuickAnalysisPreload && !restartEstimatePreload) || Lizzie.frame == null) {
+  private static void restartAuxiliaryComputeAfterBenchmark(boolean restartQuickAnalysisPreload) {
+    if (!restartQuickAnalysisPreload || Lizzie.frame == null) {
       return;
     }
     SwingUtilities.invokeLater(
@@ -2618,12 +2599,7 @@ public final class KataGoRuntimeHelper {
           if (Lizzie.frame == null) {
             return;
           }
-          if (restartQuickAnalysisPreload) {
-            Lizzie.frame.preloadConfiguredAnalysisEngineAfterStartup();
-          }
-          if (restartEstimatePreload) {
-            Lizzie.frame.preloadEstimateEngineAfterStartup();
-          }
+          Lizzie.frame.preloadConfiguredAnalysisEngineAfterStartup();
         });
   }
 

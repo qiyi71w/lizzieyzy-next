@@ -832,9 +832,6 @@ public class Lizzie {
                 oldfile2.renameTo(newfile2);
               }
             }
-            if (Lizzie.config.loadEstimateEngine) {
-              frame.preloadEstimateEngineAfterStartup();
-            }
             if (Lizzie.config.analysisEnginePreLoad) {
               frame.preloadConfiguredAnalysisEngineAfterStartup();
             }
@@ -1069,7 +1066,6 @@ public class Lizzie {
       e.printStackTrace();
     }
     Lizzie.frame.closeAiPosition();
-    Lizzie.frame.destroyEstimateEngine();
     Lizzie.frame.destroyAnalysisEngine();
     if (webBoardManager != null) {
       try {

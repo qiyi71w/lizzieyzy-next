@@ -288,12 +288,9 @@ public class ConfigDialog2 extends JDialog {
   private JRadioButton rdoRightClickMenu;
   private JRadioButton rdoBranchMoveContinue;
   private JRadioButton rdoBranchMoveOne;
-  private JRadioButton rdbtnKatago;
-  private JRadioButton rdbtnZen;
   private JCheckBox chkShowVarMove;
   private JCheckBox chkSgfLoadLast;
   private JCheckBox chkAutoQuickAnalyzeOnLoad;
-  private JCheckBox chkAutoLoadEstimate;
   private JTextField txtTrackingAnalysisMaxVisits;
   private JCheckBox chkShowTrackingPointOutline;
   private ColorLabel lblTrackingPointInteriorColor;
@@ -308,7 +305,6 @@ public class ConfigDialog2 extends JDialog {
   private JPanel pnlTrackingPointTextColor;
   private JCheckBox chkShowMoveList;
   private JLabel lblShowMoveNumInVariationPane;
-  private JLabel lblLoadEstimate;
   private JCheckBox chkShowIndependentMoveList;
   private JCheckBox chkShowIndependentHawkEye;
   // private JCheckBox chkUseIinCoordsName;
@@ -1493,33 +1489,6 @@ public class ConfigDialog2 extends JDialog {
     chkAutoQuickAnalyzeOnLoad.setBounds(532, 758, 26, 23);
     uiTab.add(chkAutoQuickAnalyzeOnLoad);
 
-    lblLoadEstimate =
-        new JLabel(
-            resourceBundle.getString(
-                "LizzieConfig.lblLoadEstimate")); // ("预加载形式判断引擎"); // $NON-NLS-1$
-    lblLoadEstimate.setBounds(312, 701, 214, 15);
-    uiTab.add(lblLoadEstimate);
-
-    chkAutoLoadEstimate = new JCheckBox(); // $NON-NLS-1$
-    chkAutoLoadEstimate.setBounds(532, 698, 30, 23);
-    uiTab.add(chkAutoLoadEstimate);
-
-    JLabel lblEstimateEngine =
-        new JLabel(resourceBundle.getString("LizzieConfig.lblEstimateEngine")); // ("形势判断引擎");
-    lblEstimateEngine.setBounds(10, 701, 139, 15);
-    uiTab.add(lblEstimateEngine);
-
-    rdbtnKatago = new JRadioButton("KataGo"); // $NON-NLS-1$
-    rdbtnKatago.setBounds(145, 697, 67, 23);
-    uiTab.add(rdbtnKatago);
-
-    rdbtnZen = new JRadioButton("Zen"); // $NON-NLS-1$
-    rdbtnZen.setBounds(218, 697, 64, 23);
-    uiTab.add(rdbtnZen);
-
-    ButtonGroup estimateEngineGroup = new ButtonGroup();
-    estimateEngineGroup.add(rdbtnKatago);
-    estimateEngineGroup.add(rdbtnZen);
 
     JLabel lblTrackingMaxVisits =
         new JLabel(resourceBundle.getString("LizzieConfig.lblTrackingMaxVisits"));
@@ -2013,15 +1982,6 @@ public class ConfigDialog2 extends JDialog {
         && Lizzie.frame.analysisFrame.isVisible()) chkShowIndependentMoveList.setSelected(true);
     else chkShowIndependentMoveList.setSelected(false);
 
-    if (Lizzie.config.useZenEstimate) {
-      rdbtnZen.setSelected(true);
-    } else {
-      rdbtnKatago.setSelected(true);
-    }
-
-    if (Lizzie.config.loadEstimateEngine) {
-      chkAutoLoadEstimate.setSelected(true);
-    }
 
     if (Lizzie.config.loadSgfLast) {
       chkSgfLoadLast.setSelected(true);
@@ -2799,12 +2759,6 @@ public class ConfigDialog2 extends JDialog {
             configText("ConfigDialog2.modern.kifu.jumpLast", "打开后跳到最后一手"),
             configText("ConfigDialog2.modern.kifu.jumpLastSub", "进入棋谱时自动定位到最后一步"),
             chkSgfLoadLast);
-        addToggleRow(
-            sgf,
-            configText("ConfigDialog2.modern.kifu.estimateEngine", "自动加载形势判断引擎"),
-            configText(
-                "ConfigDialog2.modern.kifu.estimateEngineSub", "需要时自动加载估算/形势判断引擎"),
-            chkAutoLoadEstimate);
         addToggleRow(
             sgf,
             configText("ConfigDialog2.modern.kifu.readKomi", "读取棋谱贴目"),
@@ -5991,20 +5945,6 @@ public class ConfigDialog2 extends JDialog {
             && Lizzie.frame.analysisFrame.isVisible()) Lizzie.frame.toggleBestMoves();
       }
 
-      if (rdbtnKatago.isSelected()) {
-        if (Lizzie.config.useZenEstimate) {
-          Lizzie.config.useZenEstimate = false;
-          Lizzie.frame.restartZen();
-        }
-      } else {
-        if (!Lizzie.config.useZenEstimate) {
-          Lizzie.config.useZenEstimate = true;
-          Lizzie.frame.restartZen();
-        }
-      }
-      Lizzie.config.uiConfig.put("use-zen-estimate", Lizzie.config.useZenEstimate);
-      Lizzie.config.loadEstimateEngine = chkAutoLoadEstimate.isSelected();
-      Lizzie.config.uiConfig.put("load-estimate-engine", Lizzie.config.loadEstimateEngine);
       int previousTrackingAnalysisMaxVisits = Lizzie.config.trackingAnalysisMaxVisits;
       int previousAnalyzeUpdateIntervalCentisec =
           Lizzie.config.analyzeUpdateIntervalCentisec;

@@ -213,7 +213,6 @@ prepare_configs() {
   rm -rf "$CONFIG_ROOT"
   mkdir -p "$CONFIG_ROOT"
   cp -f "$source_dir/default_gtp.cfg" "$CONFIG_ROOT/gtp.cfg"
-  cp -f "$source_dir/default_gtp.cfg" "$CONFIG_ROOT/estimate.cfg"
   cp -f "$source_dir/analysis_example.cfg" "$CONFIG_ROOT/analysis.cfg"
 }
 

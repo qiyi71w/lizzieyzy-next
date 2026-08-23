@@ -448,10 +448,6 @@ public class Leelaz {
   public double heatScore;
   private boolean heatCanGetPolicy;
   private boolean heatCanGetOwnership;
-  private final Object positionEstimateLock = new Object();
-  private final KataRawOwnershipParser positionEstimateParser = new KataRawOwnershipParser();
-  private Consumer<List<Double>> positionEstimateConsumer;
-  private Object positionEstimateRequestOwner;
   private Object manualGenmoveRequestOwner;
 
   private boolean canheatRedraw = false;
@@ -2588,7 +2584,6 @@ public class Leelaz {
   }
 
   private void parseLine(String line) {
-    parsePositionEstimateLine(line);
     if (TrialDiag.ENABLED && line.startsWith("info")) {
       // 只在试下激活时打 KataGo 原始 info 行第一段，限频
       if (Lizzie.engineFollowController != null && Lizzie.engineFollowController.isTrialActive()) {
@@ -2848,11 +2843,6 @@ public class Leelaz {
           else {
             nameCmdfornoponder();
           }
-          if (Lizzie.frame.isAutocounting) {
-            String command =
-                "play " + (Lizzie.board.getHistory().isBlacksTurn() ? "w " : "b ") + params[1];
-            Lizzie.frame.forwardAutoPositionEstimateCommand(command, false);
-          }
         }
         if (Lizzie.frame.isPlayingAgainstLeelaz && isResponseUpToDate()) {
           if (params.length > 1) {
@@ -2892,11 +2882,6 @@ public class Leelaz {
               LizzieFrame.menu.toggleEngineMenuStatus(false, false);
             }
           }
-          if (Lizzie.frame.isAutocounting) {
-            String command =
-                "play " + (Lizzie.board.getHistory().isBlacksTurn() ? "w " : "b ") + params[1];
-            Lizzie.frame.forwardAutoPositionEstimateCommand(command, false);
-          }
           if (!Lizzie.config.playponder) Lizzie.leelaz.nameCmdfornoponder();
         }
         if (shouldStopPonder) {
@@ -2926,11 +2911,6 @@ public class Leelaz {
           Lizzie.board.place(params[1]);
           if (isPondering) ponder();
           else this.nameCmdfornoponder();
-          if (Lizzie.frame.isAutocounting) {
-            String command =
-                "play " + (Lizzie.board.getHistory().isBlacksTurn() ? "w " : "b ") + params[1];
-            Lizzie.frame.forwardAutoPositionEstimateCommand(command, false);
-          }
           isInputCommand = false;
           isThinking = false;
         }
@@ -2964,11 +2944,6 @@ public class Leelaz {
           if (isInputCommand) {
             Lizzie.board.place(params[1]);
             togglePonder();
-            if (Lizzie.frame.isAutocounting) {
-              String command =
-                  "play " + (Lizzie.board.getHistory().isBlacksTurn() ? "w " : "b ") + params[1];
-              Lizzie.frame.forwardAutoPositionEstimateCommand(command, false);
-            }
           }
           if (Lizzie.frame.isPlayingAgainstLeelaz && isResponseUpToPreDate()) {
             if (params[1].startsWith("resign")) {
@@ -3003,11 +2978,6 @@ public class Leelaz {
                 Lizzie.board.place(coords.get()[0], coords.get()[1]);
                 LizzieFrame.menu.toggleEngineMenuStatus(false, false);
               }
-            }
-            if (Lizzie.frame.isAutocounting) {
-              String command =
-                  "play " + (Lizzie.board.getHistory().isBlacksTurn() ? "w " : "b ") + params[1];
-              Lizzie.frame.forwardAutoPositionEstimateCommand(command, false);
             }
             if (!Lizzie.config.playponder) Lizzie.leelaz.nameCmdfornoponder();
           }
@@ -3994,52 +3964,6 @@ public class Leelaz {
     }
   }
 
-  public boolean requestPositionEstimate(Consumer<List<Double>> consumer) {
-    if (consumer == null
-        || !isKatago
-        || !started
-        || !isLoaded
-        || isNormalEnd
-        || isProcessDead()
-        || (!hasTrackingStreamSession() && rejectNewExclusiveWorkDuringGtpLease())) {
-      return false;
-    }
-    Object requestOwner = new Object();
-    int boardWidth = Board.boardWidth;
-    int boardHeight = Board.boardHeight;
-    QueuedCommandSettlement settlement =
-        new QueuedCommandSettlement() {
-          @Override
-          public void onWriteClaimed() {
-            synchronized (positionEstimateLock) {
-              positionEstimateParser.begin(boardWidth, boardHeight);
-              positionEstimateConsumer = consumer;
-              positionEstimateRequestOwner = requestOwner;
-            }
-          }
-
-          @Override
-          public void onRequestFailed(RuntimeException failure) {
-            synchronized (positionEstimateLock) {
-              if (positionEstimateRequestOwner != requestOwner) {
-                return;
-              }
-              positionEstimateParser.reset();
-              positionEstimateConsumer = null;
-              positionEstimateRequestOwner = null;
-            }
-          }
-        };
-    return sendCommand(
-        "kata-raw-nn 0",
-        null,
-        null,
-        false,
-        false,
-        TrackingReleaseReason.ORDINARY_OPERATION,
-        settlement,
-        true);
-  }
 
   boolean hasTrackingStreamSession() {
     synchronized (engineArbitrationLock()) {
@@ -4095,34 +4019,6 @@ public class Leelaz {
     }
   }
 
-  public void cancelPositionEstimateRequest() {
-    synchronized (positionEstimateLock) {
-      positionEstimateParser.reset();
-      positionEstimateConsumer = null;
-      positionEstimateRequestOwner = null;
-    }
-  }
-
-  private void parsePositionEstimateLine(String line) {
-    Consumer<List<Double>> consumer = null;
-    List<Double> ownership = null;
-    synchronized (positionEstimateLock) {
-      Optional<List<Double>> parsed = positionEstimateParser.accept(line);
-      if (parsed.isPresent()) {
-        ownership = parsed.get();
-        consumer = positionEstimateConsumer;
-        positionEstimateConsumer = null;
-        positionEstimateRequestOwner = null;
-      }
-    }
-    if (consumer != null) {
-      try {
-        consumer.accept(ownership);
-      } catch (RuntimeException e) {
-        e.printStackTrace();
-      }
-    }
-  }
 
   private void parseHeatMap(String line) {
     if (isheatmap) {
@@ -4465,7 +4361,6 @@ public class Leelaz {
 
   private void shutdownReaderTransport(ReaderStreamBinding binding) {
     ReaderExecutorSnapshot executors = requestReaderShutdown(binding);
-    cancelPositionEstimateRequest();
     leela0110StopPonder();
     try {
       if (executors.ownsTransportClose) {
@@ -4818,9 +4713,6 @@ public class Leelaz {
       return false;
     }
     trySendCommandFromQueue();
-    if (Lizzie.frame.isAutocounting) {
-      Lizzie.frame.forwardAutoPositionEstimateCommand(command, true);
-    }
     Leelaz mirroredEngine = mirrorToSecondEngine ? resolveDefaultCommandMirrorEngine() : null;
     if (mirroredEngine != null) {
       sendDefaultCommandMirror(mirroredEngine, command);
@@ -5399,9 +5291,6 @@ public class Leelaz {
       return;
     }
     trySendCommandFromQueue();
-    if (Lizzie.frame.isAutocounting) {
-      Lizzie.frame.forwardAutoPositionEstimateCommand(command, true);
-    }
     if (canSetNotPlayed) {
       canSetNotPlayed = false;
       played = false;
@@ -13031,7 +12920,6 @@ public class Leelaz {
   }
 
   private void shutdown(ReaderStreamBinding binding, ReaderExecutorSnapshot executors) {
-    cancelPositionEstimateRequest();
     leela0110StopPonder();
     try {
       if (executors.ownsTransportClose) {

@@ -2237,14 +2237,6 @@ public class Board {
     boolean noCheckSuiKo = false;
     LizzieFrame.boardRenderer.removedrawmovestone();
     Lizzie.frame.suggestionclick = LizzieFrame.outOfBoundCoordinate;
-    if (Lizzie.frame.isCounting) {
-      Lizzie.frame.clearKataEstimate();
-      Lizzie.frame.estimateResults.btnEstimate.setText(
-          Lizzie.resourceBundle.getString("EstimateResults.estimate"));
-      Lizzie.frame.estimateResults.iscounted = false;
-      Lizzie.frame.isCounting = false;
-      Lizzie.frame.cancelPositionEstimateRequest();
-    }
     synchronized (this) {
       boolean valid = isValid(x, y);
       boolean occupied = valid && history.getStones()[getIndex(x, y)] != Stone.EMPTY;
@@ -3186,14 +3178,6 @@ public class Board {
     if (Lizzie.frame.analysisFrame2 != null && Lizzie.frame.analysisFrame2.isVisible()) {
       Lizzie.frame.analysisFrame2.selectedorder = -1;
       Lizzie.frame.analysisFrame2.clickOrder = -1;
-    }
-    if (Lizzie.frame.isCounting) {
-      Lizzie.frame.clearKataEstimate();
-      Lizzie.frame.estimateResults.btnEstimate.setText(
-          Lizzie.resourceBundle.getString("EstimateResults.estimate"));
-      Lizzie.frame.estimateResults.iscounted = false;
-      Lizzie.frame.isCounting = false;
-      Lizzie.frame.cancelPositionEstimateRequest();
     }
     // Lizzie.frame.isShowingHeatmap = false;
     if (Lizzie.frame.independentMainBoard != null) {

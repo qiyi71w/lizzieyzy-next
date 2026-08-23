@@ -106,7 +106,6 @@ public class BoardRenderer {
   // private ArrayList<BufferedImage> cachedSelectImage = new ArrayList<BufferedImage>();
   private boolean hasBlockimage = false;
   private BufferedImage kataEstimateImage = emptyImage;
-  private BufferedImage estimateImage = emptyImage;
 
   private BufferedImage scoreImage = emptyImage;
 
@@ -426,7 +425,6 @@ public class BoardRenderer {
   private void drawEstimate() {
     boolean hasDraw = false;
     if (!Lizzie.frame.isInScoreMode
-        && !Lizzie.frame.isCounting
         && !Lizzie.frame.shouldShowHeatmapFor(Lizzie.frame.getDisplayNode())
         && Lizzie.config.showKataGoEstimate
         && Lizzie.config.showKataGoEstimateOnMainbord) {
@@ -1212,9 +1210,6 @@ public class BoardRenderer {
     kataEstimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
   }
 
-  public void removeEstimateImage() {
-    estimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
-  }
 
   public static int roundToInt(double number) {
     return (int) round(number);
@@ -1356,31 +1351,6 @@ public class BoardRenderer {
     g.dispose();
   }
 
-  public void drawEstimateImage(List<Double> tempcount) {
-    estimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
-    Graphics2D g = estimateImage.createGraphics();
-    for (int i = 0; i < tempcount.size(); i++) {
-      if (tempcount.get(i) > 0) {
-        int y = i / Board.boardWidth;
-        int x = i % Board.boardWidth;
-        int stoneX = scaledMarginWidth + squareWidth * x;
-        int stoneY = scaledMarginHeight + squareHeight * y;
-        g.setColor(Color.BLACK);
-        g.fillRect(
-            stoneX - squareWidth / 4, stoneY - squareWidth / 4, squareWidth / 2, squareWidth / 2);
-      }
-      if (tempcount.get(i) < 0) {
-        int y = i / Board.boardWidth;
-        int x = i % Board.boardWidth;
-        int stoneX = scaledMarginWidth + squareWidth * x;
-        int stoneY = scaledMarginHeight + squareHeight * y;
-        g.setColor(Color.WHITE);
-        g.fillRect(
-            stoneX - squareWidth / 4, stoneY - squareWidth / 4, squareWidth / 2, squareWidth / 2);
-      }
-    }
-    g.dispose();
-  }
 
   public void removeblock() {
     if (hasBlockimage) {
@@ -1944,8 +1914,6 @@ public class BoardRenderer {
     if ((Lizzie.config.showKataGoEstimate && Lizzie.config.showKataGoEstimateOnMainbord)
         || showHeatmap)
       if (!shouldShowCountBlockBelow()) g.drawImage(kataEstimateImage, x, y, null);
-    if (Lizzie.frame.isCounting || Lizzie.frame.isAutocounting)
-      g.drawImage(estimateImage, x, y, null);
     if (Lizzie.frame.isKeepingForce || LizzieFrame.isKeepForcing || LizzieFrame.isTempForcing) {
       if (needDrawSelectImage) g.drawImage(selectImage, x, y, null);
       if (needDrawSelectImageAll) g.drawImage(selectImageAll, x, y, null);

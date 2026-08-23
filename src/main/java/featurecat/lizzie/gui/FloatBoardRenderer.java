@@ -79,7 +79,6 @@ public class FloatBoardRenderer {
   private ArrayList<BufferedImage> cachedSelectImage = new ArrayList<BufferedImage>();
   private boolean hasBlockimage = false;
   private BufferedImage kataEstimateImage = emptyImage;
-  private BufferedImage estimateImage = emptyImage;
 
   private BufferedImage cachedBoardImage = emptyImage;
   private BufferedImage cachedWallpaperImage = emptyImage;
@@ -487,9 +486,6 @@ public class FloatBoardRenderer {
     kataEstimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
   }
 
-  public void removeEstimateImage() {
-    estimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
-  }
 
   public static int roundToInt(double number) {
     return (int) round(number);
@@ -629,31 +625,6 @@ public class FloatBoardRenderer {
     g.dispose();
   }
 
-  public void drawEstimateImage(List<Double> tempcount) {
-    estimateImage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
-    Graphics2D g = estimateImage.createGraphics();
-    for (int i = 0; i < tempcount.size(); i++) {
-      if (tempcount.get(i) > 0) {
-        int y = i / Board.boardWidth;
-        int x = i % Board.boardWidth;
-        int stoneX = scaledMarginWidth + squareWidth * x;
-        int stoneY = scaledMarginHeight + squareHeight * y;
-        g.setColor(Color.BLACK);
-        g.fillRect(
-            stoneX - squareWidth / 4, stoneY - squareWidth / 4, squareWidth / 2, squareWidth / 2);
-      }
-      if (tempcount.get(i) < 0) {
-        int y = i / Board.boardWidth;
-        int x = i % Board.boardWidth;
-        int stoneX = scaledMarginWidth + squareWidth * x;
-        int stoneY = scaledMarginHeight + squareHeight * y;
-        g.setColor(Color.WHITE);
-        g.fillRect(
-            stoneX - squareWidth / 4, stoneY - squareWidth / 4, squareWidth / 2, squareWidth / 2);
-      }
-    }
-    g.dispose();
-  }
 
   public void removeblock() {
     if (hasBlockimage) {
@@ -687,7 +658,6 @@ public class FloatBoardRenderer {
   private void drawEstimate() {
     boolean hasDraw = false;
     if (!Lizzie.frame.isInScoreMode
-        && !Lizzie.frame.isCounting
         && !Lizzie.frame.isShowingHeatmap
         && Lizzie.config.showKataGoEstimate
         && Lizzie.config.showKataGoEstimateOnMainbord) {
@@ -989,8 +959,6 @@ public class FloatBoardRenderer {
     if ((Lizzie.config.showKataGoEstimate && Lizzie.config.showKataGoEstimateOnMainbord)
         || Lizzie.frame.isShowingHeatmap)
       if (!shouldShowCountBlockBelow()) g.drawImage(kataEstimateImage, x, y, null);
-    if (Lizzie.frame.isCounting || Lizzie.frame.isAutocounting)
-      g.drawImage(estimateImage, x, y, null);
     g.drawImage(selectImage, x, y, null);
     if (!cachedSelectImage.isEmpty()) {
       for (int i = 0; i < cachedSelectImage.size(); i++) {

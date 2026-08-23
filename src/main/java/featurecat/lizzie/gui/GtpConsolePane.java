@@ -334,19 +334,6 @@ public class GtpConsolePane extends JDialog {
     setDocs(engineName + "> " + command + "\n", Color.WHITE, true, Config.frameFontSize);
   }
 
-  public void addEstimateCommand(String command, int commandNumber) {
-    if (command == null || command.trim().length() == 0) {
-      return;
-    }
-    setDocs(
-        resourceBundle.getString("GtpConsolePane.estimateEngine") + "> " + command + "\n",
-        Color.WHITE,
-        true,
-        Config.frameFontSize);
-    //   commandTexts+=formatZenCommand(command, commandNumber);
-    // addText();
-  }
-
   public void addLineReadBoard(String line) {
     if (line == null || line.trim().length() == 0) {
       return;
@@ -361,12 +348,6 @@ public class GtpConsolePane extends JDialog {
     setDocs(" " + line, Color.GREEN, false, Config.frameFontSize);
   }
 
-  public void addLineEstimate(String line) {
-    if (line == null || line.trim().length() == 0) {
-      return;
-    }
-    setDocs(" " + line, Color.GRAY, false, Config.frameFontSize);
-  }
 
   private void postCommand(ActionEvent e) {
     if (txtCommand.getText() == null || txtCommand.getText().trim().isEmpty()) {

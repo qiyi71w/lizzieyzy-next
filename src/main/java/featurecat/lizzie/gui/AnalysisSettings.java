@@ -318,7 +318,7 @@ public class AnalysisSettings extends JDialog {
 
     btnGenerate =
         new JFontButton(
-            Lizzie.resourceBundle.getString("SetEstimateParam.btnGenerate")); // "自动生成");
+            Lizzie.resourceBundle.getString("AnalysisSettings.btnGenerate")); // "自动生成");
     btnGenerate.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
@@ -349,7 +349,7 @@ public class AnalysisSettings extends JDialog {
     chkUseJavaSSH =
         new JFontCheckBox(Lizzie.resourceBundle.getString("MoreEngines.chkRemoteEngine"));
     btnSetRemoteEngine =
-        new JFontButton(Lizzie.resourceBundle.getString("SetEstimateParam.setRemoteEngine"));
+        new JFontButton(Lizzie.resourceBundle.getString("AnalysisSettings.setRemoteEngine"));
     btnSetRemoteEngine.setMargin(new Insets(0, 0, 0, 0));
     chkUseJavaSSH.addActionListener(
         new ActionListener() {

@@ -523,16 +523,7 @@ public class InputIndependentMainBoard implements KeyListener {
       // this is copyed from https://github.com/zsalch/lizzie/tree/n_avoiddialog
       case VK_DECIMAL:
       case VK_SLASH:
-        if (Lizzie.frame.isCounting) {
-          LizzieFrame.boardRenderer.removeKataEstimateImage();
-          Lizzie.frame.isCounting = false;
-          Lizzie.frame.cancelPositionEstimateRequest();
-          if (Lizzie.frame.estimateResults != null) {
-            Lizzie.frame.estimateResults.setVisible(false);
-          }
-        } else {
-          Lizzie.frame.toggleShowKataEstimate();
-        }
+        Lizzie.frame.toggleShowKataEstimate();
         break;
       case VK_PERIOD:
         if (Lizzie.config.useShortcutKataEstimate) Lizzie.frame.toggleShowKataEstimate();

@@ -2,7 +2,6 @@ package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import java.util.List;
 import java.util.Locale;
@@ -32,14 +31,6 @@ class AiPositionEntryResourceTest {
       assertFalse(
           bundle.getString("LizzieFrame.aiPositionUnavailable").isBlank(), locale.toString());
       assertFalse(bundle.getString("LizzieFrame.commands.keySlash").isBlank(), locale.toString());
-      assertNotEquals(
-          bundle.getString("BottomToolbar.countButton"),
-          bundle.getString("BottomToolbar.kataEstimate"),
-          locale.toString());
-      assertNotEquals(
-          bundle.getString("Menu.estimateStones"),
-          bundle.getString("Menu.aiPosition"),
-          locale.toString());
     }
   }
 
@@ -53,7 +44,5 @@ class AiPositionEntryResourceTest {
     assertEquals("AI形势显示", bundle.getString("Menu.kataEstimate"));
     assertEquals("AI形势等待中", bundle.getString("LizzieFrame.aiPositionWaiting"));
     assertEquals("AI形势需要 KataGo", bundle.getString("LizzieFrame.aiPositionUnavailable"));
-    assertEquals("形势判断", bundle.getString("BottomToolbar.countButton"));
-    assertEquals("形势判断( / 或小键盘点)", bundle.getString("Menu.estimateStones"));
   }
 }

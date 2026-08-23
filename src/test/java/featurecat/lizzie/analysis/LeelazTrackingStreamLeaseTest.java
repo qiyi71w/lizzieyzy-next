@@ -1470,15 +1470,12 @@ class LeelazTrackingStreamLeaseTest {
       processCommandResponse(state.engine, "=800000000");
       assertTrue(dispatch(state.engine, ""));
 
-      assertTrue(state.engine.requestPositionEstimate(ownership -> {}));
       state.engine.sendCommandNoLeelaz2("version");
 
-      assertEquals(null, positionEstimateConsumer(state.engine));
       assertEquals(List.of(Leelaz.TrackingReleaseReason.ORDINARY_OPERATION), observer.reasons);
       assertTrue(dispatch(state.engine, "=800000001"));
       assertTrue(dispatch(state.engine, ""));
       assertTrue(state.output.toString(StandardCharsets.UTF_8).endsWith("version\n"));
-      assertFalse(state.output.toString(StandardCharsets.UTF_8).contains("kata-raw-nn 0\n"));
     }
   }
 
@@ -1521,50 +1518,6 @@ class LeelazTrackingStreamLeaseTest {
     }
   }
 
-  @Test
-  void positionEstimateArmsOnlyAfterWriterClaimAndCleansAfterWriteFailure() throws Exception {
-    try (TestState state = TestState.open(reusableLocalKatago())) {
-      Leelaz.TrackingStreamLeaseAcquisition acquisition =
-          state.engine.acquireTrackingStreamLease(line -> {}, lease -> {}, lease -> {});
-      processCommandResponse(state.engine, "=800000000");
-      assertTrue(dispatch(state.engine, ""));
-
-      assertTrue(state.engine.requestPositionEstimate(ownership -> {}));
-      assertEquals(null, positionEstimateConsumer(state.engine));
-      assertEquals(
-          "800000000 stop\n800000001 stop\n", state.output.toString(StandardCharsets.UTF_8));
-
-      assertTrue(dispatch(state.engine, "=800000001"));
-      installOutput(
-          state.engine,
-          Leelaz.createCommandOutputStream(
-              new OutputStream() {
-                @Override
-                public void write(int value) throws IOException {
-                  throw new IOException("simulated position estimate write failure");
-                }
-              }));
-      assertTrue(dispatch(state.engine, ""));
-
-      assertEquals(null, positionEstimateConsumer(state.engine));
-      assertFalse(acquisition.lease().isOwned());
-    }
-  }
-
-  @Test
-  void acceptedPositionEstimateDoesNotReportExistingLeaseBusy() throws Exception {
-    FeedbackRecordingLeelaz engine = new FeedbackRecordingLeelaz();
-    configureLocalKatago(engine);
-    try (TestState state = TestState.open(engine)) {
-      state.engine.acquireTrackingStreamLease(line -> {}, lease -> {}, lease -> {});
-      processCommandResponse(state.engine, "=800000000");
-      assertTrue(dispatch(state.engine, ""));
-
-      assertTrue(state.engine.requestPositionEstimate(ownership -> {}));
-
-      assertEquals(0, engine.feedbackCount.get());
-    }
-  }
 
   @Test
   void komiQueuesBehindOrdinaryTrackingReleaseWithoutReportingBusy() throws Exception {
@@ -1905,9 +1858,7 @@ class LeelazTrackingStreamLeaseTest {
           state.engine.claimTrackingHandoff(RecordingHandoffTarget.retained());
 
       assertEquals(Leelaz.TrackingHandoffAvailability.ACCEPTED_PENDING, claim.availability());
-      assertFalse(state.engine.requestPositionEstimate(ownership -> {}));
       assertFalse(state.engine.genmove("B", true));
-      assertEquals(null, positionEstimateConsumer(state.engine));
       assertFalse(state.engine.isInputCommand);
       assertFalse(state.engine.isThinking);
       assertEquals("800000000 stop\n", state.output.toString(StandardCharsets.UTF_8));
@@ -1994,16 +1945,13 @@ class LeelazTrackingStreamLeaseTest {
       processCommandResponse(state.engine, "=800000000");
       assertTrue(dispatch(state.engine, ""));
 
-      assertTrue(state.engine.requestPositionEstimate(ownership -> {}));
       assertTrue(state.engine.genmove("B", true));
-      assertEquals(null, positionEstimateConsumer(state.engine));
       assertFalse(state.engine.isInputCommand);
       assertFalse(state.engine.isThinking);
 
       ByteArrayOutputStream reboundOutput = new ByteArrayOutputStream();
       initializeStreams(state.engine, reboundOutput);
 
-      assertEquals(null, positionEstimateConsumer(state.engine));
       assertFalse(state.engine.isInputCommand);
       assertFalse(state.engine.isThinking);
       assertEquals(List.of(), state.menu.transitions);
@@ -2012,15 +1960,9 @@ class LeelazTrackingStreamLeaseTest {
   }
 
   @Test
-  void postWriteRebindCleansPositionEstimateAndManualGenmoveStateExactlyOnce() throws Exception {
+  void postWriteRebindCleansManualGenmoveStateExactlyOnce() throws Exception {
     try (TestState state = TestState.open(reusableLocalKatago())) {
       ensureReaderStreamBinding(state.engine);
-      assertTrue(state.engine.requestPositionEstimate(ownership -> {}));
-      assertTrue(positionEstimateConsumer(state.engine) != null);
-
-      ByteArrayOutputStream firstReboundOutput = new ByteArrayOutputStream();
-      initializeStreams(state.engine, firstReboundOutput);
-      assertEquals(null, positionEstimateConsumer(state.engine));
 
       assertTrue(state.engine.genmove("B", true));
       assertTrue(state.engine.isInputCommand);
@@ -2612,15 +2554,6 @@ class LeelazTrackingStreamLeaseTest {
     }
   }
 
-  private static Object positionEstimateConsumer(Leelaz engine) {
-    try {
-      Field field = Leelaz.class.getDeclaredField("positionEstimateConsumer");
-      field.setAccessible(true);
-      return field.get(engine);
-    } catch (ReflectiveOperationException failure) {
-      throw new AssertionError(failure);
-    }
-  }
 
   private static int commandQueueSize(Leelaz engine) {
     try {

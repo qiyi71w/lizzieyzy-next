@@ -740,39 +740,6 @@ public class Utils {
     }
   }
 
-  public static RemoteEngineData getEstimateEngineRemoteEngineData() {
-    RemoteEngineData remoteData = new RemoteEngineData();
-    Optional<JSONObject> remoteEngineInfoOpt =
-        Optional.ofNullable(Lizzie.config.leelazConfig.optJSONObject("estimate-engine-ssh-info"));
-    if (remoteEngineInfoOpt.isPresent()) {
-      JSONObject remoteEngineInfo = remoteEngineInfoOpt.get();
-      remoteData.useJavaSSH = remoteEngineInfo.optBoolean("useJavaSSH", false);
-      remoteData.ip = remoteEngineInfo.optString("ip", "");
-      remoteData.port = remoteEngineInfo.optString("port", "");
-      remoteData.userName = remoteEngineInfo.optString("userName", "");
-      remoteData.useKeyGen = remoteEngineInfo.optBoolean("useKeyGen", false);
-      remoteData.password = remoteEngineInfo.optString("password", "");
-      remoteData.keyGenPath = remoteEngineInfo.optString("keyGenPath", "");
-    }
-    return remoteData;
-  }
-
-  public static void saveEstimateEngineRemoteEngineData(RemoteEngineData remoteEngineData) {
-    JSONObject remoteEngineInfo = new JSONObject();
-    remoteEngineInfo.put("useJavaSSH", remoteEngineData.useJavaSSH);
-    remoteEngineInfo.put("ip", remoteEngineData.ip);
-    remoteEngineInfo.put("port", remoteEngineData.port);
-    remoteEngineInfo.put("userName", remoteEngineData.userName);
-    remoteEngineInfo.put("password", remoteEngineData.password);
-    remoteEngineInfo.put("useKeyGen", remoteEngineData.useKeyGen);
-    remoteEngineInfo.put("keyGenPath", remoteEngineData.keyGenPath);
-    Lizzie.config.leelazConfig.put("estimate-engine-ssh-info", remoteEngineInfo);
-    try {
-      Lizzie.config.save();
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
-  }
 
   public static RemoteEngineData getAnalysisEngineRemoteEngineData() {
     RemoteEngineData remoteData = new RemoteEngineData();

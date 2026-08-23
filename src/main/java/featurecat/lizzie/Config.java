@@ -79,16 +79,6 @@ public class Config {
   public boolean hideSubBoardFromLargeWinrate = false;
   public boolean largeSubBoard = false;
   public boolean startMaximized = true;
-  public boolean loadEstimateEngine = false;
-  public String estimateCommand =
-      "katago"
-          + File.separator
-          + "katago.exe gtp -model weights"
-          + File.separator
-          + "kata20bs530.bin.gz -config katago"
-          + File.separator
-          + "estimate.cfg";
-  public Double estimateThreshold = 0.4;
 
   public boolean showSuggestionVariations = true;
   public boolean showWinrateInSuggestion = true;
@@ -228,7 +218,6 @@ public class Config {
   public boolean firstButton = true;
   public boolean lastButton = true;
   public boolean clearButton = true;
-  public boolean countButton = true;
   public boolean finalScore = true;
   public boolean forward10 = true;
   public boolean backward10 = true;
@@ -269,17 +258,12 @@ public class Config {
   private static class BundledKataGoConfig {
     private final String engineCommand;
     private final String analysisCommand;
-    private final String estimateCommand;
     private final boolean transformerDefault;
 
     private BundledKataGoConfig(
-        String engineCommand,
-        String analysisCommand,
-        String estimateCommand,
-        boolean transformerDefault) {
+        String engineCommand, String analysisCommand, boolean transformerDefault) {
       this.engineCommand = engineCommand;
       this.analysisCommand = analysisCommand;
-      this.estimateCommand = estimateCommand;
       this.transformerDefault = transformerDefault;
     }
   }
@@ -1245,12 +1229,6 @@ public class Config {
             .resolve("katago")
             .resolve("configs")
             .resolve("gtp.cfg");
-    Path estimateConfigPath =
-        appRoot
-            .resolve(BUNDLED_ENGINE_ROOT)
-            .resolve("katago")
-            .resolve("configs")
-            .resolve("estimate.cfg");
     Path analysisConfigPath =
         appRoot
             .resolve(BUNDLED_ENGINE_ROOT)
@@ -1278,16 +1256,8 @@ public class Config {
             + " -config "
             + quotePath(analysisConfigPath)
             + " -quit-without-waiting";
-    Path effectiveEstimateConfig =
-        Files.isRegularFile(estimateConfigPath) ? estimateConfigPath : gtpConfigPath;
-    String estimateCommand =
-        quotePath(enginePath)
-            + " gtp -model "
-            + quotePath(weightPath)
-            + " -config "
-            + quotePath(effectiveEstimateConfig);
     return new BundledKataGoConfig(
-        engineCommand, analysisCommand, estimateCommand, isBundledTransformerDefault(appRoot));
+        engineCommand, analysisCommand, isBundledTransformerDefault(appRoot));
   }
 
   private static boolean isBundledTransformerDefault(Path appRoot) {
@@ -1394,11 +1364,6 @@ public class Config {
           ui.put("analysis-engine-command", bundledConfig.analysisCommand);
           ui.put("analysis-engine-command-customized", false);
         }
-        String estimateCommand = ui.optString("estimate-command", "");
-        if (isManagedBundledDefaultCommand(estimateCommand)
-            || isClearlyBrokenJavaJarCommand(estimateCommand)) {
-          ui.put("estimate-command", bundledConfig.estimateCommand);
-        }
         if (bundledConfig.transformerDefault) {
           ui.put(DEFAULT_TRANSFORMER_MIGRATION_KEY, true);
         }
@@ -1465,7 +1430,6 @@ public class Config {
       if (newProfile) {
         ui.put("analysis-engine-command", bundledConfig.analysisCommand);
         ui.put("analysis-engine-command-customized", false);
-        ui.put("estimate-command", bundledConfig.estimateCommand);
       }
     }
     return !configBeforeRepair.equals(config.toString());
@@ -1570,7 +1534,6 @@ public class Config {
   public boolean allowDrag = false;
   public boolean noRefreshOnSub = true;
 
-  public boolean estimateArea = false;
 
   public int anaGameResignStartMove = 150;
   public int anaGameResignMove = 2;
@@ -1622,8 +1585,6 @@ public class Config {
   public boolean anaFrameUseMouseMove = false;
   public boolean userKnownX = false;
 
-  public boolean useZenEstimate = false;
-  public String zenEstimateCommand = "ZenEstimate" + File.separator + "ZenGTP.exe";
 
   public boolean showDoubleMenu = true;
   public boolean showDoubleMenuVar = true;
@@ -2266,17 +2227,6 @@ public class Config {
     showSuggestionOrder = uiConfig.optBoolean("show-suggestion-order", true);
     showSuggestionMaxRed = uiConfig.optBoolean("show-suggestion-maxred", false);
 
-    estimateCommand =
-        uiConfig.optString(
-            "estimate-command",
-            "katago"
-                + File.separator
-                + "katago.exe gtp -model weights"
-                + File.separator
-                + "kata20bs530.bin.gz -config katago"
-                + File.separator
-                + "estimate.cfg");
-    estimateThreshold = uiConfig.optDouble("estimate-threshold", 0.4);
 
     showKataGoEstimateNormal = uiConfig.optBoolean("show-katago-estimate-normal", false);
     showKataGoEstimateBySize = uiConfig.optBoolean("show-katago-estimate-by-size", false);
@@ -2315,9 +2265,6 @@ public class Config {
     anaGameRandomPlayoutsDiff = uiConfig.optDouble("anagame-random-playoutdiff", 5);
     // allowDrageDoubleClick = uiConfig.optBoolean("allow-drag-doubleclick", true);
     userKnownX = uiConfig.optBoolean("user-known-x", false);
-    useZenEstimate = uiConfig.optBoolean("use-zen-estimate", false);
-    zenEstimateCommand =
-        uiConfig.optString("use-estimate-command", "ZenEstimate" + File.separator + "ZenGTP.exe");
     showDoubleMenu = uiConfig.optBoolean("show-double-menu", true);
     showDoubleMenuGameControl = uiConfig.optBoolean("show-double-menu-game-control", true);
     showDoubleMenuVar = uiConfig.optBoolean("show-double-menu-var", true);
@@ -2549,7 +2496,6 @@ public class Config {
     firstButton = uiConfig.optBoolean("firstButton", true);
     lastButton = uiConfig.optBoolean("lastButton", true);
     clearButton = uiConfig.optBoolean("clearButton", true);
-    countButton = uiConfig.optBoolean("countButton", true);
     finalScore = uiConfig.optBoolean("finalScore", false);
     forward10 = uiConfig.optBoolean("forward10", true);
     backward10 = uiConfig.optBoolean("backward10", true);
@@ -2625,7 +2571,6 @@ public class Config {
     chkLzsaiEngineMem = uiConfig.optBoolean("chk-lzsai-enginemem", false);
     autoLoadLzsaiEngineMem = uiConfig.optBoolean("autoload-Lzsai-enginemem", false);
     txtLzsaiEngineMem = uiConfig.optString("txt-lzsai-enginemem", "");
-    loadEstimateEngine = uiConfig.optBoolean("load-estimate-engine", false);
 
     chkLzsaiEngineVisits = uiConfig.optBoolean("chk-lzsai-enginevisits", false);
     autoLoadLzsaiEngineVisits = uiConfig.optBoolean("autoload-Lzsai-enginevisits", false);
@@ -2778,7 +2723,6 @@ public class Config {
     // chkEngineSgfStart = uiConfig.optBoolean("engine-sgf-start", true);
     engineSgfStartRandom = uiConfig.optBoolean("engine-sgf-random", true);
 
-    estimateArea = uiConfig.optBoolean("estimate-area", false);
 
     deleteMove = uiConfig.optBoolean("deleteMove", true);
     // showlcbwinrate = config.getJSONObject("leelaz").optBoolean("show-lcb-winrate", false);
