@@ -1068,6 +1068,7 @@ public class Lizzie {
     } catch (Exception e) {
       e.printStackTrace();
     }
+    Lizzie.frame.closeAiPosition();
     Lizzie.frame.destroyEstimateEngine();
     Lizzie.frame.destroyAnalysisEngine();
     if (webBoardManager != null) {

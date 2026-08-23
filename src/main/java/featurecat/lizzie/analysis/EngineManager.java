@@ -254,6 +254,9 @@ public class EngineManager {
       Lizzie.frame.showUnsupportedWebSocketAdvancedClock();
       return false;
     }
+    if (Lizzie.frame != null) {
+      Lizzie.frame.preemptAiPosition();
+    }
     if (Lizzie.frame.isTrying) Lizzie.frame.tryPlay(false);
     engineGameInfo = new EngineGameInfo();
     if (Lizzie.frame.isShowingHeatmap) Lizzie.leelaz.toggleHeatmap(true);

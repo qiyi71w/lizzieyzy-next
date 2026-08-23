@@ -4,7 +4,7 @@ package featurecat.lizzie.analysis;
 public interface AiPositionProvider {
   boolean supports(AiPositionRequestContext context);
 
-  void start(AiPositionRequestContext context, long generation);
+  boolean start(AiPositionRequestContext context, long generation);
 
   void stop(long generation);
 }

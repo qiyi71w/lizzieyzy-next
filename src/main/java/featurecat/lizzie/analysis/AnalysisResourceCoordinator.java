@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,6 +29,7 @@ public final class AnalysisResourceCoordinator {
     PRELOADED_QUICK_ANALYSIS,
     USER_QUICK_ANALYSIS,
     WHOLE_GAME_ANALYSIS,
+    AI_POSITION,
     OTHER
   }
 
@@ -37,6 +39,15 @@ public final class AnalysisResourceCoordinator {
     PREEMPT_AUTOMATIC_SECONDARY,
     KEEP_USER_TASK,
     SHARED_ENGINE
+  }
+
+  public enum SinglePositionDecision {
+    BORROW_IDLE,
+    PREEMPT_AUTOMATIC,
+    LAZY_START,
+    DENIED_USER_TASK,
+    DENIED_NO_CONFIG,
+    DENIED_FOREGROUND_REUSE
   }
 
   private static final String DIAGNOSTICS_PROPERTY = "lizzie.analysis.diagnostics";
@@ -80,6 +91,129 @@ public final class AnalysisResourceCoordinator {
       return ForegroundDecision.PREEMPT_AUTOMATIC_SECONDARY;
     }
     return ForegroundDecision.KEEP_USER_TASK;
+  }
+
+  public static SinglePositionDecision decideSinglePositionClaim(
+      boolean idlePreloaded,
+      boolean analysisInProgress,
+      boolean automaticBackgroundTask,
+      boolean configuredKatago,
+      boolean wouldReuseNonKatagoForeground) {
+    if (analysisInProgress && !automaticBackgroundTask) {
+      return SinglePositionDecision.DENIED_USER_TASK;
+    }
+    if (analysisInProgress && automaticBackgroundTask) {
+      return SinglePositionDecision.PREEMPT_AUTOMATIC;
+    }
+    if (idlePreloaded) {
+      return SinglePositionDecision.BORROW_IDLE;
+    }
+    if (configuredKatago) {
+      return SinglePositionDecision.LAZY_START;
+    }
+    if (wouldReuseNonKatagoForeground) {
+      return SinglePositionDecision.DENIED_FOREGROUND_REUSE;
+    }
+    return SinglePositionDecision.DENIED_NO_CONFIG;
+  }
+
+  public interface SinglePositionEngineHost {
+    boolean hasIdlePreloaded();
+
+    boolean isAnalysisInProgress();
+
+    boolean isAutomaticBackgroundTask();
+
+    boolean hasConfiguredKatago();
+
+    boolean wouldReuseNonKatagoForeground();
+
+    AnalysisEngine borrowIdle();
+
+    AnalysisEngine preemptAutomaticAndStart();
+
+    AnalysisEngine lazyStart();
+
+    void abandon(AnalysisEngine engine);
+
+    boolean shouldKeepAlive(AnalysisEngine engine, boolean ownsProcess);
+  }
+
+  public static Optional<SinglePositionLease> claimSinglePosition(SinglePositionEngineHost host) {
+    if (host == null) {
+      return Optional.empty();
+    }
+    SinglePositionDecision decision =
+        decideSinglePositionClaim(
+            host.hasIdlePreloaded(),
+            host.isAnalysisInProgress(),
+            host.isAutomaticBackgroundTask(),
+            host.hasConfiguredKatago(),
+            host.wouldReuseNonKatagoForeground());
+    AnalysisEngine engine;
+    boolean ownsProcess;
+    switch (decision) {
+      case BORROW_IDLE:
+        engine = host.borrowIdle();
+        ownsProcess = false;
+        break;
+      case PREEMPT_AUTOMATIC:
+        engine = host.preemptAutomaticAndStart();
+        ownsProcess = true;
+        break;
+      case LAZY_START:
+        engine = host.lazyStart();
+        ownsProcess = true;
+        break;
+      default:
+        return Optional.empty();
+    }
+    if (engine == null || !engine.isLoaded()) {
+      return Optional.empty();
+    }
+    return Optional.of(new SinglePositionLease(engine, ownsProcess, host));
+  }
+
+  public static final class SinglePositionLease {
+    private final AnalysisEngine engine;
+    private final boolean ownsProcess;
+    private final SinglePositionEngineHost host;
+    private boolean released;
+
+    private SinglePositionLease(
+        AnalysisEngine engine, boolean ownsProcess, SinglePositionEngineHost host) {
+      this.engine = engine;
+      this.ownsProcess = ownsProcess;
+      this.host = host;
+    }
+
+    public boolean startQuery(
+        org.json.JSONObject request, AnalysisEngine.SinglePositionEmissionHandler handler) {
+      if (released || request == null || handler == null) {
+        return false;
+      }
+      return engine.startSinglePositionQuery(request, handler);
+    }
+
+    public synchronized void release() {
+      if (released) {
+        return;
+      }
+      released = true;
+      engine.terminateSinglePositionQuery();
+      if (ownsProcess && !host.shouldKeepAlive(engine, ownsProcess)) {
+        engine.normalQuit();
+        host.abandon(engine);
+      }
+    }
+
+    public synchronized boolean isReleased() {
+      return released;
+    }
+
+    AnalysisEngine engine() {
+      return engine;
+    }
   }
 
   public static void processStarted(

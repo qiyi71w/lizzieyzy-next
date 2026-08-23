@@ -9,6 +9,7 @@ import java.util.Objects;
 public final class AiPositionSnapshot {
   private final AiPositionRequestContext context;
   private final long generation;
+  private final long sequence;
   private final double blackScoreLead;
   private final double blackWinrate;
   private final int visits;
@@ -17,12 +18,14 @@ public final class AiPositionSnapshot {
   private AiPositionSnapshot(
       AiPositionRequestContext context,
       long generation,
+      long sequence,
       double blackScoreLead,
       double blackWinrate,
       int visits,
       List<Double> ownership) {
     this.context = context;
     this.generation = generation;
+    this.sequence = sequence;
     this.blackScoreLead = blackScoreLead;
     this.blackWinrate = blackWinrate;
     this.visits = visits;
@@ -31,6 +34,14 @@ public final class AiPositionSnapshot {
 
   static AiPositionSnapshot from(
       AiPositionRequestContext context, long generation, AiPositionSearchUpdate update) {
+    return from(context, generation, 0L, update);
+  }
+
+  static AiPositionSnapshot from(
+      AiPositionRequestContext context,
+      long generation,
+      long sequence,
+      AiPositionSearchUpdate update) {
     Objects.requireNonNull(context, "context");
     Objects.requireNonNull(update, "update");
     boolean blackToPlay = context.blackToPlay();
@@ -45,8 +56,31 @@ public final class AiPositionSnapshot {
     return new AiPositionSnapshot(
         context,
         generation,
+        sequence,
         lead,
         Math.max(0.0, Math.min(100.0, winratePercent)),
+        update.visits(),
+        Collections.unmodifiableList(ownership));
+  }
+
+  static AiPositionSnapshot fromBlackPerspective(
+      AiPositionRequestContext context,
+      long generation,
+      long sequence,
+      AiPositionSearchUpdate update) {
+    Objects.requireNonNull(context, "context");
+    Objects.requireNonNull(update, "update");
+    double[] rawOwnership = update.sideToMoveOwnership();
+    List<Double> ownership = new ArrayList<Double>(rawOwnership.length);
+    for (int i = 0; i < rawOwnership.length; i++) {
+      ownership.add(rawOwnership[i]);
+    }
+    return new AiPositionSnapshot(
+        context,
+        generation,
+        sequence,
+        update.sideToMoveScoreLead(),
+        Math.max(0.0, Math.min(100.0, update.sideToMoveWinrate() * 100.0)),
         update.visits(),
         Collections.unmodifiableList(ownership));
   }
@@ -57,6 +91,10 @@ public final class AiPositionSnapshot {
 
   public long generation() {
     return generation;
+  }
+
+  public long sequence() {
+    return sequence;
   }
 
   public double blackScoreLead() {

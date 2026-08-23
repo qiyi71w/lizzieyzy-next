@@ -13,8 +13,9 @@ public final class ForegroundKatagoAiPositionProvider implements AiPositionProvi
   }
 
   @Override
-  public void start(AiPositionRequestContext context, long generation) {
+  public boolean start(AiPositionRequestContext context, long generation) {
     // The existing kata-analyze stream is already running or will be restarted by ponder().
+    return true;
   }
 
   @Override

@@ -56,6 +56,11 @@ public class AnalysisEngine {
     void onProgress(int completed, int total);
   }
 
+  @FunctionalInterface
+  public interface SinglePositionEmissionHandler {
+    void onEmission(int sequence, String resultJson);
+  }
+
   private static final int REMOTE_GTP_SILENT_INTERVAL_CENTISEC = 1;
   private static final int REMOTE_GTP_SILENT_MAX_VISITS = 16;
   private static final int REMOTE_GTP_OVERVIEW_STRIDE = 8;
@@ -130,6 +135,10 @@ public class AnalysisEngine {
   private final boolean persistentPreload;
   private final boolean dedicatedLightweightQuickModel;
   private final String dedicatedLightweightQuickModelCommand;
+  private String singlePositionQueryId;
+  private SinglePositionEmissionHandler singlePositionHandler;
+  private int singlePositionSequence;
+  private boolean singlePositionTerminated;
   private ArrayDeque<RemoteGtpAnalyzeJob> remoteGtpQueue;
   private RemoteGtpAnalyzeJob remoteGtpActiveJob;
   private boolean remoteGtpWaitingForStopAck;
@@ -204,6 +213,24 @@ public class AnalysisEngine {
         KataGoAutoSetupHelper.resolveQuickAnalysisEngineCommand().orElse(null));
   }
 
+  public static AnalysisEngine createManagedAiPositionEngine() throws IOException {
+    return new AnalysisEngine(
+        false,
+        Workload.STANDARD,
+        -1,
+        AnalysisResourceCoordinator.Purpose.AI_POSITION,
+        false,
+        null);
+  }
+
+  static boolean allowsForegroundReuse(
+      AnalysisResourceCoordinator.Purpose purpose,
+      boolean configuredReuse,
+      boolean automaticReuse) {
+    return purpose != AnalysisResourceCoordinator.Purpose.AI_POSITION
+        && (configuredReuse || automaticReuse);
+  }
+
   private AnalysisEngine(
       boolean isPreLoad,
       Workload workload,
@@ -233,7 +260,10 @@ public class AnalysisEngine {
             && lightweightQuickModelRequested;
     this.dedicatedLightweightQuickModelCommand =
         this.dedicatedLightweightQuickModel ? commandOverride.trim() : "";
-    if (Lizzie.config.analysisReuseCurrentEngine || automaticPrimaryForegroundReuse) {
+    if (allowsForegroundReuse(
+        this.purpose,
+        Lizzie.config != null && Lizzie.config.analysisReuseCurrentEngine,
+        automaticPrimaryForegroundReuse)) {
       useRemoteCompute = true;
       sharedForegroundEngine = Lizzie.leelaz;
       automaticPrimaryForegroundCommand =
@@ -467,12 +497,10 @@ public class AnalysisEngine {
     if (this.useJavaSSH) javaSSHClosed = true;
     isLoaded = false;
     if (!isNormalEnd) {
-      showErrMsg(resourceBundle.getString("Leelaz.engineEndUnormalHint"));
+      shutdown();
+      finishAbortedAnalysis();
+      return;
     }
-    process = null;
-    shutdown();
-    finishAbortedAnalysis();
-    return;
   }
 
   private void parseLine(String line) {
@@ -493,6 +521,9 @@ public class AnalysisEngine {
   }
 
   public void parseResult(String line) {
+    if (handleSinglePositionResult(line)) {
+      return;
+    }
     JSONObject result;
     result = new JSONObject(line);
     JSONArray moveInfos = result.getJSONArray("moveInfos");
@@ -2505,6 +2536,10 @@ public class AnalysisEngine {
     return purpose() == AnalysisResourceCoordinator.Purpose.AUTO_QUICK_ANALYSIS;
   }
 
+  public boolean isAiPositionTask() {
+    return purpose() == AnalysisResourceCoordinator.Purpose.AI_POSITION;
+  }
+
   public boolean usesDedicatedLightweightQuickModel() {
     return dedicatedLightweightQuickModel;
   }
@@ -2719,7 +2754,97 @@ public class AnalysisEngine {
   }
 
   public synchronized boolean isAnalysisInProgress() {
-    return analyzeMap.size() > 0 && responseCount < analyzeMap.size();
+    return (analyzeMap.size() > 0 && responseCount < analyzeMap.size())
+        || hasActiveSinglePositionQuery();
+  }
+
+  public synchronized boolean startSinglePositionQuery(
+      JSONObject request, SinglePositionEmissionHandler handler) {
+    if (!isLoaded() || shutdownRequested || request == null || handler == null) {
+      return false;
+    }
+    terminateSinglePositionQuery();
+    clearSinglePositionQuery();
+    String id = request.optString("id", "");
+    if (id.isEmpty()) {
+      id = "ai-position-" + globalID++;
+      request.put("id", id);
+    }
+    singlePositionQueryId = id;
+    singlePositionHandler = handler;
+    singlePositionSequence = 0;
+    singlePositionTerminated = false;
+    if (sendCommand(request.toString())) {
+      return true;
+    }
+    clearSinglePositionQuery();
+    return false;
+  }
+
+  public synchronized void terminateSinglePositionQuery() {
+    if (singlePositionQueryId == null) {
+      return;
+    }
+    boolean alreadyTerminated = singlePositionTerminated && singlePositionHandler == null;
+    singlePositionTerminated = true;
+    singlePositionHandler = null;
+    if (alreadyTerminated) {
+      return;
+    }
+    JSONObject terminate = new JSONObject();
+    terminate.put("id", "terminate-" + singlePositionQueryId);
+    terminate.put("action", "terminate");
+    terminate.put("terminateId", singlePositionQueryId);
+    sendCommand(terminate.toString());
+  }
+
+  private synchronized boolean hasActiveSinglePositionQuery() {
+    return singlePositionQueryId != null && !singlePositionTerminated;
+  }
+
+  private synchronized boolean handleSinglePositionResult(String line) {
+    if (singlePositionQueryId == null || line == null || !line.trim().startsWith("{")) {
+      return false;
+    }
+    JSONObject result;
+    try {
+      result = new JSONObject(line);
+    } catch (RuntimeException ignored) {
+      return false;
+    }
+    String id = result.optString("id", "");
+    if (!singlePositionQueryId.equals(id)
+        && !("terminate-" + singlePositionQueryId).equals(id)) {
+      return false;
+    }
+    if (singlePositionTerminated || "terminate".equals(result.optString("action", ""))) {
+      return true;
+    }
+    if (result.has("error")) {
+      singlePositionTerminated = true;
+      singlePositionHandler = null;
+      return true;
+    }
+    if (AiPositionSearchUpdate.parseAnalysisJson(line).isEmpty()) {
+      return true;
+    }
+    singlePositionSequence++;
+    SinglePositionEmissionHandler handler = singlePositionHandler;
+    if (handler != null) {
+      handler.onEmission(singlePositionSequence, line);
+    }
+    if (!result.optBoolean("isDuringSearch", false)) {
+      singlePositionTerminated = true;
+      singlePositionHandler = null;
+    }
+    return true;
+  }
+
+  private void clearSinglePositionQuery() {
+    singlePositionQueryId = null;
+    singlePositionHandler = null;
+    singlePositionSequence = 0;
+    singlePositionTerminated = false;
   }
 
   /** Includes requests that are still acquiring or restoring a shared foreground-engine lease. */

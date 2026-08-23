@@ -3,6 +3,8 @@ package featurecat.lizzie.analysis;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * One matching KataGo search update: searched rootInfo plus searched ownership from the same line.
@@ -109,6 +111,39 @@ public final class AiPositionSearchUpdate {
       return Optional.empty();
     }
     return Optional.of(new AiPositionSearchUpdate(visits, winrate, scoreLead, ownership));
+  }
+
+  public static Optional<AiPositionSearchUpdate> parseAnalysisJson(String json) {
+    if (json == null) {
+      return Optional.empty();
+    }
+    String trimmed = json.trim();
+    if (trimmed.isEmpty() || trimmed.charAt(0) != '{') {
+      return Optional.empty();
+    }
+    try {
+      JSONObject result = new JSONObject(trimmed);
+      JSONObject rootInfo = result.optJSONObject("rootInfo");
+      JSONArray ownershipJson = result.optJSONArray("ownership");
+      if (rootInfo == null || ownershipJson == null || ownershipJson.length() == 0) {
+        return Optional.empty();
+      }
+      int visits = rootInfo.optInt("visits", -1);
+      double winrate = rootInfo.optDouble("winrate", Double.NaN);
+      double scoreLead = rootInfo.has("scoreLead")
+          ? rootInfo.optDouble("scoreLead", Double.NaN)
+          : rootInfo.optDouble("scoreMean", Double.NaN);
+      if (visits <= 0 || !Double.isFinite(winrate) || !Double.isFinite(scoreLead)) {
+        return Optional.empty();
+      }
+      double[] ownership = new double[ownershipJson.length()];
+      for (int i = 0; i < ownershipJson.length(); i++) {
+        ownership[i] = ownershipJson.getDouble(i);
+      }
+      return Optional.of(new AiPositionSearchUpdate(visits, winrate, scoreLead, ownership));
+    } catch (RuntimeException ignored) {
+      return Optional.empty();
+    }
   }
 
   static String movePayload(String line) {

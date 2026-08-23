@@ -15,7 +15,10 @@ import featurecat.lizzie.analysis.AiPositionController;
 import featurecat.lizzie.analysis.AiPositionProvider;
 import featurecat.lizzie.analysis.AiPositionRequestContext;
 import featurecat.lizzie.analysis.AiPositionSnapshot;
+import featurecat.lizzie.analysis.AiPositionSearchUpdate;
 import featurecat.lizzie.analysis.ForegroundKatagoAiPositionProvider;
+import featurecat.lizzie.analysis.LizzieAiPositionEngineHost;
+import featurecat.lizzie.analysis.ManagedKatagoAiPositionProvider;
 import featurecat.lizzie.analysis.AnalysisResourceCoordinator;
 import featurecat.lizzie.analysis.CaptureTsumeGo;
 import featurecat.lizzie.analysis.ContributeEngine;
@@ -3323,6 +3326,7 @@ public class LizzieFrame extends JFrame {
       SwingUtilities.invokeLater(() -> countstones(shouldRetart));
       return;
     }
+    preemptAiPosition();
     ensureEstimateResultsDialog();
     invalidatePositionEstimateRequest();
     int generation = ++positionEstimateRequestGeneration;
@@ -4013,6 +4017,7 @@ public class LizzieFrame extends JFrame {
       return;
     }
     Lizzie.frame.isAnaPlayingAgainstLeelaz = false;
+    Lizzie.frame.preemptAiPosition();
     Lizzie.board.clear(false);
     if (Lizzie.board.tempmovelistForGenMoveGame != null)
       Lizzie.board.setlist(Lizzie.board.tempmovelistForGenMoveGame);
@@ -7270,6 +7275,7 @@ public class LizzieFrame extends JFrame {
     if (curData.isKataData
         || curData.isSaiData
         || (Lizzie.leelaz.isKatago && !EngineManager.isEmpty)
+        || aiPositionActive
         || (EngineManager.isEngineGame
             && (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
                     .isKatago
@@ -7294,6 +7300,8 @@ public class LizzieFrame extends JFrame {
                   + " "
                   + Lizzie.resourceBundle.getString("LizzieFrame.komi")
                   + aiPosition.komi();
+        } else if (aiPositionController != null && aiPositionController.isUnavailable()) {
+          text += Lizzie.resourceBundle.getString("LizzieFrame.aiPositionUnavailable");
         }
       } else if (!curData.bestMoves.isEmpty()) {
         double score = curData.bestMoves.get(0).scoreMean;
@@ -11515,6 +11523,7 @@ public class LizzieFrame extends JFrame {
           Lizzie.config.getMyByoyomiTimes());
     if (isGenmove) {
       if (!Lizzie.leelaz.isThinking) {
+        preemptAiPosition();
         isPlayingAgainstLeelaz = true;
         if (continueNow) {
           Lizzie.frame.playerIsBlack = !Lizzie.board.getData().blackToPlay;
@@ -11587,6 +11596,7 @@ public class LizzieFrame extends JFrame {
         menu.setChkShowWhite(true);
       }
       toolbar.chkAutoPlay.setSelected(true);
+      preemptAiPosition();
       isAnaPlayingAgainstLeelaz = true;
       toolbar.isAutoPlay = true;
       Lizzie.leelaz.anaGameResignCount = 0;
@@ -11978,15 +11988,20 @@ public class LizzieFrame extends JFrame {
       Lizzie.leelaz.ponder();
       Lizzie.frame.refresh();
     } else {
-      if (Lizzie.frame.isCounting) {
-        clearKataEstimate();
-        Lizzie.frame.refresh();
-        Lizzie.frame.isCounting = false;
-        cancelPositionEstimateRequest();
-        estimateResults.setVisible(false);
-      } else {
-        Lizzie.frame.countstones(true);
+      if (!Lizzie.config.isHiddenKataEstimate) {
+        Lizzie.config.showKataGoEstimate = !Lizzie.config.showKataGoEstimate;
+        if (!Lizzie.config.showKataGoEstimateOnMainbord
+            && !Lizzie.config.showKataGoEstimateOnSubbord)
+          Lizzie.config.showKataGoEstimateOnSubbord = true;
+        Lizzie.config.showKataGoEstimateOnMainbord = true;
       }
+      if (!Lizzie.config.showKataGoEstimate) {
+        closeAiPosition();
+        clearKataEstimate();
+      } else {
+        ensureAiPositionOpenIfConfigured();
+      }
+      Lizzie.frame.refresh();
     }
   }
 
@@ -14129,6 +14144,7 @@ public class LizzieFrame extends JFrame {
       wholeGameAnalysisSession.cancel();
       return;
     }
+    preemptAiPosition();
     if (analysisEngine != null) {
       analysisEngine.clearRequestCallbacks();
       analysisEngine.normalQuit();
@@ -14233,6 +14249,7 @@ public class LizzieFrame extends JFrame {
       Utils.showMsg(Lizzie.resourceBundle.getString("WholeGameAnalysis.conflict"));
       return false;
     }
+    preemptAiPosition();
     if (analysisEngine != null && analysisEngine.isAnalysisInProgress()) {
       if (!analysisEngine.isSilentAnalysisInProgress()) {
         Utils.showMsg(Lizzie.resourceBundle.getString("WholeGameAnalysis.conflict.analysis"));
@@ -14722,7 +14739,13 @@ public class LizzieFrame extends JFrame {
       if (aiPositionController == null) {
         aiPositionController =
             new AiPositionController(
-                List.of((AiPositionProvider) new ForegroundKatagoAiPositionProvider()),
+                List.of(
+                    (AiPositionProvider) new ForegroundKatagoAiPositionProvider(),
+                    new ManagedKatagoAiPositionProvider(
+                        new LizzieAiPositionEngineHost(),
+                        (generation, sequence, update, blackPerspective) ->
+                            acceptAiPositionEmission(
+                                generation, sequence, update, blackPerspective))),
                 this::requestAnalysisRefresh);
       }
       return aiPositionController;
@@ -14732,6 +14755,10 @@ public class LizzieFrame extends JFrame {
   public void ensureAiPositionOpenIfConfigured() {
     if (Lizzie.config == null || !Lizzie.config.showKataGoEstimate) {
       closeAiPosition();
+      return;
+    }
+    AiPositionController existing = aiPositionController;
+    if (existing != null && existing.isUnavailable()) {
       return;
     }
     AiPositionRequestContext context = currentAiPositionContext();
@@ -14753,6 +14780,24 @@ public class LizzieFrame extends JFrame {
     AiPositionController controller = aiPositionController;
     if (controller != null) {
       controller.close();
+    }
+  }
+
+  public void preemptAiPosition() {
+    AiPositionController controller = aiPositionController;
+    if (controller != null && controller.isOpen()) {
+      controller.preempt();
+    }
+  }
+
+  public void acceptAiPositionEmission(
+      long generation,
+      long sequence,
+      AiPositionSearchUpdate update,
+      boolean blackPerspective) {
+    AiPositionController controller = aiPositionController;
+    if (controller != null && controller.isOpen()) {
+      controller.acceptEmission(generation, sequence, update, blackPerspective);
     }
   }
 
@@ -14847,13 +14892,15 @@ public class LizzieFrame extends JFrame {
     stopQuickAnalysisWarmupTimer();
     stopQuickAnalysisNavigationResumeTimer();
     clearPendingQuickAnalysisCallback();
+    preemptAiPosition();
     AnalysisEngine secondary = analysisEngine;
     AnalysisResourceCoordinator.ForegroundDecision decision =
         AnalysisResourceCoordinator.decideForegroundStart(
             secondary != null && secondary.usesSharedForegroundEngine(),
             secondary != null && secondary.isLocalDedicatedProcess(),
             secondary != null && secondary.isAnalysisInProgress(),
-            secondary != null && secondary.isAutomaticBackgroundTask());
+            secondary != null
+                && (secondary.isAutomaticBackgroundTask() || secondary.isAiPositionTask()));
     boolean quickAnalysisWasInterrupted =
         quickAnalysisStartupInProgress
             || decision
@@ -14953,6 +15000,9 @@ public class LizzieFrame extends JFrame {
         Utils.showMsg(Lizzie.resourceBundle.getString("WholeGameAnalysis.conflict.analysis"));
       }
       return;
+    }
+    if (!silentAnalyze) {
+      preemptAiPosition();
     }
     if (!silentAnalyze) {
       releaseDedicatedLightweightQuickAnalysisEngine();

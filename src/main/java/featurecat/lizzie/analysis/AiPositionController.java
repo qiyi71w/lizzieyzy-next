@@ -16,9 +16,11 @@ public final class AiPositionController {
   private final Runnable displayChanged;
 
   private boolean open;
+  private boolean unavailable;
   private AiPositionProvider provider;
   private AiPositionRequestContext context;
   private long generation;
+  private long publishedSequence;
   private Optional<AiPositionSnapshot> snapshot = Optional.empty();
 
   public AiPositionController(List<AiPositionProvider> providers, Runnable displayChanged) {
@@ -36,7 +38,11 @@ public final class AiPositionController {
       close();
       return false;
     }
-    if (open && provider == selected && context != null && context.matches(requestedContext)) {
+    if (open
+        && !unavailable
+        && provider == selected
+        && context != null
+        && context.matches(requestedContext)) {
       return true;
     }
     stopCurrent();
@@ -44,8 +50,9 @@ public final class AiPositionController {
     provider = selected;
     context = requestedContext;
     generation++;
+    publishedSequence = 0L;
     snapshot = Optional.empty();
-    provider.start(context, generation);
+    unavailable = !provider.start(context, generation);
     displayChanged.run();
     return true;
   }
@@ -58,6 +65,9 @@ public final class AiPositionController {
       close();
       return;
     }
+    if (unavailable) {
+      return;
+    }
     if (context != null && context.matches(currentContext)) {
       return;
     }
@@ -65,32 +75,72 @@ public final class AiPositionController {
   }
 
   public synchronized void close() {
-    if (!open && snapshot.isEmpty()) {
+    if (!open && snapshot.isEmpty() && !unavailable) {
       return;
     }
     stopCurrent();
     open = false;
+    unavailable = false;
     provider = null;
     context = null;
     generation++;
+    publishedSequence = 0L;
+    snapshot = Optional.empty();
+    displayChanged.run();
+  }
+
+  public synchronized void preempt() {
+    if (!open) {
+      return;
+    }
+    stopCurrent();
+    unavailable = true;
+    generation++;
+    publishedSequence = 0L;
     snapshot = Optional.empty();
     displayChanged.run();
   }
 
   public synchronized void acceptLine(long expectedGeneration, String line) {
-    if (!open || expectedGeneration != generation || context == null) {
-      return;
-    }
     Optional<AiPositionSearchUpdate> update = AiPositionSearchUpdate.parse(line);
     if (update.isEmpty()) {
       return;
     }
-    snapshot = Optional.of(AiPositionSnapshot.from(context, generation, update.get()));
+    acceptEmission(expectedGeneration, publishedSequence + 1L, update.get());
+  }
+
+  public synchronized void acceptEmission(
+      long expectedGeneration, long sequence, AiPositionSearchUpdate update) {
+    acceptEmission(expectedGeneration, sequence, update, false);
+  }
+
+  public synchronized void acceptEmission(
+      long expectedGeneration,
+      long sequence,
+      AiPositionSearchUpdate update,
+      boolean blackPerspective) {
+    if (!open || unavailable || expectedGeneration != generation || context == null || update == null) {
+      return;
+    }
+    if (sequence <= publishedSequence) {
+      return;
+    }
+    publishedSequence = sequence;
+    snapshot =
+        Optional.of(
+            blackPerspective
+                ? AiPositionSnapshot.fromBlackPerspective(
+                    context, generation, sequence, update)
+                : AiPositionSnapshot.from(context, generation, sequence, update));
     displayChanged.run();
   }
 
   public synchronized boolean isOpen() {
     return open;
+  }
+
+  public synchronized boolean isUnavailable() {
+    return open && unavailable;
   }
 
   public synchronized long generation() {
@@ -103,7 +153,7 @@ public final class AiPositionController {
 
   public synchronized Optional<AiPositionSnapshot> visibleSnapshot(
       AiPositionRequestContext currentContext) {
-    if (!open || snapshot.isEmpty() || currentContext == null || context == null) {
+    if (!open || unavailable || snapshot.isEmpty() || currentContext == null || context == null) {
       return Optional.empty();
     }
     if (!context.matches(currentContext)) {

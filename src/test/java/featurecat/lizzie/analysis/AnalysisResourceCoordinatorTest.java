@@ -39,6 +39,46 @@ class AnalysisResourceCoordinatorTest {
   }
 
   @Test
+  void singlePositionClaimBorrowsIdlePreloadAndLazyStartsWhenIdle() {
+    assertEquals(
+        AnalysisResourceCoordinator.SinglePositionDecision.BORROW_IDLE,
+        AnalysisResourceCoordinator.decideSinglePositionClaim(
+            true, false, false, true, false));
+    assertEquals(
+        AnalysisResourceCoordinator.SinglePositionDecision.LAZY_START,
+        AnalysisResourceCoordinator.decideSinglePositionClaim(
+            false, false, false, true, false));
+  }
+
+  @Test
+  void singlePositionClaimPreemptsAutomaticAndDeniesBusyUserTask() {
+    assertEquals(
+        AnalysisResourceCoordinator.SinglePositionDecision.PREEMPT_AUTOMATIC,
+        AnalysisResourceCoordinator.decideSinglePositionClaim(
+            false, true, true, true, false));
+    assertEquals(
+        AnalysisResourceCoordinator.SinglePositionDecision.DENIED_USER_TASK,
+        AnalysisResourceCoordinator.decideSinglePositionClaim(
+            false, true, false, true, false));
+  }
+
+  @Test
+  void singlePositionClaimRejectsMissingConfigAndNonKatagoForegroundReuse() {
+    assertEquals(
+        AnalysisResourceCoordinator.SinglePositionDecision.DENIED_NO_CONFIG,
+        AnalysisResourceCoordinator.decideSinglePositionClaim(
+            false, false, false, false, false));
+    assertEquals(
+        AnalysisResourceCoordinator.SinglePositionDecision.DENIED_FOREGROUND_REUSE,
+        AnalysisResourceCoordinator.decideSinglePositionClaim(
+            false, false, false, false, true));
+    assertEquals(
+        AnalysisResourceCoordinator.SinglePositionDecision.LAZY_START,
+        AnalysisResourceCoordinator.decideSinglePositionClaim(
+            false, false, false, true, true));
+  }
+
+  @Test
   void diagnosticCommandsRedactCredentialsAndKeepTuningParameters() {
     String redacted =
         AnalysisResourceCoordinator.redactCommand(
