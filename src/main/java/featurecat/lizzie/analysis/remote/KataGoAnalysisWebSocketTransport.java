@@ -810,29 +810,51 @@ public class KataGoAnalysisWebSocketTransport implements EngineTransport {
 
   static String toGtpInfoLine(JSONObject response) {
     JSONArray moveInfos = response.optJSONArray("moveInfos");
-    if (moveInfos == null || moveInfos.length() == 0) {
-      return "";
-    }
     StringBuilder line = new StringBuilder();
-    for (int i = 0; i < moveInfos.length(); i++) {
-      JSONObject move = moveInfos.optJSONObject(i);
-      if (move == null) {
-        continue;
+    if (moveInfos != null) {
+      for (int i = 0; i < moveInfos.length(); i++) {
+        JSONObject move = moveInfos.optJSONObject(i);
+        if (move == null) {
+          continue;
+        }
+        if (line.length() > 0) {
+          line.append(" info ");
+        } else {
+          line.append("info ");
+        }
+        appendMoveInfo(line, move, i);
       }
+    }
+    JSONObject rootInfo = response.optJSONObject("rootInfo");
+    if (rootInfo != null) {
       if (line.length() > 0) {
-        line.append(" info ");
-      } else {
-        line.append("info ");
+        line.append(' ');
       }
-      appendMoveInfo(line, move, i);
+      line.append("rootInfo");
+      if (rootInfo.has("visits")) {
+        line.append(" visits ").append(Math.max(0, rootInfo.optInt("visits", 0)));
+      }
+      if (rootInfo.has("winrate")) {
+        line.append(" winrate ").append(formatDouble(rootInfo.optDouble("winrate", 0.0)));
+      }
+      if (rootInfo.has("scoreLead")) {
+        line.append(" scoreLead ").append(formatDouble(rootInfo.optDouble("scoreLead", 0.0)));
+      } else if (rootInfo.has("scoreMean")) {
+        line.append(" scoreLead ").append(formatDouble(rootInfo.optDouble("scoreMean", 0.0)));
+      }
     }
     JSONArray ownership = response.optJSONArray("ownership");
     if (ownership != null && ownership.length() > 0) {
-      line.append(" ownership");
-      int limit = Math.min(ownership.length(), 19 * 19);
-      for (int i = 0; i < limit; i++) {
+      if (line.length() > 0) {
+        line.append(' ');
+      }
+      line.append("ownership");
+      for (int i = 0; i < ownership.length(); i++) {
         line.append(' ').append(formatDouble(ownership.optDouble(i, 0.0)));
       }
+    }
+    if (line.length() > 0 && (line.length() < 5 || !line.substring(0, 5).equals("info "))) {
+      line.insert(0, "info ");
     }
     return line.toString();
   }

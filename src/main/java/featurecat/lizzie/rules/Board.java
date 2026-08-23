@@ -5219,6 +5219,9 @@ public class Board {
 
   private synchronized void advanceContextRevision() {
     contextRevision++;
+    if (Lizzie.frame != null) {
+      Lizzie.frame.syncAiPositionContext();
+    }
   }
 
   private boolean pauseMovelistRefreshForRecentNavigation() {

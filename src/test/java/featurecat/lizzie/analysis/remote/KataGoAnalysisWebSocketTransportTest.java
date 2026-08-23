@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import featurecat.lizzie.analysis.AiPositionSearchUpdate;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -500,6 +501,48 @@ public class KataGoAnalysisWebSocketTransportTest {
 
     assertTrue(line.startsWith("info move pass visits 1 order 0 ownership "));
     assertTrue(line.contains("0.250000 -0.500000"));
+  }
+
+  @Test
+  void keepsRootResultWhenMoveInfosAreEmpty() {
+    JSONObject response = new JSONObject();
+    response.put("moveInfos", new JSONArray());
+    response.put(
+        "rootInfo",
+        new JSONObject().put("visits", 800).put("winrate", 0.12).put("scoreLead", -71.4));
+    response.put("ownership", new JSONArray().put(0.25).put(-0.5));
+
+    String line = KataGoAnalysisWebSocketTransport.toGtpInfoLine(response);
+
+    assertTrue(line.startsWith("info "));
+    assertTrue(line.contains("rootInfo visits 800 winrate 0.120000 scoreLead -71.400000"));
+    AiPositionSearchUpdate update = AiPositionSearchUpdate.parse(line).orElseThrow();
+    assertEquals(800, update.visits());
+    assertEquals(-71.4, update.sideToMoveScoreLead(), 1e-6);
+  }
+
+  @Test
+  void keepsOwnershipAtActualBoardSizes() {
+    assertEquals(9 * 9, ownershipCount(boardOwnership(9)));
+    assertEquals(13 * 13, ownershipCount(boardOwnership(13)));
+    assertEquals(19 * 19, ownershipCount(boardOwnership(19)));
+  }
+
+  private static JSONObject boardOwnership(int size) {
+    JSONArray ownership = new JSONArray();
+    for (int i = 0; i < size * size; i++) {
+      ownership.put(i == 0 ? 0.5 : -0.25);
+    }
+    JSONObject response = new JSONObject();
+    response.put(
+        "rootInfo", new JSONObject().put("visits", 3).put("winrate", 0.5).put("scoreLead", 1.0));
+    response.put("ownership", ownership);
+    return response;
+  }
+
+  private static int ownershipCount(JSONObject response) {
+    String line = KataGoAnalysisWebSocketTransport.toGtpInfoLine(response);
+    return AiPositionSearchUpdate.parse(line).orElseThrow().sideToMoveOwnership().length;
   }
 
   @Test

@@ -67,10 +67,16 @@ public class GameInfo {
     if (Lizzie.frame != null && Lizzie.frame.isInScoreMode && Lizzie.board != null) {
       Lizzie.board.showGroupResult();
     }
+    if (Lizzie.frame != null) {
+      Lizzie.frame.syncAiPositionContext();
+    }
   }
 
   public void setKomiNoMenu(double komi) {
     this.komi = komi;
+    if (Lizzie.frame != null) {
+      Lizzie.frame.syncAiPositionContext();
+    }
   }
 
   public void changeKomi() {

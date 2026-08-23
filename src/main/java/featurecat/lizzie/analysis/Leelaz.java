@@ -271,6 +271,7 @@ public class Leelaz {
       new AtomicInteger(900000000);
   private volatile boolean currentCommandResponseError;
   private volatile String currentCommandResponseLine = "";
+  private long aiPositionAnalyzeGeneration;
 
   private Process process;
   private transient EngineTransport remoteTransport;
@@ -2024,6 +2025,15 @@ public class Leelaz {
   }
 
   public List<MoveData> parseInfoKatago(String line) {
+    String originalLine = line;
+    if (this == Lizzie.leelaz && Lizzie.frame != null) {
+      Lizzie.frame.offerAiPositionLine(aiPositionAnalyzeGeneration, originalLine);
+    }
+    boolean hideBoardOwnership =
+        this == Lizzie.leelaz && Lizzie.frame != null && Lizzie.frame.isAiPositionActive();
+    if (hideBoardOwnership) {
+      line = AiPositionSearchUpdate.movePayload(line);
+    }
     boolean hasOwnership = false;
     String[] lineInfo = null;
     if (line.contains("ownership")) {
@@ -2048,12 +2058,18 @@ public class Leelaz {
       AnalysisResourceCoordinator.foregroundPlayoutSample(this, currentTotalPlayouts);
     }
     ArrayList<Double> estimateArray = new ArrayList<Double>();
-    if (Lizzie.config.showKataGoEstimate) {
+    if (hideBoardOwnership) {
+      estimateArray = null;
+    } else if (Lizzie.config.showKataGoEstimate) {
       if (hasOwnership && lineInfo != null && lineInfo.length > 1) {
         String[] params2 = lineInfo[1].trim().split(" ");
         for (int i = 0; i < params2.length; i++) estimateArray.add(Double.parseDouble(params2[i]));
       }
     } else estimateArray = null;
+    if (hideBoardOwnership && bestMoves.isEmpty()) {
+      return bestMoves;
+    }
+
     if (Lizzie.config.isDoubleEngineMode() && Lizzie.leelaz2 != null && this == Lizzie.leelaz2)
       Lizzie.frame
           .getDisplayNode()
@@ -4229,6 +4245,9 @@ public class Leelaz {
             recentRulesLine = line;
             Lizzie.config.currentKataGoRules = line;
             getSuicidalAndRules();
+            if (Lizzie.frame != null) {
+              Lizzie.frame.syncAiPositionContext();
+            }
             getRcentLine = false;
           } else if (line.startsWith("=")) {
             String[] params = line.trim().split(" ");
@@ -10826,7 +10845,11 @@ public class Leelaz {
   }
 
   public String addKataTag() {
-    return (Lizzie.config.showKataGoEstimate ? " ownership true" : "")
+    if (Lizzie.frame != null) {
+      Lizzie.frame.ensureAiPositionOpenIfConfigured();
+      aiPositionAnalyzeGeneration = Lizzie.frame.aiPositionGeneration();
+    }
+    return (Lizzie.config.showKataGoEstimate ? " rootInfo true ownership true" : "")
         + (Lizzie.config.showPvVisits ? " pvVisits true" : "")
         + (Lizzie.config.showKataGoEstimate
                 && supportMovesOwnership

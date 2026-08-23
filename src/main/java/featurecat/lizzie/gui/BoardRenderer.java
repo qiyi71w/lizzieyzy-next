@@ -1603,6 +1603,11 @@ public class BoardRenderer {
         } else preEstimateArray = null;
       }
     }
+    if (Lizzie.frame != null && Lizzie.frame.shouldOverrideEstimateOwnership()) {
+      estimateArray = Lizzie.frame.currentAiPositionOwnership();
+      preEstimateArray = null;
+    }
+
 
     //    if ((Lizzie.board.getHistory().isBlacksTurn()
     //            && !Lizzie.frame.toolbar.chkShowBlack.isSelected())

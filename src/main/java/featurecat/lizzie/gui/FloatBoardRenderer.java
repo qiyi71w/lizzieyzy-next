@@ -738,6 +738,11 @@ public class FloatBoardRenderer {
       preEstimateArray = mainEndData.estimateArray;
       estimateBlackToPlay = mainEndData.blackToPlay;
     } else preEstimateArray = null;
+    if (Lizzie.frame != null && Lizzie.frame.shouldOverrideEstimateOwnership()) {
+      estimateArray = Lizzie.frame.currentAiPositionOwnership();
+      preEstimateArray = null;
+    }
+
     if ((Lizzie.board.getHistory().isBlacksTurn() && !Lizzie.config.showBlackCandidates)
         || (!Lizzie.board.getHistory().isBlacksTurn() && !Lizzie.config.showWhiteCandidates))
       return;

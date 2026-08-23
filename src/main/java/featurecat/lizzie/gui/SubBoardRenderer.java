@@ -873,6 +873,11 @@ public class SubBoardRenderer {
                 .getData()
                 .estimateArray;
       } else preEstimateArray = null;
+      if (Lizzie.frame != null && Lizzie.frame.shouldOverrideEstimateOwnership()) {
+        estimateArray = Lizzie.frame.currentAiPositionOwnership();
+        preEstimateArray = null;
+      }
+
     }
 
     variationOpt = Optional.empty();

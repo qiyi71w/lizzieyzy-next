@@ -11,6 +11,11 @@ import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.AnalysisEngine;
+import featurecat.lizzie.analysis.AiPositionController;
+import featurecat.lizzie.analysis.AiPositionProvider;
+import featurecat.lizzie.analysis.AiPositionRequestContext;
+import featurecat.lizzie.analysis.AiPositionSnapshot;
+import featurecat.lizzie.analysis.ForegroundKatagoAiPositionProvider;
 import featurecat.lizzie.analysis.AnalysisResourceCoordinator;
 import featurecat.lizzie.analysis.CaptureTsumeGo;
 import featurecat.lizzie.analysis.ContributeEngine;
@@ -696,6 +701,7 @@ public class LizzieFrame extends JFrame {
   private Runnable pendingQuickAnalysisCallback;
   private javax.swing.Timer quickAnalysisNavigationResumeTimer;
   private volatile TrackingAnalysisController trackingAnalysisController;
+  private volatile AiPositionController aiPositionController;
   private boolean redrawWinratePaneOnly = false;
   public boolean mouseOverChanged = false;
   public boolean isAutoReplying = false;
@@ -7213,6 +7219,20 @@ public class LizzieFrame extends JFrame {
     }
 
     whiteWR = 100 - blackWR;
+    AiPositionSnapshot aiPosition = visibleAiPositionSnapshot();
+    boolean aiPositionActive = isAiPositionActive();
+    if (aiPositionActive) {
+      if (aiPosition != null) {
+        blackWR = aiPosition.blackWinrate();
+        whiteWR = 100 - blackWR;
+        scoreLead = aiPosition.blackScoreLead();
+        validWinrate = true;
+      } else {
+        validWinrate = false;
+        validLastWinrate = false;
+      }
+    }
+
 
     // Background rectangle
     g.setColor(new Color(0, 0, 0, 130));
@@ -7257,7 +7277,25 @@ public class LizzieFrame extends JFrame {
                         EngineManager.engineGameInfo.whiteEngineIndex)
                     .isKatago))) {
       isKataStyle = true;
-      if (!curData.bestMoves.isEmpty()) {
+      if (aiPositionActive) {
+        if (aiPosition != null) {
+          scoreLead = aiPosition.blackScoreLead();
+          text +=
+              Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadJustScore")
+                  + String.format(Locale.ENGLISH, "%.1f", aiPosition.blackScoreLead())
+                  + " "
+                  + Lizzie.resourceBundle.getString("LizzieFrame.winrate")
+                  + String.format(Locale.ENGLISH, "%.1f%%", aiPosition.blackWinrate())
+                  + " "
+                  + Lizzie.resourceBundle.getString("LizzieFrame.visits")
+                  + Utils.getPlayoutsString(aiPosition.visits())
+                  + " "
+                  + aiPositionRulesLabel(aiPosition.rules())
+                  + " "
+                  + Lizzie.resourceBundle.getString("LizzieFrame.komi")
+                  + aiPosition.komi();
+        }
+      } else if (!curData.bestMoves.isEmpty()) {
         double score = curData.bestMoves.get(0).scoreMean;
         if (Lizzie.config.showKataGoScoreLeadWithKomi) {
           if (curData.blackToPlay) {
@@ -7270,13 +7308,18 @@ public class LizzieFrame extends JFrame {
         }
         scoreLead = score;
         scoreStdev = Lizzie.leelaz.scoreStdev;
-      } // +"目差:""复杂度:"
-
-      text +=
-          (Lizzie.config.showKataGoScoreLeadWithKomi
-                  ? Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadWithKomi")
-                  : Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadJustScore"))
-              + String.format(Locale.ENGLISH, "%.1f", scoreLead);
+        text +=
+            (Lizzie.config.showKataGoScoreLeadWithKomi
+                    ? Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadWithKomi")
+                    : Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadJustScore"))
+                + String.format(Locale.ENGLISH, "%.1f", scoreLead);
+      } else {
+        text +=
+            (Lizzie.config.showKataGoScoreLeadWithKomi
+                    ? Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadWithKomi")
+                    : Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadJustScore"))
+                + String.format(Locale.ENGLISH, "%.1f", scoreLead);
+      }
       if (Lizzie.config.isThinkingMode() || Lizzie.config.isFourSubMode())
         text += " (±" + String.format(Locale.ENGLISH, "%.1f", curData.scoreStdev) + ")";
       if (EngineManager.isEngineGame && !Lizzie.leelaz.isSai)
@@ -11927,7 +11970,10 @@ public class LizzieFrame extends JFrame {
         return;
       }
       if (!Lizzie.config.showKataGoEstimate) {
+        closeAiPosition();
         clearKataEstimate();
+      } else {
+        ensureAiPositionOpenIfConfigured();
       }
       Lizzie.leelaz.ponder();
       Lizzie.frame.refresh();
@@ -14563,6 +14609,7 @@ public class LizzieFrame extends JFrame {
     if (controller != null) {
       controller.contextChanged(null);
     }
+    syncAiPositionContext();
     refresh();
   }
 
@@ -14659,11 +14706,135 @@ public class LizzieFrame extends JFrame {
   public void onMainEnginePonder() {
     releaseSecondaryAnalysisResourcesForForeground();
     TrackingAnalysisController controller = trackingAnalysisController;
-    if (controller == null) {
+    if (controller != null) {
+      controller.contextChanged(currentTrackingContext());
+    }
+    ensureAiPositionOpenIfConfigured();
+    syncAiPositionContext();
+  }
+
+  public AiPositionController aiPositionController() {
+    AiPositionController controller = aiPositionController;
+    if (controller != null) {
+      return controller;
+    }
+    synchronized (this) {
+      if (aiPositionController == null) {
+        aiPositionController =
+            new AiPositionController(
+                List.of((AiPositionProvider) new ForegroundKatagoAiPositionProvider()),
+                this::requestAnalysisRefresh);
+      }
+      return aiPositionController;
+    }
+  }
+
+  public void ensureAiPositionOpenIfConfigured() {
+    if (Lizzie.config == null || !Lizzie.config.showKataGoEstimate) {
+      closeAiPosition();
       return;
     }
-    controller.contextChanged(currentTrackingContext());
+    AiPositionRequestContext context = currentAiPositionContext();
+    if (context == null) {
+      return;
+    }
+    aiPositionController().open(context);
   }
+
+  public void syncAiPositionContext() {
+    AiPositionController controller = aiPositionController;
+    if (controller == null || !controller.isOpen()) {
+      return;
+    }
+    controller.sync(currentAiPositionContext());
+  }
+
+  public void closeAiPosition() {
+    AiPositionController controller = aiPositionController;
+    if (controller != null) {
+      controller.close();
+    }
+  }
+
+  public void offerAiPositionLine(long generation, String line) {
+    AiPositionController controller = aiPositionController;
+    if (controller != null && controller.isOpen()) {
+      controller.acceptLine(generation, line);
+    }
+  }
+
+  public long aiPositionGeneration() {
+    AiPositionController controller = aiPositionController;
+    return controller == null ? 0L : controller.generation();
+  }
+
+  public boolean isAiPositionActive() {
+    AiPositionController controller = aiPositionController;
+    return controller != null && controller.isOpen();
+  }
+
+  public boolean shouldOverrideEstimateOwnership() {
+    return isAiPositionActive();
+  }
+
+  public AiPositionSnapshot visibleAiPositionSnapshot() {
+    AiPositionController controller = aiPositionController;
+    if (controller == null || !controller.isOpen()) {
+      return null;
+    }
+    return controller.visibleSnapshot(currentAiPositionContext()).orElse(null);
+  }
+
+  public List<Double> currentAiPositionOwnership() {
+    AiPositionSnapshot snapshot = visibleAiPositionSnapshot();
+    return snapshot == null ? null : new ArrayList<Double>(snapshot.ownership());
+  }
+
+  private AiPositionRequestContext currentAiPositionContext() {
+    if (Lizzie.config == null
+        || Lizzie.board == null
+        || Lizzie.board.getHistory() == null
+        || Lizzie.leelaz == null) {
+      return null;
+    }
+    BoardHistoryNode node = getDisplayNode();
+    if (node == null || node.getData() == null) {
+      return null;
+    }
+    BoardData data = node.getData();
+    return new AiPositionRequestContext(
+        node,
+        Lizzie.board.getContextRevision(),
+        Arrays.toString(data.stones),
+        data.blackToPlay,
+        Board.boardWidth,
+        Board.boardHeight,
+        Lizzie.config.currentKataGoRules == null ? "" : Lizzie.config.currentKataGoRules,
+        Lizzie.board.getHistory().getGameInfo().getKomi(),
+        Lizzie.leelaz,
+        Lizzie.leelaz.trackingStreamIncarnation());
+  }
+
+  private String aiPositionRulesLabel(String rules) {
+    if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago) {
+      switch (Lizzie.leelaz.usingSpecificRules) {
+        case 1:
+          return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
+        case 2:
+          return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
+        case 3:
+          return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
+        case 4:
+          return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
+        case 5:
+          return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
+        default:
+          break;
+      }
+    }
+    return rules == null ? "" : rules;
+  }
+
 
   AnalysisResourceCoordinator.ForegroundDecision releaseSecondaryAnalysisResourcesForForeground() {
     boolean resumeLoadedGameQuickAnalysis =
