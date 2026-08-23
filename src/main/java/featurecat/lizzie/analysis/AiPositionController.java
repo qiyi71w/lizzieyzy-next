@@ -162,6 +162,20 @@ public final class AiPositionController {
     return snapshot;
   }
 
+  public synchronized AiPositionDisplayState displayState(
+      AiPositionRequestContext currentContext) {
+    if (!open) {
+      return AiPositionDisplayState.CLOSED;
+    }
+    if (unavailable) {
+      return AiPositionDisplayState.UNAVAILABLE;
+    }
+    if (visibleSnapshot(currentContext).isPresent()) {
+      return AiPositionDisplayState.READY;
+    }
+    return AiPositionDisplayState.WAITING;
+  }
+
 
   public synchronized Optional<AiPositionRequestContext> context() {
     return Optional.ofNullable(context);

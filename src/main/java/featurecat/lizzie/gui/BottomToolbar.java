@@ -618,6 +618,7 @@ public class BottomToolbar extends JPanel {
     lastButton = new JFontButton(">|");
     countButton =
         new JFontButton(Lizzie.resourceBundle.getString("BottomToolbar.countButton")); // ("形势判断");
+    countButton.setVisible(false);
     finalScore =
         new JFontButton(Lizzie.resourceBundle.getString("BottomToolbar.finalScore")); // ("终局数子");
     forward10 = new JFontButton(">>");
@@ -1392,15 +1393,7 @@ public class BottomToolbar extends JPanel {
     countButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.frame.isCounting) {
-              Lizzie.frame.clearKataEstimate();
-              Lizzie.frame.refresh();
-              Lizzie.frame.isCounting = false;
-              Lizzie.frame.cancelPositionEstimateRequest();
-              Lizzie.frame.estimateResults.setVisible(false);
-            } else {
-              Lizzie.frame.countstones(true);
-            }
+            Lizzie.frame.toggleShowKataEstimate();
             setTxtUnfocuse();
           }
         });
@@ -4500,8 +4493,7 @@ public class BottomToolbar extends JPanel {
     else backMain.setVisible(false);
     if (Lizzie.config.clearButton) clearButton.setVisible(true);
     else clearButton.setVisible(false);
-    if (Lizzie.config.countButton) countButton.setVisible(true);
-    else countButton.setVisible(false);
+    countButton.setVisible(false);
     if (Lizzie.config.finalScore) finalScore.setVisible(true);
     else finalScore.setVisible(false);
     if (Lizzie.config.heatMap) heatMap.setVisible(true);

@@ -714,9 +714,11 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
           Lizzie.frame.clearKataEstimate();
           Lizzie.frame.isCounting = false;
           Lizzie.frame.cancelPositionEstimateRequest();
-          Lizzie.frame.estimateResults.setVisible(false);
+          if (Lizzie.frame.estimateResults != null) {
+            Lizzie.frame.estimateResults.setVisible(false);
+          }
         } else {
-          Lizzie.frame.countstones(true);
+          Lizzie.frame.toggleShowKataEstimate();
         }
         break;
       case VK_PERIOD:

@@ -285,9 +285,11 @@ public class FloatBoard extends JDialog {
                 Lizzie.frame.clearKataEstimate();
                 Lizzie.frame.isCounting = false;
                 Lizzie.frame.cancelPositionEstimateRequest();
-                Lizzie.frame.estimateResults.setVisible(false);
+                if (Lizzie.frame.estimateResults != null) {
+                  Lizzie.frame.estimateResults.setVisible(false);
+                }
               } else {
-                Lizzie.frame.countstones(true);
+                Lizzie.frame.toggleShowKataEstimate();
               }
             }
             if (e.getKeyCode() == KeyEvent.VK_V) changeEetEditMode();

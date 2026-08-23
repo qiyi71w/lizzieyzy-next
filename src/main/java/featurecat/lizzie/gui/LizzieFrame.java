@@ -14,6 +14,7 @@ import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.analysis.AiPositionController;
 import featurecat.lizzie.analysis.AiPositionProvider;
 import featurecat.lizzie.analysis.AiPositionRequestContext;
+import featurecat.lizzie.analysis.AiPositionDisplayState;
 import featurecat.lizzie.analysis.AiPositionSnapshot;
 import featurecat.lizzie.analysis.AiPositionSearchUpdate;
 import featurecat.lizzie.analysis.ForegroundKatagoAiPositionProvider;
@@ -7225,9 +7226,10 @@ public class LizzieFrame extends JFrame {
 
     whiteWR = 100 - blackWR;
     AiPositionSnapshot aiPosition = visibleAiPositionSnapshot();
-    boolean aiPositionActive = isAiPositionActive();
+    AiPositionDisplayState aiPositionState = aiPositionDisplayState();
+    boolean aiPositionActive = aiPositionState != AiPositionDisplayState.CLOSED;
     if (aiPositionActive) {
-      if (aiPosition != null) {
+      if (aiPositionState == AiPositionDisplayState.READY && aiPosition != null) {
         blackWR = aiPosition.blackWinrate();
         whiteWR = 100 - blackWR;
         scoreLead = aiPosition.blackScoreLead();
@@ -7284,25 +7286,12 @@ public class LizzieFrame extends JFrame {
                     .isKatago))) {
       isKataStyle = true;
       if (aiPositionActive) {
-        if (aiPosition != null) {
-          scoreLead = aiPosition.blackScoreLead();
-          text +=
-              Lizzie.resourceBundle.getString("LizzieFrame.scoreLeadJustScore")
-                  + String.format(Locale.ENGLISH, "%.1f", aiPosition.blackScoreLead())
-                  + " "
-                  + Lizzie.resourceBundle.getString("LizzieFrame.winrate")
-                  + String.format(Locale.ENGLISH, "%.1f%%", aiPosition.blackWinrate())
-                  + " "
-                  + Lizzie.resourceBundle.getString("LizzieFrame.visits")
-                  + Utils.getPlayoutsString(aiPosition.visits())
-                  + " "
-                  + aiPositionRulesLabel(aiPosition.rules())
-                  + " "
-                  + Lizzie.resourceBundle.getString("LizzieFrame.komi")
-                  + aiPosition.komi();
-        } else if (aiPositionController != null && aiPositionController.isUnavailable()) {
-          text += Lizzie.resourceBundle.getString("LizzieFrame.aiPositionUnavailable");
-        }
+        text +=
+            AiPositionStatusText.render(
+                aiPositionState,
+                aiPosition,
+                Lizzie.resourceBundle,
+                aiPosition == null ? "" : aiPositionRulesLabel(aiPosition.rules()));
       } else if (!curData.bestMoves.isEmpty()) {
         double score = curData.bestMoves.get(0).scoreMean;
         if (Lizzie.config.showKataGoScoreLeadWithKomi) {
@@ -7361,20 +7350,28 @@ public class LizzieFrame extends JFrame {
           0,
           false);
     } else {
-      double wr = validLastWinrate ? 100 - lastWR - curWR : 0;
-      double score = validLastWinrate ? (-lastScore) - curScore : 0;
-      text = text + " " + Lizzie.resourceBundle.getString("LizzieFrame.display.lastMove");
-      int lastNo = Lizzie.board.getData().lastMoveMatchCandidteNo;
-      if (lastNo > 0) {
-        text += "(#" + lastNo + ")";
-      } else text += "(#  )";
-      text += ": " + ((wr > 0 ? "+" : "-") + String.format(Locale.ENGLISH, "%.1f%%", Math.abs(wr)));
-      if (isKataStyle && !EngineManager.isEngineGame) {
-        text +=
-            " "
-                + ((score > 0 ? "+" : "-") + String.format(Locale.ENGLISH, "%.1f", Math.abs(score)))
-                + Lizzie.resourceBundle.getString("LizzieFrame.pts"); // + "目";
+      String lastMoveSuffix = "";
+      if (aiPositionState == AiPositionDisplayState.CLOSED
+          || aiPositionState == AiPositionDisplayState.READY) {
+        double wr = validLastWinrate ? 100 - lastWR - curWR : 0;
+        double score = validLastWinrate ? (-lastScore) - curScore : 0;
+        lastMoveSuffix =
+            " " + Lizzie.resourceBundle.getString("LizzieFrame.display.lastMove");
+        int lastNo = Lizzie.board.getData().lastMoveMatchCandidteNo;
+        if (lastNo > 0) {
+          lastMoveSuffix += "(#" + lastNo + ")";
+        } else lastMoveSuffix += "(#  )";
+        lastMoveSuffix +=
+            ": " + ((wr > 0 ? "+" : "-") + String.format(Locale.ENGLISH, "%.1f%%", Math.abs(wr)));
+        if (isKataStyle && !EngineManager.isEngineGame) {
+          lastMoveSuffix +=
+              " "
+                  + ((score > 0 ? "+" : "-")
+                      + String.format(Locale.ENGLISH, "%.1f", Math.abs(score)))
+                  + Lizzie.resourceBundle.getString("LizzieFrame.pts"); // + "目";
+        }
       }
+      text = AiPositionStatusText.paintedLine(aiPositionState, text, lastMoveSuffix);
 
       drawString(
           g,
@@ -14816,6 +14813,14 @@ public class LizzieFrame extends JFrame {
   public boolean isAiPositionActive() {
     AiPositionController controller = aiPositionController;
     return controller != null && controller.isOpen();
+  }
+
+  public AiPositionDisplayState aiPositionDisplayState() {
+    AiPositionController controller = aiPositionController;
+    if (controller == null) {
+      return AiPositionDisplayState.CLOSED;
+    }
+    return controller.displayState(currentAiPositionContext());
   }
 
   public boolean shouldOverrideEstimateOwnership() {

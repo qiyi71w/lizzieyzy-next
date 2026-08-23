@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
 
 class AiPositionControllerTest {
@@ -189,6 +190,7 @@ class AiPositionControllerTest {
     assertTrue(controller.isUnavailable());
     assertTrue(controller.snapshot().isEmpty());
     assertTrue(controller.visibleSnapshot(requested).isEmpty());
+    assertEquals(AiPositionDisplayState.UNAVAILABLE, controller.displayState(requested));
     assertEquals(1, provider.startCount);
   }
 
@@ -203,10 +205,57 @@ class AiPositionControllerTest {
     provider.startSucceeds = true;
     assertTrue(controller.open(requested));
     assertFalse(controller.isUnavailable());
+    assertEquals(AiPositionDisplayState.WAITING, controller.displayState(requested));
     controller.acceptLine(controller.generation(), ROOT_LEAD_LINE);
     assertEquals(-71.4, requireSnapshot(controller).blackScoreLead(), 1e-9);
+    assertEquals(AiPositionDisplayState.READY, controller.displayState(requested));
     assertEquals(2, provider.startCount);
   }
+
+  @Test
+  void displayStateNamesWaitingReadyAndClosed() {
+    RecordingProvider provider = new RecordingProvider(true);
+    AiPositionController controller = new AiPositionController(List.of(provider), () -> {});
+    AiPositionRequestContext requested = context("node-a", true, "chinese", 7.5, 1L);
+
+    assertEquals(AiPositionDisplayState.CLOSED, controller.displayState(requested));
+    assertTrue(controller.open(requested));
+    assertEquals(AiPositionDisplayState.WAITING, controller.displayState(requested));
+
+    controller.acceptLine(controller.generation(), ROOT_LEAD_LINE);
+    assertEquals(AiPositionDisplayState.READY, controller.displayState(requested));
+    assertEquals(
+        AiPositionDisplayState.WAITING,
+        controller.displayState(context("node-a", true, "chinese", 6.5, 1L)));
+
+    controller.close();
+    assertEquals(AiPositionDisplayState.CLOSED, controller.displayState(requested));
+  }
+
+  @Test
+  void navigationAndProviderSwitchClearReadyState() {
+    RecordingProvider chinese = new RecordingProvider(ctx -> "chinese".equals(ctx.rules()));
+    RecordingProvider japanese = new RecordingProvider(ctx -> "japanese".equals(ctx.rules()));
+    AiPositionController controller =
+        new AiPositionController(List.of(chinese, japanese), () -> {});
+    AiPositionRequestContext first = context("node-a", true, "chinese", 7.5, 1L);
+    AiPositionRequestContext second = context("node-a", true, "japanese", 7.5, 1L);
+
+    assertTrue(controller.open(first));
+    controller.acceptLine(controller.generation(), ROOT_LEAD_LINE);
+    assertEquals(AiPositionDisplayState.READY, controller.displayState(first));
+    assertEquals(1, chinese.startCount);
+    assertEquals(0, japanese.startCount);
+
+    controller.sync(second);
+
+    assertEquals(AiPositionDisplayState.WAITING, controller.displayState(second));
+    assertTrue(controller.visibleSnapshot(first).isEmpty());
+    assertTrue(controller.visibleSnapshot(second).isEmpty());
+    assertEquals(1, chinese.stopCount);
+    assertEquals(1, japanese.startCount);
+  }
+
 
 
   private static AiPositionSnapshot requireSnapshot(AiPositionController controller) {
@@ -232,23 +281,31 @@ class AiPositionControllerTest {
   }
 
   private static final class RecordingProvider implements AiPositionProvider {
-    private final boolean supported;
+    private final Predicate<AiPositionRequestContext> support;
     private boolean startSucceeds;
     private int startCount;
     private int stopCount;
 
     private RecordingProvider(boolean supported) {
-      this(supported, true);
+      this(ctx -> supported, true);
     }
 
     private RecordingProvider(boolean supported, boolean startSucceeds) {
-      this.supported = supported;
+      this(ctx -> supported, startSucceeds);
+    }
+
+    private RecordingProvider(Predicate<AiPositionRequestContext> support) {
+      this(support, true);
+    }
+
+    private RecordingProvider(Predicate<AiPositionRequestContext> support, boolean startSucceeds) {
+      this.support = support;
       this.startSucceeds = startSucceeds;
     }
 
     @Override
     public boolean supports(AiPositionRequestContext context) {
-      return supported;
+      return support.test(context);
     }
 
     @Override

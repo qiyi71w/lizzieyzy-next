@@ -2167,6 +2167,7 @@ public class Menu extends JMenuBar {
             Lizzie.config.isHiddenKataEstimate = false;
             Lizzie.config.showKataGoEstimate = false;
             Lizzie.config.uiConfig.put("show-katago-estimate", Lizzie.config.showKataGoEstimate);
+            Lizzie.frame.closeAiPosition();
             Lizzie.frame.clearKataEstimate();
             Lizzie.leelaz.ponder();
             Lizzie.frame.refresh();
@@ -3465,16 +3466,15 @@ public class Menu extends JMenuBar {
         });
     analyzeMenu.add(showPolicy);
 
-    final JFontMenuItem estimateStones =
-        new JFontMenuItem(resourceBundle.getString("Menu.estimateStones")); // ("形势判断( / 或小键盘点)");
-    // aboutItem.setMnemonic('A');
-    estimateStones.addActionListener(
+    final JFontMenuItem aiPosition =
+        new JFontMenuItem(resourceBundle.getString("Menu.aiPosition"));
+    aiPosition.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            Lizzie.frame.countstones(true);
+            Lizzie.frame.toggleShowKataEstimate();
           }
         });
-    analyzeMenu.add(estimateStones);
+    analyzeMenu.add(aiPosition);
     analyzeMenu.addSeparator();
 
     final JFontMenuItem clearAllLizzieCache =
@@ -4908,18 +4908,6 @@ public class Menu extends JMenuBar {
           }
         });
 
-    final JFontCheckBoxMenuItem countButton =
-        new JFontCheckBoxMenuItem(
-            resourceBundle.getString("BottomToolbar.countButton")); // "形势判断");
-    customToolbarItem.add(countButton);
-    countButton.addActionListener(
-        new ActionListener() {
-          public void actionPerformed(ActionEvent e) {
-            Lizzie.config.countButton = !Lizzie.config.countButton;
-            Lizzie.config.uiConfig.put("countButton", Lizzie.config.countButton);
-            LizzieFrame.toolbar.reSetButtonLocation();
-          }
-        });
 
     final JFontCheckBoxMenuItem finalScore =
         new JFontCheckBoxMenuItem(resourceBundle.getString("BottomToolbar.finalScore")); // "形势判断");
@@ -5135,8 +5123,6 @@ public class Menu extends JMenuBar {
             else backMain.setState(false);
             if (Lizzie.config.clearButton) clearButton.setState(true);
             else clearButton.setState(false);
-            if (Lizzie.config.countButton) countButton.setState(true);
-            else countButton.setState(false);
             if (Lizzie.config.finalScore) finalScore.setState(true);
             else finalScore.setState(false);
             if (Lizzie.config.heatMap) heatMap.setState(true);
