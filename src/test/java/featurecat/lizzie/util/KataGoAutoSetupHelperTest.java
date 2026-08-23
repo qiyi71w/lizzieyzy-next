@@ -1075,7 +1075,6 @@ public class KataGoAutoSetupHelperTest {
         "Model source: kata1-zhizi-b28c512nbt-muonfd2.bin.gz\n");
     Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
-    touch(configDir.resolve("estimate.cfg"));
     Path bundledWeight = touch(appRoot.resolve("weights").resolve("default.bin.gz"));
     Path source = touch(tempRoot.resolve("incoming").resolve("default.bin.gz"));
 
@@ -1232,7 +1231,6 @@ public class KataGoAutoSetupHelperTest {
         Files.createDirectories(appRoot.resolve("engines").resolve("katago").resolve("configs"));
     Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
     Path analysisConfig = touch(configDir.resolve("analysis.cfg"));
-    Path estimateConfig = touch(configDir.resolve("estimate.cfg"));
     touch(appRoot.resolve("weights").resolve("default.bin.gz"));
     Path customWeight = touch(workDir.resolve("weights").resolve("custom.bin.gz"));
     Path humanSlSource =
@@ -1254,7 +1252,6 @@ public class KataGoAutoSetupHelperTest {
           assertEquals(engine, snapshot.enginePath);
           assertEquals(gtpConfig, snapshot.gtpConfigPath);
           assertEquals(analysisConfig, snapshot.analysisConfigPath);
-          assertEquals(estimateConfig, snapshot.estimateConfigPath);
           assertEquals(customWeight, snapshot.activeWeightPath);
           assertTrue(importedModel.startsWith(workDir.resolve("human-sl-models")));
           assertEquals(
@@ -1282,7 +1279,6 @@ public class KataGoAutoSetupHelperTest {
         Files.createDirectories(appRoot.resolve("engines").resolve("katago").resolve("configs"));
     Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
-    touch(configDir.resolve("estimate.cfg"));
     touch(appRoot.resolve("weights").resolve("default.bin.gz"));
     Path customWeight = touch(workDir.resolve("weights").resolve("custom.bin.gz"));
     byte[] modelBytes = repeatedBytes(4096, (byte) 11);
@@ -1541,7 +1537,6 @@ public class KataGoAutoSetupHelperTest {
         Files.createDirectories(tempRoot.resolve("engines").resolve("katago").resolve("configs"));
     Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
-    touch(configDir.resolve("estimate.cfg"));
     Path weight = touch(tempRoot.resolve("weights").resolve("default.bin.gz"));
 
     withUserDirAndConfig(
@@ -1589,7 +1584,6 @@ public class KataGoAutoSetupHelperTest {
         Files.createDirectories(tempRoot.resolve("engines").resolve("katago").resolve("configs"));
     Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
-    touch(configDir.resolve("estimate.cfg"));
     Path weight = touch(tempRoot.resolve("weights").resolve("default.bin.gz"));
 
     withUserDirAndConfig(
@@ -1657,7 +1651,6 @@ public class KataGoAutoSetupHelperTest {
               tempRoot.resolve("engines").resolve("katago").resolve("configs"));
       Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
       touch(configDir.resolve("analysis.cfg"));
-      touch(configDir.resolve("estimate.cfg"));
       Path weight = touch(tempRoot.resolve("weights").resolve("default.bin.gz"));
 
       withUserDirAndConfig(
@@ -1695,7 +1688,6 @@ public class KataGoAutoSetupHelperTest {
         Files.createDirectories(tempRoot.resolve("engines").resolve("katago").resolve("configs"));
     touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
-    touch(configDir.resolve("estimate.cfg"));
     Path firstWeight = touch(tempRoot.resolve("weights").resolve("model-a.bin.gz"));
     Path secondWeight = touch(tempRoot.resolve("weights").resolve("model-b.bin.gz"));
 
@@ -1760,7 +1752,6 @@ public class KataGoAutoSetupHelperTest {
         Files.createDirectories(tempRoot.resolve("engines").resolve("katago").resolve("configs"));
     touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
-    touch(configDir.resolve("estimate.cfg"));
     Path weight = touch(tempRoot.resolve("weights").resolve("model.bin.gz"));
 
     withUserDirAndConfig(

@@ -263,7 +263,6 @@ public final class KataGoAutoSetupHelper {
     public final Path enginePath;
     public final Path gtpConfigPath;
     public final Path analysisConfigPath;
-    public final Path estimateConfigPath;
     public final Path activeWeightPath;
     public final List<Path> weightCandidates;
     public final DiscoverySource source;
@@ -279,7 +278,6 @@ public final class KataGoAutoSetupHelper {
         Path enginePath,
         Path gtpConfigPath,
         Path analysisConfigPath,
-        Path estimateConfigPath,
         Path activeWeightPath,
         List<Path> weightCandidates,
         DiscoverySource source,
@@ -292,7 +290,6 @@ public final class KataGoAutoSetupHelper {
       this.enginePath = normalize(enginePath);
       this.gtpConfigPath = normalize(gtpConfigPath);
       this.analysisConfigPath = normalize(analysisConfigPath);
-      this.estimateConfigPath = normalize(estimateConfigPath);
       this.activeWeightPath = normalize(activeWeightPath);
       this.weightCandidates = immutableNormalizedPaths(weightCandidates);
       this.source = source == null ? DiscoverySource.NONE : source;
@@ -329,7 +326,6 @@ public final class KataGoAutoSetupHelper {
           enginePath,
           gtpConfigPath,
           analysisConfigPath,
-          estimateConfigPath,
           activeWeightPath,
           weightCandidates,
           this);
@@ -342,7 +338,6 @@ public final class KataGoAutoSetupHelper {
     public final Path enginePath;
     public final Path gtpConfigPath;
     public final Path analysisConfigPath;
-    public final Path estimateConfigPath;
     public final Path activeWeightPath;
     public final List<Path> weightCandidates;
     public final LocalKataGoDiscoveryResult discovery;
@@ -353,7 +348,6 @@ public final class KataGoAutoSetupHelper {
         Path enginePath,
         Path gtpConfigPath,
         Path analysisConfigPath,
-        Path estimateConfigPath,
         Path activeWeightPath,
         List<Path> weightCandidates) {
       this(
@@ -362,7 +356,6 @@ public final class KataGoAutoSetupHelper {
           enginePath,
           gtpConfigPath,
           analysisConfigPath,
-          estimateConfigPath,
           activeWeightPath,
           weightCandidates,
           null);
@@ -374,7 +367,6 @@ public final class KataGoAutoSetupHelper {
         Path enginePath,
         Path gtpConfigPath,
         Path analysisConfigPath,
-        Path estimateConfigPath,
         Path activeWeightPath,
         List<Path> weightCandidates,
         LocalKataGoDiscoveryResult discovery) {
@@ -383,7 +375,6 @@ public final class KataGoAutoSetupHelper {
       this.enginePath = enginePath;
       this.gtpConfigPath = gtpConfigPath;
       this.analysisConfigPath = analysisConfigPath;
-      this.estimateConfigPath = estimateConfigPath;
       this.activeWeightPath = activeWeightPath;
       this.weightCandidates = Collections.unmodifiableList(new ArrayList<>(weightCandidates));
       this.discovery = discovery;
@@ -422,7 +413,6 @@ public final class KataGoAutoSetupHelper {
           enginePath,
           gtpConfigPath,
           analysisConfigPath,
-          estimateConfigPath,
           weightPath == null ? activeWeightPath : weightPath.toAbsolutePath().normalize(),
           new ArrayList<>(dedup),
           discovery);
@@ -435,7 +425,6 @@ public final class KataGoAutoSetupHelper {
           enginePath == null ? null : enginePath.toAbsolutePath().normalize(),
           gtpConfigPath,
           analysisConfigPath,
-          estimateConfigPath,
           activeWeightPath,
           weightCandidates,
           discovery);
@@ -657,13 +646,6 @@ public final class KataGoAutoSetupHelper {
         isRegularFile(gtpConfigPath)
             ? siblingFile(gtpConfigPath, "analysis.cfg")
             : findRelatedFile(enginePath, appRoot, "analysis.cfg", false);
-    Path estimateConfigPath =
-        isRegularFile(gtpConfigPath)
-            ? siblingFile(gtpConfigPath, "estimate.cfg")
-            : findRelatedFile(enginePath, appRoot, "estimate.cfg", false);
-    if (!isRegularFile(estimateConfigPath)) {
-      estimateConfigPath = gtpConfigPath;
-    }
     Path weightPath = normalize(selectedWeight);
     if (!isUsableWeight(weightPath)) {
       weightPath = findRelatedWeight(enginePath, appRoot);
@@ -675,7 +657,6 @@ public final class KataGoAutoSetupHelper {
         enginePath,
         gtpConfigPath,
         analysisConfigPath,
-        estimateConfigPath,
         weightPath,
         allWeights,
         DiscoverySource.MANUAL_SELECTION,
@@ -2520,10 +2501,6 @@ public final class KataGoAutoSetupHelper {
     if (!isRegularFile(analysisConfigPath) && isRegularFile(matchingAnalysisConfig)) {
       analysisConfigPath = matchingAnalysisConfig;
     }
-    Path estimateConfigPath = siblingFile(gtpConfigPath, "estimate.cfg");
-    if (!isRegularFile(estimateConfigPath)) {
-      estimateConfigPath = gtpConfigPath;
-    }
     List<Path> weights = prependUnique(modelPath, bundledWeights);
     PackageFlavor effectiveFlavor =
         isBundledKataGoPath(enginePath, workingDir, appRoot)
@@ -2536,7 +2513,6 @@ public final class KataGoAutoSetupHelper {
             enginePath,
             gtpConfigPath,
             analysisConfigPath,
-            estimateConfigPath,
             modelPath,
             weights,
             source,
@@ -2573,10 +2549,6 @@ public final class KataGoAutoSetupHelper {
     if (!isRegularFile(analysisConfigPath) && isRegularFile(gtpConfigPath)) {
       analysisConfigPath = siblingFile(gtpConfigPath, "analysis.cfg");
     }
-    Path estimateConfigPath = siblingFile(gtpConfigPath, "estimate.cfg");
-    if (!isRegularFile(estimateConfigPath)) {
-      estimateConfigPath = gtpConfigPath;
-    }
     Path weightPath = configuredWeightPath("katago-auto-setup-weight-path", workingDir, appRoot);
     LocalKataGoDiscoveryResult result =
         new LocalKataGoDiscoveryResult(
@@ -2585,7 +2557,6 @@ public final class KataGoAutoSetupHelper {
             enginePath,
             gtpConfigPath,
             analysisConfigPath,
-            estimateConfigPath,
             weightPath,
             prependUnique(weightPath, bundledWeights),
             DiscoverySource.REMEMBERED_SETUP,
@@ -2611,10 +2582,6 @@ public final class KataGoAutoSetupHelper {
     Path enginePath = detectEngineBinary(workingDir, appRoot);
     Path gtpConfigPath = detectConfig(workingDir, appRoot, "gtp.cfg");
     Path analysisConfigPath = detectConfig(workingDir, appRoot, "analysis.cfg");
-    Path estimateConfigPath = detectConfig(workingDir, appRoot, "estimate.cfg");
-    if (!isRegularFile(estimateConfigPath)) {
-      estimateConfigPath = gtpConfigPath;
-    }
     Path weightPath = chooseBundledWeight(workingDir, appRoot, bundledWeights);
     LocalKataGoDiscoveryResult result =
         new LocalKataGoDiscoveryResult(
@@ -2623,7 +2590,6 @@ public final class KataGoAutoSetupHelper {
             enginePath,
             gtpConfigPath,
             analysisConfigPath,
-            estimateConfigPath,
             weightPath,
             bundledWeights,
             enginePath == null ? DiscoverySource.NONE : DiscoverySource.BUNDLED_PACKAGE,
@@ -2639,7 +2605,6 @@ public final class KataGoAutoSetupHelper {
               enginePath,
               gtpConfigPath,
               analysisConfigPath,
-              estimateConfigPath,
               weightPath,
               bundledWeights,
               enginePath == null ? DiscoverySource.NONE : DiscoverySource.BUNDLED_PACKAGE,
@@ -2691,7 +2656,6 @@ public final class KataGoAutoSetupHelper {
         source.enginePath,
         source.gtpConfigPath,
         source.analysisConfigPath,
-        source.estimateConfigPath,
         source.activeWeightPath,
         source.weightCandidates,
         source.source,

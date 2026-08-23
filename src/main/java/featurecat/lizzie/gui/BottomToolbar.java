@@ -5153,7 +5153,6 @@ public class BottomToolbar extends JPanel {
   //    badMoves.setFont(smallFont);
   //    liveButton.setFont(smallFont);
   //    clearButton.setFont(smallFont);
-  //    countButton.setFont(smallFont);
   //    gotomove.setFont(smallFont);
   //    savefile.setFont(smallFont);
   //    openfile.setFont(smallFont);
