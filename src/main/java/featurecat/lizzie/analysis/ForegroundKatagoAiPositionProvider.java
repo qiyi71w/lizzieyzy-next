@@ -19,6 +19,11 @@ public final class ForegroundKatagoAiPositionProvider implements AiPositionProvi
   }
 
   @Override
+  public boolean yieldsToForegroundPonder() {
+    return false;
+  }
+
+  @Override
   public void stop(long generation) {
     // Closing AI形势 must not stop ordinary foreground analysis.
   }

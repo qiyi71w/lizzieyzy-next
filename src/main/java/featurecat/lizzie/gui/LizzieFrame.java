@@ -14532,6 +14532,13 @@ public class LizzieFrame extends JFrame {
     }
   }
 
+  public void preemptAiPositionIfYieldsToForegroundPonder() {
+    AiPositionController controller = aiPositionController;
+    if (controller != null && controller.isOpen()) {
+      controller.preemptIfYieldsToForegroundPonder();
+    }
+  }
+
   public void acceptAiPositionEmission(
       long generation,
       long sequence,
@@ -14642,7 +14649,7 @@ public class LizzieFrame extends JFrame {
     stopQuickAnalysisWarmupTimer();
     stopQuickAnalysisNavigationResumeTimer();
     clearPendingQuickAnalysisCallback();
-    preemptAiPosition();
+    preemptAiPositionIfYieldsToForegroundPonder();
     AnalysisEngine secondary = analysisEngine;
     AnalysisResourceCoordinator.ForegroundDecision decision =
         AnalysisResourceCoordinator.decideForegroundStart(

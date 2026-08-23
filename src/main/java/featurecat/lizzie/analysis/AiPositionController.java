@@ -101,6 +101,13 @@ public final class AiPositionController {
     displayChanged.run();
   }
 
+  public synchronized void preemptIfYieldsToForegroundPonder() {
+    if (provider != null && !provider.yieldsToForegroundPonder()) {
+      return;
+    }
+    preempt();
+  }
+
   public synchronized void acceptLine(long expectedGeneration, String line) {
     Optional<AiPositionSearchUpdate> update = AiPositionSearchUpdate.parse(line);
     if (update.isEmpty()) {

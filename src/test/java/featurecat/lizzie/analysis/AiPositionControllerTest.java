@@ -233,6 +233,56 @@ class AiPositionControllerTest {
   }
 
   @Test
+  void foregroundPonderDoesNotPreemptForegroundReuse() {
+    RecordingProvider provider = new RecordingProvider(true);
+    provider.yieldsToForegroundPonder = false;
+    AiPositionController controller = new AiPositionController(List.of(provider), () -> {});
+    AiPositionRequestContext requested = context("node-a", true, "chinese", 7.5, 1L);
+
+    assertTrue(controller.open(requested));
+    controller.preemptIfYieldsToForegroundPonder();
+
+    assertTrue(controller.isOpen());
+    assertFalse(controller.isUnavailable());
+    assertEquals(AiPositionDisplayState.WAITING, controller.displayState(requested));
+    controller.acceptLine(controller.generation(), ROOT_LEAD_LINE);
+    assertEquals(-71.4, requireSnapshot(controller).blackScoreLead(), 1e-9);
+    assertEquals(AiPositionDisplayState.READY, controller.displayState(requested));
+    assertEquals(0, provider.stopCount);
+  }
+
+  @Test
+  void foregroundPonderPreemptsManagedSearch() {
+    RecordingProvider provider = new RecordingProvider(true);
+    AiPositionController controller = new AiPositionController(List.of(provider), () -> {});
+    AiPositionRequestContext requested = context("node-a", true, "chinese", 7.5, 1L);
+
+    assertTrue(controller.open(requested));
+    controller.preemptIfYieldsToForegroundPonder();
+
+    assertTrue(controller.isUnavailable());
+    assertEquals(AiPositionDisplayState.UNAVAILABLE, controller.displayState(requested));
+    controller.acceptLine(controller.generation(), ROOT_LEAD_LINE);
+    assertTrue(controller.snapshot().isEmpty());
+    assertEquals(1, provider.stopCount);
+  }
+
+  @Test
+  void competingUserTaskStillPreemptsForegroundReuse() {
+    RecordingProvider provider = new RecordingProvider(true);
+    provider.yieldsToForegroundPonder = false;
+    AiPositionController controller = new AiPositionController(List.of(provider), () -> {});
+    AiPositionRequestContext requested = context("node-a", true, "chinese", 7.5, 1L);
+
+    assertTrue(controller.open(requested));
+    controller.preempt();
+
+    assertTrue(controller.isUnavailable());
+    assertEquals(AiPositionDisplayState.UNAVAILABLE, controller.displayState(requested));
+    assertEquals(1, provider.stopCount);
+  }
+
+  @Test
   void navigationAndProviderSwitchClearReadyState() {
     RecordingProvider chinese = new RecordingProvider(ctx -> "chinese".equals(ctx.rules()));
     RecordingProvider japanese = new RecordingProvider(ctx -> "japanese".equals(ctx.rules()));
@@ -281,8 +331,10 @@ class AiPositionControllerTest {
   }
 
   private static final class RecordingProvider implements AiPositionProvider {
+
     private final Predicate<AiPositionRequestContext> support;
     private boolean startSucceeds;
+    private boolean yieldsToForegroundPonder = true;
     private int startCount;
     private int stopCount;
 
@@ -317,6 +369,11 @@ class AiPositionControllerTest {
     @Override
     public void stop(long generation) {
       stopCount++;
+    }
+
+    @Override
+    public boolean yieldsToForegroundPonder() {
+      return yieldsToForegroundPonder;
     }
   }
 }

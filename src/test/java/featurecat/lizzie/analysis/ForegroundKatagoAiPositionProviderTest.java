@@ -25,6 +25,11 @@ class ForegroundKatagoAiPositionProviderTest {
   }
 
   @Test
+  void doesNotYieldToForegroundPonder() {
+    assertFalse(new ForegroundKatagoAiPositionProvider().yieldsToForegroundPonder());
+  }
+
+  @Test
   void addKataTagRequestsRootInfoAndOwnershipWithoutStartingAnotherProcess() throws Exception {
     Config previousConfig = Lizzie.config;
     LizzieFrame previousFrame = Lizzie.frame;

@@ -7,4 +7,9 @@ public interface AiPositionProvider {
   boolean start(AiPositionRequestContext context, long generation);
 
   void stop(long generation);
+
+  /** Managed on-demand searches yield; foreground reuse does not. */
+  default boolean yieldsToForegroundPonder() {
+    return true;
+  }
 }
