@@ -2,7 +2,6 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.analysis.AiPositionDisplayState;
 import featurecat.lizzie.analysis.AiPositionSnapshot;
-import featurecat.lizzie.util.Utils;
 import java.util.Locale;
 import java.util.ResourceBundle;
 
@@ -27,20 +26,8 @@ public final class AiPositionStatusText {
     if (snapshot == null) {
       return bundle.getString("LizzieFrame.aiPositionWaiting");
     }
-    String rules = rulesLabel == null || rulesLabel.isEmpty() ? snapshot.rules() : rulesLabel;
     return bundle.getString("LizzieFrame.scoreLeadJustScore")
-        + String.format(Locale.ENGLISH, "%.1f", snapshot.blackScoreLead())
-        + " "
-        + bundle.getString("LizzieFrame.winrate")
-        + String.format(Locale.ENGLISH, "%.1f%%", snapshot.blackWinrate())
-        + " "
-        + bundle.getString("LizzieFrame.visits")
-        + Utils.getPlayoutsString(snapshot.visits())
-        + " "
-        + rules
-        + " "
-        + bundle.getString("LizzieFrame.komi")
-        + snapshot.komi();
+        + String.format(Locale.ENGLISH, "%.1f", snapshot.blackScoreLead());
   }
 
   public static String paintedLine(

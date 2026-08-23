@@ -75,13 +75,13 @@ class AiPositionStatusTextTest {
             controller.displayState(context), snapshot, bundle, "chinese");
 
     assertEquals(AiPositionDisplayState.READY, controller.displayState(context));
-    assertTrue(line.contains("71.4"));
-    assertTrue(line.contains("88.0%"));
-    assertTrue(line.contains("800"));
-    assertTrue(line.contains("chinese"));
-    assertTrue(line.contains("7.5"));
+    assertEquals(
+        bundle.getString("LizzieFrame.scoreLeadJustScore") + "71.4", line);
     assertFalse(line.contains("-13.0"));
     assertFalse(line.contains("13.0"));
+    assertFalse(line.contains("88.0%"));
+    assertFalse(line.contains("chinese"));
+    assertFalse(line.contains("7.5"));
   }
 
   private static final class AcceptingProvider implements AiPositionProvider {
