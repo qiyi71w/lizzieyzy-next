@@ -1,9 +1,9 @@
 package featurecat.lizzie.update;
 
+import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.JFontButton;
 import featurecat.lizzie.gui.JFontLabel;
-import featurecat.lizzie.gui.JFontRadioButton;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -14,21 +14,24 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
+import javax.swing.JRadioButton;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
-/** 检查更新页: version, 更新通道, hint, Check. #298 can insert a source row above the footer. */
+/** 检查更新页: version, 更新通道 + hint, Check. #298 can insert a source row above the footer. */
 public final class CheckUpdateDialog extends JDialog {
   private static final Color PAGE_BACKGROUND = new Color(246, 247, 249);
   private static final Color MUTED_TEXT = new Color(90, 96, 104);
 
-  private final JFontRadioButton stableButton =
-      new JFontRadioButton(
-          UpdateText.tr("WindowsUpdate.channel.stable", "正式", "Official"));
-  private final JFontRadioButton betaButton =
-      new JFontRadioButton(UpdateText.tr("WindowsUpdate.channel.beta", "测试", "Test"));
+  private final JRadioButton stableButton =
+      channelRadio(UpdateText.tr("WindowsUpdate.channel.stable", "正式", "Official"));
+  private final JRadioButton betaButton =
+      channelRadio(UpdateText.tr("WindowsUpdate.channel.beta", "测试", "Test"));
   private final JFontLabel channelHint = new JFontLabel(" ");
 
   public CheckUpdateDialog(Component parent) {
@@ -51,7 +54,7 @@ public final class CheckUpdateDialog extends JDialog {
     root.add(buildFooter(), BorderLayout.SOUTH);
 
     pack();
-    setMinimumSize(new Dimension(Math.max(420, getWidth()), getHeight()));
+    setMinimumSize(new Dimension(Math.max(460, getWidth()), getHeight()));
     setLocationRelativeTo(parent == null ? Lizzie.frame : parent);
   }
 
@@ -97,30 +100,34 @@ public final class CheckUpdateDialog extends JDialog {
           refreshChannelHint();
         });
 
-    JPanel radios = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-    radios.setOpaque(false);
-    radios.add(stableButton);
-    radios.add(betaButton);
-
     channelHint.setFont(channelHint.getFont().deriveFont(Font.PLAIN, 12f));
     channelHint.setForeground(mutedText());
+    channelHint.setAlignmentY(Component.CENTER_ALIGNMENT);
+    refreshChannelHint();
+
+    JPanel channelRow = new JPanel();
+    channelRow.setOpaque(false);
+    channelRow.setLayout(new BoxLayout(channelRow, BoxLayout.X_AXIS));
+    stableButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+    betaButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+    channelRow.add(stableButton);
+    channelRow.add(Box.createHorizontalStrut(12));
+    channelRow.add(betaButton);
+    channelRow.add(Box.createHorizontalStrut(16));
+    channelRow.add(channelHint);
 
     GridBagConstraints constraints = new GridBagConstraints();
     constraints.gridx = 0;
     constraints.gridy = 0;
     constraints.anchor = GridBagConstraints.WEST;
-    constraints.insets = new Insets(0, 0, 6, 0);
+    constraints.insets = new Insets(0, 0, 8, 0);
     form.add(channelLabel, constraints);
 
     constraints.gridy = 1;
-    constraints.insets = new Insets(0, 0, 6, 0);
-    form.add(radios, constraints);
-
-    constraints.gridy = 2;
     constraints.fill = GridBagConstraints.HORIZONTAL;
     constraints.weightx = 1;
     constraints.insets = new Insets(0, 0, 0, 0);
-    form.add(channelHint, constraints);
+    form.add(channelRow, constraints);
     return form;
   }
 
@@ -154,6 +161,16 @@ public final class CheckUpdateDialog extends JDialog {
 
   private UpdateChannel selectedChannel() {
     return betaButton.isSelected() ? UpdateChannel.BETA : UpdateChannel.STABLE;
+  }
+
+  private static JRadioButton channelRadio(String text) {
+    JRadioButton button = new JRadioButton(text);
+    button.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    button.setOpaque(false);
+    button.setContentAreaFilled(false);
+    button.setFocusPainted(true);
+    button.setHorizontalAlignment(SwingConstants.LEFT);
+    return button;
   }
 
   private static Color mutedText() {
