@@ -63,6 +63,11 @@ class WindowsUpdateDialogResourceTest {
     assertEquals("Official", bundle.getString("WindowsUpdate.channel.stable"));
     assertEquals("Test", bundle.getString("WindowsUpdate.channel.beta"));
     assertEquals("Check update", bundle.getString("WindowsUpdate.btnCheck"));
+    assertEquals(
+        "Official releases only.", bundle.getString("WindowsUpdate.page.channelHint.stable"));
+    assertEquals(
+        "Test builds come from GitHub only.",
+        bundle.getString("WindowsUpdate.page.channelHint.beta"));
   }
 
   @Test
@@ -108,6 +113,8 @@ class WindowsUpdateDialogResourceTest {
     assertEquals("正式", bundle.getString("WindowsUpdate.channel.stable"));
     assertEquals("测试", bundle.getString("WindowsUpdate.channel.beta"));
     assertEquals("检查更新", bundle.getString("WindowsUpdate.btnCheck"));
+    assertEquals("正式通道跟随已发布版本。", bundle.getString("WindowsUpdate.page.channelHint.stable"));
+    assertEquals("测试版只从 GitHub 获取。", bundle.getString("WindowsUpdate.page.channelHint.beta"));
   }
 
   @Test
