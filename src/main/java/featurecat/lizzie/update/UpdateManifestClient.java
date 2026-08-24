@@ -13,12 +13,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-/** Fetches only signed production manifests, with an explicit legacy override for test recovery. */
+/** Fetches signed update envelopes for the selected 更新通道. */
 public final class UpdateManifestClient {
   public static final String R2_ENVELOPE_URL =
       "https://download.goagent.top/channels/stable/update-envelope.json";
   public static final String GITHUB_ENVELOPE_URL =
       "https://github.com/wimi321/lizzieyzy-next/releases/latest/download/"
+          + "lizzieyzy-next-update-envelope.json";
+  public static final String TEST_CHANNEL_POINTER_URL =
+      "https://github.com/wimi321/lizzieyzy-next/releases/download/channel-beta/"
           + "lizzieyzy-next-update-envelope.json";
   public static final String ENVELOPE_URLS_PROPERTY = "lizzie.update.envelopeUrls";
   public static final String LEGACY_MANIFEST_URL_PROPERTY = "lizzie.update.manifestUrl";
@@ -29,24 +32,37 @@ public final class UpdateManifestClient {
 
   private final List<String> envelopeUrls;
   private final Map<String, PublicKey> trustedKeys;
+  private final UpdateChannel channel;
 
   public UpdateManifestClient() {
-    this(configuredEnvelopeUrls(), null);
+    this(UpdateChannel.current());
+  }
+
+  public UpdateManifestClient(UpdateChannel channel) {
+    this(envelopeUrlsFor(channel), null, channel);
   }
 
   UpdateManifestClient(List<String> envelopeUrls, Map<String, PublicKey> trustedKeys) {
+    this(envelopeUrls, trustedKeys, UpdateChannel.STABLE);
+  }
+
+  UpdateManifestClient(
+      List<String> envelopeUrls, Map<String, PublicKey> trustedKeys, UpdateChannel channel) {
     this.envelopeUrls = Collections.unmodifiableList(new ArrayList<>(envelopeUrls));
     this.trustedKeys = trustedKeys;
+    this.channel = channel == null ? UpdateChannel.STABLE : channel;
   }
 
   public FetchResult fetchLatest() throws IOException {
-    String explicitLegacy = System.getProperty(LEGACY_MANIFEST_URL_PROPERTY, "").trim();
-    if (!explicitLegacy.isEmpty()) {
-      try {
-        return new FetchResult(
-            UpdateManifest.parse(fetchText(explicitLegacy)), explicitLegacy, false);
-      } catch (IllegalArgumentException e) {
-        throw new IOException("Invalid explicitly configured update manifest.", e);
+    if (channel != UpdateChannel.BETA) {
+      String explicitLegacy = System.getProperty(LEGACY_MANIFEST_URL_PROPERTY, "").trim();
+      if (!explicitLegacy.isEmpty()) {
+        try {
+          return new FetchResult(
+              UpdateManifest.parse(fetchText(explicitLegacy)), explicitLegacy, false);
+        } catch (IllegalArgumentException e) {
+          throw new IOException("Invalid explicitly configured update manifest.", e);
+        }
       }
     }
 
@@ -61,6 +77,13 @@ public final class UpdateManifestClient {
       }
     }
     throw failure;
+  }
+
+  static List<String> envelopeUrlsFor(UpdateChannel channel) {
+    if (channel == UpdateChannel.BETA) {
+      return List.of(TEST_CHANNEL_POINTER_URL);
+    }
+    return configuredEnvelopeUrls();
   }
 
   static List<String> configuredEnvelopeUrls() {

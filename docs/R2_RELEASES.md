@@ -81,8 +81,12 @@ Ed25519 私钥只能存在于 GitHub Secret；应用内只包含公钥。更换�
 
 ## 客户端行为
 
-应用只在用户手动点击“检查更新”时联网，不在启动时自动检查。新客户端依次读取 R2 与
-GitHub 上的签名 v2 清单，签名、版本、大小或 SHA-256 不正确时拒绝安装。
+帮助菜单的「检查更新」只打开检查更新页，不联网。用户在页上选择更新通道后点「检查更新」
+才取清单。默认正式通道，行为与现在一致：依次读取 R2 与 GitHub `releases/latest` 上的
+签名 v2 清单。测试通道只读固定指针
+`https://github.com/wimi321/lizzieyzy-next/releases/download/channel-beta/lizzieyzy-next-update-envelope.json`，
+没有官网回退，也不扫 Releases API。签名、通道、版本、大小或 SHA-256 不正确时拒绝安装。
+通道选择写入 `update-channel`，缺省为正式；切换通道不改已安装文件，也不自动降级。
 
 - Windows 使用 `core-update` 原位更新并保留用户数据、引擎和权重。
 - macOS 按 CPU 架构下载并校验 DMG，随后打开 DMG，不直接修改已签名 App。

@@ -1,0 +1,171 @@
+package featurecat.lizzie.update;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import featurecat.lizzie.ConfigTestHelper;
+import featurecat.lizzie.Lizzie;
+import java.nio.file.Path;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.io.TempDir;
+import org.json.JSONObject;
+import org.junit.jupiter.api.Test;
+
+class UpdateAdmissionTest {
+  @TempDir Path tempDir;
+
+  @AfterEach
+  void tearDown() {
+    Lizzie.config = null;
+  }
+
+  private static final String INSTALLED = "next-2026-08-01.1";
+  private static final String NEWER = "next-2026-08-24.1";
+  private static final String OLDER = "next-2026-07-01.1";
+
+  @Test
+  void officialChannelRejectsTestManifest() {
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.STABLE, INSTALLED, signed(NEWER, true), null);
+
+    assertEquals(UpdateAdmission.Kind.NO_UPDATE, result.kind);
+    assertNull(result.manifest);
+    assertTrue(result.message.contains("official channel"));
+  }
+
+  @Test
+  void testChannelAdmitsNewerTestManifest() {
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.BETA, INSTALLED, signed(NEWER, true), null);
+
+    assertEquals(UpdateAdmission.Kind.OFFER, result.kind);
+    assertEquals(NEWER, result.manifest.releaseTag);
+  }
+
+  @Test
+  void testChannelRejectsOfficialManifest() {
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.BETA, INSTALLED, signed(NEWER, false), null);
+
+    assertEquals(UpdateAdmission.Kind.ERROR, result.kind);
+    assertNull(result.manifest);
+    assertFalse(result.message.toLowerCase().contains("latest"));
+  }
+
+  @Test
+  void testChannelRejectsUnsignedLegacyV1() {
+    UpdateManifest unsigned = UpdateManifest.parse(UpdateManifestTest.validManifest());
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.BETA,
+            INSTALLED,
+            new UpdateAdmission.FetchedManifest(unsigned, false),
+            null);
+
+    assertEquals(UpdateAdmission.Kind.ERROR, result.kind);
+    assertNull(result.manifest);
+  }
+
+  @Test
+  void bothChannelsRejectNonNewerTags() {
+    UpdateAdmission.Result officialEqual =
+        UpdateAdmission.evaluate(
+            UpdateChannel.STABLE, INSTALLED, signed(INSTALLED, false), null);
+    UpdateAdmission.Result officialOlder =
+        UpdateAdmission.evaluate(
+            UpdateChannel.STABLE, INSTALLED, signed(OLDER, false), null);
+    UpdateAdmission.Result testEqual =
+        UpdateAdmission.evaluate(
+            UpdateChannel.BETA, INSTALLED, signed(INSTALLED, true), null);
+    UpdateAdmission.Result testOlder =
+        UpdateAdmission.evaluate(
+            UpdateChannel.BETA, NEWER, signed(INSTALLED, true), null);
+
+    assertEquals(UpdateAdmission.Kind.NO_UPDATE, officialEqual.kind);
+    assertEquals(UpdateAdmission.Kind.NO_UPDATE, officialOlder.kind);
+    assertEquals(UpdateAdmission.Kind.NO_UPDATE, testEqual.kind);
+    assertEquals(UpdateAdmission.Kind.NO_UPDATE, testOlder.kind);
+  }
+
+  @Test
+  void officialChannelDoesNotDowngradeFromNewerTestInstall() {
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.STABLE, NEWER, signed(INSTALLED, false), null);
+
+    assertEquals(UpdateAdmission.Kind.NO_UPDATE, result.kind);
+    assertNull(result.manifest);
+    assertTrue(result.message.contains("official channel"));
+  }
+
+  @Test
+  void developmentBuildIsSkippedBeforeFetch() {
+    assertFalse(UpdateAdmission.shouldFetch("next-dev"));
+    assertFalse(UpdateAdmission.shouldFetch("local"));
+    assertTrue(UpdateAdmission.shouldFetch(INSTALLED));
+
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.STABLE, "next-dev", signed(NEWER, false), null);
+
+    assertEquals(UpdateAdmission.Kind.ERROR, result.kind);
+    assertTrue(result.message.contains("development or unpackaged"));
+  }
+
+  @Test
+  void testChannelFetchFailureIsErrorNotAlreadyLatest() {
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.BETA, INSTALLED, null, new IOException("HTTP 404"));
+
+    assertEquals(UpdateAdmission.Kind.ERROR, result.kind);
+    assertNull(result.manifest);
+    assertTrue(result.message.contains("test channel"));
+    assertFalse(result.message.toLowerCase().contains("latest"));
+  }
+
+  @Test
+  void officialChannelAdmitsNewerOfficialManifest() {
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.STABLE, INSTALLED, signed(NEWER, false), null);
+
+    assertEquals(UpdateAdmission.Kind.OFFER, result.kind);
+    assertEquals(NEWER, result.manifest.releaseTag);
+  }
+
+  @Test
+  void missingUpdateChannelConfigIsOfficial() {
+    assertEquals(UpdateChannel.STABLE, UpdateChannel.fromConfigValue(null));
+    assertEquals(UpdateChannel.STABLE, UpdateChannel.fromConfigValue(""));
+    assertEquals(UpdateChannel.STABLE, UpdateChannel.fromConfigValue("stable"));
+    assertEquals(UpdateChannel.BETA, UpdateChannel.fromConfigValue("beta"));
+    assertEquals("update-channel", UpdateChannel.CONFIG_KEY);
+  }
+
+  @Test
+  void persistingChannelWritesUiConfigOnly() {
+    Lizzie.config = ConfigTestHelper.createForTests(tempDir.resolve("channel-config"));
+    Lizzie.config.uiConfig = new JSONObject();
+
+    assertEquals(UpdateChannel.STABLE, UpdateChannel.current());
+    UpdateChannel.persist(UpdateChannel.BETA);
+
+    assertEquals("beta", Lizzie.config.uiConfig.getString(UpdateChannel.CONFIG_KEY));
+    assertEquals(UpdateChannel.BETA, UpdateChannel.current());
+    assertFalse(Lizzie.config.uiConfig.has("update-source"));
+  }
+
+  private static UpdateAdmission.FetchedManifest signed(String tag, boolean prerelease) {
+    JSONObject payload = SignedUpdateEnvelopeTest.validPayload();
+    payload.put("releaseTag", tag);
+    payload.put("prerelease", prerelease);
+    return new UpdateAdmission.FetchedManifest(UpdateManifest.parse(payload), true);
+  }
+}

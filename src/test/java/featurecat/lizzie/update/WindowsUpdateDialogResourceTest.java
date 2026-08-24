@@ -53,6 +53,16 @@ class WindowsUpdateDialogResourceTest {
     assertEquals(
         "Could not open the release page",
         bundle.getString("WindowsUpdate.status.openReleaseFailed"));
+    assertEquals(
+        "There is no newer version on the official channel.",
+        bundle.getString("WindowsUpdate.noUpdate.stable"));
+    assertEquals(
+        "There is no newer version on the test channel.",
+        bundle.getString("WindowsUpdate.noUpdate.beta"));
+    assertEquals("Update channel", bundle.getString("WindowsUpdate.page.channel"));
+    assertEquals("Official", bundle.getString("WindowsUpdate.channel.stable"));
+    assertEquals("Test", bundle.getString("WindowsUpdate.channel.beta"));
+    assertEquals("Check update", bundle.getString("WindowsUpdate.btnCheck"));
   }
 
   @Test
@@ -92,6 +102,12 @@ class WindowsUpdateDialogResourceTest {
     assertEquals("下载完成，正在启动更新器...", bundle.getString("WindowsUpdate.status.launching"));
     assertEquals("启动更新器失败", bundle.getString("WindowsUpdate.status.launchFailed"));
     assertEquals("无法打开 Release 页面", bundle.getString("WindowsUpdate.status.openReleaseFailed"));
+    assertEquals("正式通道暂无更新版本。", bundle.getString("WindowsUpdate.noUpdate.stable"));
+    assertEquals("测试通道暂无更新版本。", bundle.getString("WindowsUpdate.noUpdate.beta"));
+    assertEquals("更新通道", bundle.getString("WindowsUpdate.page.channel"));
+    assertEquals("正式", bundle.getString("WindowsUpdate.channel.stable"));
+    assertEquals("测试", bundle.getString("WindowsUpdate.channel.beta"));
+    assertEquals("检查更新", bundle.getString("WindowsUpdate.btnCheck"));
   }
 
   @Test

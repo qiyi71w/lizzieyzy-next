@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+
 
 class UpdateManifestClientTest {
   @Test
@@ -63,6 +65,35 @@ class UpdateManifestClientTest {
       assertTrue(error.getMessage().contains("unexpectedly large"));
     }
   }
+
+  @AfterEach
+  void tearDown() {
+    System.clearProperty(UpdateManifestClient.ENVELOPE_URLS_PROPERTY);
+    System.clearProperty(UpdateManifestClient.LEGACY_MANIFEST_URL_PROPERTY);
+  }
+
+  @Test
+  void officialChannelUsesCurrentOfficialEnvelopeSequence() {
+    assertEquals(
+        List.of(UpdateManifestClient.R2_ENVELOPE_URL, UpdateManifestClient.GITHUB_ENVELOPE_URL),
+        UpdateManifestClient.envelopeUrlsFor(UpdateChannel.STABLE));
+  }
+
+  @Test
+  void testChannelUsesOnlyThePointerUrl() {
+    System.setProperty(
+        UpdateManifestClient.ENVELOPE_URLS_PROPERTY,
+        UpdateManifestClient.R2_ENVELOPE_URL + "," + UpdateManifestClient.GITHUB_ENVELOPE_URL);
+
+    List<String> urls = UpdateManifestClient.envelopeUrlsFor(UpdateChannel.BETA);
+
+    assertEquals(List.of(UpdateManifestClient.TEST_CHANNEL_POINTER_URL), urls);
+    assertEquals(
+        "https://github.com/wimi321/lizzieyzy-next/releases/download/channel-beta/"
+            + "lizzieyzy-next-update-envelope.json",
+        UpdateManifestClient.TEST_CHANNEL_POINTER_URL);
+  }
+
 
   private static JSONObject signedEnvelope(JSONObject payload, KeyPair pair) throws Exception {
     byte[] bytes = payload.toString().getBytes(StandardCharsets.UTF_8);
