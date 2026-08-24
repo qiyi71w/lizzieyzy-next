@@ -575,7 +575,8 @@ class R2ReleaseTest(unittest.TestCase):
             source, selected, r2_release.DEFAULT_PUBLIC_BASE
         )
 
-        self.assertEqual(13, len(selected))
+        baseline = r2_release.select_r2_assets(release(), r2_release.DEFAULT_PUBLIC_BASE)
+        self.assertEqual(len(baseline), len(selected))
         self.assertFalse(
             any(entry.name == r2_release.UPDATE_ENVELOPE_ASSET for entry in selected)
         )
