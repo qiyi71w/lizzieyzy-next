@@ -168,7 +168,9 @@ public final class CheckUpdateDialog extends JDialog {
     button.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
     button.setOpaque(false);
     button.setContentAreaFilled(false);
-    button.setFocusPainted(true);
+    button.setFocusPainted(false);
+    button.setBorderPainted(false);
+    button.setBorder(BorderFactory.createEmptyBorder());
     button.setHorizontalAlignment(SwingConstants.LEFT);
     return button;
   }
