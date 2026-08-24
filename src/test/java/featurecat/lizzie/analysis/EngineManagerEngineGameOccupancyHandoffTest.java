@@ -1,0 +1,336 @@
+package featurecat.lizzie.analysis;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import featurecat.lizzie.Config;
+import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.gui.BottomToolbar;
+import featurecat.lizzie.gui.GtpConsolePane;
+import featurecat.lizzie.gui.JFontMenu;
+import featurecat.lizzie.gui.LizzieFrame;
+import featurecat.lizzie.gui.Menu;
+import featurecat.lizzie.gui.WinrateGraph;
+import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.rules.BoardData;
+import featurecat.lizzie.rules.BoardHistoryList;
+import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+import javax.swing.SwingUtilities;
+import org.json.JSONObject;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+class EngineManagerEngineGameOccupancyHandoffTest {
+  private EngineManager previousManager;
+  private EngineGameInfo previousGameInfo;
+  private Leelaz previousPrimary;
+  private Config previousConfig;
+  private LizzieFrame previousFrame;
+  private BottomToolbar previousToolbar;
+  private Menu previousMenu;
+  private JFontMenu previousEngineMenu;
+  private Board previousBoard;
+  private WinrateGraph previousWinrateGraph;
+  private GtpConsolePane previousGtpConsole;
+  private boolean previousEngineGame;
+  private boolean previousPreEngineGame;
+  private boolean previousEmpty;
+  private int previousEngineNo;
+
+  private OccupancyLeelaz black;
+  private OccupancyLeelaz white;
+  private CountingLeaseEngineManager manager;
+  private SilentFrame frame;
+  private SilentMenu menu;
+
+  @BeforeEach
+  void installOccupancyFixture() throws Exception {
+    SwingUtilities.invokeAndWait(() -> {});
+    previousManager = Lizzie.engineManager;
+    previousGameInfo = EngineManager.engineGameInfo;
+    previousPrimary = Lizzie.leelaz;
+    previousConfig = Lizzie.config;
+    previousFrame = Lizzie.frame;
+    previousToolbar = LizzieFrame.toolbar;
+    previousMenu = LizzieFrame.menu;
+    previousEngineMenu = Menu.engineMenu;
+    previousBoard = Lizzie.board;
+    previousWinrateGraph = LizzieFrame.winrateGraph;
+    previousGtpConsole = Lizzie.gtpConsole;
+    previousEngineGame = EngineManager.isEngineGame;
+    previousPreEngineGame = EngineManager.isPreEngineGame;
+    previousEmpty = EngineManager.isEmpty;
+    previousEngineNo = EngineManager.currentEngineNo;
+
+    EngineManager.resetEngineGameTransactionStateForTest();
+    Config config = allocate(Config.class);
+    config.uiConfig = new JSONObject();
+    config.newEngineGameHandicap = 0;
+    config.newEngineGameKomi = 7.5;
+    config.pkAdvanceTimeSettings = false;
+    Lizzie.config = config;
+    black = new OccupancyLeelaz();
+    white = new OccupancyLeelaz();
+    black.bindLiveRuntime();
+    white.bindLiveRuntime();
+    Lizzie.setPrimaryEngine(black);
+    frame = allocate(SilentFrame.class);
+    Lizzie.frame = frame;
+    LizzieFrame.toolbar = allocate(SilentToolbar.class);
+    menu = allocate(SilentMenu.class);
+    LizzieFrame.menu = menu;
+    Menu.engineMenu = new JFontMenu();
+    LizzieFrame.winrateGraph = allocate(WinrateGraph.class);
+    Board board = allocate(SilentBoard.class);
+    board.setHistory(new BoardHistoryList(BoardData.empty(19, 19)));
+    Lizzie.board = board;
+    Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
+    manager = new CountingLeaseEngineManager(List.of(black, white));
+    Lizzie.engineManager = manager;
+    EngineManager.isEmpty = false;
+    EngineManager.currentEngineNo = 0;
+    EngineManager.isEngineGame = false;
+    EngineManager.isPreEngineGame = false;
+  }
+
+  @AfterEach
+  void restoreOccupancyFixture() throws Exception {
+    black.started = false;
+    black.isLoaded = false;
+    white.started = false;
+    white.isLoaded = false;
+    EngineManager.resetEngineGameTransactionStateForTest();
+    Lizzie.engineManager = previousManager;
+    EngineManager.engineGameInfo = previousGameInfo;
+    EngineManager.isEngineGame = previousEngineGame;
+    EngineManager.isPreEngineGame = previousPreEngineGame;
+    EngineManager.isEmpty = previousEmpty;
+    EngineManager.currentEngineNo = previousEngineNo;
+    Lizzie.setPrimaryEngine(previousPrimary);
+    Lizzie.config = previousConfig;
+    Lizzie.frame = previousFrame;
+    LizzieFrame.toolbar = previousToolbar;
+    LizzieFrame.menu = previousMenu;
+    Menu.engineMenu = previousEngineMenu;
+    Lizzie.board = previousBoard;
+    LizzieFrame.winrateGraph = previousWinrateGraph;
+    Lizzie.gtpConsole = previousGtpConsole;
+    SwingUtilities.invokeAndWait(() -> {});
+  }
+
+  @Test
+  void endThenUnfinishedRestoreThenImmediateRestartDropsDelayedExclusivePrompt()
+      throws Exception {
+    EngineManager.EngineGameTransaction transaction =
+        EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true);
+    assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
+    assertTrue(
+        EngineManager.activateEngineGameTransaction(
+            transaction,
+            black,
+            0,
+            black.currentEngineIncarnation(),
+            white.currentEngineIncarnation()));
+
+    manager.stopEngineGame(0, true);
+    assertFalse(EngineManager.isEngineGame);
+    assertFalse(EngineManager.isPreEngineGame);
+    assertTrue(black.isUnfinishedForegroundRestoreOccupancyHeldForTest());
+
+    black.showExclusiveGtpConflictMessage();
+    EngineManager dummy = new EngineManager(List.of(black, white));
+    Lizzie.engineManager = dummy;
+
+    manager.startNewEngineGame(true);
+
+    assertEquals(0, manager.leaseConflictCount);
+    assertFalse(EngineManager.isEngineGame);
+    assertFalse(EngineManager.isPreEngineGame);
+    SwingUtilities.invokeAndWait(() -> {});
+    assertEquals(
+        List.of(),
+        black.displayedKeys,
+        "a delayed exclusive-task prompt from end-game restore must not appear after occupancy already succeeded");
+  }
+
+  @Test
+  void occupancyFailureRefusesStartEngineGameAndDoesNotEnterInGameUi() throws Exception {
+    Leelaz.ExclusiveGtpLifecycleReservation reservation =
+        black.beginExclusiveGtpLifecycleReservation(new Object());
+    assertTrue(reservation != null);
+    try {
+      boolean started =
+          manager.startEngineGame(
+              0, 1, 2, 2, 0, 0, 0, 0, false, 1, "", false, true, false, false, -1);
+
+      assertFalse(started);
+      assertFalse(EngineManager.isEngineGame);
+      assertFalse(EngineManager.isPreEngineGame);
+      assertEquals(1, manager.leaseConflictCount);
+      assertFalse(Lizzie.board.isPkBoard);
+    } finally {
+      reservation.close();
+    }
+  }
+
+  @Test
+  void pkOccupancyFailureDoesNotStartTheGame() throws Exception {
+    Leelaz.ExclusiveGtpLifecycleReservation whiteReservation =
+        white.beginExclusiveGtpLifecycleReservation(new Object());
+    assertTrue(whiteReservation != null);
+    try {
+      boolean started =
+          manager.startEngineGame(
+              0, 1, 2, 2, 0, 0, 0, 0, false, 1, "", false, true, false, false, -1);
+
+      assertFalse(started);
+      assertFalse(EngineManager.isEngineGame);
+      assertFalse(EngineManager.isPreEngineGame);
+      assertTrue(
+          manager.leaseConflictCount >= 1,
+          "a live exclusive occupant must still show the exclusive-task dialog");
+      assertFalse(Lizzie.board.isPkBoard);
+    } finally {
+      whiteReservation.close();
+    }
+  }
+
+  private static EngineGameInfo gameInfo() {
+    EngineGameInfo gameInfo = new EngineGameInfo();
+    gameInfo.blackEngineIndex = 0;
+    gameInfo.whiteEngineIndex = 1;
+    gameInfo.firstEngineIndex = 0;
+    gameInfo.secondEngineIndex = 1;
+    gameInfo.isGenmove = true;
+    return gameInfo;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> T allocate(Class<T> type) throws Exception {
+    Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+    unsafeField.setAccessible(true);
+    sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+    return (T) unsafe.allocateInstance(type);
+  }
+
+  private static final class CountingLeaseEngineManager extends EngineManager {
+    private int leaseConflictCount;
+
+    private CountingLeaseEngineManager(List<Leelaz> engines) {
+      super(engines);
+    }
+
+    @Override
+    public void changeEngIcoForEndPk() {
+      Lizzie.leelaz.holdUnfinishedForegroundRestoreOccupancyForTest();
+    }
+
+    @Override
+    protected void showForegroundEngineLeaseInUse() {
+      leaseConflictCount++;
+    }
+
+    @Override
+    protected void dispatchEngineGameUi(Runnable update) {
+      update.run();
+    }
+  }
+
+  private static final class OccupancyLeelaz extends Leelaz {
+    private final List<String> displayedKeys = new ArrayList<>();
+
+    private OccupancyLeelaz() throws Exception {
+      super("");
+    }
+
+    private void bindLiveRuntime() {
+      installFreshCommandOutputForTest(new ByteArrayOutputStream());
+      started = true;
+      isLoaded = true;
+      width = 19;
+      height = 19;
+    }
+
+    @Override
+    protected void displayExclusiveGtpConflictMessage(String key) {
+      displayedKeys.add(key);
+    }
+  }
+
+  private static final class SilentBoard extends Board {
+    @Override
+    public void clear(boolean isEngineGame) {}
+  }
+
+  private static final class SilentGtpConsole extends GtpConsolePane {
+    @Override
+    public boolean isVisible() {
+      return false;
+    }
+
+    @Override
+    public void addLine(String line) {}
+
+    @Override
+    public void addErrorLine(String line) {}
+  }
+
+  private static final class SilentFrame extends LizzieFrame {
+    @Override
+    public boolean isDisplayable() {
+      return true;
+    }
+
+    @Override
+    public boolean isInputRoutingInitialized() {
+      return true;
+    }
+
+    @Override
+    public void addInput(boolean shouldAdd) {}
+
+    @Override
+    public void removeInput(boolean shouldRemove) {}
+
+    @Override
+    public void setResult(String result) {}
+
+    @Override
+    public void resetTitle() {}
+
+    @Override
+    public void restoreWRN(boolean isGenmove) {}
+
+    @Override
+    public void refresh() {}
+
+    @Override
+    public void setPlayers(String whiteName, String blackName) {}
+
+    @Override
+    public void updateTitle() {}
+  }
+
+  private static final class SilentToolbar extends BottomToolbar {
+    @Override
+    public void enableDisabelForEngineGame(boolean enable) {}
+  }
+
+  private static final class SilentMenu extends Menu {
+    private SilentMenu() {}
+
+    @Override
+    public void toggleEngineMenuStatus(boolean isPondering, boolean isThinking) {}
+
+    @Override
+    public void toggleDoubleMenuGameStatus() {}
+
+    @Override
+    public void setBtnRankMark() {}
+  }
+}

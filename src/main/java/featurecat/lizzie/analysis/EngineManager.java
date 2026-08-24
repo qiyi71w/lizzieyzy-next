@@ -2481,6 +2481,10 @@ public class EngineManager {
             startEngineForPkSynchronization(
                 gameTransaction, gameTransaction.whiteIndex, gameTransaction.whiteEngine);
       if (!startupLease.isCurrent()) return null;
+      if (abortStartIfPkOccupancyRejected(
+          gameTransaction, blackSynchronization, whiteSynchronization)) {
+        return null;
+      }
       Runnable runnable =
           new Runnable() {
             public void run() {
@@ -2576,6 +2580,10 @@ public class EngineManager {
             startEngineForPkSynchronization(
                 gameTransaction, gameTransaction.whiteIndex, gameTransaction.whiteEngine);
         if (!startupLease.isCurrent()) return null;
+        if (abortStartIfPkOccupancyRejected(
+            gameTransaction, blackSynchronization, whiteSynchronization)) {
+          return null;
+        }
         Runnable runnable =
                   new Runnable() {
                     public void run() {
@@ -4326,7 +4334,29 @@ public class EngineManager {
   }
 
   protected void showForegroundEngineLeaseInUse() {
-    Utils.showMsg(Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease"));
+    Leelaz engine = Lizzie.leelaz;
+    long generation = engine == null ? -1L : engine.exclusiveOccupancyPromptGeneration();
+    String message =
+        Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease");
+    SwingUtilities.invokeLater(
+        () -> {
+          if (engine != null && generation != engine.exclusiveOccupancyPromptGeneration()) {
+            return;
+          }
+          Utils.showMsg(message);
+        });
+  }
+
+  private boolean abortStartIfPkOccupancyRejected(
+      EngineGameTransaction transaction,
+      PkEngineSynchronization blackSynchronization,
+      PkEngineSynchronization whiteSynchronization) {
+    if (!blackSynchronization.hasFailed() && !whiteSynchronization.hasFailed()) {
+      return false;
+    }
+    failEngineGameTransaction(
+        transaction, new IllegalStateException("Engine-game occupancy was rejected"));
+    return true;
   }
 
   /**
@@ -13437,6 +13467,10 @@ public class EngineManager {
 
     private void fail() {
       complete();
+    }
+
+    boolean hasFailed() {
+      return isComplete() && !successful;
     }
 
     boolean isComplete() {
