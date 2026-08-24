@@ -4,6 +4,13 @@
 公开目录和软件更新接口的技术后台；GitHub Release 始终保留完整资产、安装器、Linux 包、
 历史版本和自动备用下载，pre-release 不上传 R2。
 
+测试通道不走 R2。签名测试清单只发布到 GitHub：版本化 pre-release 上的
+`lizzieyzy-next-update-envelope.json`，以及固定 tag `channel-beta` 上的同名指针。
+客户端稳定地址是
+`https://github.com/wimi321/lizzieyzy-next/releases/download/channel-beta/lizzieyzy-next-update-envelope.json`。
+`channel-beta` 不是打包版本，只托管这份 envelope，保持 pre-release，不得 `make_latest`，
+也不得带安装包。正式晋升不得改写该指针，也不得把测试安装包或测试指针上传到 R2。
+
 ## 固定资源范围
 
 R2 桶名固定为 `lizzieyzy-next-downloads`，只保留一个正式版。发布脚本要求每个正式版恰好
