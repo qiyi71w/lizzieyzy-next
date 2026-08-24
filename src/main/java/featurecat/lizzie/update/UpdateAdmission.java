@@ -65,7 +65,7 @@ public final class UpdateAdmission {
               "This development or unpackaged build cannot check for updates."));
     }
     if (fetchFailure != null || fetched == null || fetched.manifest == null) {
-      return Result.error(fetchFailureMessage(channel, fetchFailure));
+      return Result.error(fetchFailureMessage(channel));
     }
     UpdateManifest manifest = fetched.manifest;
     if (channel == UpdateChannel.BETA) {
@@ -109,19 +109,17 @@ public final class UpdateAdmission {
         "There is no newer version on the official channel.");
   }
 
-  static String fetchFailureMessage(UpdateChannel channel, Exception failure) {
+  static String fetchFailureMessage(UpdateChannel channel) {
     if (channel == UpdateChannel.BETA) {
       return UpdateText.tr(
           "WindowsUpdate.fetchFailed.beta",
           "无法检查测试通道更新，请确认可以访问 GitHub。",
           "Could not check the test channel. GitHub must be reachable.");
     }
-    String base =
-        UpdateText.tr("WindowsUpdate.checkFailed", "检查更新失败", "Update check failed");
-    if (failure == null) {
-      return base;
-    }
-    return base + ": " + UpdateText.userFacingError(failure);
+    return UpdateText.tr(
+        "WindowsUpdate.fetchFailed.stable",
+        "无法检查正式通道更新，请检查网络后重试。",
+        "Could not check the official channel. Check your network and retry.");
   }
 
   private static String invalidTestPointerMessage() {

@@ -131,6 +131,23 @@ class UpdateAdmissionTest {
   }
 
   @Test
+  void officialChannelFetchFailureNamesOfficialChannel() {
+    UpdateAdmission.Result result =
+        UpdateAdmission.evaluate(
+            UpdateChannel.STABLE,
+            INSTALLED,
+            null,
+            new IOException("all update download sources failed"));
+
+    assertEquals(UpdateAdmission.Kind.ERROR, result.kind);
+    assertNull(result.manifest);
+    assertTrue(result.message.contains("official channel"));
+    assertFalse(result.message.contains("R2"));
+    assertFalse(result.message.contains("Cloudflare"));
+    assertFalse(result.message.toLowerCase().contains("latest"));
+  }
+
+  @Test
   void officialChannelAdmitsNewerOfficialManifest() {
     UpdateAdmission.Result result =
         UpdateAdmission.evaluate(
