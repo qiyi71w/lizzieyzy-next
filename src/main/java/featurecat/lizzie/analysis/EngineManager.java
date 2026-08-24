@@ -2354,6 +2354,9 @@ public class EngineManager {
       return null;
     }
     if (currentForegroundEngine != null) {
+      // Drop delayed exclusive-task dialogs from the previous game's retirement/restore before any
+      // start work that might flush the EDT. A later occupancy failure still shows a fresh prompt.
+      currentForegroundEngine.bumpExclusiveOccupancyPromptGeneration();
       // Preserve the legacy, user-visible stop-ponder intent even when the lifecycle admission is
       // rejected. This happens before transaction publication, so a throwing override cannot
       // strand PREPARING state or a lifecycle lease.
@@ -4347,7 +4350,7 @@ public class EngineManager {
         });
   }
 
-  private boolean abortStartIfPkOccupancyRejected(
+  boolean abortStartIfPkOccupancyRejected(
       EngineGameTransaction transaction,
       PkEngineSynchronization blackSynchronization,
       PkEngineSynchronization whiteSynchronization) {

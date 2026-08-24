@@ -368,7 +368,11 @@ public class Leelaz {
   private Object exclusiveGtpLifecycleOwner;
   private int exclusiveGtpLifecycleDepth;
   private final Object foregroundRestoreLifecycleOwner = new Object();
-  private final AtomicLong exclusiveOccupancyPromptGeneration = new AtomicLong();
+  /**
+   * Shared across engine instances so a successful later occupancy claim drops a delayed exclusive
+   * prompt scheduled by a previous game's retirement/restore on a different engine.
+   */
+  private static final AtomicLong exclusiveOccupancyPromptGeneration = new AtomicLong();
   private final AtomicLong restartBootstrapAttemptIds = new AtomicLong();
   private final ThreadLocal<RestartBootstrapReceipt> restartBootstrapReceiptContext =
       new ThreadLocal<>();
@@ -13805,6 +13809,10 @@ public class Leelaz {
   }
 
   private void bumpExclusiveOccupancyPromptGenerationLocked() {
+    exclusiveOccupancyPromptGeneration.incrementAndGet();
+  }
+
+  void bumpExclusiveOccupancyPromptGeneration() {
     exclusiveOccupancyPromptGeneration.incrementAndGet();
   }
 

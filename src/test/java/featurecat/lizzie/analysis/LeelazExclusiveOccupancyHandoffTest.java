@@ -21,11 +21,13 @@ class LeelazExclusiveOccupancyHandoffTest {
       Lizzie.frame = allocate(DisplayableFrame.class);
 
       assertTrue(engine.holdUnfinishedForegroundRestoreOccupancyForTest());
-      engine.showExclusiveGtpConflictMessage();
-
-      assertTrue(
-          engine.beginExclusiveGtpLifecycleTransition(),
-          "an unfinished end-game restore must hand off occupancy to the next start");
+      SwingUtilities.invokeAndWait(
+          () -> {
+            engine.showExclusiveGtpConflictMessage();
+            assertTrue(
+                engine.beginExclusiveGtpLifecycleTransition(),
+                "an unfinished end-game restore must hand off occupancy to the next start");
+          });
       assertFalse(engine.isUnfinishedForegroundRestoreOccupancyHeldForTest());
 
       SwingUtilities.invokeAndWait(() -> {});
@@ -54,12 +56,41 @@ class LeelazExclusiveOccupancyHandoffTest {
       engine.showExclusiveGtpConflictMessage();
       SwingUtilities.invokeAndWait(() -> {});
 
-      assertEquals(
-          List.of("AnalysisSettings.reuseStatus.existing_lease"), engine.displayedKeys);
+      assertEquals(List.of("AnalysisSettings.reuseStatus.existing_lease"), engine.displayedKeys);
     } finally {
       if (reservation != null) {
         reservation.close();
       }
+      Lizzie.frame = previousFrame;
+      SwingUtilities.invokeAndWait(() -> {});
+    }
+  }
+
+  @Test
+  void delayedExclusivePromptFromPreviousEngineIsDroppedAfterLaterStartOccupancy()
+      throws Exception {
+    LizzieFrame previousFrame = Lizzie.frame;
+    try {
+      PromptRecordingLeelaz previous = new PromptRecordingLeelaz();
+      PromptRecordingLeelaz next = new PromptRecordingLeelaz();
+      Lizzie.frame = allocate(DisplayableFrame.class);
+
+      assertTrue(previous.holdUnfinishedForegroundRestoreOccupancyForTest());
+      SwingUtilities.invokeAndWait(
+          () -> {
+            previous.showExclusiveGtpConflictMessage();
+            assertTrue(
+                next.beginExclusiveGtpLifecycleTransition(),
+                "a later start on another engine must still claim occupancy");
+            next.endExclusiveGtpLifecycleTransition();
+          });
+
+      SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(
+          List.of(),
+          previous.displayedKeys,
+          "a delayed exclusive-task prompt from the previous game must not appear after occupancy already succeeded");
+    } finally {
       Lizzie.frame = previousFrame;
       SwingUtilities.invokeAndWait(() -> {});
     }
