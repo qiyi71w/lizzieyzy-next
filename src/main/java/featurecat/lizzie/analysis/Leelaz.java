@@ -367,6 +367,12 @@ public class Leelaz {
   private boolean exclusiveGtpLifecycleQueueGate;
   private Object exclusiveGtpLifecycleOwner;
   private int exclusiveGtpLifecycleDepth;
+  private final Object foregroundRestoreLifecycleOwner = new Object();
+  /**
+   * Shared across engine instances so a successful later occupancy claim drops a delayed exclusive
+   * prompt scheduled by a previous game's retirement/restore on a different engine.
+   */
+  private static final AtomicLong exclusiveOccupancyPromptGeneration = new AtomicLong();
   private final AtomicLong restartBootstrapAttemptIds = new AtomicLong();
   private final ThreadLocal<RestartBootstrapReceipt> restartBootstrapReceiptContext =
       new ThreadLocal<>();
@@ -13578,6 +13584,35 @@ public class Leelaz {
     }
   }
 
+  boolean holdUnfinishedForegroundRestoreOccupancyForTest() {
+    synchronized (engineArbitrationLock()) {
+      if (exclusiveGtpSession != null
+          || trackingHandoffGate != null
+          || hasLifecycleCompletionLocked()
+          || (exclusiveGtpLifecycleTransition
+              && exclusiveGtpLifecycleOwner != null
+              && exclusiveGtpLifecycleOwner != foregroundRestoreLifecycleOwner)) {
+        return false;
+      }
+      exclusiveGtpLifecycleTransition = true;
+      exclusiveGtpLifecycleQueueGate = false;
+      exclusiveGtpLifecycleOwner = null;
+      exclusiveGtpLifecycleDepth = 0;
+      foregroundRestoreInProgress = true;
+      return true;
+    }
+  }
+
+  boolean isUnfinishedForegroundRestoreOccupancyHeldForTest() {
+    synchronized (engineArbitrationLock()) {
+      return isHandoffableForegroundRestoreOccupancyLocked();
+    }
+  }
+
+  long exclusiveOccupancyPromptGeneration() {
+    return exclusiveOccupancyPromptGeneration.get();
+  }
+
   /** Returns whether foreground quick analysis owns, or is restoring from, the exclusive lease. */
   public boolean hasForegroundAnalysisLeaseWorkInProgress() {
     synchronized (engineArbitrationLock()) {
@@ -13715,16 +13750,70 @@ public class Leelaz {
       return false;
     }
     if (exclusiveGtpLifecycleTransition) {
-      if (exclusiveGtpLifecycleOwner != owner) {
-        return false;
+      if (exclusiveGtpLifecycleOwner == owner) {
+        exclusiveGtpLifecycleDepth++;
+        return true;
       }
-      exclusiveGtpLifecycleDepth++;
-      return true;
+      return handOffUnfinishedForegroundRestoreOccupancyLocked(owner);
     }
     exclusiveGtpLifecycleTransition = true;
     exclusiveGtpLifecycleOwner = owner;
     exclusiveGtpLifecycleDepth = 1;
+    bumpExclusiveOccupancyPromptGenerationLocked();
     return true;
+  }
+
+  private boolean isHandoffableForegroundRestoreOccupancyLocked() {
+    if (!exclusiveGtpLifecycleTransition
+        || exclusiveGtpSession != null
+        || trackingHandoffGate != null
+        || hasLifecycleCompletionLocked()) {
+      return false;
+    }
+    return exclusiveGtpLifecycleOwner == null
+        || exclusiveGtpLifecycleOwner == foregroundRestoreLifecycleOwner;
+  }
+
+  private boolean handOffUnfinishedForegroundRestoreOccupancyLocked(Object owner) {
+    if (owner == null || !isHandoffableForegroundRestoreOccupancyLocked()) {
+      return false;
+    }
+    ExclusiveGtpSession session = foregroundRestoreSession;
+    Timer restoreTimeout = null;
+    Thread restoreThread = null;
+    if (session != null && !session.restoreCompleted) {
+      session.restoreCompleted = true;
+      restoreTimeout = session.restoreTimeout;
+      restoreThread = session.restoreThread;
+      session.restoreTimeout = null;
+      session.restoreThread = null;
+    }
+    foregroundRestoreInProgress = false;
+    foregroundRestoreSession = null;
+    suppressNormalCommandsForForegroundAnalysis = false;
+    exclusiveGtpLifecycleTransition = true;
+    exclusiveGtpLifecycleOwner = owner;
+    exclusiveGtpLifecycleDepth = 1;
+    exclusiveGtpLifecycleQueueGate = false;
+    bumpExclusiveOccupancyPromptGenerationLocked();
+    if (restoreTimeout != null) {
+      restoreTimeout.cancel();
+    }
+    if (restoreThread != null && restoreThread != Thread.currentThread()) {
+      restoreThread.interrupt();
+    }
+    synchronized (commandQueue()) {
+      foregroundRestoreCommandQueue().clear();
+    }
+    return true;
+  }
+
+  private void bumpExclusiveOccupancyPromptGenerationLocked() {
+    exclusiveOccupancyPromptGeneration.incrementAndGet();
+  }
+
+  void bumpExclusiveOccupancyPromptGeneration() {
+    exclusiveOccupancyPromptGeneration.incrementAndGet();
   }
 
   public void endExclusiveGtpLifecycleTransition() {
@@ -13777,7 +13866,22 @@ public class Leelaz {
         engineStateUnrestored
             ? "AnalysisSettings.reuseStatus.engine_state_unrestored"
             : "AnalysisSettings.reuseStatus.existing_lease";
-    SwingUtilities.invokeLater(() -> Utils.showMsg(Lizzie.resourceBundle.getString(key)));
+    long generation = exclusiveOccupancyPromptGeneration.get();
+    SwingUtilities.invokeLater(() -> displayExclusiveOccupancyPromptIfCurrent(generation, key));
+  }
+
+  private void displayExclusiveOccupancyPromptIfCurrent(long generation, String key) {
+    if (generation != exclusiveOccupancyPromptGeneration.get()) {
+      return;
+    }
+    displayExclusiveGtpConflictMessage(key);
+  }
+
+  protected void displayExclusiveGtpConflictMessage(String key) {
+    if (Lizzie.frame == null || !Lizzie.frame.isDisplayable() || Lizzie.resourceBundle == null) {
+      return;
+    }
+    Utils.showMsg(Lizzie.resourceBundle.getString(key));
   }
 
   private boolean hasConflictingExclusiveGtpWork() {
@@ -14540,8 +14644,8 @@ public class Leelaz {
               && isStarted();
       exclusiveGtpLifecycleTransition = true;
       exclusiveGtpLifecycleQueueGate = false;
-      exclusiveGtpLifecycleOwner = null;
-      exclusiveGtpLifecycleDepth = 0;
+      exclusiveGtpLifecycleOwner = foregroundRestoreLifecycleOwner;
+      exclusiveGtpLifecycleDepth = 1;
       foregroundRestoreInProgress = true;
       foregroundRestoreSession = session;
     }
