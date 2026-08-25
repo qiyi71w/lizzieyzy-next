@@ -107,9 +107,9 @@ class TsumegoTest {
             1, TsumegoTest::placeBlackSurroundsWhite, true, false, false, false, false, false);
     Stone[] originals = originalBlackSurroundsWhite();
 
-    assertTrue(countAdded(originals, blackAttack, Stone.BLACK) > 0);
-    assertTrue(countAdded(originals, whiteAttack, Stone.WHITE) > 0);
-    assertFalse(Arrays.equals(blackAttack, whiteAttack));
+    int wallIndex = Board.getIndex(6, 9);
+    assertEquals(Stone.BLACK, blackAttack[wallIndex]);
+    assertEquals(Stone.WHITE, whiteAttack[wallIndex]);
   }
 
   @Test
@@ -166,7 +166,6 @@ class TsumegoTest {
     Stone[] none = construct(1, TsumegoTest::placeTallLeftEdge, false, false, false, false);
     Stone[] sideKo = construct(1, TsumegoTest::placeTallLeftEdge, true, false, false, false);
 
-    assertArrayEquals(none, sideKo);
     assertTrue(stoneDeltas(none, sideKo).isEmpty());
   }
 
@@ -369,16 +368,6 @@ class TsumegoTest {
     int count = 0;
     for (Stone stone : stones) {
       if (stone != Stone.EMPTY) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  private static int countAdded(Stone[] originals, Stone[] actual, Stone color) {
-    int count = 0;
-    for (int i = 0; i < originals.length; i++) {
-      if (originals[i] == Stone.EMPTY && actual[i] == color) {
         count++;
       }
     }
