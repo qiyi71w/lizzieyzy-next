@@ -73,6 +73,7 @@ public class NewEngineGameDialog extends JDialog {
       new JFontLabel(Lizzie.resourceBundle.getString("NewEngineGameDialog.lblsgf").trim());
 
   private boolean cancelled = true;
+  private boolean pendingEngineGameStart;
   private GameInfo gameInfo;
 
   public NewEngineGameDialog(Window owner) {
@@ -621,10 +622,14 @@ public class NewEngineGameDialog extends JDialog {
     addWindowListener(
         new WindowAdapter() {
           public void windowClosing(WindowEvent e) {
-            //  LizzieFrame.toolbar.chkenginePkContinue.removeActionListener(
-            //      chkEnginePkContinueListener);
-            //  LizzieFrame.toolbar.chkenginePkBatch.removeActionListener(chkBatchGameListener);
             resetFont();
+            if (pendingEngineGameStart) {
+              pendingEngineGameStart = false;
+              cancelled = true;
+              if (Lizzie.engineManager != null) {
+                Lizzie.engineManager.cancelEngineGameStartFromDialog();
+              }
+            }
           }
         });
     LizzieFrame.toolbar.txtenginePkPlayputs.setFont(
@@ -1107,7 +1112,6 @@ public class NewEngineGameDialog extends JDialog {
       // gameInfo.changeKomi();
       gameInfo.setHandicap(handicap);
 
-      // close window
       cancelled = false;
 
       resetFont();
@@ -1115,7 +1119,34 @@ public class NewEngineGameDialog extends JDialog {
       Lizzie.board.getHistory().setGameInfo(gameInfo);
 
       LizzieFrame.toolbar.chkenginePk.setSelected(true);
-      if (LizzieFrame.toolbar.startEngineGame()) setVisible(false);
+      okButton.setEnabled(false);
+      pendingEngineGameStart = true;
+      if (Lizzie.engineManager != null) {
+        Lizzie.engineManager.attachEngineGameStartDialog(
+            new EngineManager.EngineGameStartDialogHost() {
+              @Override
+              public void onEngineGameStartSucceeded() {
+                pendingEngineGameStart = false;
+                setVisible(false);
+              }
+
+              @Override
+              public void onEngineGameStartFailed(String message) {
+                pendingEngineGameStart = false;
+                cancelled = true;
+                okButton.setEnabled(true);
+                Utils.showMsg(message, NewEngineGameDialog.this);
+              }
+            });
+      }
+      if (!LizzieFrame.toolbar.startEngineGame()) {
+        pendingEngineGameStart = false;
+        cancelled = true;
+        okButton.setEnabled(true);
+        if (Lizzie.engineManager != null) {
+          Lizzie.engineManager.attachEngineGameStartDialog(null);
+        }
+      }
     } catch (ParseException e) {
       Utils.showMsg(
           Lizzie.resourceBundle.getString(EngineGameHandicapApply.ERROR_RESOURCE_KEY), this);
