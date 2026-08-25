@@ -57,6 +57,42 @@ final class BoardStylePainter {
     return points;
   }
 
+  static List<Point> standardStarPoints(int boardWidth, int boardHeight) {
+    if (boardWidth != boardHeight) {
+      return Collections.emptyList();
+    }
+    switch (boardWidth) {
+      case 19:
+        return starGrid(3, 3, 6, false, boardWidth);
+      case 15:
+        return starGrid(2, 3, 8, true, boardWidth);
+      case 13:
+        return starGrid(2, 3, 6, true, boardWidth);
+      case 9:
+        return starGrid(2, 2, 4, true, boardWidth);
+      case 7:
+        return starGrid(2, 2, 2, true, boardWidth);
+      case 5:
+        return starGrid(0, 0, 2, true, boardWidth);
+      default:
+        return Collections.emptyList();
+    }
+  }
+
+  private static List<Point> starGrid(
+      int nStarpoints, int edgeOffset, int gridDistance, boolean center, int boardSize) {
+    List<Point> points = new ArrayList<>();
+    for (int i = 0; i < nStarpoints; i++) {
+      for (int j = 0; j < nStarpoints; j++) {
+        points.add(new Point(edgeOffset + gridDistance * i, edgeOffset + gridDistance * j));
+      }
+    }
+    if (center) {
+      points.add(new Point(boardSize / 2, boardSize / 2));
+    }
+    return points;
+  }
+
   static String chineseClassicCoordinateLabel(int index, int boardSize) {
     if (index < 0 || index >= boardSize || boardSize <= 0) {
       return "";

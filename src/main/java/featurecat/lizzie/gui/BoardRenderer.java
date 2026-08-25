@@ -51,6 +51,12 @@ public class BoardRenderer {
     MOVE_NUMBERS_THEN_RANK
   }
 
+  enum MarkupStroke {
+    DARK,
+    LIGHT,
+    DARK_WITH_LIGHT_HALO
+  }
+
   // Percentage of the boardLength to offset before drawing black lines
   // private static final double MARGIN = 0.03;
   private final ResourceBundle resourceBundle = Lizzie.resourceBundle;
@@ -222,6 +228,49 @@ public class BoardRenderer {
     return showingBranch
         ? MoveOverlayOrder.RANK_THEN_MOVE_NUMBERS
         : MoveOverlayOrder.RANK_ONLY;
+  }
+
+  static boolean isMarkupOnBoard(int x, int y, int boardWidth, int boardHeight) {
+    return x >= 0 && y >= 0 && x < boardWidth && y < boardHeight;
+  }
+
+  static List<String> remainingMarkupEntries(String propertyValue, int boardWidth, int boardHeight) {
+    List<String> remaining = new ArrayList<String>();
+    if (propertyValue == null || propertyValue.isEmpty()) {
+      return remaining;
+    }
+    for (String label : propertyValue.split(",")) {
+      String[] moves = label.split(":");
+      int[] move = SGFParser.convertSgfPosToCoord(moves[0]);
+      if (move != null && isMarkupOnBoard(move[0], move[1], boardWidth, boardHeight)) {
+        remaining.add(label);
+      }
+    }
+    return remaining;
+  }
+
+  static MarkupStroke markupStroke(Stone stone, boolean onStar) {
+    if (stone.isBlack()) {
+      return MarkupStroke.LIGHT;
+    }
+    if (onStar && stone.isEmpty()) {
+      return MarkupStroke.DARK_WITH_LIGHT_HALO;
+    }
+    return MarkupStroke.DARK;
+  }
+
+  static boolean isStarIntersection(
+      int x, int y, int boardWidth, int boardHeight, boolean chineseClassic) {
+    List<Point> points =
+        chineseClassic
+            ? BoardStylePainter.chineseClassicMarkerPoints(boardWidth, boardHeight)
+            : BoardStylePainter.standardStarPoints(boardWidth, boardHeight);
+    for (Point point : points) {
+      if (point.x == x && point.y == y) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Draw a go board */
@@ -1080,36 +1129,16 @@ public class BoardRenderer {
           Board.boardHeight);
       return;
     }
-    if (Board.boardWidth == 19 && Board.boardHeight == 19) {
-      drawStarPoints0(3, 3, 6, false, g);
-    } else if (Board.boardWidth == 15 && Board.boardHeight == 15) {
-      drawStarPoints0(2, 3, 8, true, g);
-    } else if (Board.boardWidth == 13 && Board.boardHeight == 13) {
-      drawStarPoints0(2, 3, 6, true, g);
-    } else if (Board.boardWidth == 9 && Board.boardHeight == 9) {
-      drawStarPoints0(2, 2, 4, true, g);
-    } else if (Board.boardWidth == 7 && Board.boardHeight == 7) {
-      drawStarPoints0(2, 2, 2, true, g);
-    } else if (Board.boardWidth == 5 && Board.boardHeight == 5) {
-      drawStarPoints0(0, 0, 2, true, g);
+    List<Point> points =
+        BoardStylePainter.standardStarPoints(Board.boardWidth, Board.boardHeight);
+    if (points.isEmpty()) {
+      return;
     }
-  }
-
-  private void drawStarPoints0(
-      int nStarpoints, int edgeOffset, int gridDistance, boolean center, Graphics2D g) {
     g.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
     int starPointRadius = (int) (STARPOINT_DIAMETER * min(boardWidth, boardHeight)) / 2;
-    for (int i = 0; i < nStarpoints; i++) {
-      for (int j = 0; j < nStarpoints; j++) {
-        int centerX = scaledMarginWidth + squareWidth * (edgeOffset + gridDistance * i);
-        int centerY = scaledMarginHeight + squareHeight * (edgeOffset + gridDistance * j);
-        fillCircle(g, centerX, centerY, starPointRadius);
-      }
-    }
-
-    if (center) {
-      int centerX = scaledMarginWidth + squareWidth * (Board.boardWidth / 2);
-      int centerY = scaledMarginHeight + squareHeight * (Board.boardHeight / 2);
+    for (Point point : points) {
+      int centerX = scaledMarginWidth + squareWidth * point.x;
+      int centerY = scaledMarginHeight + squareHeight * point.y;
       fillCircle(g, centerX, centerY, starPointRadius);
     }
   }
@@ -4152,53 +4181,85 @@ public class BoardRenderer {
   private void drawStoneMarkup(Graphics2D g) {
     if (isShowingBranch) return;
     BoardData data = Lizzie.board.getHistory().getData();
+    Stone[] stones = Lizzie.board.getStones();
+    boolean chineseClassic = Lizzie.config.useChineseClassicBoardStyle();
 
     data.getProperties()
         .forEach(
             (key, value) -> {
-              if (SGFParser.isListProperty(key)) {
-                String[] labels = value.split(",");
-                for (String label : labels) {
-                  String[] moves = label.split(":");
-                  int[] move = SGFParser.convertSgfPosToCoord(moves[0]);
-                  if (move != null) {
-                    if (move[0] >= Board.boardWidth - 1 || move[1] >= Board.boardWidth - 1) return;
-                    if ((isIndependBoard
-                            ? Lizzie.frame.independentMainBoard.isMouseOver(move[0], move[1])
-                            : Lizzie.frame.isMouseOver(move[0], move[1]))
-                        && isShowingBranch) continue;
-                    int moveX = x + scaledMarginWidth + squareWidth * move[0];
-                    int moveY = y + scaledMarginHeight + squareHeight * move[1];
-                    g.setColor(
-                        Lizzie.board.getStones()[Board.getIndex(move[0], move[1])].isBlack()
-                            ? Color.WHITE
-                            : Color.BLACK);
-                    g.setStroke(new BasicStroke(2));
-                    if ("LB".equals(key) && moves.length > 1) {
-                      // Label
-                      double labelRadius = stoneRadius * 1.4;
-                      drawString(
-                          g,
-                          moveX,
-                          moveY,
-                          LizzieFrame.uiFont,
-                          moves[1],
-                          (float) labelRadius,
-                          labelRadius);
-                    } else if ("TR".equals(key)) {
-                      drawTriangle(g, moveX, moveY, (stoneRadius + 1) * 2 / 3);
-                    } else if ("SQ".equals(key)) {
-                      drawSquare(g, moveX, moveY, (stoneRadius + 1) / 2);
-                    } else if ("CR".equals(key)) {
-                      drawCircle(g, moveX, moveY, stoneRadius * 2 / 3);
-                    } else if ("MA".equals(key)) {
-                      drawMarkX(g, moveX, moveY, (stoneRadius + 1) / 2);
-                    }
-                  }
-                }
+              if (!SGFParser.isListProperty(key)) {
+                return;
               }
-              //     }
+              for (String label :
+                  remainingMarkupEntries(value, Board.boardWidth, Board.boardHeight)) {
+                String[] moves = label.split(":");
+                int[] move = SGFParser.convertSgfPosToCoord(moves[0]);
+                if (move == null) {
+                  continue;
+                }
+                if ((isIndependBoard
+                        ? Lizzie.frame.independentMainBoard.isMouseOver(move[0], move[1])
+                        : Lizzie.frame.isMouseOver(move[0], move[1]))
+                    && isShowingBranch) {
+                  continue;
+                }
+                int moveX = x + scaledMarginWidth + squareWidth * move[0];
+                int moveY = y + scaledMarginHeight + squareHeight * move[1];
+                Stone stone = stones[Board.getIndex(move[0], move[1])];
+                MarkupStroke stroke =
+                    markupStroke(
+                        stone,
+                        isStarIntersection(
+                            move[0],
+                            move[1],
+                            Board.boardWidth,
+                            Board.boardHeight,
+                            chineseClassic));
+                drawOneMarkup(g, key, moves, moveX, moveY, stroke);
+              }
             });
+  }
+
+  private void drawOneMarkup(
+      Graphics2D g, String key, String[] moves, int moveX, int moveY, MarkupStroke stroke) {
+    Color markColor = stroke == MarkupStroke.LIGHT ? Color.WHITE : Color.BLACK;
+    boolean label = "LB".equals(key) && moves.length > 1;
+    if (stroke == MarkupStroke.DARK_WITH_LIGHT_HALO) {
+      g.setColor(Color.WHITE);
+      if (label) {
+        drawMarkupLabel(g, moveX - 1, moveY, moves[1]);
+        drawMarkupLabel(g, moveX + 1, moveY, moves[1]);
+        drawMarkupLabel(g, moveX, moveY - 1, moves[1]);
+        drawMarkupLabel(g, moveX, moveY + 1, moves[1]);
+      } else {
+        g.setStroke(new BasicStroke(4));
+        drawMarkupShape(g, key, moveX, moveY);
+      }
+    }
+    g.setColor(markColor);
+    g.setStroke(new BasicStroke(2));
+    if (label) {
+      drawMarkupLabel(g, moveX, moveY, moves[1]);
+    } else {
+      drawMarkupShape(g, key, moveX, moveY);
+    }
+  }
+
+  private void drawMarkupLabel(Graphics2D g, int moveX, int moveY, String text) {
+    double labelRadius = stoneRadius * 1.4;
+    drawString(g, moveX, moveY, LizzieFrame.uiFont, text, (float) labelRadius, labelRadius);
+  }
+
+  private void drawMarkupShape(Graphics2D g, String key, int moveX, int moveY) {
+    if ("TR".equals(key)) {
+      drawTriangle(g, moveX, moveY, (stoneRadius + 1) * 2 / 3);
+    } else if ("SQ".equals(key)) {
+      drawSquare(g, moveX, moveY, (stoneRadius + 1) / 2);
+    } else if ("CR".equals(key)) {
+      drawCircle(g, moveX, moveY, stoneRadius * 2 / 3);
+    } else if ("MA".equals(key)) {
+      drawMarkX(g, moveX, moveY, (stoneRadius + 1) / 2);
+    }
   }
 
   /** Draws the triangle of a circle centered at (centerX, centerY) with radius $radius$ */
