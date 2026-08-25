@@ -19157,30 +19157,26 @@ public class LizzieFrame extends JFrame {
             Lizzie.leelaz.sendCommand("kata-set-param analysisWideRootNoise 0");
           }
         } else {
-          {
-            if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-                .isKatago) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise 0");
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-                      .wrn =
-                  0;
-            }
-            if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.secondEngineIndex)
-                .isKatago) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise 0");
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.secondEngineIndex)
-                      .wrn =
-                  0;
-            }
-          }
+          disableEngineGameWrnAndRestartPonder(
+              Lizzie.engineManager.engineList.get(
+                  EngineManager.engineGameInfo.firstEngineIndex));
+          disableEngineGameWrnAndRestartPonder(
+              Lizzie.engineManager.engineList.get(
+                  EngineManager.engineGameInfo.secondEngineIndex));
         }
       }
+    }
+  }
+
+  private static void disableEngineGameWrnAndRestartPonder(Leelaz engine) {
+    if (engine == null || !engine.isKatago) {
+      return;
+    }
+    boolean restartPonder = engine.isPondering();
+    engine.wrn = 0;
+    engine.sendCommand("kata-set-param analysisWideRootNoise 0");
+    if (restartPonder) {
+      engine.ponder();
     }
   }
 
