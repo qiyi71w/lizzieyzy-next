@@ -69,20 +69,9 @@ class WindowsUpdateDialogResourceTest {
     assertEquals("Official", bundle.getString("WindowsUpdate.channel.stable"));
     assertEquals("Test", bundle.getString("WindowsUpdate.channel.beta"));
     assertEquals("Check update", bundle.getString("WindowsUpdate.btnCheck"));
-    assertEquals(
-        "Official releases only.", bundle.getString("WindowsUpdate.page.channelHint.stable"));
-    assertEquals(
-        "Test builds come from GitHub only.",
-        bundle.getString("WindowsUpdate.page.channelHint.beta"));
     assertEquals("Update source", bundle.getString("WindowsUpdate.page.source"));
     assertEquals("Official site", bundle.getString("WindowsUpdate.source.official"));
     assertEquals("GitHub", bundle.getString("WindowsUpdate.source.github"));
-    assertEquals(
-        "Only the selected source is checked; it will not switch automatically.",
-        bundle.getString("WindowsUpdate.page.sourceHint.stable"));
-    assertEquals(
-        "The test channel source is fixed to GitHub.",
-        bundle.getString("WindowsUpdate.page.sourceHint.beta"));
   }
 
   @Test
@@ -131,13 +120,9 @@ class WindowsUpdateDialogResourceTest {
     assertEquals("正式", bundle.getString("WindowsUpdate.channel.stable"));
     assertEquals("测试", bundle.getString("WindowsUpdate.channel.beta"));
     assertEquals("检查更新", bundle.getString("WindowsUpdate.btnCheck"));
-    assertEquals("正式通道跟随已发布版本。", bundle.getString("WindowsUpdate.page.channelHint.stable"));
-    assertEquals("测试版只从 GitHub 获取。", bundle.getString("WindowsUpdate.page.channelHint.beta"));
     assertEquals("更新源", bundle.getString("WindowsUpdate.page.source"));
     assertEquals("官网", bundle.getString("WindowsUpdate.source.official"));
     assertEquals("GitHub", bundle.getString("WindowsUpdate.source.github"));
-    assertEquals("只检查所选来源，不会自动切换。", bundle.getString("WindowsUpdate.page.sourceHint.stable"));
-    assertEquals("测试通道的更新源固定为 GitHub。", bundle.getString("WindowsUpdate.page.sourceHint.beta"));
   }
 
   @Test
@@ -153,12 +138,8 @@ class WindowsUpdateDialogResourceTest {
     tw.getString("WindowsUpdate.page.source");
     tw.getString("WindowsUpdate.source.official");
     tw.getString("WindowsUpdate.source.github");
-    tw.getString("WindowsUpdate.page.sourceHint.stable");
-    tw.getString("WindowsUpdate.page.sourceHint.beta");
     hk.getString("WindowsUpdate.page.source");
     hk.getString("WindowsUpdate.source.official");
     hk.getString("WindowsUpdate.source.github");
-    hk.getString("WindowsUpdate.page.sourceHint.stable");
-    hk.getString("WindowsUpdate.page.sourceHint.beta");
   }
 }

@@ -32,12 +32,10 @@ public final class CheckUpdateDialog extends JDialog {
       channelRadio(UpdateText.tr("WindowsUpdate.channel.stable", "正式", "Official"));
   private final JRadioButton betaButton =
       channelRadio(UpdateText.tr("WindowsUpdate.channel.beta", "测试", "Test"));
-  private final JFontLabel channelHint = new JFontLabel(" ");
   private final JRadioButton officialSourceButton =
       channelRadio(UpdateText.tr("WindowsUpdate.source.official", "官网", "Official site"));
   private final JRadioButton githubSourceButton =
       channelRadio(UpdateText.tr("WindowsUpdate.source.github", "GitHub", "GitHub"));
-  private final JFontLabel sourceHint = new JFontLabel(" ");
 
   public CheckUpdateDialog(Component parent) {
     super(
@@ -97,20 +95,13 @@ public final class CheckUpdateDialog extends JDialog {
     stableButton.addActionListener(
         e -> {
           UpdateChannel.persist(UpdateChannel.STABLE);
-          refreshChannelHint();
           refreshSourceState();
         });
     betaButton.addActionListener(
         e -> {
           UpdateChannel.persist(UpdateChannel.BETA);
-          refreshChannelHint();
           refreshSourceState();
         });
-
-    channelHint.setFont(channelHint.getFont().deriveFont(Font.PLAIN, 12f));
-    channelHint.setForeground(mutedText());
-    channelHint.setAlignmentY(Component.CENTER_ALIGNMENT);
-    refreshChannelHint();
 
     JPanel channelRow = new JPanel();
     channelRow.setOpaque(false);
@@ -120,8 +111,6 @@ public final class CheckUpdateDialog extends JDialog {
     channelRow.add(stableButton);
     channelRow.add(Box.createHorizontalStrut(12));
     channelRow.add(betaButton);
-    channelRow.add(Box.createHorizontalStrut(16));
-    channelRow.add(channelHint);
 
     GridBagConstraints constraints = new GridBagConstraints();
     constraints.gridx = 0;
@@ -144,9 +133,6 @@ public final class CheckUpdateDialog extends JDialog {
     sourceGroup.add(officialSourceButton);
     sourceGroup.add(githubSourceButton);
 
-    sourceHint.setFont(sourceHint.getFont().deriveFont(Font.PLAIN, 12f));
-    sourceHint.setForeground(mutedText());
-    sourceHint.setAlignmentY(Component.CENTER_ALIGNMENT);
     refreshSourceState();
     officialSourceButton.addActionListener(
         e -> {
@@ -169,8 +155,6 @@ public final class CheckUpdateDialog extends JDialog {
     sourceRow.add(officialSourceButton);
     sourceRow.add(Box.createHorizontalStrut(12));
     sourceRow.add(githubSourceButton);
-    sourceRow.add(Box.createHorizontalStrut(16));
-    sourceRow.add(sourceHint);
 
     constraints.gridy = 2;
     constraints.fill = GridBagConstraints.NONE;
@@ -200,22 +184,6 @@ public final class CheckUpdateDialog extends JDialog {
     return footer;
   }
 
-  private void refreshChannelHint() {
-    if (selectedChannel() == UpdateChannel.BETA) {
-      channelHint.setText(
-          UpdateText.tr(
-              "WindowsUpdate.page.channelHint.beta",
-              "测试版只从 GitHub 获取。",
-              "Test builds come from GitHub only."));
-      return;
-    }
-    channelHint.setText(
-        UpdateText.tr(
-            "WindowsUpdate.page.channelHint.stable",
-            "正式通道跟随已发布版本。",
-            "Official releases only."));
-  }
-
   private UpdateChannel selectedChannel() {
     return betaButton.isSelected() ? UpdateChannel.BETA : UpdateChannel.STABLE;
   }
@@ -228,20 +196,10 @@ public final class CheckUpdateDialog extends JDialog {
       UpdateSource current = UpdateSource.current();
       officialSourceButton.setSelected(current != UpdateSource.GITHUB);
       githubSourceButton.setSelected(current == UpdateSource.GITHUB);
-      sourceHint.setText(
-          UpdateText.tr(
-              "WindowsUpdate.page.sourceHint.stable",
-              "只检查所选来源，不会自动切换。",
-              "Only the selected source is checked; it will not switch automatically."));
       return;
     }
     officialSourceButton.setSelected(false);
     githubSourceButton.setSelected(true);
-    sourceHint.setText(
-        UpdateText.tr(
-            "WindowsUpdate.page.sourceHint.beta",
-            "测试通道的更新源固定为 GitHub。",
-            "The test channel source is fixed to GitHub."));
   }
 
   private UpdateSource selectedSource() {
