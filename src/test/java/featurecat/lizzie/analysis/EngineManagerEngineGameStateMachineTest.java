@@ -99,6 +99,8 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.leelaz2 = null;
     frame = allocate(TrackingFrame.class);
     frame.inputAttempts = new AtomicInteger();
+    frame.analysisRefreshRequests = new AtomicInteger();
+    frame.analysisTitleUpdateRequests = new AtomicInteger();
     toolbar = allocate(TrackingToolbar.class);
     toolbar.enableAttempts = new AtomicInteger();
     Lizzie.frame = frame;
@@ -2213,6 +2215,45 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(1, black.exactAnalysisActions.get());
     assertEquals(0, black.ordinaryAnalysisActions.get());
     assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+  }
+
+  @Test
+  void exactAnalysisParticipantsAlternateFourMovesAndRefreshCurrentOutput() {
+    EngineManager.EngineGameTransaction transaction = startExactAnalysisGame();
+    startExactAnalyze(black, transaction, "B");
+
+    playExactAnalysisMove(black, "D4", 1);
+    playExactAnalysisMove(white, "Q16", 2);
+    playExactAnalysisMove(black, "C3", 3);
+    playExactAnalysisMove(white, "Q3", 4);
+
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+  }
+
+  @Test
+  void exactAnalysisDuplicateOutputAndStaleContextDoNotCommitAgain() {
+    EngineManager.EngineGameTransaction transaction = startExactAnalysisGame();
+    startExactAnalyze(black, transaction, "B");
+    EngineManager.EngineGamePrimaryContext firstContext =
+        EngineManager.captureEngineGamePrimaryContext(
+            black, black.currentEngineIncarnation());
+    assertNotNull(firstContext);
+
+    playExactAnalysisMove(black, "D4", 1);
+    int refreshAfterCommit = frame.analysisRefreshRequests.get();
+    int titleAfterCommit = frame.analysisTitleUpdateRequests.get();
+
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    black.parseAnalysisLineForTest(kataAnalysisInfo("D4"));
+    black.notifyAutoPkForEngineGameTest(true, firstContext);
+
+    assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals("D4", lastMoveCoordinate());
+    assertEquals(refreshAfterCommit, frame.analysisRefreshRequests.get());
+    assertEquals(titleAfterCommit, frame.analysisTitleUpdateRequests.get());
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
   }
 
   @Test
@@ -4386,8 +4427,80 @@ class EngineManagerEngineGameStateMachineTest {
     return move;
   }
 
+  private EngineManager.EngineGameTransaction startExactAnalysisGame() {
+    EngineGameInfo game = gameInfo();
+    game.firstPlayoutsBlack = 1;
+    game.firstPlayoutsWhite = 1;
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    black.isKatago = true;
+    white.isKatago = true;
+    return transaction;
+  }
+
+  private void startExactAnalyze(
+      StateMachineLeelaz engine,
+      EngineManager.EngineGameTransaction transaction,
+      String color) {
+    String command = "kata-analyze " + color + " 1";
+    engine.sendEngineGameStartupCommandForTest(command, transaction);
+    engine.processCommandResponseLineForTest(
+        "=" + commandIdFor(engine.commandText(), command));
+  }
+
+  private void settleEngineGameCommands(StateMachineLeelaz engine) {
+    int settled = 0;
+    while (true) {
+      int[] ids = numberedCommandIds(engine.commandText());
+      if (ids.length == settled) {
+        return;
+      }
+      for (int index = settled; index < ids.length; index++) {
+        engine.processCommandResponseLineForTest("=" + ids[index]);
+      }
+      settled = ids.length;
+    }
+  }
+
+  private void playExactAnalysisMove(
+      StateMachineLeelaz engine, String coordinate, int expectedMoveNumber) {
+    int refreshBefore = frame.analysisRefreshRequests.get();
+    int titleBefore = frame.analysisTitleUpdateRequests.get();
+    engine.parseAnalysisLineForTest(kataAnalysisInfo(coordinate));
+    assertEquals(expectedMoveNumber, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(coordinate, lastMoveCoordinate());
+    assertTrue(frame.analysisRefreshRequests.get() > refreshBefore);
+    assertEquals(titleBefore, frame.analysisTitleUpdateRequests.get());
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+  }
+
+  private static String lastMoveCoordinate() {
+    return Lizzie.board
+        .getLastMove()
+        .map(coords -> Board.convertCoordinatesToName(coords[0], coords[1]))
+        .orElseThrow(() -> new AssertionError("missing last move"));
+  }
+
   private static String kataAnalysisInfo() {
-    return "info move D4 visits 40 winrate 0.51 scoreLead 2.5 scoreStdev 0.75 prior 0.2 pv D4";
+    return kataAnalysisInfo("D4");
+  }
+
+  private static String kataAnalysisInfo(String coordinate) {
+    return "info move "
+        + coordinate
+        + " visits 40 winrate 0.51 scoreLead 2.5 scoreStdev 0.75 prior 0.2 pv "
+        + coordinate;
+  }
+
+  private static int[] numberedCommandIds(String output) {
+    return output
+        .lines()
+        .map(String::trim)
+        .map(line -> line.split("\\s+", 2)[0])
+        .filter(token -> !token.isEmpty() && token.chars().allMatch(Character::isDigit))
+        .mapToInt(Integer::parseInt)
+        .toArray();
   }
 
   private static int firstCommandId(String output) {
@@ -5391,6 +5504,8 @@ class EngineManagerEngineGameStateMachineTest {
     private AtomicInteger inputAttempts;
     private volatile boolean throwOnInputRestore;
     private volatile BoardHistoryNode displayNodeOverride;
+    private AtomicInteger analysisRefreshRequests;
+    private AtomicInteger analysisTitleUpdateRequests;
 
     @Override
     public boolean isInputRoutingInitialized() {
@@ -5416,10 +5531,14 @@ class EngineManagerEngineGameStateMachineTest {
     }
 
     @Override
-    public void requestAnalysisRefresh() {}
+    public void requestAnalysisRefresh() {
+      analysisRefreshRequests.incrementAndGet();
+    }
 
     @Override
-    public void requestAnalysisTitleUpdate() {}
+    public void requestAnalysisTitleUpdate() {
+      analysisTitleUpdateRequests.incrementAndGet();
+    }
 
     @Override
     public void refresh() {}

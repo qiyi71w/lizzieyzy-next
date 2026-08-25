@@ -6421,7 +6421,9 @@ public class Leelaz {
                   }
                 }
                 outcome.requestAnalysisRefresh =
-                    !EngineManager.isEngineGame || (!played && treatCurrentInfoAsPrimary);
+                    !EngineManager.isEngineGame
+                        || route.acceptsExactEngineGameOutput()
+                        || (!played && treatCurrentInfoAsPrimary);
                 outcome.requestAnalysisTitleUpdate = !outcome.requestAnalysisRefresh;
                 // don't follow the maxAnalyzeTime rule if we are in game
                 if (!Lizzie.frame.isPlayingAgainstLeelaz
@@ -7876,7 +7878,6 @@ public class Leelaz {
     if (game == null
         || game.gameInfo.isGenmove
         || game.participant != this
-        || played
         || LizzieFrame.toolbar.isPkStop) {
       return;
     }
