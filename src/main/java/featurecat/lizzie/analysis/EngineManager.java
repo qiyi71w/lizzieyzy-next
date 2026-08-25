@@ -2594,24 +2594,35 @@ public class EngineManager {
         // genmove对战
         if (gameTransaction.blackEngine != null) {
           if (!runEngineGameIoStep(gameTransaction, gameTransaction.blackEngine::clearBestMoves)) {
+            logEngineGameStart("genmove-black-clear-best-moves-failed");
             return null;
           }
         }
         if (gameTransaction.whiteEngine != null) {
           if (!runEngineGameIoStep(gameTransaction, gameTransaction.whiteEngine::clearBestMoves)) {
+            logEngineGameStart("genmove-white-clear-best-moves-failed");
             return null;
           }
-              }
+        }
         ArrayList<Movelist> startList = prepareEngineGameBoard(firstTime, false, gameAtStart);
-        if (!startupLease.isCurrent()) return null;
+        if (!startupLease.isCurrent()) {
+          logEngineGameStart("genmove-lease-stale-after-board");
+          return null;
+        }
         PkEngineSynchronization blackSynchronization =
             startEngineForPkSynchronization(
                 gameTransaction, gameTransaction.blackIndex, gameTransaction.blackEngine);
-        if (!startupLease.isCurrent()) return null;
+        if (!startupLease.isCurrent()) {
+          logEngineGameStart("genmove-lease-stale-after-black-pk");
+          return null;
+        }
         PkEngineSynchronization whiteSynchronization =
             startEngineForPkSynchronization(
                 gameTransaction, gameTransaction.whiteIndex, gameTransaction.whiteEngine);
-        if (!startupLease.isCurrent()) return null;
+        if (!startupLease.isCurrent()) {
+          logEngineGameStart("genmove-lease-stale-after-white-pk");
+          return null;
+        }
         if (abortStartIfPkOccupancyRejected(
             gameTransaction, blackSynchronization, whiteSynchronization)) {
           return null;
