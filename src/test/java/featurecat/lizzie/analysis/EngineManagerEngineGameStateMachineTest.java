@@ -1029,6 +1029,31 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   @Test
+  void kataGenmoveAnalyzeEmptyEqualsThenPlayCommitsMove() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameInfo game = gameInfo();
+    game.isGenmove = true;
+    black.isKatago = true;
+    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    assertTrue(black.genmoveForPk("B", transaction));
+    int commandId = firstCommandId(black.commandText());
+
+    black.parseEngineGameLineForTest("=" + commandId);
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+    assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(1, transaction.operationsInFlightForTest());
+
+    black.parseEngineGameLineForTest(kataAnalysisInfo());
+    assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+
+    black.parseEngineGameLineForTest("play D4");
+    assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+  }
+
+  @Test
   void validCoordinateAndPassResponsesCommitRealBoardAndSerializeNextGenmoveBehindPlayAck()
       throws Exception {
     RecordingBoard board = recordingBoard();

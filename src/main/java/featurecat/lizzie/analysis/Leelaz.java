@@ -4670,9 +4670,11 @@ public class Leelaz {
       throws IOException {
     if (moveResponseHandler != null
         && parseResponseCommandId(line) == NO_RESPONSE_COMMAND_ID
-        && isUnnumberedEngineGameTerminalCarrier(line)) {
+        && isUnnumberedEngineGameTerminalCarrier(line)
+        && !moveResponseHandler.acceptsUnnumberedAnalyzePlay(line)) {
       // Exact genmove requests are numbered. Never let a late legacy/unframed predecessor response
       // borrow the current carrier and mutate the board while leaving its real permit unsettled.
+      // Analyze-style genmove streams ACK with an empty numbered "=" and finish on unnumbered "play".
       return;
     }
     EngineManager.EngineGameMoveResponseContext moveResponseContext =
@@ -4832,6 +4834,15 @@ public class Leelaz {
               : line.trim().split(" ");
       // currentCmdNum = Integer.parseInt(params[0].substring(1).trim());
       if (params.length <= 1) {
+        if (moveResponseHandler != null
+            && moveResponseHandler.isAnalyzeStream()
+            && line.startsWith("=")
+            && parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID) {
+          // kata-genmove_analyze / lz-genmove_analyze ACK. Keep the numbered carrier in flight
+          // until the later unnumbered play/resign/pass terminal.
+          isCommandLine = false;
+          return;
+        }
         if (parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID) {
           processCommandResponseLine(line, sourceEngineIncarnation);
           afterEngineGameResponseSettledForTest();
@@ -4852,6 +4863,17 @@ public class Leelaz {
           afterEngineGameResponseSettledForTest();
           isCommandLine = false;
           if (!responseLease.isCurrent()) return;
+        } else if (moveResponseHandler != null
+            && moveResponseHandler.acceptsUnnumberedAnalyzePlay(line)
+            && !params[1].startsWith("Passing")) {
+          int pendingId = pendingResponseCommandIdFor(moveResponseHandler);
+          if (pendingId != NO_RESPONSE_COMMAND_ID) {
+            processCommandResponseLine(
+                "=" + pendingId + " " + params[1], sourceEngineIncarnation);
+            afterEngineGameResponseSettledForTest();
+            isCommandLine = false;
+            if (!responseLease.isCurrent()) return;
+          }
         }
         if (this.isZen) {
           if (!publishExactZenEngineGameBestMoves(moveResponseContext)) {
@@ -12695,6 +12717,9 @@ public class Leelaz {
     if (!isUnnumberedEngineGameTerminalCarrier(line)) {
       return false;
     }
+    if (analyzeStreamHandlerForUnnumberedPlay(line, binding) != null) {
+      return false;
+    }
     ReaderStreamBinding currentBinding = currentReaderStreamBinding();
     PendingResponseHandler matched = peekPendingResponseHandler(line);
     if (matched != null && !matched.isStaleResponseBinding(binding, currentBinding)) {
@@ -12788,8 +12813,12 @@ public class Leelaz {
       EngineGameResponseHandler active = activeEngineGameResponseHandler.get();
       if (active != null
           && active.isActiveFor(binding)
-          && !isUnnumberedEngineGameTerminalCarrier(line)) {
+          && (!isUnnumberedEngineGameTerminalCarrier(line)
+              || active.acceptsUnnumberedAnalyzePlay(line))) {
         handler = active;
+      }
+      if (handler == null) {
+        handler = analyzeStreamHandlerForUnnumberedPlay(line, binding);
       }
     }
     return handler != null && handler.binding == binding ? handler : null;
@@ -12804,6 +12833,57 @@ public class Leelaz {
         || trimmed.startsWith("?")
         || trimmed.equals("play")
         || trimmed.startsWith("play ");
+  }
+
+  private static boolean isAnalyzeStyleEngineGameGenmove(String command) {
+    if (command == null) {
+      return false;
+    }
+    return command.trim().toLowerCase(Locale.ROOT).contains("genmove_analyze");
+  }
+
+  private EngineGameResponseHandler analyzeStreamHandlerForUnnumberedPlay(
+      String line, ReaderStreamBinding binding) {
+    if (binding == null) {
+      return null;
+    }
+    EngineGameResponseHandler active = activeEngineGameResponseHandler.get();
+    if (active != null
+        && active.binding == binding
+        && active.isActiveFor(binding)
+        && active.acceptsUnnumberedAnalyzePlay(line)) {
+      return active;
+    }
+    ReaderStreamBinding currentBinding = currentReaderStreamBinding();
+    ArrayDeque<PendingResponseHandler> handlers = pendingResponseHandlers();
+    synchronized (handlers) {
+      for (PendingResponseHandler pending : handlers) {
+        if (pending.isStaleResponseBinding(binding, currentBinding)
+            || !(pending.handler instanceof EngineGameResponseHandler)) {
+          continue;
+        }
+        EngineGameResponseHandler candidate = (EngineGameResponseHandler) pending.handler;
+        if (candidate.binding == binding && candidate.acceptsUnnumberedAnalyzePlay(line)) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  }
+
+  private int pendingResponseCommandIdFor(Runnable handler) {
+    if (handler == null) {
+      return NO_RESPONSE_COMMAND_ID;
+    }
+    ArrayDeque<PendingResponseHandler> handlers = pendingResponseHandlers();
+    synchronized (handlers) {
+      for (PendingResponseHandler pending : handlers) {
+        if (pending.handler == handler) {
+          return pending.responseCommandId;
+        }
+      }
+    }
+    return NO_RESPONSE_COMMAND_ID;
   }
 
   private PendingResponseHandler findPendingResponseHandler(String line, boolean remove) {
@@ -15855,6 +15935,7 @@ public class Leelaz {
     private final Leelaz owner;
     private final EngineManager.EngineGameMoveResponseContext context;
     private final ReaderStreamBinding binding;
+    private final boolean analyzeStream;
     private final AtomicInteger state = new AtomicInteger(RESERVED);
     private final AtomicReference<EngineManager.EngineGamePhysicalRequestLease> physicalLease =
         new AtomicReference<>();
@@ -15863,10 +15944,24 @@ public class Leelaz {
     private EngineGameResponseHandler(
         Leelaz owner,
         EngineManager.EngineGameMoveResponseContext context,
-        ReaderStreamBinding binding) {
+        ReaderStreamBinding binding,
+        boolean analyzeStream) {
       this.owner = owner;
       this.context = context;
       this.binding = binding;
+      this.analyzeStream = analyzeStream;
+    }
+
+    private boolean isAnalyzeStream() {
+      return analyzeStream;
+    }
+
+    private boolean acceptsUnnumberedAnalyzePlay(String line) {
+      if (!analyzeStream || line == null) {
+        return false;
+      }
+      String trimmed = line.trim();
+      return trimmed.equals("play") || trimmed.startsWith("play ");
     }
 
     private boolean claimPhysicalWrite() {
@@ -20679,7 +20774,8 @@ public class Leelaz {
       return false;
     }
     EngineGameResponseHandler responseHandler =
-        new EngineGameResponseHandler(this, responseContext, binding);
+        new EngineGameResponseHandler(
+            this, responseContext, binding, isAnalyzeStyleEngineGameGenmove(command));
     boolean accepted =
         sendCommand(
             command,
