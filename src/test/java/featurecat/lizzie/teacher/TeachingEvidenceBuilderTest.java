@@ -252,20 +252,13 @@ class TeachingEvidenceBuilderTest {
   @Test
   void verifyTeacherMarkdownStaysQuietForInConstraintText() {
     TeachingEvidence evidence = evidenceWithLegalMoves();
-    RecognizedMotifView joseki = new RecognizedMotifView();
-    joseki.motifType = "joseki:3-4";
-    joseki.confidence = "strong";
-    joseki.title = "小目定式";
-    evidence.recognizedMotifs.add(joseki);
 
     MarkdownVerification verification =
         TeachingEvidenceBuilder.verifyTeacherMarkdown("实战D4，推荐Q16，后续C3。胜率53.1%。", evidence);
 
     assertTrue(verification.ok);
     assertTrue(verification.violations.isEmpty());
-    assertFalse(hasIssue(verification.warnings, "too absolute"));
-    assertFalse(hasIssue(verification.warnings, "Joseki terminology"));
-    assertFalse(hasIssue(verification.warnings, "cite external sources"));
+    assertTrue(verification.warnings.isEmpty());
   }
 
   @Test
