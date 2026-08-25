@@ -1826,6 +1826,31 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   @Test
+  void coldStartBootstrapSetupErrorStillFailsEngineGameTransaction() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    black.isLoaded = false;
+    black.isCheckingName = true;
+    black.trackEngineGameBootstrapCompletion();
+
+    black.dispatchEngineGameBootstrapCommandsForTest(transaction);
+    assertTrue(black.engineGameBootstrapCompleted.await(2, TimeUnit.SECONDS));
+    assertFalse(usesEngineGameResponseCommandId(black.commandText(), "name"));
+    assertFalse(
+        usesEngineGameResponseCommandId(black.commandText(), "boardsize 19")
+            || usesEngineGameResponseCommandId(black.commandText(), "boardsize 13"),
+        "pre-recognition boardsize must not use engine-game command id 600000000");
+
+    black.processCommandResponseLineForTest("=");
+    black.processCommandResponseLineForTest("=");
+    black.processCommandResponseLineForTest("=");
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+
+    black.processCommandResponseLineForTest("?");
+    assertEquals(EngineManager.EngineGamePhase.FAILED, transaction.phase());
+  }
+
+  @Test
   void engineGameCommandsUseDedicatedIdsOnlyAfterNameRecognition() throws Exception {
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
