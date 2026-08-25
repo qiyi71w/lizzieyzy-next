@@ -2895,6 +2895,14 @@ public class EngineManager {
     }
   }
 
+  private static void disableKatagoWrnForEngineGame(Leelaz engine) {
+    if (engine == null || !engine.isKatago) {
+      return;
+    }
+    engine.wrn = 0;
+    engine.sendCommand("kata-set-param analysisWideRootNoise 0");
+  }
+
   private void startEngineGameAnalysisCompletionWorkers(
       EngineGameTransaction transaction,
       EngineGameInfo gameInfo,
@@ -2910,6 +2918,16 @@ public class EngineManager {
               selectedEngine::isResponseUpToDate,
               "Engine-game analysis startup timed out waiting for command responses")) {
             return;
+          }
+          if (Lizzie.config.disableWRNInGame) {
+            if (!runEngineGameIoStep(
+                transaction, () -> disableKatagoWrnForEngineGame(transaction.blackEngine))) {
+              return;
+            }
+            if (!runEngineGameIoStep(
+                transaction, () -> disableKatagoWrnForEngineGame(transaction.whiteEngine))) {
+              return;
+            }
           }
           if (!runEngineGameIoStep(transaction, selectedEngine::ponder)) return;
           if (!runEngineGameIoStep(transaction, selectedEngine::clearBestMoves)) return;
