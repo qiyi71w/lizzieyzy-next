@@ -81,11 +81,13 @@ Ed25519 私钥只能存在于 GitHub Secret；应用内只包含公钥。更换�
 
 ## 客户端行为
 
-帮助菜单的「检查更新」只打开检查更新页，不联网。用户在页上选择更新通道后点「检查更新」
-才取清单。默认正式通道，行为与现在一致：依次读取 R2 与 GitHub `releases/latest` 上的
-签名 v2 清单。测试通道只读固定指针
+帮助菜单的「检查更新」只打开检查更新页，不联网。用户在页上选择更新通道和更新源后点「检查更新」
+才取清单。默认正式通道、官网源。正式通道只读取用户选择的那一个签名 v2 清单：官网
+`download.goagent.top` 或 GitHub `releases/latest`，失败不会改试另一源。选择写入
+`update-source=official|github`，缺省官网。测试通道只读固定指针
 `https://github.com/wimi321/lizzieyzy-next/releases/download/channel-beta/lizzieyzy-next-update-envelope.json`，
-没有官网回退，也不扫 Releases API。签名、通道、版本、大小或 SHA-256 不正确时拒绝安装。
+页面显示 GitHub 为固定有效源，但不覆盖已记住的正式源；没有官网回退，也不扫 Releases API。
+签名、通道、版本、大小或 SHA-256 不正确时拒绝安装。
 通道选择写入 `update-channel`，缺省为正式；切换通道不改已安装文件，也不自动降级。
 
 - Windows 使用 `core-update` 原位更新并保留用户数据、引擎和权重。

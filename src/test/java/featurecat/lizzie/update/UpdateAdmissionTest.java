@@ -179,6 +179,41 @@ class UpdateAdmissionTest {
     assertFalse(Lizzie.config.uiConfig.has("update-source"));
   }
 
+  @Test
+  void missingUpdateSourceConfigIsOfficial() {
+    assertEquals(UpdateSource.OFFICIAL_SITE, UpdateSource.fromConfigValue(null));
+    assertEquals(UpdateSource.OFFICIAL_SITE, UpdateSource.fromConfigValue(""));
+    assertEquals(UpdateSource.OFFICIAL_SITE, UpdateSource.fromConfigValue("official"));
+    assertEquals(UpdateSource.OFFICIAL_SITE, UpdateSource.fromConfigValue("unknown"));
+    assertEquals(UpdateSource.GITHUB, UpdateSource.fromConfigValue("github"));
+    assertEquals("update-source", UpdateSource.CONFIG_KEY);
+  }
+
+  @Test
+  void persistingSourceWritesUiConfigOnly() {
+    Lizzie.config = ConfigTestHelper.createForTests(tempDir.resolve("source-config"));
+    Lizzie.config.uiConfig = new JSONObject();
+
+    assertEquals(UpdateSource.OFFICIAL_SITE, UpdateSource.current());
+    UpdateSource.persist(UpdateSource.GITHUB);
+
+    assertEquals("github", Lizzie.config.uiConfig.getString(UpdateSource.CONFIG_KEY));
+    assertEquals(UpdateSource.GITHUB, UpdateSource.current());
+    assertFalse(Lizzie.config.uiConfig.has(UpdateChannel.CONFIG_KEY));
+  }
+
+  @Test
+  void persistingChannelDoesNotChangeExistingSource() {
+    Lizzie.config = ConfigTestHelper.createForTests(tempDir.resolve("source-channel-isolation"));
+    Lizzie.config.uiConfig = new JSONObject();
+
+    UpdateSource.persist(UpdateSource.GITHUB);
+    UpdateChannel.persist(UpdateChannel.BETA);
+
+    assertEquals(UpdateSource.GITHUB, UpdateSource.current());
+    assertEquals(UpdateChannel.BETA, UpdateChannel.current());
+  }
+
   private static UpdateAdmission.FetchedManifest signed(String tag, boolean prerelease) {
     JSONObject payload = SignedUpdateEnvelopeTest.validPayload();
     payload.put("releaseTag", tag);

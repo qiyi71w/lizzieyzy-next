@@ -73,25 +73,54 @@ class UpdateManifestClientTest {
   }
 
   @Test
-  void officialChannelUsesCurrentOfficialEnvelopeSequence() {
+  void officialChannelOfficialSourceUsesOnlyR2Envelope() {
     assertEquals(
-        List.of(UpdateManifestClient.R2_ENVELOPE_URL, UpdateManifestClient.GITHUB_ENVELOPE_URL),
-        UpdateManifestClient.envelopeUrlsFor(UpdateChannel.STABLE));
+        List.of(UpdateManifestClient.R2_ENVELOPE_URL),
+        UpdateManifestClient.envelopeUrlsFor(
+            UpdateChannel.STABLE, UpdateSource.OFFICIAL_SITE));
   }
 
   @Test
-  void testChannelUsesOnlyThePointerUrl() {
+  void officialChannelGithubSourceUsesOnlyGithubEnvelope() {
+    assertEquals(
+        List.of(UpdateManifestClient.GITHUB_ENVELOPE_URL),
+        UpdateManifestClient.envelopeUrlsFor(UpdateChannel.STABLE, UpdateSource.GITHUB));
+  }
+
+  @Test
+  void testChannelIgnoresSourceAndOfficialEnvelopeOverride() {
     System.setProperty(
         UpdateManifestClient.ENVELOPE_URLS_PROPERTY,
         UpdateManifestClient.R2_ENVELOPE_URL + "," + UpdateManifestClient.GITHUB_ENVELOPE_URL);
 
-    List<String> urls = UpdateManifestClient.envelopeUrlsFor(UpdateChannel.BETA);
-
-    assertEquals(List.of(UpdateManifestClient.TEST_CHANNEL_POINTER_URL), urls);
+    assertEquals(
+        List.of(UpdateManifestClient.TEST_CHANNEL_POINTER_URL),
+        UpdateManifestClient.envelopeUrlsFor(
+            UpdateChannel.BETA, UpdateSource.OFFICIAL_SITE));
+    assertEquals(
+        List.of(UpdateManifestClient.TEST_CHANNEL_POINTER_URL),
+        UpdateManifestClient.envelopeUrlsFor(UpdateChannel.BETA, UpdateSource.GITHUB));
     assertEquals(
         "https://github.com/wimi321/lizzieyzy-next/releases/download/channel-beta/"
             + "lizzieyzy-next-update-envelope.json",
         UpdateManifestClient.TEST_CHANNEL_POINTER_URL);
+  }
+
+  @Test
+  void officialEnvelopeOverrideTakesPrecedenceOverSelectedSource() {
+    System.setProperty(
+        UpdateManifestClient.ENVELOPE_URLS_PROPERTY,
+        "http://example.test/primary.json,http://example.test/secondary.json");
+
+    assertEquals(
+        List.of("http://example.test/primary.json", "http://example.test/secondary.json"),
+        UpdateManifestClient.envelopeUrlsFor(UpdateChannel.STABLE, UpdateSource.GITHUB));
+
+    System.clearProperty(UpdateManifestClient.ENVELOPE_URLS_PROPERTY);
+
+    assertEquals(
+        List.of(UpdateManifestClient.GITHUB_ENVELOPE_URL),
+        UpdateManifestClient.envelopeUrlsFor(UpdateChannel.STABLE, UpdateSource.GITHUB));
   }
 
 

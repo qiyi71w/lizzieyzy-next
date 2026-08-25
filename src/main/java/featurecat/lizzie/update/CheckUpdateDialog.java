@@ -23,7 +23,7 @@ import javax.swing.JRadioButton;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
-/** 检查更新页: version, 更新通道 + hint, Check. #298 can insert a source row above the footer. */
+/** 检查更新页: current version, 更新通道, 更新源, and Check. Opening the page does not use the network. */
 public final class CheckUpdateDialog extends JDialog {
   private static final Color PAGE_BACKGROUND = new Color(246, 247, 249);
   private static final Color MUTED_TEXT = new Color(90, 96, 104);
@@ -33,6 +33,11 @@ public final class CheckUpdateDialog extends JDialog {
   private final JRadioButton betaButton =
       channelRadio(UpdateText.tr("WindowsUpdate.channel.beta", "测试", "Test"));
   private final JFontLabel channelHint = new JFontLabel(" ");
+  private final JRadioButton officialSourceButton =
+      channelRadio(UpdateText.tr("WindowsUpdate.source.official", "官网", "Official site"));
+  private final JRadioButton githubSourceButton =
+      channelRadio(UpdateText.tr("WindowsUpdate.source.github", "GitHub", "GitHub"));
+  private final JFontLabel sourceHint = new JFontLabel(" ");
 
   public CheckUpdateDialog(Component parent) {
     super(
@@ -93,11 +98,13 @@ public final class CheckUpdateDialog extends JDialog {
         e -> {
           UpdateChannel.persist(UpdateChannel.STABLE);
           refreshChannelHint();
+          refreshSourceState();
         });
     betaButton.addActionListener(
         e -> {
           UpdateChannel.persist(UpdateChannel.BETA);
           refreshChannelHint();
+          refreshSourceState();
         });
 
     channelHint.setFont(channelHint.getFont().deriveFont(Font.PLAIN, 12f));
@@ -126,8 +133,56 @@ public final class CheckUpdateDialog extends JDialog {
     constraints.gridy = 1;
     constraints.fill = GridBagConstraints.HORIZONTAL;
     constraints.weightx = 1;
-    constraints.insets = new Insets(0, 0, 0, 0);
+    constraints.insets = new Insets(0, 0, 14, 0);
     form.add(channelRow, constraints);
+
+    JFontLabel sourceLabel =
+        new JFontLabel(UpdateText.tr("WindowsUpdate.page.source", "更新源", "Update source"));
+    sourceLabel.setLabelFor(officialSourceButton);
+
+    ButtonGroup sourceGroup = new ButtonGroup();
+    sourceGroup.add(officialSourceButton);
+    sourceGroup.add(githubSourceButton);
+
+    sourceHint.setFont(sourceHint.getFont().deriveFont(Font.PLAIN, 12f));
+    sourceHint.setForeground(mutedText());
+    sourceHint.setAlignmentY(Component.CENTER_ALIGNMENT);
+    refreshSourceState();
+    officialSourceButton.addActionListener(
+        e -> {
+          if (selectedChannel() == UpdateChannel.STABLE) {
+            UpdateSource.persist(UpdateSource.OFFICIAL_SITE);
+          }
+        });
+    githubSourceButton.addActionListener(
+        e -> {
+          if (selectedChannel() == UpdateChannel.STABLE) {
+            UpdateSource.persist(UpdateSource.GITHUB);
+          }
+        });
+
+    JPanel sourceRow = new JPanel();
+    sourceRow.setOpaque(false);
+    sourceRow.setLayout(new BoxLayout(sourceRow, BoxLayout.X_AXIS));
+    officialSourceButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+    githubSourceButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+    sourceRow.add(officialSourceButton);
+    sourceRow.add(Box.createHorizontalStrut(12));
+    sourceRow.add(githubSourceButton);
+    sourceRow.add(Box.createHorizontalStrut(16));
+    sourceRow.add(sourceHint);
+
+    constraints.gridy = 2;
+    constraints.fill = GridBagConstraints.NONE;
+    constraints.weightx = 0;
+    constraints.insets = new Insets(0, 0, 8, 0);
+    form.add(sourceLabel, constraints);
+
+    constraints.gridy = 3;
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+    constraints.weightx = 1;
+    constraints.insets = new Insets(0, 0, 0, 0);
+    form.add(sourceRow, constraints);
     return form;
   }
 
@@ -137,7 +192,9 @@ public final class CheckUpdateDialog extends JDialog {
     JFontButton checkButton =
         new JFontButton(UpdateText.tr("WindowsUpdate.btnCheck", "检查更新", "Check update"));
     checkButton.addActionListener(
-        e -> WindowsUpdateController.checkForUpdate(this, selectedChannel()));
+        e ->
+            WindowsUpdateController.checkForUpdate(
+                this, selectedChannel(), selectedSource()));
     footer.add(checkButton);
     getRootPane().setDefaultButton(checkButton);
     return footer;
@@ -161,6 +218,34 @@ public final class CheckUpdateDialog extends JDialog {
 
   private UpdateChannel selectedChannel() {
     return betaButton.isSelected() ? UpdateChannel.BETA : UpdateChannel.STABLE;
+  }
+
+  private void refreshSourceState() {
+    boolean stable = selectedChannel() == UpdateChannel.STABLE;
+    officialSourceButton.setEnabled(stable);
+    githubSourceButton.setEnabled(stable);
+    if (stable) {
+      UpdateSource current = UpdateSource.current();
+      officialSourceButton.setSelected(current != UpdateSource.GITHUB);
+      githubSourceButton.setSelected(current == UpdateSource.GITHUB);
+      sourceHint.setText(
+          UpdateText.tr(
+              "WindowsUpdate.page.sourceHint.stable",
+              "只检查所选来源，不会自动切换。",
+              "Only the selected source is checked; it will not switch automatically."));
+      return;
+    }
+    officialSourceButton.setSelected(false);
+    githubSourceButton.setSelected(true);
+    sourceHint.setText(
+        UpdateText.tr(
+            "WindowsUpdate.page.sourceHint.beta",
+            "测试通道的更新源固定为 GitHub。",
+            "The test channel source is fixed to GitHub."));
+  }
+
+  private UpdateSource selectedSource() {
+    return githubSourceButton.isSelected() ? UpdateSource.GITHUB : UpdateSource.OFFICIAL_SITE;
   }
 
   private static JRadioButton channelRadio(String text) {

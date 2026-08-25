@@ -15,12 +15,17 @@ public final class WindowsUpdateController {
   }
 
   public static void checkForUpdate(Component parent) {
-    checkForUpdate(parent, UpdateChannel.current());
+    checkForUpdate(parent, UpdateChannel.current(), UpdateSource.current());
   }
 
-  public static void checkForUpdate(Component parent, UpdateChannel channel) {
+  public static void checkForUpdate(
+      Component parent, UpdateChannel channel, UpdateSource source) {
     UpdateChannel selected = channel == null ? UpdateChannel.STABLE : channel;
+    UpdateSource selectedSource = source == null ? UpdateSource.OFFICIAL_SITE : source;
     UpdateChannel.persist(selected);
+    if (selected != UpdateChannel.BETA) {
+      UpdateSource.persist(selectedSource);
+    }
     if (!UpdateAdmission.shouldFetch(Lizzie.nextVersion)) {
       Utils.showMsg(
           UpdateText.tr(
@@ -34,9 +39,9 @@ public final class WindowsUpdateController {
             () -> {
               try {
                 if (WindowsUpdatePaths.isWindowsRuntime()) {
-                  checkWindows(parent, selected);
+                  checkWindows(parent, selected, selectedSource);
                 } else {
-                  checkPackage(parent, selected);
+                  checkPackage(parent, selected, selectedSource);
                 }
               } catch (Exception e) {
                 e.printStackTrace();
@@ -58,8 +63,9 @@ public final class WindowsUpdateController {
     thread.start();
   }
 
-  private static void checkWindows(Component parent, UpdateChannel channel) throws Exception {
-    WindowsUpdateService service = new WindowsUpdateService(channel);
+  private static void checkWindows(
+      Component parent, UpdateChannel channel, UpdateSource source) throws Exception {
+    WindowsUpdateService service = new WindowsUpdateService(channel, source);
     Optional<WindowsUpdatePlan> maybePlan = service.checkForUpdate();
     if (maybePlan.isEmpty()) {
       showNoUpdate(channel);
@@ -73,8 +79,9 @@ public final class WindowsUpdateController {
         });
   }
 
-  private static void checkPackage(Component parent, UpdateChannel channel) throws Exception {
-    PlatformUpdateService service = new PlatformUpdateService(channel);
+  private static void checkPackage(
+      Component parent, UpdateChannel channel, UpdateSource source) throws Exception {
+    PlatformUpdateService service = new PlatformUpdateService(channel, source);
     Optional<PackageUpdatePlan> maybePlan = service.checkForUpdate();
     if (maybePlan.isEmpty()) {
       showNoUpdate(channel);

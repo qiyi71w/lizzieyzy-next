@@ -35,11 +35,11 @@ public final class UpdateManifestClient {
   private final UpdateChannel channel;
 
   public UpdateManifestClient() {
-    this(UpdateChannel.current());
+    this(UpdateChannel.current(), UpdateSource.current());
   }
 
-  public UpdateManifestClient(UpdateChannel channel) {
-    this(envelopeUrlsFor(channel), null, channel);
+  public UpdateManifestClient(UpdateChannel channel, UpdateSource source) {
+    this(envelopeUrlsFor(channel, source), null, channel);
   }
 
   UpdateManifestClient(List<String> envelopeUrls, Map<String, PublicKey> trustedKeys) {
@@ -79,24 +79,27 @@ public final class UpdateManifestClient {
     throw failure;
   }
 
-  static List<String> envelopeUrlsFor(UpdateChannel channel) {
+  static List<String> envelopeUrlsFor(UpdateChannel channel, UpdateSource source) {
     if (channel == UpdateChannel.BETA) {
       return List.of(TEST_CHANNEL_POINTER_URL);
     }
-    return configuredEnvelopeUrls();
+    return configuredEnvelopeUrls(source);
   }
 
-  static List<String> configuredEnvelopeUrls() {
+  static List<String> configuredEnvelopeUrls(UpdateSource source) {
+    UpdateSource selected = source == null ? UpdateSource.OFFICIAL_SITE : source;
+    String selectedUrl =
+        selected == UpdateSource.GITHUB ? GITHUB_ENVELOPE_URL : R2_ENVELOPE_URL;
     String configured = System.getProperty(ENVELOPE_URLS_PROPERTY, "").trim();
     if (configured.isEmpty()) {
-      return List.of(R2_ENVELOPE_URL, GITHUB_ENVELOPE_URL);
+      return List.of(selectedUrl);
     }
     List<String> urls = new ArrayList<>();
     Arrays.stream(configured.split(","))
         .map(String::trim)
         .filter(value -> !value.isEmpty())
         .forEach(urls::add);
-    return urls.isEmpty() ? List.of(R2_ENVELOPE_URL, GITHUB_ENVELOPE_URL) : urls;
+    return urls.isEmpty() ? List.of(selectedUrl) : urls;
   }
 
   static String fetchText(String url) throws IOException {

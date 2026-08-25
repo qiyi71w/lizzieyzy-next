@@ -26,11 +26,11 @@ public final class WindowsUpdateService {
   private final UpdateChannel channel;
 
   public WindowsUpdateService() {
-    this(UpdateChannel.current());
+    this(UpdateChannel.current(), UpdateSource.current());
   }
 
-  public WindowsUpdateService(UpdateChannel channel) {
-    this(new UpdateManifestClient(channel), new ResumableDownloader(), channel);
+  public WindowsUpdateService(UpdateChannel channel, UpdateSource source) {
+    this(new UpdateManifestClient(channel, source), new ResumableDownloader(), channel);
   }
 
   WindowsUpdateService(UpdateManifestClient manifestClient, ResumableDownloader downloader) {

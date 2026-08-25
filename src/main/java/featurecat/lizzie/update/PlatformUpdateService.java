@@ -21,11 +21,11 @@ public final class PlatformUpdateService {
   private final UpdateChannel channel;
 
   public PlatformUpdateService() {
-    this(UpdateChannel.current());
+    this(UpdateChannel.current(), UpdateSource.current());
   }
 
-  public PlatformUpdateService(UpdateChannel channel) {
-    this(new UpdateManifestClient(channel), new ResumableDownloader(), channel);
+  public PlatformUpdateService(UpdateChannel channel, UpdateSource source) {
+    this(new UpdateManifestClient(channel, source), new ResumableDownloader(), channel);
   }
 
   PlatformUpdateService(UpdateManifestClient manifestClient, ResumableDownloader downloader) {
