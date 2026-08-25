@@ -8,6 +8,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
+import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.util.Utils;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -23,11 +24,14 @@ import java.text.ParseException;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author unknown
  */
 public class NewEngineGameDialog extends JDialog {
+  private static final Logger ENGINE_LOG = LoggerFactory.getLogger(LogCategories.ENGINE);
   // create formatters
   public static final DecimalFormat FORMAT_KOMI = new DecimalFormat("#0.0");
   public static final DecimalFormat FORMAT_HANDICAP = new DecimalFormat("0");
@@ -1004,6 +1008,12 @@ public class NewEngineGameDialog extends JDialog {
   }
 
   public void apply() {
+    ENGINE_LOG.info(
+        "engine-game event=apply-begin genmove={} black={} white={} handicapText={}",
+        LizzieFrame.toolbar.isGenmoveToolbar,
+        LizzieFrame.toolbar.engineBlackToolbar,
+        LizzieFrame.toolbar.engineWhiteToolbar,
+        textFieldHandicap.getText());
     try {
       // validate data
       if (Lizzie.config.chkEngineSgfStart) {
@@ -1115,10 +1125,17 @@ public class NewEngineGameDialog extends JDialog {
       Lizzie.board.getHistory().setGameInfo(gameInfo);
 
       LizzieFrame.toolbar.chkenginePk.setSelected(true);
-      if (LizzieFrame.toolbar.startEngineGame()) setVisible(false);
+      boolean started = LizzieFrame.toolbar.startEngineGame();
+      ENGINE_LOG.info(
+          "engine-game event=apply-result started={} handicap={}", started, handicap);
+      if (started) setVisible(false);
     } catch (ParseException e) {
+      ENGINE_LOG.info("engine-game event=apply-refused reason=handicap-parse");
       Utils.showMsg(
           Lizzie.resourceBundle.getString(EngineGameHandicapApply.ERROR_RESOURCE_KEY), this);
+    } catch (RuntimeException | Error e) {
+      ENGINE_LOG.warn("engine-game event=apply-failed", e);
+      throw e;
     }
   }
 

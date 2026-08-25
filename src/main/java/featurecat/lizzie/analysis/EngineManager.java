@@ -17,6 +17,7 @@ import featurecat.lizzie.rules.Movelist;
 import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
+import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.util.Utils;
 import java.awt.KeyboardFocusManager;
 import java.awt.Window;
@@ -55,8 +56,11 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class EngineManager {
+  private static final Logger ENGINE_LOG = LoggerFactory.getLogger(LogCategories.ENGINE);
   private static final long ENGINE_GAME_PHYSICAL_REQUEST_FORCE_GRACE_MILLIS = 5_000L;
   private static final ScheduledThreadPoolExecutor ENGINE_GAME_PHYSICAL_REQUEST_WATCHDOG =
       createEngineGamePhysicalRequestWatchdogExecutor();
@@ -1203,6 +1207,13 @@ public class EngineManager {
       boolean isExchange,
       boolean checkGameMaxMove,
       int maxGameMoves) {
+    ENGINE_LOG.info(
+        "engine-game event=start black={} white={} timeBlack={} timeWhite={} genmove={}",
+        engineBlack,
+        engineWhite,
+        timeBlack,
+        timeWhite,
+        isGenmove);
     DesktopTimeControl.SideMode blackTimeMode =
         DesktopTimeControl.loadEngineGameSideMode(Lizzie.config, true);
     DesktopTimeControl.SideMode whiteTimeMode =
@@ -1211,19 +1222,23 @@ public class EngineManager {
         && DesktopTimeControl.rejectsEngineGame(
             engineList, engineBlack, engineWhite, blackTimeMode, whiteTimeMode)) {
       Lizzie.frame.showUnsupportedWebSocketAdvancedClock();
+      logEngineGameStart("websocket-advanced-clock");
       return false;
     }
     if (engineBlack == engineWhite) {
       Utils.showMsg(resourceBundle.getString("EngineManager.engineGameSameEngine"));
+      logEngineGameStart("same-engine");
       return false;
     }
     if (!isGenmove) {
       if (timeBlack <= 0 && playoutsBlack <= 0 && firstPlayoutsBlack <= 0) {
         Utils.showMsg(resourceBundle.getString("EngineManager.engineGameBlackSettingWrong"));
+        logEngineGameStart("black-time-or-visits-missing");
         return false;
       }
       if (timeWhite <= 0 && playoutsWhite <= 0 && firstPlayoutsWhite <= 0) {
         Utils.showMsg(resourceBundle.getString("EngineManager.engineGameWhiteSettingWrong"));
+        logEngineGameStart("white-time-or-visits-missing");
         return false;
       }
     }
@@ -1393,6 +1408,8 @@ public class EngineManager {
 
     EngineGameTransaction gameTransaction = startNewEngineGame(true, engineGameInfo, null, true);
     if (gameTransaction == null || !isCurrentEngineGameTransaction(gameTransaction)) {
+      logEngineGameStart(
+          gameTransaction == null ? "transaction-null" : "transaction-not-current");
       return false;
     }
     publishEngineGamePreparingUi(gameTransaction);
@@ -2347,12 +2364,16 @@ public class EngineManager {
       EngineGameInfo gameAtStart,
       Long expectedInactiveEpoch,
       boolean publishGameInfo) {
-    if (rejectForegroundEngineStartDuringSetup(true)) return null;
+    if (rejectForegroundEngineStartDuringSetup(true)) {
+      logEngineGameStart("setup-mode");
+      return null;
+    }
     EngineGameTransaction gameTransaction;
     Leelaz currentForegroundEngine = Lizzie.leelaz;
     long currentForegroundGeneration =
         Lizzie.capturePrimaryEngineGeneration(currentForegroundEngine);
     if (currentForegroundGeneration < 0L) {
+      logEngineGameStart("primary-generation-mismatch");
       return null;
     }
     if (currentForegroundEngine != null) {
@@ -2364,6 +2385,7 @@ public class EngineManager {
       // strand PREPARING state or a lifecycle lease.
       currentForegroundEngine.notPondering();
       if (!currentForegroundEngine.beginExclusiveGtpLifecycleTransition()) {
+        logEngineGameStart("exclusive-transition-rejected");
         showForegroundEngineLeaseInUse();
         return null;
       }
@@ -2385,10 +2407,12 @@ public class EngineManager {
               currentForegroundGeneration);
     }
     if (gameTransaction == null) {
+      logEngineGameStart("begin-transaction-null");
       return null;
     }
     EngineGameOperationLease startupLease = claimEngineGameOperation(gameTransaction);
     if (startupLease == null) {
+      logEngineGameStart("startup-lease-null");
       return null;
     }
     Thread startupThread = Thread.currentThread();
@@ -2425,10 +2449,12 @@ public class EngineManager {
     // engineGameInfo
     Lizzie.frame.setResult("");
     if (!startupLease.isCurrent()) {
+      logEngineGameStart("startup-lease-stale-before-kill");
       return null;
     }
     if (firstTime) {
         if (!killOtherEnginesForTransaction(gameTransaction)) {
+          logEngineGameStart("kill-other-engines-failed");
           return null;
         }
         if (currentForegroundEngine != null) {
@@ -2560,8 +2586,9 @@ public class EngineManager {
           throw new IllegalStateException("Engine-game analysis setup timed out before dispatch");
                 }
         if (!transitionEngineGameToDispatched(gameTransaction)) {
+          logEngineGameStart("analysis-dispatch-rejected");
           return null;
-              }
+        }
         dispatchEngineGameWorker(gameTransaction, "engine-game-analysis-start", runnable);
               } else {
         // genmove对战
@@ -2689,12 +2716,14 @@ public class EngineManager {
           throw new IllegalStateException("Engine-game genmove setup timed out before dispatch");
         }
         if (!transitionEngineGameToDispatched(gameTransaction)) {
+          logEngineGameStart("genmove-dispatch-rejected");
           return null;
-      }
+        }
         dispatchEngineGameWorker(gameTransaction, "engine-game-genmove-start", runnable);
       }
       return gameTransaction;
     } catch (RuntimeException | Error startupFailure) {
+      ENGINE_LOG.warn("engine-game event=start-failed reason=exception", startupFailure);
       failEngineGameTransaction(gameTransaction, startupFailure);
       throw startupFailure;
     } finally {
@@ -4339,6 +4368,7 @@ public class EngineManager {
   }
 
   protected void showForegroundEngineLeaseInUse() {
+    ENGINE_LOG.info("engine-game event=occupancy-prompt");
     String message =
         Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease");
     Window owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
@@ -4356,9 +4386,18 @@ public class EngineManager {
     if (!blackSynchronization.hasFailed() && !whiteSynchronization.hasFailed()) {
       return false;
     }
+    logEngineGameStart(
+        "pk-sync-failed blackFailed="
+            + blackSynchronization.hasFailed()
+            + " whiteFailed="
+            + whiteSynchronization.hasFailed());
     failEngineGameTransaction(
         transaction, new IllegalStateException("Engine-game occupancy was rejected"));
     return true;
+  }
+
+  static void logEngineGameStart(String reason) {
+    ENGINE_LOG.info("engine-game event=start-refused reason={}", reason);
   }
 
   /**
