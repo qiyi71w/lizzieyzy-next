@@ -18,6 +18,8 @@ import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import featurecat.lizzie.util.Utils;
+import java.awt.KeyboardFocusManager;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.BufferedWriter;
@@ -4337,17 +4339,14 @@ public class EngineManager {
   }
 
   protected void showForegroundEngineLeaseInUse() {
-    Leelaz engine = Lizzie.leelaz;
-    long generation = engine == null ? -1L : engine.exclusiveOccupancyPromptGeneration();
     String message =
         Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease");
-    SwingUtilities.invokeLater(
-        () -> {
-          if (engine != null && generation != engine.exclusiveOccupancyPromptGeneration()) {
-            return;
-          }
-          Utils.showMsg(message);
-        });
+    Window owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
+    if (owner != null && owner.isShowing()) {
+      Utils.showMsg(message, owner);
+      return;
+    }
+    Utils.showMsg(message);
   }
 
   boolean abortStartIfPkOccupancyRejected(
