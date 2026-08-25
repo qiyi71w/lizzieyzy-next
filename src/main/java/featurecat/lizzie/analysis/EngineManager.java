@@ -4488,11 +4488,8 @@ public class EngineManager {
                 }
                 newEng.pkMoveStartTime = System.currentTimeMillis();
               }
-              if (!runEngineGameStartupCommandStep(transaction, newEng::clearWithoutPonder)) {
-                frozenLifecycleSynchronization.close();
-                completion.fail();
-                return;
-              }
+              // After name-ready the engine may already be in lifecycle/board-sync, which
+              // rejects stop as a startup command. Board restore follows immediately.
             }
             if (!frozenLifecycleSynchronization.runUntilStableForBoundEngineGame()) {
               frozenLifecycleSynchronization.close();
@@ -7261,6 +7258,7 @@ public class EngineManager {
       Leelaz.runWithEngineGameStartupCommandContext(transaction, operation);
       return lease.isCurrent();
     } catch (RuntimeException | Error failure) {
+      logEngineGameStartRefused("startup-command-rejected");
       failEngineGameTransaction(transaction, failure);
       throw failure;
     } finally {
