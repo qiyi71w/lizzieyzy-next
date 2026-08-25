@@ -329,8 +329,8 @@ public class Leelaz {
   private static final ThreadLocal<EngineManager.EngineGameTransaction>
       engineGameStartupCommandContext = new ThreadLocal<>();
   /**
-   * Cold-start PK bootstrap (name/version/list_commands) must stay ordinary until 引擎对局参与者名称识别完成.
-   * An early GTP error must not failEngineGameTransaction.
+   * Cold-start PK bootstrap stays unnumbered until 引擎对局参与者名称识别完成. Only name/version/list_commands
+   * GTP errors are ignored; later setup commands still fail the transaction.
    */
   private static final ThreadLocal<Boolean> ordinaryEngineGameBootstrapCommands =
       new ThreadLocal<>();
@@ -1135,6 +1135,12 @@ public class Leelaz {
         ordinaryEngineGameBootstrapCommands.set(previous);
       }
     }
+  }
+
+  private static boolean isNameRecognitionBootstrapCommand(String command) {
+    return "name".equals(command)
+        || "version".equals(command)
+        || "list_commands".equals(command);
   }
 
   private void sendEngineBootstrapCommand(
@@ -10446,12 +10452,15 @@ public class Leelaz {
         throw new IllegalStateException(
             "Engine-game startup command has no live reader binding: " + command);
       }
+      boolean ordinaryBootstrap =
+          Boolean.TRUE.equals(ordinaryEngineGameBootstrapCommands.get());
       settlement =
           new EngineGameStartupCommandPermit(
               this,
               startupTransaction,
               startupBinding,
-              Boolean.TRUE.equals(ordinaryEngineGameBootstrapCommands.get()));
+              ordinaryBootstrap,
+              !ordinaryBootstrap || !isNameRecognitionBootstrapCommand(command));
       readBoardGmaResponseBinding = startupBinding;
     }
     if (shouldDropStaleForegroundRestoreCommand()
@@ -17914,6 +17923,7 @@ public class Leelaz {
     private final EngineManager.EngineGameTransaction transaction;
     private final ReaderStreamBinding binding;
     private final boolean ordinaryBootstrap;
+    private final boolean failTransactionOnGtpError;
     private final AtomicInteger state = new AtomicInteger(RESERVED);
     private final AtomicReference<EngineManager.EngineGamePhysicalRequestLease> physicalLease =
         new AtomicReference<>();
@@ -17922,18 +17932,20 @@ public class Leelaz {
         Leelaz owner,
         EngineManager.EngineGameTransaction transaction,
         ReaderStreamBinding binding) {
-      this(owner, transaction, binding, false);
+      this(owner, transaction, binding, false, true);
     }
 
     private EngineGameStartupCommandPermit(
         Leelaz owner,
         EngineManager.EngineGameTransaction transaction,
         ReaderStreamBinding binding,
-        boolean ordinaryBootstrap) {
+        boolean ordinaryBootstrap,
+        boolean failTransactionOnGtpError) {
       this.owner = owner;
       this.transaction = transaction;
       this.binding = binding;
       this.ordinaryBootstrap = ordinaryBootstrap;
+      this.failTransactionOnGtpError = failTransactionOnGtpError;
     }
 
     private boolean belongsTo(EngineManager.EngineGameTransaction expected) {
@@ -17986,7 +17998,7 @@ public class Leelaz {
     public void onResponseSettled() {
       boolean responseError = owner.currentCommandResponseError;
       String responseLine = owner.currentCommandResponseLine;
-      if (!settle() || !responseError || ordinaryBootstrap) {
+      if (!settle() || !responseError || !failTransactionOnGtpError) {
         return;
       }
       EngineManager.failEngineGameTransaction(
