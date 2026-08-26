@@ -2354,6 +2354,9 @@ public class EngineManager {
       return null;
     }
     if (currentForegroundEngine != null) {
+      // Drop delayed exclusive-task dialogs from the previous game's retirement/restore before any
+      // start work that might flush the EDT. A later occupancy failure still shows a fresh prompt.
+      currentForegroundEngine.bumpExclusiveOccupancyPromptGeneration();
       // Preserve the legacy, user-visible stop-ponder intent even when the lifecycle admission is
       // rejected. This happens before transaction publication, so a throwing override cannot
       // strand PREPARING state or a lifecycle lease.
@@ -2481,6 +2484,10 @@ public class EngineManager {
             startEngineForPkSynchronization(
                 gameTransaction, gameTransaction.whiteIndex, gameTransaction.whiteEngine);
       if (!startupLease.isCurrent()) return null;
+      if (abortStartIfPkOccupancyRejected(
+          gameTransaction, blackSynchronization, whiteSynchronization)) {
+        return null;
+      }
       Runnable runnable =
           new Runnable() {
             public void run() {
@@ -2576,6 +2583,10 @@ public class EngineManager {
             startEngineForPkSynchronization(
                 gameTransaction, gameTransaction.whiteIndex, gameTransaction.whiteEngine);
         if (!startupLease.isCurrent()) return null;
+        if (abortStartIfPkOccupancyRejected(
+            gameTransaction, blackSynchronization, whiteSynchronization)) {
+          return null;
+        }
         Runnable runnable =
                   new Runnable() {
                     public void run() {
@@ -4326,7 +4337,29 @@ public class EngineManager {
   }
 
   protected void showForegroundEngineLeaseInUse() {
-    Utils.showMsg(Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease"));
+    Leelaz engine = Lizzie.leelaz;
+    long generation = engine == null ? -1L : engine.exclusiveOccupancyPromptGeneration();
+    String message =
+        Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease");
+    SwingUtilities.invokeLater(
+        () -> {
+          if (engine != null && generation != engine.exclusiveOccupancyPromptGeneration()) {
+            return;
+          }
+          Utils.showMsg(message);
+        });
+  }
+
+  boolean abortStartIfPkOccupancyRejected(
+      EngineGameTransaction transaction,
+      PkEngineSynchronization blackSynchronization,
+      PkEngineSynchronization whiteSynchronization) {
+    if (!blackSynchronization.hasFailed() && !whiteSynchronization.hasFailed()) {
+      return false;
+    }
+    failEngineGameTransaction(
+        transaction, new IllegalStateException("Engine-game occupancy was rejected"));
+    return true;
   }
 
   /**
@@ -13437,6 +13470,10 @@ public class EngineManager {
 
     private void fail() {
       complete();
+    }
+
+    boolean hasFailed() {
+      return isComplete() && !successful;
     }
 
     boolean isComplete() {
