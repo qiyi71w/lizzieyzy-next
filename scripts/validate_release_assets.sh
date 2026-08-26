@@ -18,51 +18,17 @@ if [[ ! -d "$RELEASE_DIR" ]]; then
   exit 1
 fi
 
-expected=()
-case "$PLATFORM" in
-  windows)
-    expected=(
-      "${DATE_TAG}-windows64.opencl.installer.exe"
-      "${DATE_TAG}-windows64.opencl.portable.zip"
-      "${DATE_TAG}-windows64.nvidia.installer.exe"
-      "${DATE_TAG}-windows64.nvidia.portable.zip"
-      "${DATE_TAG}-windows64.experimental.directml.portable.zip"
-      "${DATE_TAG}-windows64.experimental.openvino.portable.zip"
-      "${DATE_TAG}-windows64.experimental.rocm.gfx103x.portable.zip"
-      "${DATE_TAG}-windows64.experimental.rocm.gfx110x.portable.zip"
-      "${DATE_TAG}-windows64.experimental.rocm.gfx1151.portable.zip"
-      "${DATE_TAG}-windows64.experimental.rocm.gfx120x.portable.zip"
-      "${DATE_TAG}-windows64.with-katago.installer.exe"
-      "${DATE_TAG}-windows64.with-katago.portable.zip"
-      "${DATE_TAG}-windows64.without.engine.installer.exe"
-      "${DATE_TAG}-windows64.without.engine.portable.zip"
-      "${DATE_TAG}-windows64.core-update.zip"
-      "lizzieyzy-next-update-manifest.json"
-      "${DATE_TAG}-windows64.nvidia.tensorrt.portable.7z.001"
-      "${DATE_TAG}-windows64.nvidia.tensorrt.portable.7z.002"
-      "${DATE_TAG}-windows64.nvidia.tensorrt.portable.README.txt"
-      "${DATE_TAG}-windows64.nvidia.tensorrt.portable.manifest.json"
-      "${DATE_TAG}-windows64.nvidia.tensorrt.portable.sha256.txt"
-    )
-    ;;
-  mac-arm64)
-    expected=("${DATE_TAG}-mac-apple-silicon.with-katago.dmg")
-    ;;
-  mac-amd64)
-    expected=("${DATE_TAG}-mac-intel.with-katago.dmg")
-    ;;
-  linux)
-    expected=(
-      "${DATE_TAG}-linux64.opencl.zip"
-      "${DATE_TAG}-linux64.nvidia.zip"
-      "${DATE_TAG}-linux64.with-katago.zip"
-    )
-    ;;
-  *)
-    echo "Unsupported platform: $PLATFORM"
-    exit 1
-    ;;
-esac
+PYTHON_BIN="python3"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+fi
+
+expected_output="$("$PYTHON_BIN" "$SCRIPT_DIR/release_asset_topology.py" expected-names --platform "$PLATFORM" --date-tag "$DATE_TAG")"
+mapfile -t expected <<< "$expected_output"
+if [[ "${#expected[@]}" -eq 0 ]]; then
+  echo "No expected public release assets for $PLATFORM"
+  exit 1
+fi
 
 actual=()
 shopt -s nullglob
@@ -77,10 +43,21 @@ if [[ "${#actual[@]}" -eq 0 ]]; then
   exit 1
 fi
 
+is_expected() {
+  local name="$1"
+  local expected_name
+  for expected_name in "${expected[@]}"; do
+    if [[ "$name" == "$expected_name" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 for name in "${actual[@]}"; do
   case "$name" in
     *.txt|*.sha256|*.sha256.txt|*.md)
-      if [[ "$PLATFORM" != "windows" ]] || [[ "$name" != "${DATE_TAG}-windows64.nvidia.tensorrt.portable.README.txt" && "$name" != "${DATE_TAG}-windows64.nvidia.tensorrt.portable.sha256.txt" ]]; then
+      if ! is_expected "$name"; then
         echo "Unexpected helper file in public release set: $name"
         exit 1
       fi

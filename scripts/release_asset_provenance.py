@@ -10,40 +10,14 @@ from pathlib import Path
 import re
 import sys
 
+try:
+    from scripts import release_asset_topology as topology
+except ModuleNotFoundError:  # Direct execution: python scripts/release_asset_provenance.py
+    import release_asset_topology as topology  # type: ignore[no-redef]
+
 
 SCHEMA_VERSION = 1
 PROVENANCE_FILENAME = "release-asset-provenance.json"
-PLATFORM_ASSET_SUFFIXES: dict[str, tuple[str, ...]] = {
-    "windows": (
-        "windows64.opencl.installer.exe",
-        "windows64.opencl.portable.zip",
-        "windows64.nvidia.installer.exe",
-        "windows64.nvidia.portable.zip",
-        "windows64.experimental.directml.portable.zip",
-        "windows64.experimental.openvino.portable.zip",
-        "windows64.experimental.rocm.gfx103x.portable.zip",
-        "windows64.experimental.rocm.gfx110x.portable.zip",
-        "windows64.experimental.rocm.gfx1151.portable.zip",
-        "windows64.experimental.rocm.gfx120x.portable.zip",
-        "windows64.with-katago.installer.exe",
-        "windows64.with-katago.portable.zip",
-        "windows64.without.engine.installer.exe",
-        "windows64.without.engine.portable.zip",
-        "windows64.core-update.zip",
-        "windows64.nvidia.tensorrt.portable.README.txt",
-        "windows64.nvidia.tensorrt.portable.manifest.json",
-        "windows64.nvidia.tensorrt.portable.sha256.txt",
-        "windows64.nvidia.tensorrt.portable.7z.001",
-        "windows64.nvidia.tensorrt.portable.7z.002",
-    ),
-    "linux": (
-        "linux64.with-katago.zip",
-        "linux64.opencl.zip",
-        "linux64.nvidia.zip",
-    ),
-    "mac-amd64": ("mac-intel.with-katago.dmg",),
-    "mac-arm64": ("mac-apple-silicon.with-katago.dmg",),
-}
 
 
 class ProvenanceError(RuntimeError):
@@ -68,7 +42,7 @@ def validate_identity(
     run_id: int,
     run_attempt: int,
 ) -> None:
-    require(platform in PLATFORM_ASSET_SUFFIXES, f"Unsupported release platform: {platform}")
+    _require_supported_platform(platform)
     require(
         re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_tag) is not None,
         "dateTag must use YYYY-MM-DD",
@@ -86,16 +60,22 @@ def validate_identity(
     _positive_integer(run_attempt, "workflowRunAttempt")
 
 
+def _require_supported_platform(platform: str) -> None:
+    try:
+        topology.release_unit(platform)
+    except topology.TopologyError as exc:
+        raise ProvenanceError(str(exc)) from exc
+
+
 def expected_asset_names(platform: str, date_tag: str) -> tuple[str, ...]:
-    require(platform in PLATFORM_ASSET_SUFFIXES, f"Unsupported release platform: {platform}")
-    names = [f"{date_tag}-{suffix}" for suffix in PLATFORM_ASSET_SUFFIXES[platform]]
-    if platform == "windows":
-        names.append("lizzieyzy-next-update-manifest.json")
-    return tuple(sorted(names))
+    try:
+        return topology.provenance_names(platform, date_tag)
+    except topology.TopologyError as exc:
+        raise ProvenanceError(str(exc)) from exc
 
 
 def artifact_name(platform: str, run_attempt: int) -> str:
-    require(platform in PLATFORM_ASSET_SUFFIXES, f"Unsupported release platform: {platform}")
+    _require_supported_platform(platform)
     _positive_integer(run_attempt, "workflowRunAttempt")
     return f"release-asset-provenance-{platform}-attempt-{run_attempt}"
 
@@ -217,7 +197,7 @@ def validate_provenance(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-dir", required=True, type=Path)
-    parser.add_argument("--platform", required=True, choices=tuple(PLATFORM_ASSET_SUFFIXES))
+    parser.add_argument("--platform", required=True, choices=topology.platforms())
     parser.add_argument("--date-tag", required=True)
     parser.add_argument("--release-tag", required=True)
     parser.add_argument("--target-sha", required=True)

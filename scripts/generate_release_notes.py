@@ -10,42 +10,19 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+try:
+    from scripts import release_asset_topology as topology
+except ModuleNotFoundError:  # Direct execution: python scripts/generate_release_notes.py
+    import release_asset_topology as topology  # type: ignore[no-redef]
+
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_FILE = ROOT / 'engines' / 'katago' / 'VERSION.txt'
 PREPARE_BUNDLED_KATAGO_SCRIPT = ROOT / 'scripts' / 'prepare_bundled_katago.sh'
 KATAGO_ASSET_CATALOG = ROOT / 'src' / 'main' / 'resources' / 'katago-assets.json'
 
-ASSET_SPECS = [
-    ('windows_installer', 'windows64.with-katago.installer.exe', 'Windows 64 位，CPU 兼容版', 'Windows x64, CPU fallback'),
-    ('windows_portable', 'windows64.with-katago.portable.zip', 'Windows 64 位，CPU 兼容版，免安装', 'Windows x64, CPU fallback, no installer'),
-    ('windows_opencl_installer', 'windows64.opencl.installer.exe', 'Windows 64 位，OpenCL 推荐版', 'Windows x64, OpenCL recommended'),
-    ('windows_opencl_portable', 'windows64.opencl.portable.zip', 'Windows 64 位，OpenCL 推荐版，免安装', 'Windows x64, OpenCL recommended, no installer'),
-    ('windows_nvidia_installer', 'windows64.nvidia.installer.exe', 'Windows 64 位，英伟达显卡', 'Windows x64, NVIDIA GPU'),
-    ('windows_nvidia_portable', 'windows64.nvidia.portable.zip', 'Windows 64 位，英伟达显卡，免安装', 'Windows x64, NVIDIA GPU, no installer'),
-    ('windows_directml_experimental', 'windows64.experimental.directml.portable.zip', 'Windows 64 位，DirectML 实验版', 'Windows x64, DirectML experimental'),
-    ('windows_openvino_experimental', 'windows64.experimental.openvino.portable.zip', 'Windows 64 位，OpenVINO 实验版', 'Windows x64, OpenVINO experimental'),
-    ('windows_rocm_gfx103x_experimental', 'windows64.experimental.rocm.gfx103x.portable.zip', 'Windows 64 位，ROCm RX 6000 实验版', 'Windows x64, ROCm RX 6000 experimental'),
-    ('windows_rocm_gfx110x_experimental', 'windows64.experimental.rocm.gfx110x.portable.zip', 'Windows 64 位，ROCm RX 7000 实验版', 'Windows x64, ROCm RX 7000 experimental'),
-    ('windows_rocm_gfx1151_experimental', 'windows64.experimental.rocm.gfx1151.portable.zip', 'Windows 64 位，ROCm Ryzen AI Max 实验版', 'Windows x64, ROCm Ryzen AI Max experimental'),
-    ('windows_rocm_gfx120x_experimental', 'windows64.experimental.rocm.gfx120x.portable.zip', 'Windows 64 位，ROCm RX 9000 实验版', 'Windows x64, ROCm RX 9000 experimental'),
-    ('windows_no_engine_installer', 'windows64.without.engine.installer.exe', 'Windows 64 位，想自己配引擎，也想安装器', 'Windows x64, your own engine with installer'),
-    ('windows_no_engine_portable', 'windows64.without.engine.portable.zip', 'Windows 64 位，想自己配引擎', 'Windows x64, your own engine'),
-    ('mac_arm64', 'mac-apple-silicon.with-katago.dmg', 'macOS Apple Silicon', 'macOS Apple Silicon'),
-    ('mac_amd64', 'mac-intel.with-katago.dmg', 'macOS Intel', 'macOS Intel'),
-    ('linux64', 'linux64.with-katago.zip', 'Linux 64 位，CPU 兼容版', 'Linux x64, CPU fallback'),
-    ('linux64_opencl', 'linux64.opencl.zip', 'Linux 64 位，OpenCL 版', 'Linux x64, OpenCL'),
-    ('linux64_nvidia', 'linux64.nvidia.zip', 'Linux 64 位，NVIDIA CUDA 版', 'Linux x64, NVIDIA CUDA'),
-]
-TENSORRT_SPLIT_README_SUFFIX = 'windows64.nvidia.tensorrt.portable.README.txt'
-TENSORRT_SPLIT_PART_PATTERN = r'windows64\.nvidia\.tensorrt\.portable\.7z\.\d+$'
-TENSORRT_SPLIT_MANIFEST_SUFFIX = 'windows64.nvidia.tensorrt.portable.manifest.json'
-TENSORRT_SPLIT_SHA256_SUFFIX = 'windows64.nvidia.tensorrt.portable.sha256.txt'
-WINDOWS_CORE_UPDATE_SUFFIX = 'windows64.core-update.zip'
-TENSORRT_SPLIT_ASSET_KEYS = (
-    'windows_tensorrt_split_readme',
-    'windows_tensorrt_split_parts',
-    'windows_tensorrt_split_sha256',
-    'windows_tensorrt_split_manifest',
+TENSORRT_SPLIT_PART_KEYS = (
+    'windows_tensorrt_split_001',
+    'windows_tensorrt_split_002',
 )
 TENSORRT_SPLIT_DOWNLOAD_ASSET_KEYS = (
     'windows_tensorrt_split_parts',
@@ -217,23 +194,36 @@ def asset_names_from_dir(release_dir: str, date_tag: str | None) -> list[str]:
     return names
 
 
-def pick_asset(asset_names: list[str], suffix: str, date_tag: str | None) -> str | None:
-    matches = [name for name in asset_names if name.endswith(suffix)]
+def resolve_published_name(
+    asset_names: list[str],
+    asset: topology.ReleaseAsset,
+    date_tag: str | None,
+) -> str | None:
+    names = set(asset_names)
     if date_tag:
-        dated = [name for name in matches if name.startswith(f'{date_tag}-')]
-        if dated:
-            matches = dated
+        rendered = asset.filename.render(date_tag)
+        return rendered if rendered in names else None
+    if asset.filename.kind is topology.FilenameKind.LITERAL:
+        return asset.filename.value if asset.filename.value in names else None
+    matches = [name for name in asset_names if name.endswith(asset.filename.value)]
     return sorted(matches)[-1] if matches else None
 
 
-def pick_assets_matching(asset_names: list[str], pattern: str, date_tag: str | None) -> list[str]:
-    regex = re.compile(pattern)
-    matches = [name for name in asset_names if regex.search(name)]
-    if date_tag:
-        dated = [name for name in matches if name.startswith(f'{date_tag}-')]
-        if dated:
-            matches = dated
-    return sorted(matches)
+def build_asset_map(
+    asset_names: list[str],
+    date_tag: str | None,
+) -> dict[str, str | list[str] | None]:
+    asset_map: dict[str, str | list[str] | None] = {
+        asset.key: resolve_published_name(asset_names, asset, date_tag)
+        for asset in topology.assets()
+    }
+    parts = [
+        name
+        for key in TENSORRT_SPLIT_PART_KEYS
+        if isinstance(name := asset_map.get(key), str)
+    ]
+    asset_map['windows_tensorrt_split_parts'] = parts
+    return asset_map
 
 
 def release_asset_url(repo: str, release_tag: str | None, asset_name: str) -> str | None:
@@ -285,7 +275,7 @@ def validate_release_sections(sections: list[dict[str, object]]) -> None:
             + ', '.join(RELEASE_LANGUAGES)
         )
 
-    expected_download_rows = len(ASSET_SPECS)
+    expected_download_rows = len(topology.release_notes_table_assets())
     for section in sections:
         language = str(section['language'])
         missing = [key for key in SECTION_KEYS if key not in section]
@@ -327,14 +317,6 @@ def add_windows_core_update_download_row(
     assets_cn: dict[str, str],
     assets: dict[str, str],
 ) -> None:
-    labels_by_language = {
-        '中文': '已有 Windows 免安装版，日常升级小包',
-        '繁體中文': '已有 Windows 免安裝版，日常升級小包',
-        'English': 'Existing Windows portable install, small routine update',
-        '日本語': '既存の Windows portable 版向け小型更新',
-        '한국어': '기존 Windows portable 사용자를 위한 소형 업데이트',
-        'ภาษาไทย': 'อัปเดตเล็กสำหรับผู้ใช้ Windows portable เดิม',
-    }
     before_note_by_language = {
         '中文': '已经有 Windows 免安装版的老用户，日常升级优先下载 `windows64.core-update.zip`，关闭软件后解压到旧目录覆盖；引擎、权重、TensorRT、设置和棋谱都会保留。',
         '繁體中文': '已經有 Windows 免安裝版的舊使用者，日常升級優先下載 `windows64.core-update.zip`，關閉軟體後解壓到舊目錄覆蓋；引擎、權重、TensorRT、設定和棋譜都會保留。',
@@ -369,7 +351,7 @@ def add_windows_core_update_download_row(
                     break
             rows.insert(
                 insert_at,
-                (labels_by_language.get(language, labels_by_language['English']), core_asset),
+                (CORE_UPDATE_DOWNLOAD_LABELS.get(language, CORE_UPDATE_DOWNLOAD_LABELS['English']), core_asset),
             )
 
         before = section['before']
@@ -460,14 +442,7 @@ def add_tensorrt_split_download_row(
 ) -> None:
     if not any(asset_map.get(key) for key in TENSORRT_SPLIT_DOWNLOAD_ASSET_KEYS):
         return
-    labels_by_language = {
-        '中文': 'RTX 30 系及以下可选：TensorRT 预装分卷包（需下载全部 .7z.00N）',
-        '繁體中文': 'RTX 30 系及以下可選：TensorRT 預裝分卷包（需下載全部 .7z.00N）',
-        'English': 'Optional TensorRT split package for RTX 30 and earlier; download every .7z.00N part',
-        '日本語': 'RTX 30 以前向け任意：TensorRT 分割パッケージ（.7z.00N を全て取得）',
-        '한국어': 'RTX 30 이하 선택: TensorRT 분할 패키지(.7z.00N 전체 다운로드 필요)',
-        'ภาษาไทย': 'ตัวเลือกสำหรับ RTX 30 และเก่ากว่า: TensorRT split package ต้องดาวน์โหลด .7z.00N ครบ',
-    }
+    labels_by_language = TENSORRT_SPLIT_DOWNLOAD_LABELS
     before_note_by_language = {
         '中文': 'TensorRT 分卷包是 RTX 30 系及以下显卡的可选离线路径；RTX 40/50 请使用 CUDA。必须下载全部 `.7z.00N` 并从 `.001` 解压。',
         '繁體中文': 'TensorRT 分卷包是 RTX 30 系及以下顯示卡的可選離線路徑；RTX 40/50 請使用 CUDA。必須下載全部 `.7z.00N` 並從 `.001` 解壓。',
@@ -530,159 +505,185 @@ def render_language_section(section: dict[str, object]) -> str:
     return '\n'.join(lines).rstrip()
 
 
-def standard_download_rows(labels: list[str], localized_assets: dict[str, str]) -> list[tuple[str, str]]:
-    asset_order = [
-        'windows_opencl_portable',
-        'windows_opencl_installer',
-        'windows_portable',
-        'windows_installer',
-        'windows_nvidia_portable',
-        'windows_nvidia_installer',
-        'windows_directml_experimental',
-        'windows_openvino_experimental',
-        'windows_rocm_gfx103x_experimental',
-        'windows_rocm_gfx110x_experimental',
-        'windows_rocm_gfx1151_experimental',
-        'windows_rocm_gfx120x_experimental',
-        'windows_no_engine_portable',
-        'windows_no_engine_installer',
-        'mac_arm64',
-        'mac_amd64',
-        'linux64',
-        'linux64_opencl',
-        'linux64_nvidia',
-    ]
-    return list(zip(labels, (localized_assets[key] for key in asset_order)))
+def standard_download_rows(labels: dict[str, str], localized_assets: dict[str, str]) -> list[tuple[str, str]]:
+    table = topology.release_notes_table_assets()
+    if set(labels) != {asset.key for asset in table}:
+        raise SystemExit('download labels must cover topology release-notes table assets exactly')
+    return [(labels[asset.key], localized_assets[asset.key]) for asset in table]
 
 
 STANDARD_DOWNLOAD_LABELS = {
-    'zh': [
-        'Windows 64 位，OpenCL 版，推荐更快，免安装',
-        'Windows 64 位，OpenCL 版，想安装',
-        'Windows 64 位，CPU 兼容版，免安装',
-        'Windows 64 位，CPU 兼容版，想安装',
-        'Windows 64 位，NVIDIA 显卡，免安装',
-        'Windows 64 位，NVIDIA 显卡，想安装',
-        'Windows 64 位，DirectML 实验版，DirectX 12 GPU',
-        'Windows 64 位，OpenVINO 实验版，Intel GPU/NPU',
-        'Windows 64 位，ROCm 实验版，AMD RX 6000',
-        'Windows 64 位，ROCm 实验版，AMD RX 7000',
-        'Windows 64 位，ROCm 实验版，Ryzen AI Max',
-        'Windows 64 位，ROCm 实验版，AMD RX 9000',
-        'Windows 64 位，想自己配引擎',
-        'Windows 64 位，想自己配引擎，也想安装器',
-        'macOS Apple Silicon',
-        'macOS Intel',
-        'Linux 64 位，CPU 兼容版',
-        'Linux 64 位，OpenCL 版，AMD/Intel GPU',
-        'Linux 64 位，NVIDIA CUDA 版',
-    ],
-    'zh_hant': [
-        'Windows 64 位，OpenCL 版，推薦更快，免安裝',
-        'Windows 64 位，OpenCL 版，想安裝',
-        'Windows 64 位，CPU 相容版，免安裝',
-        'Windows 64 位，CPU 相容版，想安裝',
-        'Windows 64 位，NVIDIA 顯示卡，免安裝',
-        'Windows 64 位，NVIDIA 顯示卡，想安裝',
-        'Windows 64 位，DirectML 實驗版，DirectX 12 GPU',
-        'Windows 64 位，OpenVINO 實驗版，Intel GPU/NPU',
-        'Windows 64 位，ROCm 實驗版，AMD RX 6000',
-        'Windows 64 位，ROCm 實驗版，AMD RX 7000',
-        'Windows 64 位，ROCm 實驗版，Ryzen AI Max',
-        'Windows 64 位，ROCm 實驗版，AMD RX 9000',
-        'Windows 64 位，想自己配引擎',
-        'Windows 64 位，想自己配引擎，也想安裝器',
-        'macOS Apple Silicon',
-        'macOS Intel',
-        'Linux 64 位，CPU 相容版',
-        'Linux 64 位，OpenCL 版，AMD/Intel GPU',
-        'Linux 64 位，NVIDIA CUDA 版',
-    ],
-    'en': [
-        'Windows 64-bit, OpenCL, recommended and faster, no install',
-        'Windows 64-bit, OpenCL, installer',
-        'Windows 64-bit, CPU compatible build, no install',
-        'Windows 64-bit, CPU compatible build, installer',
-        'Windows 64-bit, NVIDIA GPU, no install',
-        'Windows 64-bit, NVIDIA GPU, installer',
-        'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
-        'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
-        'Windows 64-bit, ROCm experimental, AMD RX 6000',
-        'Windows 64-bit, ROCm experimental, AMD RX 7000',
-        'Windows 64-bit, ROCm experimental, Ryzen AI Max',
-        'Windows 64-bit, ROCm experimental, AMD RX 9000',
-        'Windows 64-bit, configure your own engine',
-        'Windows 64-bit, configure your own engine, installer',
-        'macOS Apple Silicon',
-        'macOS Intel',
-        'Linux 64-bit, CPU compatible build',
-        'Linux 64-bit, OpenCL for AMD/Intel GPU',
-        'Linux 64-bit, NVIDIA CUDA',
-    ],
-    'ja': [
-        'Windows 64-bit、OpenCL 推奨高速版、インストール不要',
-        'Windows 64-bit、OpenCL 版、インストーラ',
-        'Windows 64-bit、CPU 互換版、インストール不要',
-        'Windows 64-bit、CPU 互換版、インストーラ',
-        'Windows 64-bit、NVIDIA GPU、インストール不要',
-        'Windows 64-bit、NVIDIA GPU、インストーラ',
-        'Windows 64-bit、DirectML experimental、DirectX 12 GPU',
-        'Windows 64-bit、OpenVINO experimental、Intel GPU/NPU',
-        'Windows 64-bit、ROCm experimental、AMD RX 6000',
-        'Windows 64-bit、ROCm experimental、AMD RX 7000',
-        'Windows 64-bit、ROCm experimental、Ryzen AI Max',
-        'Windows 64-bit、ROCm experimental、AMD RX 9000',
-        'Windows 64-bit、自分でエンジンを設定したい場合',
-        'Windows 64-bit、自分でエンジンを設定したい場合、インストーラ',
-        'macOS Apple Silicon',
-        'macOS Intel',
-        'Linux 64-bit、CPU 互換版',
-        'Linux 64-bit、OpenCL、AMD/Intel GPU',
-        'Linux 64-bit、NVIDIA CUDA',
-    ],
-    'ko': [
-        'Windows 64-bit, OpenCL 추천 고속판, 무설치',
-        'Windows 64-bit, OpenCL, 설치형',
-        'Windows 64-bit, CPU 호환 빌드, 무설치',
-        'Windows 64-bit, CPU 호환 빌드, 설치형',
-        'Windows 64-bit, NVIDIA GPU, 무설치',
-        'Windows 64-bit, NVIDIA GPU, 설치형',
-        'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
-        'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
-        'Windows 64-bit, ROCm experimental, AMD RX 6000',
-        'Windows 64-bit, ROCm experimental, AMD RX 7000',
-        'Windows 64-bit, ROCm experimental, Ryzen AI Max',
-        'Windows 64-bit, ROCm experimental, AMD RX 9000',
-        'Windows 64-bit, 직접 엔진 설정',
-        'Windows 64-bit, 직접 엔진 설정, 설치형',
-        'macOS Apple Silicon',
-        'macOS Intel',
-        'Linux 64-bit, CPU 호환 빌드',
-        'Linux 64-bit, OpenCL, AMD/Intel GPU',
-        'Linux 64-bit, NVIDIA CUDA',
-    ],
-    'th': [
-        'Windows 64-bit, OpenCL, แนะนำและเร็วกว่า, ไม่ต้องติดตั้ง',
-        'Windows 64-bit, OpenCL, แบบติดตั้ง',
-        'Windows 64-bit, CPU compatible build, ไม่ต้องติดตั้ง',
-        'Windows 64-bit, CPU compatible build, แบบติดตั้ง',
-        'Windows 64-bit, การ์ดจอ NVIDIA, ไม่ต้องติดตั้ง',
-        'Windows 64-bit, การ์ดจอ NVIDIA, แบบติดตั้ง',
-        'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
-        'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
-        'Windows 64-bit, ROCm experimental, AMD RX 6000',
-        'Windows 64-bit, ROCm experimental, AMD RX 7000',
-        'Windows 64-bit, ROCm experimental, Ryzen AI Max',
-        'Windows 64-bit, ROCm experimental, AMD RX 9000',
-        'Windows 64-bit, ต้องการตั้งค่า engine เอง',
-        'Windows 64-bit, ต้องการตั้งค่า engine เองและอยากใช้ installer',
-        'macOS Apple Silicon',
-        'macOS Intel',
-        'Linux 64-bit, CPU compatible build',
-        'Linux 64-bit, OpenCL สำหรับ AMD/Intel GPU',
-        'Linux 64-bit, NVIDIA CUDA',
-    ],
+    'zh': {
+        'windows_opencl_portable': 'Windows 64 位，OpenCL 版，推荐更快，免安装',
+        'windows_opencl_installer': 'Windows 64 位，OpenCL 版，想安装',
+        'windows_portable': 'Windows 64 位，CPU 兼容版，免安装',
+        'windows_installer': 'Windows 64 位，CPU 兼容版，想安装',
+        'windows_nvidia_portable': 'Windows 64 位，NVIDIA 显卡，免安装',
+        'windows_nvidia_installer': 'Windows 64 位，NVIDIA 显卡，想安装',
+        'windows_directml_experimental': 'Windows 64 位，DirectML 实验版，DirectX 12 GPU',
+        'windows_openvino_experimental': 'Windows 64 位，OpenVINO 实验版，Intel GPU/NPU',
+        'windows_rocm_gfx103x_experimental': 'Windows 64 位，ROCm 实验版，AMD RX 6000',
+        'windows_rocm_gfx110x_experimental': 'Windows 64 位，ROCm 实验版，AMD RX 7000',
+        'windows_rocm_gfx1151_experimental': 'Windows 64 位，ROCm 实验版，Ryzen AI Max',
+        'windows_rocm_gfx120x_experimental': 'Windows 64 位，ROCm 实验版，AMD RX 9000',
+        'windows_no_engine_portable': 'Windows 64 位，想自己配引擎',
+        'windows_no_engine_installer': 'Windows 64 位，想自己配引擎，也想安装器',
+        'mac_arm64': 'macOS Apple Silicon',
+        'mac_amd64': 'macOS Intel',
+        'linux64': 'Linux 64 位，CPU 兼容版',
+        'linux64_opencl': 'Linux 64 位，OpenCL 版，AMD/Intel GPU',
+        'linux64_nvidia': 'Linux 64 位，NVIDIA CUDA 版',
+    },
+    'zh_hant': {
+        'windows_opencl_portable': 'Windows 64 位，OpenCL 版，推薦更快，免安裝',
+        'windows_opencl_installer': 'Windows 64 位，OpenCL 版，想安裝',
+        'windows_portable': 'Windows 64 位，CPU 相容版，免安裝',
+        'windows_installer': 'Windows 64 位，CPU 相容版，想安裝',
+        'windows_nvidia_portable': 'Windows 64 位，NVIDIA 顯示卡，免安裝',
+        'windows_nvidia_installer': 'Windows 64 位，NVIDIA 顯示卡，想安裝',
+        'windows_directml_experimental': 'Windows 64 位，DirectML 實驗版，DirectX 12 GPU',
+        'windows_openvino_experimental': 'Windows 64 位，OpenVINO 實驗版，Intel GPU/NPU',
+        'windows_rocm_gfx103x_experimental': 'Windows 64 位，ROCm 實驗版，AMD RX 6000',
+        'windows_rocm_gfx110x_experimental': 'Windows 64 位，ROCm 實驗版，AMD RX 7000',
+        'windows_rocm_gfx1151_experimental': 'Windows 64 位，ROCm 實驗版，Ryzen AI Max',
+        'windows_rocm_gfx120x_experimental': 'Windows 64 位，ROCm 實驗版，AMD RX 9000',
+        'windows_no_engine_portable': 'Windows 64 位，想自己配引擎',
+        'windows_no_engine_installer': 'Windows 64 位，想自己配引擎，也想安裝器',
+        'mac_arm64': 'macOS Apple Silicon',
+        'mac_amd64': 'macOS Intel',
+        'linux64': 'Linux 64 位，CPU 相容版',
+        'linux64_opencl': 'Linux 64 位，OpenCL 版，AMD/Intel GPU',
+        'linux64_nvidia': 'Linux 64 位，NVIDIA CUDA 版',
+    },
+    'en': {
+        'windows_opencl_portable': 'Windows 64-bit, OpenCL, recommended and faster, no install',
+        'windows_opencl_installer': 'Windows 64-bit, OpenCL, installer',
+        'windows_portable': 'Windows 64-bit, CPU compatible build, no install',
+        'windows_installer': 'Windows 64-bit, CPU compatible build, installer',
+        'windows_nvidia_portable': 'Windows 64-bit, NVIDIA GPU, no install',
+        'windows_nvidia_installer': 'Windows 64-bit, NVIDIA GPU, installer',
+        'windows_directml_experimental': 'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
+        'windows_openvino_experimental': 'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
+        'windows_rocm_gfx103x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 6000',
+        'windows_rocm_gfx110x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 7000',
+        'windows_rocm_gfx1151_experimental': 'Windows 64-bit, ROCm experimental, Ryzen AI Max',
+        'windows_rocm_gfx120x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 9000',
+        'windows_no_engine_portable': 'Windows 64-bit, configure your own engine',
+        'windows_no_engine_installer': 'Windows 64-bit, configure your own engine, installer',
+        'mac_arm64': 'macOS Apple Silicon',
+        'mac_amd64': 'macOS Intel',
+        'linux64': 'Linux 64-bit, CPU compatible build',
+        'linux64_opencl': 'Linux 64-bit, OpenCL for AMD/Intel GPU',
+        'linux64_nvidia': 'Linux 64-bit, NVIDIA CUDA',
+    },
+    'ja': {
+        'windows_opencl_portable': 'Windows 64-bit、OpenCL 推奨高速版、インストール不要',
+        'windows_opencl_installer': 'Windows 64-bit、OpenCL 版、インストーラ',
+        'windows_portable': 'Windows 64-bit、CPU 互換版、インストール不要',
+        'windows_installer': 'Windows 64-bit、CPU 互換版、インストーラ',
+        'windows_nvidia_portable': 'Windows 64-bit、NVIDIA GPU、インストール不要',
+        'windows_nvidia_installer': 'Windows 64-bit、NVIDIA GPU、インストーラ',
+        'windows_directml_experimental': 'Windows 64-bit、DirectML experimental、DirectX 12 GPU',
+        'windows_openvino_experimental': 'Windows 64-bit、OpenVINO experimental、Intel GPU/NPU',
+        'windows_rocm_gfx103x_experimental': 'Windows 64-bit、ROCm experimental、AMD RX 6000',
+        'windows_rocm_gfx110x_experimental': 'Windows 64-bit、ROCm experimental、AMD RX 7000',
+        'windows_rocm_gfx1151_experimental': 'Windows 64-bit、ROCm experimental、Ryzen AI Max',
+        'windows_rocm_gfx120x_experimental': 'Windows 64-bit、ROCm experimental、AMD RX 9000',
+        'windows_no_engine_portable': 'Windows 64-bit、自分でエンジンを設定したい場合',
+        'windows_no_engine_installer': 'Windows 64-bit、自分でエンジンを設定したい場合、インストーラ',
+        'mac_arm64': 'macOS Apple Silicon',
+        'mac_amd64': 'macOS Intel',
+        'linux64': 'Linux 64-bit、CPU 互換版',
+        'linux64_opencl': 'Linux 64-bit、OpenCL、AMD/Intel GPU',
+        'linux64_nvidia': 'Linux 64-bit、NVIDIA CUDA',
+    },
+    'ko': {
+        'windows_opencl_portable': 'Windows 64-bit, OpenCL 추천 고속판, 무설치',
+        'windows_opencl_installer': 'Windows 64-bit, OpenCL, 설치형',
+        'windows_portable': 'Windows 64-bit, CPU 호환 빌드, 무설치',
+        'windows_installer': 'Windows 64-bit, CPU 호환 빌드, 설치형',
+        'windows_nvidia_portable': 'Windows 64-bit, NVIDIA GPU, 무설치',
+        'windows_nvidia_installer': 'Windows 64-bit, NVIDIA GPU, 설치형',
+        'windows_directml_experimental': 'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
+        'windows_openvino_experimental': 'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
+        'windows_rocm_gfx103x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 6000',
+        'windows_rocm_gfx110x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 7000',
+        'windows_rocm_gfx1151_experimental': 'Windows 64-bit, ROCm experimental, Ryzen AI Max',
+        'windows_rocm_gfx120x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 9000',
+        'windows_no_engine_portable': 'Windows 64-bit, 직접 엔진 설정',
+        'windows_no_engine_installer': 'Windows 64-bit, 직접 엔진 설정, 설치형',
+        'mac_arm64': 'macOS Apple Silicon',
+        'mac_amd64': 'macOS Intel',
+        'linux64': 'Linux 64-bit, CPU 호환 빌드',
+        'linux64_opencl': 'Linux 64-bit, OpenCL, AMD/Intel GPU',
+        'linux64_nvidia': 'Linux 64-bit, NVIDIA CUDA',
+    },
+    'th': {
+        'windows_opencl_portable': 'Windows 64-bit, OpenCL, แนะนำและเร็วกว่า, ไม่ต้องติดตั้ง',
+        'windows_opencl_installer': 'Windows 64-bit, OpenCL, แบบติดตั้ง',
+        'windows_portable': 'Windows 64-bit, CPU compatible build, ไม่ต้องติดตั้ง',
+        'windows_installer': 'Windows 64-bit, CPU compatible build, แบบติดตั้ง',
+        'windows_nvidia_portable': 'Windows 64-bit, การ์ดจอ NVIDIA, ไม่ต้องติดตั้ง',
+        'windows_nvidia_installer': 'Windows 64-bit, การ์ดจอ NVIDIA, แบบติดตั้ง',
+        'windows_directml_experimental': 'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
+        'windows_openvino_experimental': 'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
+        'windows_rocm_gfx103x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 6000',
+        'windows_rocm_gfx110x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 7000',
+        'windows_rocm_gfx1151_experimental': 'Windows 64-bit, ROCm experimental, Ryzen AI Max',
+        'windows_rocm_gfx120x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 9000',
+        'windows_no_engine_portable': 'Windows 64-bit, ต้องการตั้งค่า engine เอง',
+        'windows_no_engine_installer': 'Windows 64-bit, ต้องการตั้งค่า engine เองและอยากใช้ installer',
+        'mac_arm64': 'macOS Apple Silicon',
+        'mac_amd64': 'macOS Intel',
+        'linux64': 'Linux 64-bit, CPU compatible build',
+        'linux64_opencl': 'Linux 64-bit, OpenCL สำหรับ AMD/Intel GPU',
+        'linux64_nvidia': 'Linux 64-bit, NVIDIA CUDA',
+    },
 }
+CORE_UPDATE_DOWNLOAD_LABELS = {
+    '中文': '已有 Windows 免安装版，日常升级小包',
+    '繁體中文': '已有 Windows 免安裝版，日常升級小包',
+    'English': 'Existing Windows portable install, small routine update',
+    '日本語': '既存の Windows portable 版向け小型更新',
+    '한국어': '기존 Windows portable 사용자를 위한 소형 업데이트',
+    'ภาษาไทย': 'อัปเดตเล็กสำหรับผู้ใช้ Windows portable เดิม',
+}
+TENSORRT_SPLIT_DOWNLOAD_LABELS = {
+    '中文': 'RTX 30 系及以下可选：TensorRT 预装分卷包（需下载全部 .7z.00N）',
+    '繁體中文': 'RTX 30 系及以下可選：TensorRT 預裝分卷包（需下載全部 .7z.00N）',
+    'English': 'Optional TensorRT split package for RTX 30 and earlier; download every .7z.00N part',
+    '日本語': 'RTX 30 以前向け任意：TensorRT 分割パッケージ（.7z.00N を全て取得）',
+    '한국어': 'RTX 30 이하 선택: TensorRT 분할 패키지(.7z.00N 전체 다운로드 필요)',
+    'ภาษาไทย': 'ตัวเลือกสำหรับ RTX 30 และเก่ากว่า: TensorRT split package ต้องดาวน์โหลด .7z.00N ครบ',
+}
+
+
+def validate_presentation_label_coverage() -> None:
+    table_keys = {asset.key for asset in topology.release_notes_table_assets()}
+    extra_keys = {
+        asset.key
+        for asset in topology.release_notes_assets()
+        if asset.key not in table_keys
+    }
+    covered_extra = {'windows_core_update', *TENSORRT_SPLIT_PART_KEYS}
+    if extra_keys != covered_extra:
+        raise SystemExit(
+            'release-notes extra labels must cover topology release-notes assets exactly'
+        )
+    for language, labels in STANDARD_DOWNLOAD_LABELS.items():
+        if set(labels) != table_keys:
+            raise SystemExit(
+                f'{language} download labels must cover topology release-notes table assets exactly'
+            )
+        if any(not str(value).strip() for value in labels.values()):
+            raise SystemExit(f'{language} download labels must not be empty')
+    if set(CORE_UPDATE_DOWNLOAD_LABELS) != set(RELEASE_LANGUAGES):
+        raise SystemExit('core-update labels must cover every release language')
+    if set(TENSORRT_SPLIT_DOWNLOAD_LABELS) != set(RELEASE_LANGUAGES):
+        raise SystemExit('TensorRT split labels must cover every release language')
+
+
+validate_presentation_label_coverage()
 
 
 def build_next_2026_05_17_2_notes(
@@ -8711,35 +8712,10 @@ def main() -> int:
     else:
         asset_names = asset_names_from_dir(args.release_dir, args.date_tag)
 
-    asset_map = {
-        key: pick_asset(asset_names, suffix, args.date_tag)
-        for key, suffix, _cn, _en in ASSET_SPECS
-    }
-    asset_map['windows_core_update'] = pick_asset(
-        asset_names,
-        WINDOWS_CORE_UPDATE_SUFFIX,
-        args.date_tag,
-    )
-    asset_map['windows_tensorrt_split_readme'] = pick_asset(
-        asset_names,
-        TENSORRT_SPLIT_README_SUFFIX,
-        args.date_tag,
-    )
-    asset_map['windows_tensorrt_split_parts'] = pick_assets_matching(
-        asset_names,
-        TENSORRT_SPLIT_PART_PATTERN,
-        args.date_tag,
-    )
-    asset_map['windows_tensorrt_split_sha256'] = pick_asset(
-        asset_names,
-        TENSORRT_SPLIT_SHA256_SUFFIX,
-        args.date_tag,
-    )
-    asset_map['windows_tensorrt_split_manifest'] = pick_asset(
-        asset_names,
-        TENSORRT_SPLIT_MANIFEST_SUFFIX,
-        args.date_tag,
-    )
+    try:
+        asset_map = build_asset_map(asset_names, args.date_tag)
+    except topology.TopologyError as exc:
+        raise SystemExit(str(exc)) from exc
     bundle = load_bundle_metadata()
     notes = build_release_notes(asset_map, bundle, args.repo, args.release_tag)
 

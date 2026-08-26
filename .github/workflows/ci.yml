@@ -143,6 +143,8 @@ jobs:
             scripts/test_prepare_bundled_nvidia_runtime.py \
             scripts/test_publish_release_request.py \
             scripts/release_asset_provenance.py \
+            scripts/release_asset_topology.py \
+            scripts/test_release_asset_topology.py \
             scripts/test_release_asset_provenance.py \
             scripts/validate_release_notes.py \
             scripts/test_validate_release_notes.py \
@@ -164,6 +166,7 @@ jobs:
           python3 scripts/test_prepare_bundled_nvidia_runtime.py
           python3 -m unittest scripts.test_publish_release_request
           python3 -m unittest scripts.test_release_asset_provenance
+          python3 -m unittest scripts.test_release_asset_topology
           python3 -m unittest scripts.test_validate_release_notes
           python3 -m unittest scripts.test_macos_signing_security
           python3 -m unittest scripts.test_r2_release

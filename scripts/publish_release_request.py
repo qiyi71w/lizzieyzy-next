@@ -25,8 +25,10 @@ import zipfile
 
 try:
     from scripts import release_asset_provenance as provenance
+    from scripts import release_asset_topology as topology
 except ModuleNotFoundError:  # Direct execution: python scripts/publish_release_request.py
     import release_asset_provenance as provenance  # type: ignore[no-redef]
+    import release_asset_topology as topology  # type: ignore[no-redef]
 
 
 API_VERSION = "2026-03-10"
@@ -40,30 +42,7 @@ LOCALIZED_NOTE_HEADINGS = (
     "## 한국어",
     "## ภาษาไทย",
 )
-DIRECT_DOWNLOAD_SUFFIXES = (
-    "windows64.opencl.portable.zip",
-    "windows64.core-update.zip",
-    "windows64.opencl.installer.exe",
-    "windows64.with-katago.portable.zip",
-    "windows64.with-katago.installer.exe",
-    "windows64.nvidia.portable.zip",
-    "windows64.nvidia.installer.exe",
-    "windows64.experimental.directml.portable.zip",
-    "windows64.experimental.openvino.portable.zip",
-    "windows64.experimental.rocm.gfx103x.portable.zip",
-    "windows64.experimental.rocm.gfx110x.portable.zip",
-    "windows64.experimental.rocm.gfx1151.portable.zip",
-    "windows64.experimental.rocm.gfx120x.portable.zip",
-    "windows64.nvidia.tensorrt.portable.7z.001",
-    "windows64.nvidia.tensorrt.portable.7z.002",
-    "windows64.without.engine.portable.zip",
-    "windows64.without.engine.installer.exe",
-    "mac-apple-silicon.with-katago.dmg",
-    "mac-intel.with-katago.dmg",
-    "linux64.with-katago.zip",
-    "linux64.opencl.zip",
-    "linux64.nvidia.zip",
-)
+
 ACTIVE_RUN_STATUSES = {"queued", "in_progress", "waiting", "requested", "pending"}
 WORKFLOW_IDENTITY_CONVERGENCE_SECONDS = 90
 CI_WORKFLOW_FILE = "ci.yml"
@@ -98,6 +77,10 @@ def _localized_note_sections(body: str) -> dict[str, str]:
     return sections
 
 
+def direct_download_names(date_tag: str) -> tuple[str, ...]:
+    return topology.direct_download_names(date_tag)
+
+
 def validate_direct_download_tables(
     body: str,
     date_tag: str,
@@ -116,9 +99,7 @@ def validate_direct_download_tables(
         download_end = subsections[3].start()
         download_section = section[download_start:download_end]
         lines = download_section.splitlines()
-        expected_names = [
-            f"{date_tag}-{suffix}" for suffix in DIRECT_DOWNLOAD_SUFFIXES
-        ]
+        expected_names = list(direct_download_names(date_tag))
 
         for filename in expected_names:
             url = (
@@ -210,10 +191,8 @@ class ReleaseRequest:
 class WorkflowSpec:
     platform: str
     workflow_file: str
-    exact_suffixes: tuple[str, ...]
     run_name_template: str
     provenance_platform: str
-    required_patterns: tuple[re.Pattern[str], ...] = ()
     dispatch_inputs: tuple[tuple[str, str], ...] = ()
 
     def expected_run_name(
@@ -227,72 +206,22 @@ class WorkflowSpec:
 
     def missing_assets(self, asset_names: Iterable[str], date_tag: str) -> list[str]:
         names = set(asset_names)
-        missing = [
-            f"{date_tag}-{suffix}"
-            for suffix in self.exact_suffixes
-            if f"{date_tag}-{suffix}" not in names
+        return [
+            expected
+            for expected in topology.public_inventory(self.provenance_platform, date_tag)
+            if expected not in names
         ]
-        for pattern in self.required_patterns:
-            rendered = re.compile(pattern.pattern.format(date=re.escape(date_tag)))
-            if not any(rendered.fullmatch(name) for name in names):
-                missing.append(pattern.pattern.format(date=date_tag))
-        return missing
 
 
-WORKFLOWS = (
+WORKFLOWS = tuple(
     WorkflowSpec(
-        "Windows",
-        "build-windows-release.yml",
-        (
-            "windows64.opencl.installer.exe",
-            "windows64.opencl.portable.zip",
-            "windows64.nvidia.installer.exe",
-            "windows64.nvidia.portable.zip",
-            "windows64.experimental.directml.portable.zip",
-            "windows64.experimental.openvino.portable.zip",
-            "windows64.experimental.rocm.gfx103x.portable.zip",
-            "windows64.experimental.rocm.gfx110x.portable.zip",
-            "windows64.experimental.rocm.gfx1151.portable.zip",
-            "windows64.experimental.rocm.gfx120x.portable.zip",
-            "windows64.with-katago.installer.exe",
-            "windows64.with-katago.portable.zip",
-            "windows64.without.engine.installer.exe",
-            "windows64.without.engine.portable.zip",
-            "windows64.core-update.zip",
-            "windows64.nvidia.tensorrt.portable.README.txt",
-            "windows64.nvidia.tensorrt.portable.manifest.json",
-            "windows64.nvidia.tensorrt.portable.sha256.txt",
-            "windows64.nvidia.tensorrt.portable.7z.001",
-            "windows64.nvidia.tensorrt.portable.7z.002",
-        ),
-        "Windows release {release_tag} | {date_tag} | prerelease={prerelease}",
-        "windows",
-        dispatch_inputs=(("release_prerelease", "true"),),
-    ),
-    WorkflowSpec(
-        "Linux",
-        "build-linux-release.yml",
-        ("linux64.with-katago.zip", "linux64.opencl.zip", "linux64.nvidia.zip"),
-        "Linux release {release_tag} | {date_tag} | prerelease={prerelease}",
-        "linux",
-        dispatch_inputs=(("release_prerelease", "true"),),
-    ),
-    WorkflowSpec(
-        "macOS Intel",
-        "build-macos-amd64-release.yml",
-        ("mac-intel.with-katago.dmg",),
-        "macOS Intel release {release_tag} | {date_tag} | prerelease={prerelease}",
-        "mac-amd64",
-        dispatch_inputs=(("release_prerelease", "true"),),
-    ),
-    WorkflowSpec(
-        "macOS Apple Silicon",
-        "build-macos-arm64-release.yml",
-        ("mac-apple-silicon.with-katago.dmg",),
-        "macOS Apple Silicon release {release_tag} | {date_tag} | prerelease={prerelease}",
-        "mac-arm64",
-        dispatch_inputs=(("release_prerelease", "true"),),
-    ),
+        unit.publisher_identity,
+        unit.workflow_file,
+        unit.run_name_template,
+        unit.platform,
+        unit.dispatch_inputs,
+    )
+    for unit in topology.release_units()
 )
 
 
@@ -1216,11 +1145,9 @@ class ReleasePublisher:
                 f"{spec.platform} provenance manifest is invalid: {exc}"
             ) from exc
 
-        publisher_names = {
-            f"{self.request.date_tag}-{suffix}" for suffix in spec.exact_suffixes
-        }
-        if spec.provenance_platform == "windows":
-            publisher_names.add("lizzieyzy-next-update-manifest.json")
+        publisher_names = set(
+            topology.public_inventory(spec.provenance_platform, self.request.date_tag)
+        )
         if set(records) != publisher_names:
             raise PublishError(
                 f"{spec.platform} publisher and provenance asset inventories disagree"
