@@ -2908,8 +2908,7 @@ public class ConfigDialog2 extends JDialog {
             interaction,
             configText("ConfigDialog2.modern.interaction.moveRect", "显示落子矩形"),
             configText("ConfigDialog2.modern.interaction.moveRectSub", "始终显示、仅对局时显示，或不显示"),
-            comboShowMoveRect,
-            160);
+            comboShowMoveRect);
         addComboRow(
             interaction,
             configText("ConfigDialog2.modern.interaction.rightClick", "右键行为"),
@@ -2921,8 +2920,7 @@ public class ConfigDialog2 extends JDialog {
             configText(
                 "ConfigDialog2.modern.interaction.specialCoordsSub",
                 "普通、含 I、野狐风格，或从上/从下数字坐标"),
-            SpecialCoordsCbx,
-            180);
+            SpecialCoordsCbx);
         addModernCard(content, interaction);
         return content;
       }
@@ -3069,7 +3067,7 @@ public class ConfigDialog2 extends JDialog {
   }
 
   private void addComboRow(JPanel card, String title, String subtitle, JComboBox<?> combo) {
-    addComboRow(card, title, subtitle, combo, 148);
+    addComboRow(card, title, subtitle, combo, 180);
   }
 
   private void addComboRow(
