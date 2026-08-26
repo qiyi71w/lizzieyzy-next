@@ -162,9 +162,10 @@ class LoggingRuntimeTest {
     }
     runtime.awaitIdle(80);
     assertTrue(Files.isRegularFile(tempDir.resolve("logs/app.log")));
-    try (Stream<Path> stream = Files.list(tempDir.resolve("logs/archive"))) {
-      assertTrue(stream.anyMatch(path -> path.getFileName().toString().startsWith("app.")));
-    }
+    List<String> archiveNames = awaitAppArchiveNames(tempDir.resolve("logs/archive"));
+    assertTrue(
+        archiveNames.stream().anyMatch(name -> name.startsWith("app.")),
+        "archive entries=" + archiveNames);
   }
 
   @Test
@@ -695,6 +696,22 @@ class LoggingRuntimeTest {
               });
     }
     return scanned.toString();
+  }
+
+  private static List<String> awaitAppArchiveNames(Path archiveDir)
+      throws IOException, InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    List<String> names;
+    do {
+      try (Stream<Path> stream = Files.list(archiveDir)) {
+        names = stream.map(path -> path.getFileName().toString()).toList();
+      }
+      if (names.stream().anyMatch(name -> name.startsWith("app."))
+          || System.nanoTime() >= deadline) {
+        return names;
+      }
+      Thread.sleep(10L);
+    } while (true);
   }
 
   private static int count(String text, String token) {
