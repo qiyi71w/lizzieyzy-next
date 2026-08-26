@@ -4507,12 +4507,6 @@ public class EngineManager {
         newEng.pkMoveStartTime = System.currentTimeMillis();
       }
       newEng.isResigning = false;
-      if (nameAlreadyRecognized
-          && !runEngineGameStartupCommandStep(transaction, newEng::clearWithoutPonder)) {
-        lifecycleSynchronization.close();
-        completion.fail();
-        return completion;
-      }
       Object synchronizationIncarnation = newEng.currentEngineIncarnation();
       if (transaction != null
           && !bindEngineGameStartupIncarnation(
@@ -4539,9 +4533,8 @@ public class EngineManager {
                 }
                 newEng.pkMoveStartTime = System.currentTimeMillis();
               }
-              // After name-ready the engine may already be in lifecycle/board-sync, which
-              // rejects stop as a startup command. Board restore follows immediately.
             }
+            // Frozen exact/root restore owns board reset. Do not send startup stop/clear.
             if (!frozenLifecycleSynchronization.runUntilStableForBoundEngineGame()) {
               frozenLifecycleSynchronization.close();
               completion.fail();

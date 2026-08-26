@@ -10860,6 +10860,7 @@ public class Leelaz {
         || (startupTransactionAtAdmission != null
             && !EngineManager.isEngineGameOutputAdmissionOpen(startupTransactionAtAdmission))
         || (exclusiveGtpLifecycleQueueGate
+            && !isExactSnapshotRestoreAdmissionContextActive()
             && !isCurrentRestartBootstrapReceiptLocked(bootstrapReceipt))
         || (readBoardGmaResponseBinding != null
             && (readerStreamBinding != readBoardGmaResponseBinding

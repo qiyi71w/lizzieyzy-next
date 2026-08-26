@@ -3985,7 +3985,7 @@ class EngineManagerLifecycleReservationTest {
   }
 
   @Test
-  void pkStartClearsTheFrozenTargetWhenCatalogChangesAfterReservation() throws Exception {
+  void pkStartRestoresTheFrozenTargetWhenCatalogChangesAfterReservation() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     Board previousBoard = Lizzie.board;
     LizzieFrame previousFrame = Lizzie.frame;
@@ -4014,8 +4014,11 @@ class EngineManagerLifecycleReservationTest {
       manager.startEngineForPk(0);
 
       assertTrue(board.restoreCompleted.await(2, TimeUnit.SECONDS));
-      assertEquals(1, target.clearWithoutPonderCount);
-      assertEquals(0, replacement.clearWithoutPonderCount);
+      assertEquals(1, target.restoreCount);
+      assertTrue(target.loadedSgf.contains("AB[dd]"));
+      assertTrue(target.loadedSgf.contains("KM[6.5]"));
+      assertEquals(0, replacement.restoreCount);
+      assertTrue(replacement.loadedSgf.isEmpty());
     } finally {
       Lizzie.leelaz = previousEngine;
       Lizzie.board = previousBoard;
@@ -10065,7 +10068,6 @@ class EngineManagerLifecycleReservationTest {
     private Runnable mutateOnFirstCommand;
     private Runnable mutateOnStart;
     private Runnable onLifecycleReservation;
-    private int clearWithoutPonderCount;
     private boolean commandMutated;
     private boolean readyAfterStart = true;
     private boolean failRestore;
@@ -10115,11 +10117,6 @@ class EngineManagerLifecycleReservationTest {
 
     @Override
     public void clearBestMoves() {}
-
-    @Override
-    public void clearWithoutPonder() {
-      clearWithoutPonderCount++;
-    }
 
     @Override
     ExclusiveGtpLifecycleReservation beginExclusiveGtpLifecycleReservation(Object owner) {
