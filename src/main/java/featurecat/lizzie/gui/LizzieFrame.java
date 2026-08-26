@@ -45,7 +45,6 @@ import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import featurecat.lizzie.theme.MorandiPalette;
 import featurecat.lizzie.teacher.CommentDisplayRenderer;
-import featurecat.lizzie.training.HumanMoveDecision;
 import featurecat.lizzie.training.HumanSlTrainingSession;
 import featurecat.lizzie.util.GraphicsDriverDiagnostics;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
@@ -477,9 +476,7 @@ public class LizzieFrame extends JFrame {
   public HumanSlGameController humanSlGame = null;
   private HumanSlTrainingSession humanSlTrainingSession = new HumanSlTrainingSession();
   private HumanSlTrainingBar humanSlTrainingBar;
-  private HumanSlCorrectionPanel humanSlCorrectionPanel;
   private NewHumanSlGameDialog humanSlSetupDialog;
-  private HumanSlTrainingReportDialog humanSlTrainingReportDialog;
   private boolean startHumanSlAtCurrentRequested;
   public boolean playerIsBlack = true;
   public static boolean canGoAfterload = true;
@@ -855,7 +852,6 @@ public class LizzieFrame extends JFrame {
     topPanel = new TopHeaderPanel();
     menu = new Menu();
     humanSlTrainingBar = new HumanSlTrainingBar();
-    humanSlCorrectionPanel = new HumanSlCorrectionPanel();
     menuPresentationMode = MenuPresentationMode.detectCurrent();
     windowMenuStrip = new WindowMenuStrip(menu);
     RightClickMenu = new RightClickMenu();
@@ -1929,7 +1925,6 @@ public class LizzieFrame extends JFrame {
           }
         });
     basePanel.add(engineStartupStatusButton, Integer.valueOf(12));
-    basePanel.add(humanSlCorrectionPanel, Integer.valueOf(14));
     basePanel.add(humanSlTrainingBar, Integer.valueOf(13));
     basePanel.add(commentBlunderControlPane, Integer.valueOf(10));
     basePanel.add(tempGamePanelAll, Integer.valueOf(9));
@@ -8812,6 +8807,9 @@ public class LizzieFrame extends JFrame {
   private boolean winrateGraphDragScheduled;
 
   public void onMouseDragged(int x, int y) {
+    if (hasActiveHumanSlGame()) {
+      return;
+    }
     BoardHistoryNode targetNode = canGoAfterload ? resolveWinrateGraphTargetNode(x, y) : null;
     if (!SwingUtilities.isEventDispatchThread()) {
       if (targetNode != null) {
@@ -11467,11 +11465,6 @@ public class LizzieFrame extends JFrame {
       humanSlSetupDialog.toFront();
       return;
     }
-    if (humanSlTrainingSession.state() == HumanSlTrainingSession.State.REPORT_READY
-        && humanSlTrainingReportDialog != null) {
-      humanSlTrainingReportDialog.showReport();
-      return;
-    }
     startHumanSlGameDialog();
   }
 
@@ -11520,21 +11513,6 @@ public class LizzieFrame extends JFrame {
     if (humanSlTrainingBar != null) {
       humanSlTrainingBar.repaint();
     }
-  }
-
-  public void showHumanSlCorrection(
-      HumanSlGameController controller, HumanMoveDecision decision) {
-    humanSlCorrectionPanel.showDecision(controller, decision);
-    reSetLoc();
-  }
-
-  public void hideHumanSlCorrection(HumanSlGameController controller) {
-    humanSlCorrectionPanel.dismiss(controller);
-    repaint();
-  }
-
-  public void setHumanSlTrainingReport(HumanSlTrainingReportDialog dialog) {
-    humanSlTrainingReportDialog = dialog;
   }
 
   public void startEngineGameDialog() {
@@ -12442,7 +12420,6 @@ public class LizzieFrame extends JFrame {
                     - toolbarHeight,
                 width,
                 toolbarHeight);
-            layoutHumanSlCorrection(width, trainingBarHeight);
             layoutEngineStartupStatus(width);
             if (toolbar.showDetail) toolbar.setDetailIcon();
             toolbar.reSetButtonLocation();
@@ -12455,19 +12432,6 @@ public class LizzieFrame extends JFrame {
             }
           }
         });
-  }
-
-  private void layoutHumanSlCorrection(int contentWidth, int trainingBarHeight) {
-    if (humanSlCorrectionPanel == null || !humanSlCorrectionPanel.isVisible()) {
-      return;
-    }
-    int width = Math.min(330, Math.max(270, contentWidth / 4));
-    int height = 205;
-    int x = Math.max(12, contentWidth - width - 22);
-    int contentHeight =
-        getHeight() - getInsets().top - getInsets().bottom - toolbarHeight - trainingBarHeight;
-    int y = Math.max(windowMenuHeight + topPanelHeight + 16, (contentHeight - height) / 2);
-    humanSlCorrectionPanel.setBounds(x, y, width, height);
   }
 
   public void testFilter(Integer txtFieldIntValue) {
@@ -15950,22 +15914,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private static String playerStrengthRankValueText(double rankValue) {
-    boolean chinese = Lizzie.config != null && Lizzie.config.isChinese;
-    double value = Math.max(-18.0, Math.min(12.0, rankValue));
-    if (value >= 12.0) {
-      return String.format(
-          Locale.US, "%.1f %s", value, chinese ? "\u534a\u795e/AI" : "semi-god/AI");
-    }
-    if (value >= 11.0) {
-      return String.format(
-          Locale.US, "%.1f %s", value, chinese ? "\u4e00\u7ebf\u804c\u4e1a" : "top pro");
-    }
-    if (value >= 10.0) {
-      return String.format(Locale.US, "%.1f %s", value, chinese ? "\u804c\u4e1a" : "pro");
-    }
-    return chinese
-        ? String.format(Locale.US, "%.1f\u6bb5", Math.max(1.0, value))
-        : String.format(Locale.US, "Fox %.1f dan", Math.max(1.0, value));
+    return PlayerStrengthRankFormatter.format(rankValue, Lizzie.resourceBundle);
   }
 
   private static String playerStrengthRankRangeText(String raw, String type, boolean chinese) {

@@ -1,7 +1,6 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.AnalysisRequestBuilder;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.HumanSlAnalysisRunner;
 import featurecat.lizzie.analysis.Leelaz;
@@ -10,52 +9,34 @@ import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
-import featurecat.lizzie.training.HumanMoveDecision;
 import featurecat.lizzie.training.HumanSlTrainingConfig;
 import featurecat.lizzie.training.HumanSlTrainingSession;
 import featurecat.lizzie.training.OpponentPreset;
-import featurecat.lizzie.training.TrainingMode;
-import featurecat.lizzie.training.TrainingMoveAssessment;
-import featurecat.lizzie.training.TrainingSessionReport;
 import featurecat.lizzie.util.Utils;
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Runs one HumanSL coaching game and its optional correction/review flow. */
+/** Runs one HumanSL coaching game, optionally alongside normal foreground analysis. */
 public final class HumanSlGameController {
   private static final Logger LOG = LoggerFactory.getLogger(LogCategories.APP);
   private static final int AI_MOVE_RETRIES = 2;
   private static final int FOREGROUND_RESTORE_ATTEMPTS = 2;
   private static final int PRIMARY_RESYNC_STABILITY_ATTEMPTS = 3;
-  private static final int QUICK_REVIEW_VISITS = 32;
-  private static final int DEEP_REVIEW_VISITS = 500;
-  private static final Duration REVIEW_TIMEOUT = Duration.ofSeconds(30);
   private static final long MIN_MOVE_DELAY_MILLIS = 800L;
   private static final long MAX_MOVE_DELAY_MILLIS = 4000L;
-  private static final String REPORT_BEGIN = "[[LIZZIEYZY_AI_COACH_REPORT_BEGIN]]";
-  private static final String REPORT_END = "[[LIZZIEYZY_AI_COACH_REPORT_END]]";
-
   private final HumanSlAnalysisRunner runner;
   private final HumanSlTrainingConfig config;
   private final HumanSlTrainingSession trainingSession;
@@ -63,26 +44,25 @@ public final class HumanSlGameController {
   private final String profile;
   private final Duration moveTimeout;
   private final ExecutorService gameExecutor = Executors.newSingleThreadExecutor();
-  private final ExecutorService reviewExecutor = Executors.newSingleThreadExecutor();
   private final AtomicLong requestGeneration = new AtomicLong();
-  private final List<PendingHumanMove> pendingHumanMoves = new ArrayList<PendingHumanMove>();
-  private final Set<Integer> assessedMoveNumbers = new HashSet<Integer>();
 
   private boolean candidatesBlackBefore;
   private boolean candidatesWhiteBefore;
+  private boolean analyzeBlackBefore;
+  private boolean analyzeWhiteBefore;
   private boolean showWinrateGraphBefore;
   private boolean showWinrateInSuggestionBefore;
   private boolean showKataGoEstimateBefore;
   private boolean showingPolicyBefore;
   private boolean showingHeatmapBefore;
   private boolean analysisVisualsCaptured;
+  private volatile Leelaz temporaryLiveAnalysisEngine;
   private volatile ForegroundAnalysisPause.RestoreLease foregroundAnalysisRestoreLease =
       ForegroundAnalysisPause.RestoreLease.inactive();
   /** Stops coaching work immediately without claiming that resource teardown has completed. */
   private volatile boolean finished;
   /** Published only after close, exact replay, foreground restore, and UI cleanup all succeed. */
   private volatile boolean teardownComplete;
-  private volatile boolean awaitingCorrection;
   private volatile boolean aiThinking;
   private volatile boolean aiFailed;
   private volatile boolean exitInProgress;
@@ -90,9 +70,7 @@ public final class HumanSlGameController {
   private volatile long humanElapsedMillis;
   private volatile long aiElapsedMillis;
   private volatile long turnStartedAt;
-  private volatile String gameResult = "";
   private BoardHistoryNode trainingStartNode;
-  private HumanSlTrainingReportDialog reportDialog;
   private Runnable successfulExitCompletion;
   private Runnable successfulExitContinuation;
   private Consumer<Runnable> exitBackgroundDispatcher = HumanSlGameController::dispatchExitWorker;
@@ -281,6 +259,10 @@ public final class HumanSlGameController {
     return trainingSession.state() == HumanSlTrainingSession.State.REVIEWING;
   }
 
+  public boolean isLiveAnalysisMode() {
+    return config.mode.isLiveAnalysis();
+  }
+
   public long humanElapsedMillis() {
     return humanElapsedMillis + liveElapsed(true);
   }
@@ -301,8 +283,10 @@ public final class HumanSlGameController {
     }
   }
 
+  /** Compatibility accessor retained after resign became identical to a normal finish. */
+  @Deprecated
   public String gameResult() {
-    return gameResult;
+    return "";
   }
 
   /** Sets up the board and starts the game. Must be called on the EDT. */
@@ -352,12 +336,13 @@ public final class HumanSlGameController {
         Lizzie.board.getHistory().getGameInfo().setKomi(config.komi);
         configurePlayerNames();
       }
-      hideAnalysisVisuals();
+      configureAnalysisVisuals();
       Lizzie.frame.humanSlGame = this;
       trainingSession.setState(HumanSlTrainingSession.State.PLAYING);
       turnStartedAt = System.currentTimeMillis();
       Lizzie.frame.showHumanSlTrainingBar(this);
       Lizzie.frame.refresh();
+      activateLiveAnalysisIfRequested();
 
       if (!isHumanTurn()) {
         scheduleAiMove();
@@ -379,11 +364,6 @@ public final class HumanSlGameController {
     aiFailed = false;
     try {
       gameExecutor.shutdownNow();
-    } catch (RuntimeException | Error cleanupFailure) {
-      appendExitFailure(startupFailure, cleanupFailure);
-    }
-    try {
-      reviewExecutor.shutdownNow();
     } catch (RuntimeException | Error cleanupFailure) {
       appendExitFailure(startupFailure, cleanupFailure);
     }
@@ -448,7 +428,7 @@ public final class HumanSlGameController {
     Throwable visualRestoreFailure =
         closeFailure == null && resyncFailure == null
             ? restoreAnalysisVisualsBestEffort()
-            : restoreAnalysisSettingsBestEffort();
+            : restoreTemporaryLiveAnalysisAndSettingsBestEffort();
     appendExitFailure(startupFailure, visualRestoreFailure);
   }
 
@@ -465,7 +445,7 @@ public final class HumanSlGameController {
   }
 
   Throwable restoreFailedStartAnalysisSettingsBestEffort() {
-    return restoreAnalysisSettingsBestEffort();
+    return restoreTemporaryLiveAnalysisAndSettingsBestEffort();
   }
 
   void closeRunnerAfterFailedHandoff() {
@@ -504,177 +484,58 @@ public final class HumanSlGameController {
     if (!teardownComplete) {
       Lizzie.frame.showHumanSlTrainingBar(this);
       Lizzie.frame.setMainPanelFocus();
-    } else if (reportDialog != null) {
-      reportDialog.showReport();
     }
   }
 
   /** Called from LizzieFrame when a coaching game is active. */
   public void onBoardClicked(int x, int y) {
-    if (finished || awaitingCorrection || !isHumanTurn() || !Board.isValid(x, y)) {
+    if (finished || !isHumanTurn() || !Board.isValid(x, y)) {
       return;
     }
     if (Lizzie.board.getHistory().getStones()[Board.getIndex(x, y)] != Stone.EMPTY) {
       return;
     }
-    BoardHistoryNode positionBefore = Lizzie.board.getHistory().getCurrentHistoryNode();
-    String move = Board.convertCoordinatesToName(x, y);
     if (!placeLocal(x, y, humanIsBlack ? Stone.BLACK : Stone.WHITE)) {
       return;
     }
     recordTurnElapsed(true);
-    rememberHumanMove(positionBefore, move);
+    scheduleAiMove();
   }
 
   public void humanPass() {
-    if (finished || awaitingCorrection || !isHumanTurn()) {
+    if (finished || !isHumanTurn()) {
       return;
     }
-    BoardHistoryNode positionBefore = Lizzie.board.getHistory().getCurrentHistoryNode();
     if (!passLocal(humanIsBlack ? Stone.BLACK : Stone.WHITE)) {
       return;
     }
     recordTurnElapsed(true);
-    rememberHumanMove(positionBefore, "pass");
-  }
-
-  private void rememberHumanMove(BoardHistoryNode positionBefore, String move) {
-    synchronized (pendingHumanMoves) {
-      pendingHumanMoves.add(new PendingHumanMove(positionBefore, move));
-    }
-    if (config.mode == TrainingMode.LIVE_CORRECTION) {
-      analyzeForLiveCorrection(positionBefore, move);
-    } else {
-      scheduleAiMove();
-    }
-  }
-
-  private void analyzeForLiveCorrection(BoardHistoryNode positionBefore, String move) {
-    awaitingCorrection = true;
-    long generation = requestGeneration.get();
-    try {
-      gameExecutor.execute(
-          () -> {
-            try {
-              Optional<HumanMoveDecision> decision =
-                  runner.evaluateHumanMove(
-                      positionBefore,
-                      profile,
-                      move,
-                      config.analysisVisits(),
-                      config.rootSymmetries(),
-                      REVIEW_TIMEOUT);
-              if (finished || generation != requestGeneration.get()) {
-                return;
-              }
-              decision.ifPresent(this::recordDecision);
-              SwingUtilities.invokeLater(
-                  () -> {
-                    if (finished || generation != requestGeneration.get()) {
-                      return;
-                    }
-                    if (decision.isPresent() && decision.get().isProblemMove()) {
-                      Lizzie.frame.showHumanSlCorrection(this, decision.get());
-                    } else {
-                      awaitingCorrection = false;
-                      scheduleAiMove();
-                    }
-                  });
-            } catch (RuntimeException | Error failure) {
-              dispatchGameWorkerFailure(generation, "live correction", failure);
-            }
-          });
-    } catch (RuntimeException | Error failure) {
-      dispatchGameWorkerFailure(generation, "live correction dispatch", failure);
-    }
-  }
-
-  public void retryHumanMove(HumanMoveDecision decision) {
-    if (finished || decision == null) {
-      return;
-    }
-    requestGeneration.incrementAndGet();
-    awaitingCorrection = false;
-    discardMoveAssessment(decision.moveNumber);
-    Lizzie.frame.hideHumanSlCorrection(this);
-    Lizzie.board.navigateToNode(decision.positionBeforeMove);
-    turnStartedAt = System.currentTimeMillis();
-    Lizzie.frame.refresh();
-    Lizzie.frame.setMainPanelFocus();
-  }
-
-  private void discardMoveAssessment(int moveNumber) {
-    synchronized (pendingHumanMoves) {
-      pendingHumanMoves.removeIf(
-          move -> move.positionBefore.getData().moveNumber + 1 == moveNumber);
-    }
-    synchronized (assessedMoveNumbers) {
-      assessedMoveNumbers.remove(moveNumber);
-    }
-    trainingSession.removeDecision(moveNumber);
-  }
-
-  public void continueAfterCorrection() {
-    if (finished) {
-      return;
-    }
-    awaitingCorrection = false;
-    Lizzie.frame.hideHumanSlCorrection(this);
     scheduleAiMove();
   }
 
+  /** Compatibility alias; ending by resignation now follows the same path as Finish. */
+  @Deprecated
   public void humanResign() {
-    if (finished) {
-      return;
-    }
-    String result =
-        humanIsBlack
-            ? text("Leelaz.whiteWin", "White wins")
-            : text("Leelaz.blackWin", "Black wins");
-    beginReview(result, false);
+    finishAndReturnToBoard();
   }
 
+  /** Ends AI Coach and keeps the completed game on the main board for normal review. */
+  public void finishAndReturnToBoard() {
+    finishAndReturnToBoardInternal();
+  }
+
+  /** Compatibility alias retained for existing toolbar and plugin integrations. */
   public void finishAndReview() {
-    beginReview(null, true);
+    finishAndReturnToBoard();
   }
 
   /** Legacy alias retained for existing menu/control integrations. */
   public void countAndFinish() {
-    finishAndReview();
+    finishAndReturnToBoard();
   }
 
   public void saveKifu() {
     LizzieFrame.saveFile(false);
-  }
-
-  public void saveTrainingReport() {
-    TrainingSessionReport report = trainingSession.report();
-    if (report == null || report.isEmpty()) {
-      saveKifu();
-      return;
-    }
-    BoardHistoryNode root = Lizzie.board.getHistory().root();
-    String original = root.getData().comment == null ? "" : root.getData().comment;
-    String withoutOld = stripStoredReport(original).trim();
-    String serialized = serializeReport(report);
-    root.getData().comment =
-        (withoutOld.isEmpty() ? "" : withoutOld + "\n\n")
-            + REPORT_BEGIN
-            + "\n"
-            + serialized
-            + "\n"
-            + REPORT_END;
-    saveKifu();
-  }
-
-  public void retryReportPosition(HumanMoveDecision decision) {
-    if (decision == null) {
-      return;
-    }
-    Lizzie.board.navigateToNode(decision.positionBeforeMove);
-    Lizzie.frame.refresh();
-    Lizzie.frame.setMainPanelFocus();
-    SwingUtilities.invokeLater(() -> Lizzie.frame.startHumanSlGameDialogAtCurrentPosition());
   }
 
   private void scheduleAiMove() {
@@ -682,7 +543,7 @@ public final class HumanSlGameController {
   }
 
   private void scheduleAiMove(boolean cancelBeforeRequest) {
-    if (finished || awaitingCorrection || isReviewing() || aiThinking) {
+    if (finished || isReviewing() || aiThinking) {
       return;
     }
     aiFailed = false;
@@ -790,7 +651,7 @@ public final class HumanSlGameController {
   }
 
   private void applyAiMove(Optional<String> move) {
-    if (finished || awaitingCorrection) {
+    if (finished) {
       return;
     }
     aiThinking = false;
@@ -837,70 +698,12 @@ public final class HumanSlGameController {
     }
   }
 
-  private void beginReview(String result, boolean estimateResult) {
-    if (finished) {
-      return;
-    }
-    try {
-      if (trainingSession.state() == HumanSlTrainingSession.State.REVIEWING) {
-        return;
-      }
-    } catch (RuntimeException | Error failure) {
-      dispatchReviewFailure(requestGeneration.get(), failure);
-      return;
-    }
-    long reviewGeneration = requestGeneration.incrementAndGet();
-    try {
-      awaitingCorrection = false;
-      aiThinking = false;
-      aiFailed = false;
-      gameExecutor.shutdownNow();
-      Lizzie.frame.hideHumanSlCorrection(this);
-      trainingSession.setState(HumanSlTrainingSession.State.REVIEWING);
-      Lizzie.frame.updateHumanSlTrainingBar();
-      reviewExecutor.execute(
-          () -> {
-            try {
-              runner.cancelActiveRequests();
-              String resolvedResult = result;
-              if (estimateResult) {
-                resolvedResult = describeScoreResult(evaluateCurrentPosition());
-              }
-              if (finished
-                  || Thread.currentThread().isInterrupted()
-                  || reviewGeneration != requestGeneration.get()) {
-                return;
-              }
-              analyzePendingHumanMoves();
-              if (finished
-                  || Thread.currentThread().isInterrupted()
-                  || reviewGeneration != requestGeneration.get()) {
-                return;
-              }
-              deepenKeyPositions(trainingSession.buildReport());
-              TrainingSessionReport report = trainingSession.buildReport();
-              String finalResult =
-                  resolvedResult == null
-                      ? text("HumanSlGame.resultUnknown", "Result unavailable")
-                      : resolvedResult;
-              SwingUtilities.invokeLater(
-                  () -> completeReview(report, finalResult, reviewGeneration));
-            } catch (RuntimeException | Error failure) {
-              dispatchReviewFailure(reviewGeneration, failure);
-            }
-          });
-    } catch (RuntimeException | Error failure) {
-      dispatchReviewFailure(reviewGeneration, failure);
-    }
-  }
-
   private void dispatchGameWorkerFailure(long generation, String phase, Throwable failure) {
     logExitFailure(phase, failure);
     if (finished || generation != requestGeneration.get()) {
       return;
     }
     aiThinking = false;
-    awaitingCorrection = false;
     aiFailed = true;
     Runnable completion =
         () -> {
@@ -922,128 +725,12 @@ public final class HumanSlGameController {
     }
   }
 
-  private void dispatchReviewFailure(long reviewGeneration, Throwable failure) {
-    logExitFailure("review worker", failure);
-    Runnable completion =
-        () -> {
-          if (teardownComplete || reviewGeneration != requestGeneration.get()) {
-            return;
-          }
-          try {
-            Utils.showMsgNoModalForTime(
-                text(
-                    "HumanSlGame.error.reviewFailed",
-                    "AI Coach review failed and will now close safely."),
-                4);
-          } catch (RuntimeException | Error uiFailure) {
-            logExitFailure("review failure UI", uiFailure);
-          }
-          abort();
-        };
-    try {
-      SwingUtilities.invokeLater(completion);
-    } catch (RuntimeException | Error dispatchFailure) {
-      logExitFailure("review failure dispatch", dispatchFailure);
-      completion.run();
-    }
-  }
-
-  private void analyzePendingHumanMoves() {
-    List<PendingHumanMove> snapshot;
-    synchronized (pendingHumanMoves) {
-      snapshot = new ArrayList<PendingHumanMove>(pendingHumanMoves);
-    }
-    for (PendingHumanMove move : snapshot) {
-      if (Thread.currentThread().isInterrupted()) {
-        return;
-      }
-      int moveNumber = move.positionBefore.getData().moveNumber + 1;
-      synchronized (assessedMoveNumbers) {
-        if (assessedMoveNumbers.contains(moveNumber)) {
-          continue;
-        }
-      }
-      runner
-          .evaluateHumanMove(
-              move.positionBefore,
-              profile,
-              move.move,
-              QUICK_REVIEW_VISITS,
-              config.rootSymmetries(),
-              REVIEW_TIMEOUT)
-          .ifPresent(this::recordDecision);
-    }
-  }
-
-  private void recordDecision(HumanMoveDecision decision) {
-    synchronized (assessedMoveNumbers) {
-      if (!assessedMoveNumbers.add(decision.moveNumber)) {
-        return;
-      }
-    }
-    trainingSession.addDecision(decision);
-  }
-
-  private void deepenKeyPositions(TrainingSessionReport preliminaryReport) {
-    if (preliminaryReport == null || preliminaryReport.isEmpty()) {
-      return;
-    }
-    for (TrainingMoveAssessment assessment : preliminaryReport.assessments()) {
-      if (Thread.currentThread().isInterrupted()) {
-        return;
-      }
-      HumanMoveDecision quick = assessment.decision;
-      runner
-          .evaluateHumanMove(
-              quick.positionBeforeMove,
-              profile,
-              quick.actualMove,
-              DEEP_REVIEW_VISITS,
-              config.rootSymmetries(),
-              REVIEW_TIMEOUT)
-          .ifPresent(decision -> trainingSession.upsertDecision(decision, true));
-    }
-  }
-
-  void completeReview(
-      TrainingSessionReport report, String result, long reviewGeneration) {
-    if (finished || reviewGeneration != requestGeneration.get()) {
-      return;
-    }
-    finished = true;
-    gameResult = result;
-    try {
-      reviewExecutor.shutdown();
-    } catch (RuntimeException | Error failure) {
-      logExitFailure("review executor shutdown", failure);
-    }
-    Runnable uiCompletion =
-        () -> {
-          Lizzie.frame.hideHumanSlCorrection(this);
-          Lizzie.frame.hideHumanSlTrainingBar(this);
-          if (reportDialog == null) {
-            reportDialog = new HumanSlTrainingReportDialog(Lizzie.frame, this, report);
-            Lizzie.frame.setHumanSlTrainingReport(reportDialog);
-          }
-          reportDialog.showReport();
-          Lizzie.frame.refresh();
-          if (Lizzie.frame.humanSlGame == this) {
-            Lizzie.frame.humanSlGame = null;
-          }
-        };
-    Runnable completionOverride = successfulExitCompletionOverride;
-    beginExitLifecycle(
-        () -> {
-          if (!config.fromCurrentPosition) {
-            Lizzie.board.getHistory().getGameInfo().setResult(gameResult);
-          }
-          trainingSession.setState(HumanSlTrainingSession.State.REPORT_READY);
-          (completionOverride == null ? uiCompletion : completionOverride).run();
-        });
-  }
-
-  /** Stops the game without producing a report. */
+  /** Stops AI Coach and leaves its current position on the main board. */
   public void abort() {
+    finishAndReturnToBoard();
+  }
+
+  private void finishAndReturnToBoardInternal() {
     if (exitInProgress) {
       return;
     }
@@ -1063,14 +750,8 @@ public final class HumanSlGameController {
     } catch (RuntimeException | Error failure) {
       logExitFailure("game executor shutdown", failure);
     }
-    try {
-      reviewExecutor.shutdownNow();
-    } catch (RuntimeException | Error failure) {
-      logExitFailure("review executor shutdown", failure);
-    }
     Runnable uiCompletion =
         () -> {
-          Lizzie.frame.hideHumanSlCorrection(this);
           Lizzie.frame.hideHumanSlTrainingBar(this);
           Lizzie.frame.refresh();
           if (Lizzie.frame.humanSlGame == this) {
@@ -1132,8 +813,8 @@ public final class HumanSlGameController {
     BooleanSupplier preparedResync = null;
     Throwable preparationFailure = null;
     try {
-      // Coach moves are deliberately local and therefore leave even an idle (unleased) primary
-      // engine stale. Freeze every available primary; the lease only controls later ponder resume.
+      // Freeze the final board for strict handoff. In live-analysis mode this is also a final
+      // consistency check after ordinary move forwarding.
       preparedResync = primaryEngineResyncPreparation.get();
     } catch (RuntimeException | Error failure) {
       preparationFailure = failure;
@@ -1172,6 +853,10 @@ public final class HumanSlGameController {
           text(
               "HumanSlGame.error.primaryResyncFailed",
               "The foreground engine did not accept the final AI Coach position."));
+    }
+    Throwable liveAnalysisStopFailure = stopTemporaryLiveAnalysisBestEffort();
+    if (liveAnalysisStopFailure != null) {
+      throwUnchecked(liveAnalysisStopFailure);
     }
     Throwable leaseFailure = restoreForegroundLeaseBestEffort();
     if (leaseFailure != null || foregroundAnalysisRestoreLease.isRestorePending()) {
@@ -1397,7 +1082,7 @@ public final class HumanSlGameController {
     boolean previous = Lizzie.leelaz != null && Lizzie.leelaz.isInputCommand;
     BoardHistoryNode before = Lizzie.board.getHistory().getCurrentHistoryNode();
     if (Lizzie.leelaz != null) {
-      Lizzie.leelaz.isInputCommand = true;
+      Lizzie.leelaz.isInputCommand = !config.mode.isLiveAnalysis();
     }
     try {
       Lizzie.board.place(x, y, color, shouldForceTrainingBranch(before));
@@ -1413,7 +1098,7 @@ public final class HumanSlGameController {
     boolean previous = Lizzie.leelaz != null && Lizzie.leelaz.isInputCommand;
     BoardHistoryNode before = Lizzie.board.getHistory().getCurrentHistoryNode();
     if (Lizzie.leelaz != null) {
-      Lizzie.leelaz.isInputCommand = true;
+      Lizzie.leelaz.isInputCommand = !config.mode.isLiveAnalysis();
     }
     try {
       Lizzie.board.pass(color, shouldForceTrainingBranch(before), false, true);
@@ -1431,63 +1116,24 @@ public final class HumanSlGameController {
         && trainingStartNode == currentNode;
   }
 
-  private PositionEvaluation evaluateCurrentPosition() {
-    try {
-      BoardHistoryNode node = Lizzie.board.getHistory().getCurrentHistoryNode();
-      JSONObject request =
-          AnalysisRequestBuilder.buildRequest(
-              "humansl-finish-" + System.currentTimeMillis(), node, 200, false, false, false);
-      JSONObject overrideSettings = request.optJSONObject("overrideSettings");
-      if (overrideSettings == null) {
-        overrideSettings = new JSONObject();
-      }
-      overrideSettings.put("reportAnalysisWinratesAs", "BLACK");
-      request.put("overrideSettings", overrideSettings);
-      JSONObject response = runner.request(request, Duration.ofSeconds(20));
-      JSONObject rootInfo = response.optJSONObject("rootInfo");
-      if (rootInfo == null) {
-        JSONArray moveInfos = response.optJSONArray("moveInfos");
-        if (moveInfos != null && moveInfos.length() > 0) {
-          rootInfo = moveInfos.optJSONObject(0);
-        }
-      }
-      if (rootInfo == null) {
-        return PositionEvaluation.unavailable();
-      }
-      return new PositionEvaluation(
-          rootInfo.optDouble("winrate", Double.NaN),
-          rootInfo.optDouble("scoreLead", Double.NaN));
-    } catch (TimeoutException | IOException e) {
-      runner.cancelActiveRequests();
-      return PositionEvaluation.unavailable();
-    }
-  }
-
-  private String describeScoreResult(PositionEvaluation evaluation) {
-    if (!evaluation.available || Double.isNaN(evaluation.scoreLead)) {
-      return text("HumanSlGame.resultUnknown", "Result unavailable");
-    }
-    if (Math.abs(evaluation.scoreLead) < 0.05) {
-      return text("HumanSlGame.draw", "Draw");
-    }
-    String winner =
-        evaluation.scoreLead > 0
-            ? text("Menu.Black", "Black")
-            : text("Menu.White", "White");
-    return winner
-        + " +"
-        + String.format(java.util.Locale.US, "%.1f", Math.abs(evaluation.scoreLead));
-  }
-
-  private void hideAnalysisVisuals() {
+  private void configureAnalysisVisuals() {
     candidatesBlackBefore = Lizzie.config.showBlackCandidates;
     candidatesWhiteBefore = Lizzie.config.showWhiteCandidates;
+    analyzeBlackBefore = Lizzie.config.analyzeBlack;
+    analyzeWhiteBefore = Lizzie.config.analyzeWhite;
     showWinrateGraphBefore = Lizzie.config.showWinrateGraph;
     showWinrateInSuggestionBefore = Lizzie.config.showWinrateInSuggestion;
     showKataGoEstimateBefore = Lizzie.config.showKataGoEstimate;
     showingPolicyBefore = Lizzie.frame != null && Lizzie.frame.isShowingPolicy;
     showingHeatmapBefore = Lizzie.frame != null && Lizzie.frame.isShowingHeatmap;
     analysisVisualsCaptured = true;
+    if (config.mode.isLiveAnalysis()) {
+      Lizzie.config.showBlackCandidates = true;
+      Lizzie.config.showWhiteCandidates = true;
+      Lizzie.config.analyzeBlack = true;
+      Lizzie.config.analyzeWhite = true;
+      return;
+    }
     Lizzie.config.showBlackCandidates = false;
     Lizzie.config.showWhiteCandidates = false;
     Lizzie.config.showWinrateGraph = false;
@@ -1500,7 +1146,78 @@ public final class HumanSlGameController {
     }
   }
 
+  private void activateLiveAnalysisIfRequested() {
+    if (!config.mode.isLiveAnalysis()) {
+      return;
+    }
+
+    Leelaz pausedEngine = Lizzie.leelaz;
+    boolean restoreWasPending = foregroundAnalysisRestoreLease.isRestorePending();
+    boolean foregroundReady = isForegroundReadyForLiveAnalysis(pausedEngine);
+    BooleanSupplier preparedResync = primaryEngineResyncPreparation.get();
+    if (preparedResync == null && (foregroundReady || restoreWasPending)) {
+      throw new IllegalStateException(
+          text(
+              "HumanSlGame.error.primaryResyncFailed",
+              "The foreground engine could not be synchronized for live analysis."));
+    }
+    if (preparedResync != null && !preparedResync.getAsBoolean()) {
+      throw new IllegalStateException(
+          text(
+              "HumanSlGame.error.primaryResyncFailed",
+              "The foreground engine could not be synchronized for live analysis."));
+    }
+
+    Throwable restoreFailure = restoreForegroundLeaseBestEffort();
+    if (restoreFailure != null || foregroundAnalysisRestoreLease.isRestorePending()) {
+      if (restoreFailure != null) {
+        throwUnchecked(restoreFailure);
+      }
+      throw new IllegalStateException("Foreground analysis restore lease remains pending.");
+    }
+
+    Leelaz activeEngine = Lizzie.leelaz;
+    if (!isForegroundReadyForLiveAnalysis(activeEngine) || activeEngine.isPondering()) {
+      return;
+    }
+    activeEngine.ponder();
+    if (!restoreWasPending || activeEngine != pausedEngine) {
+      temporaryLiveAnalysisEngine = activeEngine;
+    }
+    if (Lizzie.frame != null) {
+      Lizzie.frame.refresh();
+    }
+  }
+
+  private static boolean isForegroundReadyForLiveAnalysis(Leelaz engine) {
+    return engine != null
+        && engine == Lizzie.leelaz
+        && !EngineManager.isEmpty
+        && engine.isStarted()
+        && engine.isLoaded();
+  }
+
+  private Throwable stopTemporaryLiveAnalysisBestEffort() {
+    Leelaz engine = temporaryLiveAnalysisEngine;
+    if (engine == null) {
+      return null;
+    }
+    try {
+      if (Lizzie.leelaz == engine && engine.isPondering()) {
+        engine.notPondering();
+      }
+      temporaryLiveAnalysisEngine = null;
+      return null;
+    } catch (RuntimeException | Error failure) {
+      return failure;
+    }
+  }
+
   private Throwable restoreAnalysisVisualsBestEffort() {
+    Throwable liveAnalysisStopFailure = stopTemporaryLiveAnalysisBestEffort();
+    if (liveAnalysisStopFailure != null) {
+      return liveAnalysisStopFailure;
+    }
     Throwable leaseFailure = restoreForegroundLeaseBestEffort();
     if (leaseFailure != null || foregroundAnalysisRestoreLease.isRestorePending()) {
       return leaseFailure;
@@ -1523,6 +1240,8 @@ public final class HumanSlGameController {
       try {
         Lizzie.config.showBlackCandidates = candidatesBlackBefore;
         Lizzie.config.showWhiteCandidates = candidatesWhiteBefore;
+        Lizzie.config.analyzeBlack = analyzeBlackBefore;
+        Lizzie.config.analyzeWhite = analyzeWhiteBefore;
         Lizzie.config.showWinrateGraph = showWinrateGraphBefore;
         Lizzie.config.showWinrateInSuggestion = showWinrateInSuggestionBefore;
         Lizzie.config.showKataGoEstimate = showKataGoEstimateBefore;
@@ -1536,6 +1255,12 @@ public final class HumanSlGameController {
       }
     }
     return restoreFailure;
+  }
+
+  private Throwable restoreTemporaryLiveAnalysisAndSettingsBestEffort() {
+    Throwable stopFailure = stopTemporaryLiveAnalysisBestEffort();
+    Throwable settingsFailure = restoreAnalysisSettingsBestEffort();
+    return appendExitFailure(stopFailure, settingsFailure);
   }
 
   private void showForegroundRestoreFailure(Throwable restoreFailure) {
@@ -1566,49 +1291,6 @@ public final class HumanSlGameController {
       return 0L;
     }
     return Math.max(0L, System.currentTimeMillis() - turnStartedAt);
-  }
-
-  private String serializeReport(TrainingSessionReport report) {
-    StringBuilder text = new StringBuilder();
-    text.append("AI Coach report v1").append('\n');
-    text.append("Opponent: ").append(opponentLabel()).append('\n');
-    text.append("Result: ").append(gameResult).append('\n');
-    for (TrainingMoveAssessment assessment : report.assessments()) {
-      HumanMoveDecision decision = assessment.decision;
-      text.append("Move ")
-          .append(decision.moveNumber)
-          .append(": actual=")
-          .append(decision.actualMove)
-          .append(", human=")
-          .append(decision.commonHumanMove)
-          .append(", best=")
-          .append(decision.kataGoBestMove)
-          .append(", scoreLoss=")
-          .append(formatMetric(decision.scoreLoss))
-          .append(", winrateLoss=")
-          .append(formatMetric(decision.winrateLoss))
-          .append('\n');
-    }
-    return text.toString().trim();
-  }
-
-  private static String stripStoredReport(String comment) {
-    if (comment == null) {
-      return "";
-    }
-    int begin = comment.indexOf(REPORT_BEGIN);
-    if (begin < 0) {
-      return comment;
-    }
-    int end = comment.indexOf(REPORT_END, begin);
-    if (end < 0) {
-      return comment.substring(0, begin);
-    }
-    return comment.substring(0, begin) + comment.substring(end + REPORT_END.length());
-  }
-
-  private static String formatMetric(double value) {
-    return Double.isFinite(value) ? String.format(java.util.Locale.US, "%.3f", value) : "-";
   }
 
   private String text(String key, String fallback) {
@@ -1664,35 +1346,4 @@ public final class HumanSlGameController {
         .build();
   }
 
-  private static final class PendingHumanMove {
-    private final BoardHistoryNode positionBefore;
-    private final String move;
-
-    private PendingHumanMove(BoardHistoryNode positionBefore, String move) {
-      this.positionBefore = positionBefore;
-      this.move = move;
-    }
-  }
-
-  private static final class PositionEvaluation {
-    private final boolean available;
-    private final double blackWinrate;
-    private final double scoreLead;
-
-    private PositionEvaluation(double blackWinrate, double scoreLead) {
-      available = true;
-      this.blackWinrate = blackWinrate;
-      this.scoreLead = scoreLead;
-    }
-
-    private PositionEvaluation() {
-      available = false;
-      blackWinrate = Double.NaN;
-      scoreLead = Double.NaN;
-    }
-
-    private static PositionEvaluation unavailable() {
-      return new PositionEvaluation();
-    }
-  }
 }

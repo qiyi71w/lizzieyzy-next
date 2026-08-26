@@ -27,7 +27,6 @@ public final class HumanSlTrainingBar extends JPanel {
   private final JLabel aiClockLabel = new JFontLabel();
   private final JProgressBar thinkingBar = new JProgressBar();
   private final JFontButton passButton = new JFontButton();
-  private final JFontButton resignButton = new JFontButton();
   private final JFontButton retryButton = new JFontButton();
   private final JFontButton finishButton = new JFontButton();
   private final Timer refreshTimer;
@@ -133,15 +132,12 @@ public final class HumanSlTrainingBar extends JPanel {
     JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
     panel.setOpaque(false);
     passButton.setText(text("HumanSlGame.btn.pass", "Pass"));
-    resignButton.setText(text("HumanSlGame.btn.resign", "Resign"));
     retryButton.setText(text("HumanSlTraining.retryAi", "Retry AI"));
-    finishButton.setText(text("HumanSlTraining.finishReview", "Finish and review"));
+    finishButton.setText(text("HumanSlTraining.finishReview", "Finish and review on board"));
     HumanSlTrainingStyle.styleSecondary(passButton);
-    HumanSlTrainingStyle.styleSecondary(resignButton);
     HumanSlTrainingStyle.stylePrimary(retryButton);
     HumanSlTrainingStyle.styleDanger(finishButton);
     passButton.addActionListener(event -> withController(HumanSlGameController::humanPass));
-    resignButton.addActionListener(event -> withController(HumanSlGameController::humanResign));
     retryButton.addActionListener(event -> withController(HumanSlGameController::retryAiMove));
     finishButton.addActionListener(
         event ->
@@ -152,11 +148,10 @@ public final class HumanSlTrainingBar extends JPanel {
                   } else if (active.isReviewing()) {
                     active.abort();
                   } else {
-                    active.finishAndReview();
+                    active.finishAndReturnToBoard();
                   }
                 }));
     panel.add(passButton);
-    panel.add(resignButton);
     panel.add(retryButton);
     panel.add(finishButton);
     return panel;
@@ -203,7 +198,6 @@ public final class HumanSlTrainingBar extends JPanel {
         !active.isStopRequested() && active.hasAiFailure() && !active.isReviewing());
     passButton.setEnabled(
         !active.isStopRequested() && active.isHumanTurn() && !active.isReviewing());
-    resignButton.setEnabled(!active.isStopRequested() && !active.isReviewing());
     String finishKey;
     String finishFallback;
     if (active.isExitRecoveryPending()) {
@@ -217,7 +211,7 @@ public final class HumanSlTrainingBar extends JPanel {
       finishFallback = "Stop and return";
     } else {
       finishKey = "HumanSlTraining.finishReview";
-      finishFallback = "Finish and review";
+      finishFallback = "Finish and review on board";
     }
     finishButton.setText(text(finishKey, finishFallback));
     finishButton.setEnabled(!active.isExitInProgress());
