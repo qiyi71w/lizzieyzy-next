@@ -387,6 +387,15 @@ class UpdateDiscoveryTest {
     assertEquals(UpdateSource.GITHUB, selection.effectiveSource);
     assertEquals(UpdateSource.OFFICIAL_SITE, UpdateSource.current());
   }
+  @Test
+  void directTestChannelConstructorFixesGithubWithoutWritingConfig() {
+    UpdateCheckSelection selection =
+        new UpdateCheckSelection(UpdateChannel.BETA, UpdateSource.OFFICIAL_SITE, INSTALLED);
+
+    assertEquals(UpdateChannel.BETA, selection.channel);
+    assertEquals(UpdateSource.GITHUB, selection.effectiveSource);
+  }
+
 
   private static UpdateCheckSelection officialSelection(String installedVersion) {
     return UpdateCheckSelection.of(UpdateChannel.STABLE, UpdateSource.OFFICIAL_SITE, installedVersion);
