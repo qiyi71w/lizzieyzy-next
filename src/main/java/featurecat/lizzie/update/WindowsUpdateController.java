@@ -4,7 +4,6 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.util.Utils;
 import java.awt.Component;
 import java.awt.Window;
-import java.util.Optional;
 import javax.swing.SwingUtilities;
 
 public final class WindowsUpdateController {
@@ -28,61 +27,16 @@ public final class WindowsUpdateController {
     }
     UpdateCheckSelection selection =
         UpdateCheckSelection.of(selected, selectedSource, Lizzie.nextVersion);
-    if (WindowsUpdatePaths.isWindowsRuntime()) {
-      Thread thread =
-          new Thread(() -> checkWindows(parent, selection), "lizzie-update-manual");
-      thread.setDaemon(true);
-      thread.start();
-      return;
-    }
-    if (!UpdateAdmission.shouldFetch(Lizzie.nextVersion)) {
-      Utils.showMsg(
-          UpdateText.tr(
-              "WindowsUpdate.devBuild",
-              "当前是开发版或未打包版本，无法检查更新。",
-              "This development or unpackaged build cannot check for updates."));
-      return;
-    }
-    Thread thread =
-        new Thread(
-            () -> {
-              try {
-                checkPackage(parent, selected, selectedSource);
-              } catch (Exception e) {
-                e.printStackTrace();
-                SwingUtilities.invokeLater(
-                    () ->
-                        Utils.showMsg(
-                            e.getMessage() != null && !e.getMessage().isBlank()
-                                ? e.getMessage()
-                                : UpdateText.tr(
-                                        "WindowsUpdate.checkFailed",
-                                        "检查更新失败",
-                                        "Update check failed")
-                                    + ": "
-                                    + UpdateText.userFacingError(e)));
-              }
-            },
-            "lizzie-update-manual");
+    Thread thread = new Thread(() -> check(parent, selection), "lizzie-update-manual");
     thread.setDaemon(true);
     thread.start();
   }
 
-  private static void checkWindows(Component parent, UpdateCheckSelection selection) {
+  private static void check(Component parent, UpdateCheckSelection selection) {
     UpdateCheckResult result = UpdateDiscovery.check(selection);
     switch (result.reason) {
       case OFFER:
-        if (result.windowsPlan == null) {
-          showFailure(selection.channel, UpdateCheckResult.FailureKind.ADAPTER);
-          return;
-        }
-        WindowsUpdateService service =
-            new WindowsUpdateService(selection.channel, selection.effectiveSource);
-        SwingUtilities.invokeLater(
-            () -> {
-              disposeCheckPage(parent);
-              new WindowsUpdateDialog(Lizzie.frame, service, result.windowsPlan).setVisible(true);
-            });
+        offer(parent, selection, result);
         return;
       case UNAVAILABLE_BUILD:
         SwingUtilities.invokeLater(
@@ -120,20 +74,29 @@ public final class WindowsUpdateController {
     }
   }
 
-  private static void checkPackage(
-      Component parent, UpdateChannel channel, UpdateSource source) throws Exception {
-    PlatformUpdateService service = new PlatformUpdateService(channel, source);
-    Optional<PackageUpdatePlan> maybePlan = service.checkForUpdate();
-    if (maybePlan.isEmpty()) {
-      showNoUpdate(channel);
+  private static void offer(
+      Component parent, UpdateCheckSelection selection, UpdateCheckResult result) {
+    if (result.windowsPlan != null) {
+      WindowsUpdateService service =
+          new WindowsUpdateService(selection.channel, selection.effectiveSource);
+      SwingUtilities.invokeLater(
+          () -> {
+            disposeCheckPage(parent);
+            new WindowsUpdateDialog(Lizzie.frame, service, result.windowsPlan).setVisible(true);
+          });
       return;
     }
-    PackageUpdatePlan plan = maybePlan.get();
-    SwingUtilities.invokeLater(
-        () -> {
-          disposeCheckPage(parent);
-          new PackageUpdateDialog(Lizzie.frame, service, plan).setVisible(true);
-        });
+    if (result.packagePlan != null) {
+      PlatformUpdateService service =
+          new PlatformUpdateService(selection.channel, selection.effectiveSource);
+      SwingUtilities.invokeLater(
+          () -> {
+            disposeCheckPage(parent);
+            new PackageUpdateDialog(Lizzie.frame, service, result.packagePlan).setVisible(true);
+          });
+      return;
+    }
+    showFailure(selection.channel, UpdateCheckResult.FailureKind.ADAPTER);
   }
 
   private static void showNoUpdate(UpdateChannel channel) {

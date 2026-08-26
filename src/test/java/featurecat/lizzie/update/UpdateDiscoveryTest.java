@@ -221,6 +221,40 @@ class UpdateDiscoveryTest {
   }
 
   @Test
+  void packageOfferCarriesExistingPackagePlan() {
+    UpdateCheckResult result =
+        packageDiscovery(selection -> signed(official(NEWER, false)))
+            .discover(officialSelection(INSTALLED));
+
+    assertEquals(UpdateCheckResult.Reason.OFFER, result.reason);
+    assertNotNull(result.packagePlan);
+    assertEquals(NEWER, result.packagePlan.manifest.releaseTag);
+    assertEquals(INSTALLED, result.packagePlan.currentVersion);
+    assertEquals("macos", result.packagePlan.platform);
+    assertEquals("arm64", result.packagePlan.arch);
+    assertEquals("with-katago", result.packagePlan.flavor);
+    assertEquals(
+        "2026-08-03-mac-arm64.with-katago.dmg", result.packagePlan.packageAsset.assetName);
+    assertNull(result.windowsPlan);
+    assertNull(result.failureKind);
+  }
+
+  @Test
+  void newerReleaseWithNoMatchingPackageAssetIsNoPackage() {
+    UpdateDiscovery discovery =
+        new UpdateDiscovery(
+            selection -> signed(official(NEWER, false)),
+            List.of(new PackageUpdateAdapter(true, "linux", "x64", "opencl")));
+
+    UpdateCheckResult result = discovery.discover(officialSelection(INSTALLED));
+
+    assertEquals(UpdateCheckResult.Reason.NO_PACKAGE, result.reason);
+    assertNull(result.packagePlan);
+    assertNull(result.windowsPlan);
+    assertNull(result.failureKind);
+  }
+
+  @Test
   void checkUsesSelectionSnapshotNotMutatedGlobalConfig() {
     Lizzie.config = ConfigTestHelper.createForTests(tempDir.resolve("snapshot-config"));
     Lizzie.config.uiConfig = new org.json.JSONObject();
@@ -366,6 +400,11 @@ class UpdateDiscoveryTest {
                 true,
                 "opencl",
                 InstalledUpdateState.empty(INSTALLED, "windows", "opencl"))));
+  }
+
+  private static UpdateDiscovery packageDiscovery(UpdateDiscovery.ManifestFetcher fetcher) {
+    return new UpdateDiscovery(
+        fetcher, List.of(new PackageUpdateAdapter(true, "macos", "arm64", "with-katago")));
   }
 
   private static UpdateManifest official(String tag, boolean prerelease) {

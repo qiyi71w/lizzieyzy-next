@@ -36,7 +36,8 @@ public final class UpdateDiscovery {
 
   static UpdateDiscovery production() {
     return new UpdateDiscovery(
-        new SnapshotManifestFetcher(), List.of(new WindowsUpdateAdapter()));
+        new SnapshotManifestFetcher(),
+        List.of(new WindowsUpdateAdapter(), new PackageUpdateAdapter()));
   }
 
   UpdateCheckResult discover(UpdateCheckSelection selection) {
