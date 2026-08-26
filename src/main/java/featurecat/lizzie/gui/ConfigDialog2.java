@@ -3417,9 +3417,21 @@ public class ConfigDialog2 extends JDialog {
 
     JPanel strokes = createDesignSettingsCard(configText("ConfigDialog2.modern.theme.lines", "线条与字体"), configText("ConfigDialog2.modern.theme.linesSub", "调整胜率曲线、目数曲线、阴影和界面字体。"));
     addComponentRow(
-        strokes, configText("ConfigDialog2.modern.theme.winrateWidth", "胜率曲线宽度"), configText("ConfigDialog2.modern.theme.winrateWidthSub", "控制胜率曲线线条粗细"), rowOf(spnWinrateStrokeWidth, spnScoreLeadStrokeWidth));
-    addComponentRow(strokes, configText("ConfigDialog2.modern.theme.blunderWidth", "柱状失误条最小宽度"), configText("ConfigDialog2.modern.theme.blunderWidthSub", "让失误条在不同窗口尺寸下更清晰"), spnMinimumBlunderBarWidth);
-    addToggleInputRow(strokes, configText("ConfigDialog2.modern.theme.shadow", "棋子阴影大小"), configText("ConfigDialog2.modern.theme.shadowSub", "开启后调整棋子阴影强度"), chkShowStoneShaow, spnShadowSize);
+        strokes,
+        configText("ConfigDialog2.modern.theme.winrateWidth", "胜率曲线宽度"),
+        configText("ConfigDialog2.modern.theme.winrateWidthSub", "控制胜率曲线线条粗细"),
+        rightControlSlot(spnWinrateStrokeWidth, spnScoreLeadStrokeWidth));
+    addComponentRow(
+        strokes,
+        configText("ConfigDialog2.modern.theme.blunderWidth", "柱状失误条最小宽度"),
+        configText("ConfigDialog2.modern.theme.blunderWidthSub", "让失误条在不同窗口尺寸下更清晰"),
+        rightControlSlot(spnMinimumBlunderBarWidth));
+    addToggleInputRow(
+        strokes,
+        configText("ConfigDialog2.modern.theme.shadow", "棋子阴影大小"),
+        configText("ConfigDialog2.modern.theme.shadowSub", "开启后调整棋子阴影强度"),
+        chkShowStoneShaow,
+        spnShadowSize);
     addComponentRow(strokes, configText("ConfigDialog2.modern.theme.infoFont", "计算量及其他字体"), configText("ConfigDialog2.modern.theme.infoFontSub", "棋盘外信息与分析面板字体"), cmbFontName);
     addComponentRow(strokes, configText("ConfigDialog2.modern.theme.uiFont", "UI 字体"), configText("ConfigDialog2.modern.theme.uiFontSub", "菜单、按钮和设置窗口字体"), cmbUiFontName);
     addComponentRow(strokes, configText("ConfigDialog2.modern.theme.winrateFont", "胜率目数字体"), configText("ConfigDialog2.modern.theme.winrateFontSub", "胜率条和目差显示字体"), cmbWinrateFontName);
@@ -3541,6 +3553,22 @@ public class ConfigDialog2 extends JDialog {
     return row;
   }
 
+  private JPanel rightControlSlot(Component... components) {
+    JPanel slot = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+    slot.setOpaque(false);
+    slot.setPreferredSize(new Dimension(220, 30));
+    slot.setMinimumSize(new Dimension(220, 30));
+    for (Component component : components) {
+      if (component == null) continue;
+      Component detached = detachComponent(component);
+      if (detached instanceof JSpinner) {
+        detached.setPreferredSize(new Dimension(76, 30));
+      }
+      slot.add(detached);
+    }
+    return slot;
+  }
+
   private void addComponentRow(JPanel card, String title, String subtitle, Component component) {
     JPanel row = createDesignRow(title, subtitle);
     Component detached = detachComponent(component);
@@ -3637,10 +3665,16 @@ public class ConfigDialog2 extends JDialog {
     JPanel row = createDesignRow(title, subtitle);
     AccessibilitySupport.button(toggle, title, subtitle);
     nameInteractiveComponents(input, title, subtitle);
-    JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+    JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
     controls.setOpaque(false);
+    controls.setPreferredSize(new Dimension(220, 30));
+    controls.setMinimumSize(new Dimension(220, 30));
+    Component detachedInput = detachComponent(input);
+    if (detachedInput instanceof JSpinner) {
+      detachedInput.setPreferredSize(new Dimension(76, 30));
+    }
     controls.add(prepareDesignSwitch(toggle));
-    controls.add(detachComponent(input));
+    controls.add(detachedInput);
     addDesignRowControl(row, controls);
     card.add(row);
   }
