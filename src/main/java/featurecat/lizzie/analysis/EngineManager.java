@@ -208,6 +208,7 @@ public class EngineManager {
     private final boolean newMoveNumberInBranch;
     private final Leelaz previousPrimary;
     private final long previousPrimaryGeneration;
+    private final Object retainedForegroundLifecycleOwner;
     private final AtomicLong deadlineNanos;
     private final AtomicInteger tuningBudgetParticipants = new AtomicInteger();
     private final AtomicInteger operationsInFlight = new AtomicInteger();
@@ -249,6 +250,7 @@ public class EngineManager {
         Leelaz whiteEngine,
         Leelaz previousPrimary,
         long previousPrimaryGeneration,
+        Object retainedForegroundLifecycleOwner,
         long deadlineNanos) {
       this.manager = manager;
       this.gameInfo = gameInfo;
@@ -265,6 +267,7 @@ public class EngineManager {
           Lizzie.config != null && Lizzie.config.newMoveNumberInBranch;
       this.previousPrimary = previousPrimary;
       this.previousPrimaryGeneration = previousPrimaryGeneration;
+      this.retainedForegroundLifecycleOwner = retainedForegroundLifecycleOwner;
       this.deadlineNanos = new AtomicLong(deadlineNanos);
     }
 
@@ -2380,10 +2383,12 @@ public class EngineManager {
         showForegroundEngineLeaseInUse();
         return null;
       }
+      Object retainedForegroundLifecycleOwner = Thread.currentThread();
       gameTransaction =
           beginEngineGameTransactionUnderForegroundLease(
               currentForegroundEngine,
               currentForegroundGeneration,
+              retainedForegroundLifecycleOwner,
               gameAtStart,
               expectedInactiveEpoch,
               publishGameInfo);
@@ -2395,7 +2400,8 @@ public class EngineManager {
               expectedInactiveEpoch,
               publishGameInfo,
               currentForegroundEngine,
-              currentForegroundGeneration);
+              currentForegroundGeneration,
+              null);
     }
     if (gameTransaction == null) {
       return null;
@@ -2719,6 +2725,7 @@ public class EngineManager {
   private EngineGameTransaction beginEngineGameTransactionUnderForegroundLease(
       Leelaz foregroundEngine,
       long foregroundGeneration,
+      Object retainedForegroundLifecycleOwner,
       EngineGameInfo gameInfo,
       Long expectedInactiveEpoch,
       boolean publishGameInfo) {
@@ -2732,7 +2739,8 @@ public class EngineManager {
               expectedInactiveEpoch,
               publishGameInfo,
               foregroundEngine,
-              foregroundGeneration);
+              foregroundGeneration,
+              retainedForegroundLifecycleOwner);
       return transaction;
     } catch (RuntimeException | Error admissionFailure) {
       primaryFailure = admissionFailure;
@@ -4449,11 +4457,21 @@ public class EngineManager {
     newEng.pkMoveTimeGame = 0;
     Board restoreBoard = Lizzie.board;
     Leelaz proposedRestoreMirror = newEng.resolveLoadSgfMirrorEngine();
+    Object retainedLifecycleOwner =
+        transaction != null && newEng == transaction.previousPrimary
+            ? transaction.retainedForegroundLifecycleOwner
+            : null;
     InitialEngineStartupSynchronization lifecycleSynchronization = null;
     try {
       lifecycleSynchronization =
           InitialEngineStartupSynchronization.capturePrepared(
-              null, newEng, proposedRestoreMirror, restoreBoard, false, false);
+              null,
+              newEng,
+              proposedRestoreMirror,
+              restoreBoard,
+              false,
+              false,
+              retainedLifecycleOwner);
       lifecycleSynchronization.bindEngineGameTransaction(transaction);
       lifecycleSynchronization.acquireReservation();
       lifecycleSynchronization.beginLifecycleCompletionClaim();
@@ -6867,7 +6885,8 @@ public class EngineManager {
         expectedInactiveEpoch,
         publishGameInfo,
         expectedPrimary,
-        expectedPrimaryGeneration);
+        expectedPrimaryGeneration,
+        null);
   }
 
   private static EngineGameTransaction beginEngineGameTransaction(
@@ -6876,7 +6895,8 @@ public class EngineManager {
       Long expectedInactiveEpoch,
       boolean publishGameInfo,
       Leelaz expectedPrimary,
-      long expectedPrimaryGeneration) {
+      long expectedPrimaryGeneration,
+      Object retainedForegroundLifecycleOwner) {
     if (manager == null || gameInfo == null) {
       return null;
     }
@@ -6937,6 +6957,7 @@ public class EngineManager {
                   whiteEngine,
                   expectedPrimary,
                   expectedPrimaryGeneration,
+                  retainedForegroundLifecycleOwner,
                   deadlineNanos);
           engineGameInfo = gameInfo;
           activeEngineGameTransaction = transaction;

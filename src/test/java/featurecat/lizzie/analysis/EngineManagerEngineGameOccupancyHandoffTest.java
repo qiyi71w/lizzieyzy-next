@@ -280,6 +280,57 @@ class EngineManagerEngineGameOccupancyHandoffTest {
   }
 
   @Test
+  void ownEdtEngineModeReservationDoesNotRejectWarmForegroundStartEngineGame()
+      throws Exception {
+    WarmKataGoOccupancyLeelaz blackEngine = new WarmKataGoOccupancyLeelaz(true);
+    WarmKataGoOccupancyLeelaz whiteEngine = new WarmKataGoOccupancyLeelaz(false);
+    CountingLeaseEngineManager restartManager =
+        new CountingLeaseEngineManager(List.of(blackEngine, whiteEngine));
+    restartManager.runWorkersInline = true;
+    blackEngine.bindWarmKataGoRuntime();
+    whiteEngine.bindWarmKataGoRuntime();
+    Lizzie.setPrimaryEngine(whiteEngine);
+    Lizzie.engineManager = restartManager;
+    EngineManager.currentEngineNo = 1;
+    try {
+      boolean[] started = new boolean[1];
+      SwingUtilities.invokeAndWait(
+          () -> {
+            Leelaz.EngineModeReservation reservation =
+                whiteEngine.beginEngineModeReservation();
+            assertTrue(
+                reservation != null, "EDT must hold the current foreground reservation");
+            try {
+              started[0] =
+                  restartManager.startEngineGame(
+                      0, 1, 2, 2, 0, 0, 0, 0, false, 1, "", false, true, false, false, -1);
+            } finally {
+              reservation.close();
+            }
+          });
+
+      assertTrue(started[0], "the same dialog action must start the next engine game");
+      assertTrue(EngineManager.isEngineGame);
+      assertFalse(EngineManager.isPreEngineGame);
+      EngineManager.EngineGameTransaction transaction = activeEngineGameTransaction();
+      assertTrue(transaction != null, "activated engine-game transaction must remain current");
+      assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+      assertEquals(0, restartManager.leaseConflictCount);
+      assertTrue(
+          hasRouteOwnedRestoreCommand(blackEngine.transport),
+          "black warm KataGo must execute the frozen restore route");
+      assertTrue(
+          hasRouteOwnedRestoreCommand(whiteEngine.transport),
+          "white warm KataGo must execute the frozen restore route");
+    } finally {
+      blackEngine.started = false;
+      blackEngine.isLoaded = false;
+      whiteEngine.started = false;
+      whiteEngine.isLoaded = false;
+    }
+  }
+
+  @Test
   void occupancyFailureRefusesStartEngineGameAndDoesNotEnterInGameUi() throws Exception {
     Leelaz.ExclusiveGtpLifecycleReservation reservation =
         black.beginExclusiveGtpLifecycleReservation(new Object());
@@ -358,6 +409,13 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     field.set(engine, value);
   }
 
+  private static EngineManager.EngineGameTransaction activeEngineGameTransaction()
+      throws Exception {
+    Field field = EngineManager.class.getDeclaredField("activeEngineGameTransaction");
+    field.setAccessible(true);
+    return (EngineManager.EngineGameTransaction) field.get(null);
+  }
+
   @SuppressWarnings("unchecked")
   private static <T> T allocate(Class<T> type) throws Exception {
     Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
@@ -391,7 +449,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
     @Override
     protected Thread createEngineGameWorker(Runnable task, String name) {
-      if (!runWorkersInline) {
+      if (!runWorkersInline || isEngineGameDeadlineWatcher(name)) {
         return super.createEngineGameWorker(task, name);
       }
       return new Thread(task, name) {
@@ -400,6 +458,10 @@ class EngineManagerEngineGameOccupancyHandoffTest {
           run();
         }
       };
+    }
+
+    private static boolean isEngineGameDeadlineWatcher(String name) {
+      return name != null && name.startsWith("engine-game-deadline-");
     }
   }
 
@@ -534,6 +596,17 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
     @Override
     public void updateTitle() {}
+
+    @Override
+    public void reSetLoc() {}
+
+    @Override
+    public void clearWRNforGame(boolean isGenmove) {}
+
+    @Override
+    public boolean resetMovelistFrameandAnalysisFrame() {
+      return false;
+    }
   }
 
   private static final class SilentToolbar extends BottomToolbar {
@@ -552,5 +625,8 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
     @Override
     public void setBtnRankMark() {}
+
+    @Override
+    public void updateMenuStatusForEngine() {}
   }
 }
