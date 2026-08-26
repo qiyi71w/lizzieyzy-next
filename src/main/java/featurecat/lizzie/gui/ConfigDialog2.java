@@ -176,6 +176,7 @@ public class ConfigDialog2 extends JDialog {
   private JRadioButton rdoShowMoveRect;
   private JRadioButton rdoShowMoveRectOnPlay;
   private JRadioButton rdoNoShowMoveRect;
+  private JComboBox<String> comboShowMoveRect;
 
   private JLabel lblBoardSign;
   private JTextField txtBoardWidth;
@@ -288,6 +289,7 @@ public class ConfigDialog2 extends JDialog {
 
   private JRadioButton rdoRightClickBack;
   private JRadioButton rdoRightClickMenu;
+  private JComboBox<String> comboRightClick;
   private JRadioButton rdoBranchMoveContinue;
   private JRadioButton rdoBranchMoveOne;
   private JCheckBox chkShowVarMove;
@@ -1470,6 +1472,9 @@ public class ConfigDialog2 extends JDialog {
     } else {
       rdoRightClickBack.setSelected(true);
     }
+    comboShowMoveRect =
+        comboFromRadios(rdoShowMoveRect, rdoShowMoveRectOnPlay, rdoNoShowMoveRect);
+    comboRightClick = comboFromRadios(rdoRightClickMenu, rdoRightClickBack);
 
     JLabel lblKifuLoadLast =
         new JLabel(
@@ -2899,16 +2904,17 @@ public class ConfigDialog2 extends JDialog {
                 configText(
                     "ConfigDialog2.modern.interaction.subtitle",
                     "落子矩形、右键行为，以及坐标编号方式。"));
-        addComponentRow(
+        addComboRow(
             interaction,
             configText("ConfigDialog2.modern.interaction.moveRect", "显示落子矩形"),
             configText("ConfigDialog2.modern.interaction.moveRectSub", "始终显示、仅对局时显示，或不显示"),
-            rowOf(rdoShowMoveRect, rdoShowMoveRectOnPlay, rdoNoShowMoveRect));
-        addComponentRow(
+            comboShowMoveRect,
+            160);
+        addComboRow(
             interaction,
             configText("ConfigDialog2.modern.interaction.rightClick", "右键行为"),
             configText("ConfigDialog2.modern.interaction.rightClickSub", "弹出菜单，或悔一手"),
-            rowOf(rdoRightClickMenu, rdoRightClickBack));
+            comboRightClick);
         addComboRow(
             interaction,
             configText("ConfigDialog2.modern.interaction.specialCoords", "坐标格式"),
@@ -3077,6 +3083,23 @@ public class ConfigDialog2 extends JDialog {
     input.add(detached);
     addDesignRowControl(row, input);
     card.add(row);
+  }
+
+  private JComboBox<String> comboFromRadios(JRadioButton... radios) {
+    JComboBox<String> combo = new JComboBox<String>();
+    int selected = 0;
+    for (int i = 0; i < radios.length; i++) {
+      combo.addItem(radios[i].getText());
+      if (radios[i].isSelected()) selected = i;
+    }
+    combo.setSelectedIndex(selected);
+    combo.addItemListener(
+        e -> {
+          if (e.getStateChange() != ItemEvent.SELECTED) return;
+          int index = combo.getSelectedIndex();
+          if (index >= 0 && index < radios.length) radios[index].setSelected(true);
+        });
+    return combo;
   }
 
   private void initNetworkProxyControls() {
