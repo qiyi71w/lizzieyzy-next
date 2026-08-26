@@ -2821,14 +2821,14 @@ public class ConfigDialog2 extends JDialog {
             configText("ConfigDialog2.modern.candidates.blueRing", "最佳选点显示蓝圈"),
             configText("ConfigDialog2.modern.candidates.blueRingSub", "在第一推荐选点外画蓝色圆环"),
             chkShowBlueRing);
-        addComponentRow(
+        addComboRow(
             candidates,
             configText("ConfigDialog2.modern.candidates.colorRatio", "选点颜色集中程度"),
             configText(
                 "ConfigDialog2.modern.candidates.colorRatioSub",
                 "候选点颜色向第一选点集中或分散的程度"),
             comboSuggestionColorRatio);
-        addComponentRow(
+        addComboRow(
             candidates,
             configText("ConfigDialog2.modern.candidates.whiteStyle", "轮白下的选点颜色"),
             configText(
@@ -2857,7 +2857,7 @@ public class ConfigDialog2 extends JDialog {
                 configText(
                     "ConfigDialog2.modern.pv.subtitle",
                     "控制变化图上的 PV 访问次数显示，以及是否去掉死子。"));
-        addComponentRow(
+        addComboRow(
             pv,
             configText("ConfigDialog2.modern.pv.mode", "显示 PV 访问次数"),
             configText("ConfigDialog2.modern.pv.modeSub", "关闭、仅最后一手，或变化图每一手"),
@@ -2909,13 +2909,14 @@ public class ConfigDialog2 extends JDialog {
             configText("ConfigDialog2.modern.interaction.rightClick", "右键行为"),
             configText("ConfigDialog2.modern.interaction.rightClickSub", "弹出菜单，或悔一手"),
             rowOf(rdoRightClickMenu, rdoRightClickBack));
-        addComponentRow(
+        addComboRow(
             interaction,
             configText("ConfigDialog2.modern.interaction.specialCoords", "坐标格式"),
             configText(
                 "ConfigDialog2.modern.interaction.specialCoordsSub",
                 "普通、含 I、野狐风格，或从上/从下数字坐标"),
-            SpecialCoordsCbx);
+            SpecialCoordsCbx,
+            180);
         addModernCard(content, interaction);
         return content;
       }
@@ -3057,6 +3058,23 @@ public class ConfigDialog2 extends JDialog {
     suffix.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, 12));
     input.add(detached);
     input.add(suffix);
+    addDesignRowControl(row, input);
+    card.add(row);
+  }
+
+  private void addComboRow(JPanel card, String title, String subtitle, JComboBox<?> combo) {
+    addComboRow(card, title, subtitle, combo, 148);
+  }
+
+  private void addComboRow(
+      JPanel card, String title, String subtitle, JComboBox<?> combo, int width) {
+    JPanel row = createDesignRow(title, subtitle);
+    JPanel input = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+    input.setOpaque(false);
+    JComboBox<?> detached = (JComboBox<?>) detachComponent(combo);
+    AccessibilitySupport.named(detached, title, subtitle);
+    detached.setPreferredSize(new Dimension(width, 30));
+    input.add(detached);
     addDesignRowControl(row, input);
     card.add(row);
   }
@@ -3279,7 +3297,7 @@ public class ConfigDialog2 extends JDialog {
     textConstraints.insets = new Insets(0, 0, 0, 22);
     row.add(text, textConstraints);
 
-    JPanel controlHost = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+    JPanel controlHost = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
     controlHost.setOpaque(false);
     controlHost.setMinimumSize(new Dimension(280, 34));
     row.putClientProperty(CLIENT_DESIGN_ROW_CONTROL_HOST, controlHost);
