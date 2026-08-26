@@ -468,6 +468,7 @@ public class LizzieFrame extends JFrame {
   public int[] suggestionclick = outOfBoundCoordinate;
   public int[] clickbadmove = outOfBoundCoordinate;
   public int[] mouseOverCoordinate = outOfBoundCoordinate;
+  private transient SuggestionHoverIntent suggestionHoverIntent;
   private int curSuggestionMoveOrderByNumber = -1;
   public boolean showControls = false;
   private long showControlTime;
@@ -524,6 +525,8 @@ public class LizzieFrame extends JFrame {
       new java.util.concurrent.atomic.AtomicBoolean(false);
   private final SwingRefreshCoalescer analysisRefreshCoalescer =
       new SwingRefreshCoalescer(33, this::flushAnalysisRefresh);
+  private final SwingRefreshCoalescer analysisSidebarRefreshCoalescer =
+      new SwingRefreshCoalescer(250, this::flushAnalysisSidebarRefresh);
   private JPanel kifuLoadGlassPane;
   private JLabel kifuLoadMessageLabel;
   private JProgressBar kifuLoadProgressBar;
@@ -790,6 +793,9 @@ public class LizzieFrame extends JFrame {
   private javax.swing.Timer quickAnalysisNavigationResumeTimer;
   private volatile TrackingAnalysisController trackingAnalysisController;
   private boolean redrawWinratePaneOnly = false;
+  private boolean redrawBoardSurfacesOnly = false;
+  private javax.swing.Timer deferredMoveUiRefreshTimer;
+  private static final int DEFERRED_MOVE_UI_REFRESH_MS = 180;
   public boolean mouseOverChanged = false;
   public boolean isAutoReplying = false;
   public boolean isBatchAnalysisMode = false;
@@ -5111,19 +5117,97 @@ public class LizzieFrame extends JFrame {
     return buffer;
   }
 
+  /** Copies the published frame into the spare buffer before repainting dynamic board surfaces. */
+  private BufferedImage acquireIncrementalPaintBuffer(int width, int height) {
+    boolean intoA = cachedImage != paintBufferA || paintBufferA == null;
+    BufferedImage buffer = intoA ? paintBufferA : paintBufferB;
+    if (buffer == null || buffer.getWidth() != width || buffer.getHeight() != height) {
+      buffer = new BufferedImage(width, height, TYPE_INT_ARGB);
+      if (intoA) paintBufferA = buffer;
+      else paintBufferB = buffer;
+    }
+    Graphics2D graphics = buffer.createGraphics();
+    graphics.setComposite(AlphaComposite.Src);
+    graphics.drawImage(cachedImage, 0, 0, null);
+    graphics.dispose();
+    return buffer;
+  }
+
+  private void redrawDynamicBoardSurfaces(BufferedImage target) {
+    Graphics2D graphics = target.createGraphics();
+    try {
+      redrawDynamicBoardSurface(graphics, boardRenderer);
+      if (boardRenderer2 != null) {
+        redrawDynamicBoardSurface(graphics, boardRenderer2);
+      }
+      if (Lizzie.config.showSubBoard || Lizzie.config.isFourSubMode()) {
+        redrawDynamicBoardSurface(graphics, subBoardRenderer);
+      }
+      if (Lizzie.config.isFourSubMode()) {
+        redrawDynamicBoardSurface(graphics, subBoardRenderer2);
+        redrawDynamicBoardSurface(graphics, subBoardRenderer3);
+        redrawDynamicBoardSurface(graphics, subBoardRenderer4);
+      }
+    } finally {
+      graphics.dispose();
+    }
+  }
+
+  private void redrawDynamicBoardSurface(Graphics2D graphics, BoardRenderer renderer) {
+    if (renderer == null) {
+      return;
+    }
+    Rectangle bounds = renderer.getBoardBounds();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+    Shape previousClip = graphics.getClip();
+    graphics.clipRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    renderer.draw(graphics);
+    graphics.setClip(previousClip);
+  }
+
+  private void redrawDynamicBoardSurface(Graphics2D graphics, SubBoardRenderer renderer) {
+    if (renderer == null || renderer.boardWidth <= 0 || renderer.boardHeight <= 0) {
+      return;
+    }
+    Shape previousClip = graphics.getClip();
+    graphics.clipRect(renderer.x, renderer.y, renderer.boardWidth, renderer.boardHeight);
+    renderer.draw(graphics);
+    graphics.setClip(previousClip);
+  }
+
   /**
    * Draws the game board and interface
    *
    * @param g0 not used
    */
   public void paintMianPanel(Graphics g0) {
-    if (redrawWinratePaneOnly) {
-      drawWinratePane(this.grx, this.gry, this.grw, this.grh);
-      redrawWinratePaneOnly = false;
+    int panelWidth = mainPanel.getWidth();
+    int panelHeight = mainPanel.getHeight();
+    boolean canPaintIncrementally =
+        !showControls
+            && cachedImage != null
+            && cachedImage.getWidth() == panelWidth
+            && cachedImage.getHeight() == panelHeight;
+    if (canPaintIncrementally && (redrawBoardSurfacesOnly || redrawWinratePaneOnly)) {
+      if (redrawBoardSurfacesOnly) {
+        BufferedImage incrementalFrame =
+            acquireIncrementalPaintBuffer(panelWidth, panelHeight);
+        redrawDynamicBoardSurfaces(incrementalFrame);
+        cachedImage = incrementalFrame;
+        redrawBoardSurfacesOnly = false;
+      }
+      if (redrawWinratePaneOnly) {
+        drawWinratePane(this.grx, this.gry, this.grw, this.grh);
+        redrawWinratePaneOnly = false;
+      }
     } else {
+      redrawBoardSurfacesOnly = false;
+      redrawWinratePaneOnly = false;
       isSmallCap = false;
-      int width = mainPanel.getWidth();
-      int height = mainPanel.getHeight();
+      int width = panelWidth;
+      int height = panelHeight;
 
       Optional<Graphics2D> backgroundG = Optional.empty();
       if (cachedBackgroundWidth != width
@@ -6549,6 +6633,7 @@ public class LizzieFrame extends JFrame {
   public void refresh() {
     // 分开各部分刷新,1代表来自info move的刷新
     redrawWinratePaneOnly = false;
+    redrawBoardSurfacesOnly = false;
     if (independentSubBoard != null && independentSubBoard.isVisible())
       independentSubBoard.refresh();
     if (independentMainBoard != null && independentMainBoard.isVisible())
@@ -6562,22 +6647,41 @@ public class LizzieFrame extends JFrame {
 
   public void refresh(int mode) {
     // 分开各部分刷新,1代表来自info move的刷新
-    redrawWinratePaneOnly = false;
     if (independentSubBoard != null && independentSubBoard.isVisible())
       independentSubBoard.refresh();
     if (independentMainBoard != null && independentMainBoard.isVisible())
       independentMainBoard.refresh();
     if (floatBoard != null && floatBoard.isVisible()) floatBoard.refresh();
-    appendComment();
-    requestProblemListRefresh();
     switch (mode) {
       case 1:
         refreshFromInfo = true;
-        repaint();
+        redrawWinratePaneOnly = true;
+        redrawBoardSurfacesOnly = true;
+        if (mainPanel != null) mainPanel.repaint();
+        if (listTable != null && listTable.isVisible()) listTable.repaint();
+        if (analysisSidebarRefreshCoalescer != null) analysisSidebarRefreshCoalescer.request();
         notifyWebBoard(true);
         break;
       default:
     }
+  }
+
+  /** Gives a locally committed move priority over comments and other secondary UI maintenance. */
+  public void refreshAfterMove() {
+    if (!SwingUtilities.isEventDispatchThread() || mainPanel == null) {
+      refresh();
+      return;
+    }
+    redrawBoardSurfacesOnly = true;
+    repaintSuggestionHoverPreview();
+    if (listTable != null && listTable.isVisible()) listTable.repaint();
+    notifyWebBoard(false);
+    if (deferredMoveUiRefreshTimer == null) {
+      deferredMoveUiRefreshTimer =
+          new javax.swing.Timer(DEFERRED_MOVE_UI_REFRESH_MS, event -> refresh());
+      deferredMoveUiRefreshTimer.setRepeats(false);
+    }
+    deferredMoveUiRefreshTimer.restart();
   }
 
   private void notifyWebBoard(boolean analysisOnly) {
@@ -6716,6 +6820,11 @@ public class LizzieFrame extends JFrame {
     if (analysisRepaintRequested.getAndSet(false)) {
       refresh(1);
     }
+  }
+
+  private void flushAnalysisSidebarRefresh() {
+    appendComment();
+    requestProblemListRefresh();
   }
 
   private String statusEngineName(Leelaz engine) {
@@ -7999,6 +8108,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void onClicked(int x, int y) {
+    clearSuggestionPreviewBeforeBoardClick();
     if (isTrialActive()) {
       showTrialBlockedHint();
       return;
@@ -8263,6 +8373,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void onMouseExited() {
+    cancelPendingSuggestionHoverPreview();
     boolean needRepaint = false;
     if (Lizzie.config.isFourSubMode()) {
       if (Lizzie.frame.subBoardRenderer2.isMouseOver) {
@@ -8315,7 +8426,10 @@ public class LizzieFrame extends JFrame {
       }
     }
     Lizzie.board.clearPressStoneInfo(null);
-    if (needRepaint) refresh();
+    if (needRepaint && mainPanel != null) {
+      redrawBoardSurfacesOnly = true;
+      mainPanel.repaint();
+    }
   }
 
   public boolean shouldShowRect() {
@@ -8364,7 +8478,7 @@ public class LizzieFrame extends JFrame {
     if (targetNode != currentNode || previousHoverNode != targetNode) {
       redrawWinratePaneOnly = true;
       refreshWinratePane = true;
-      repaint();
+      if (mainPanel != null) mainPanel.repaint();
     }
     return true;
   }
@@ -8378,10 +8492,11 @@ public class LizzieFrame extends JFrame {
         && winrateGraph.mouseOverNode != null) {
       winrateGraph.clearMouseOverNode();
       this.redrawWinratePaneOnly = true;
-      repaint();
+      if (mainPanel != null) mainPanel.repaint();
       return false;
     }
     boolean needRepaint = false;
+    boolean mainBoardOnlyRepaint = true;
     curSuggestionMoveOrderByNumber = -1;
     if (!mainPanel.isFocusOwner() && !commentEditPane.isVisible()) {
       mainPanel.requestFocus();
@@ -8404,6 +8519,7 @@ public class LizzieFrame extends JFrame {
       } else {
         if (isMouseOnSub) {
           if ((!Lizzie.leelaz.isPondering() || EngineManager.isEmpty)) needRepaint = true;
+          mainBoardOnlyRepaint = false;
           isMouseOnSub = false;
           if (Lizzie.config.isFourSubMode()) {
             Lizzie.frame.subBoardRenderer2.isMouseOver = false;
@@ -8478,6 +8594,7 @@ public class LizzieFrame extends JFrame {
           clearMoved();
           needRepaint = true;
           isMouseOver = true;
+          armSuggestionHoverPreview(curCoords[0], curCoords[1]);
           if (Lizzie.config.autoReplayBranch) {
             mouseOverChanged = true;
             if (!Lizzie.config.autoReplayDisplayEntireVariationsFirst)
@@ -8512,6 +8629,7 @@ public class LizzieFrame extends JFrame {
       }
 
     } else {
+      cancelPendingSuggestionHoverPreview();
       mouseOverCoordinate = outOfBoundCoordinate;
       if (isMouseOver) {
         isMouseOver = false;
@@ -8531,11 +8649,19 @@ public class LizzieFrame extends JFrame {
         }
       }
     }
-    if (needRepaint) refresh();
+    if (needRepaint) {
+      if (mainBoardOnlyRepaint) {
+        repaintSuggestionHoverPreview();
+      } else if (mainPanel != null) {
+        redrawBoardSurfacesOnly = true;
+        mainPanel.repaint();
+      }
+    }
     return inBoard;
   }
 
   public void clearMoved() {
+    cancelPendingSuggestionHoverPreview();
     isReplayVariation = false;
     Lizzie.frame.isMouseOver = false;
     clearBoardBranchPreview();
@@ -8546,6 +8672,7 @@ public class LizzieFrame extends JFrame {
   }
 
   void clearSuggestionTablePreview() {
+    cancelPendingSuggestionHoverPreview();
     clickOrder = -1;
     selectedorder = -1;
     currentRow = -1;
@@ -8557,6 +8684,7 @@ public class LizzieFrame extends JFrame {
 
   /** Clears transient analysis overlays while editing a static starting position. */
   private void clearSetupOverlayState() {
+    cancelPendingSuggestionHoverPreview();
     isReplayVariation = false;
     isMouseOver = false;
     clickOrder = -1;
@@ -8589,6 +8717,47 @@ public class LizzieFrame extends JFrame {
       boardRenderer2.startNormalBoard();
       boardRenderer2.clearBranch();
     }
+  }
+
+  private SuggestionHoverIntent suggestionHoverIntent() {
+    if (suggestionHoverIntent == null) {
+      suggestionHoverIntent = new SuggestionHoverIntent(this::repaintSuggestionHoverPreview);
+    }
+    return suggestionHoverIntent;
+  }
+
+  private void repaintSuggestionHoverPreview() {
+    if (mainPanel == null) {
+      return;
+    }
+    redrawBoardSurfacesOnly = true;
+    mainPanel.repaint();
+  }
+
+  private void armSuggestionHoverPreview(int x, int y) {
+    suggestionHoverIntent().arm(x, y);
+  }
+
+  public void cancelPendingSuggestionHoverPreview() {
+    if (suggestionHoverIntent != null) {
+      suggestionHoverIntent.cancel();
+    }
+  }
+
+  /** Prevents a settled PV overlay from covering the stone committed by the same mouse press. */
+  void clearSuggestionPreviewBeforeBoardClick() {
+    cancelPendingSuggestionHoverPreview();
+    mouseOverCoordinate = outOfBoundCoordinate;
+    suggestionclick = outOfBoundCoordinate;
+    boolean hadVisiblePreview = isMouseOver;
+    isMouseOver = false;
+    if (hadVisiblePreview) {
+      clearMoved();
+    }
+  }
+
+  boolean isSuggestionHoverPreviewReady(int x, int y) {
+    return suggestionHoverIntent == null || suggestionHoverIntent.permits(x, y);
   }
 
   //  public void clearMoved2() {
@@ -12397,6 +12566,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void setMouseOverCoords(int index) {
+    cancelPendingSuggestionHoverPreview();
     if (Lizzie.config.isFloatBoardMode()) {
       this.independentMainBoard.setMouseOverCoords(index);
       return;
@@ -12418,6 +12588,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private void handleTableClick(int row, int col) {
+    cancelPendingSuggestionHoverPreview();
     LizzieFrame.boardRenderer.startNormalBoard();
     if (listTable.getValueAt(row, 1).toString().startsWith("pass")) return;
     int[] coords = Board.convertNameToCoordinates(listTable.getValueAt(row, 1).toString());
@@ -18630,6 +18801,7 @@ public class LizzieFrame extends JFrame {
       if (independentMainBoard != null)
         independentMainBoard.mouseOverCoordinate = outOfBoundCoordinate;
     } else {
+      cancelPendingSuggestionHoverPreview();
       mouseOverCoordinate = outOfBoundCoordinate;
     }
   }
