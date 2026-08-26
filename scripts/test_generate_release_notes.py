@@ -14,33 +14,20 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"Unable to load {SCRIPT_PATH}")
 NOTES = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(NOTES)
+topology = NOTES.topology
 
 
 class GenerateReleaseNotesTest(unittest.TestCase):
     def setUp(self) -> None:
         date_tag = "2026-07-13"
         self.asset_map = {
-            key: f"{date_tag}-{suffix}"
-            for key, suffix, _cn, _en in NOTES.ASSET_SPECS
+            asset.key: asset.filename.render(date_tag)
+            for asset in topology.assets()
         }
-        self.asset_map.update(
-            {
-                "windows_core_update": f"{date_tag}-windows64.core-update.zip",
-                "windows_tensorrt_split_readme": (
-                    f"{date_tag}-windows64.nvidia.tensorrt.portable.README.txt"
-                ),
-                "windows_tensorrt_split_parts": [
-                    f"{date_tag}-windows64.nvidia.tensorrt.portable.7z.001",
-                    f"{date_tag}-windows64.nvidia.tensorrt.portable.7z.002",
-                ],
-                "windows_tensorrt_split_sha256": (
-                    f"{date_tag}-windows64.nvidia.tensorrt.portable.sha256.txt"
-                ),
-                "windows_tensorrt_split_manifest": (
-                    f"{date_tag}-windows64.nvidia.tensorrt.portable.manifest.json"
-                ),
-            }
-        )
+        self.asset_map["windows_tensorrt_split_parts"] = [
+            topology.asset("windows_tensorrt_split_001").filename.render(date_tag),
+            topology.asset("windows_tensorrt_split_002").filename.render(date_tag),
+        ]
 
     def build_notes(self, release_tag: str) -> str:
         return NOTES.build_release_notes(

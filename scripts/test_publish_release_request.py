@@ -20,6 +20,7 @@ from unittest import mock
 import zipfile
 
 from scripts import release_asset_provenance as provenance
+from scripts import release_asset_topology as topology
 
 
 SCRIPT_PATH = Path(__file__).with_name("publish_release_request.py")
@@ -50,9 +51,8 @@ def request_payload(**overrides: object) -> dict[str, object]:
 
 def all_asset_names() -> list[str]:
     names: list[str] = []
-    for spec in PUBLISH.WORKFLOWS:
-        names.extend(f"{DATE_TAG}-{suffix}" for suffix in spec.exact_suffixes)
-    names.append("lizzieyzy-next-update-manifest.json")
+    for unit in topology.release_units():
+        names.extend(topology.public_inventory(unit.platform, DATE_TAG))
     return names
 
 
@@ -221,9 +221,9 @@ class FakeClient:
         if conclusion == "success":
             for spec in PUBLISH.WORKFLOWS:
                 if spec.workflow_file == workflow_file:
-                    names = [f"{DATE_TAG}-{suffix}" for suffix in spec.exact_suffixes]
-                    if spec.platform == "Windows":
-                        names.append("lizzieyzy-next-update-manifest.json")
+                    names = list(
+                        topology.public_inventory(spec.provenance_platform, DATE_TAG)
+                    )
                     replace_names = set(names)
                     self.assets = [
                         item
@@ -1002,11 +1002,11 @@ class ReleasePublisherTest(unittest.TestCase):
         for heading in PUBLISH.LOCALIZED_NOTE_HEADINGS:
             rows = [
                 (
-                    f"| Test platform | [`{DATE_TAG}-{suffix}`]"
+                    f"| Test platform | [`{name}`]"
                     f"(https://github.com/wimi321/lizzieyzy-next/releases/download/"
-                    f"{RELEASE_TAG}/{DATE_TAG}-{suffix}) |"
+                    f"{RELEASE_TAG}/{name}) |"
                 )
-                for suffix in PUBLISH.DIRECT_DOWNLOAD_SUFFIXES
+                for name in PUBLISH.direct_download_names(DATE_TAG)
             ]
             blocks.append(
                 "\n".join(

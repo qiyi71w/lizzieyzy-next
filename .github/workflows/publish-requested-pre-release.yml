@@ -133,6 +133,7 @@ jobs:
             scripts.test_publish_release_request \
             scripts.test_generate_release_notes \
             scripts.test_release_asset_provenance \
+            scripts.test_release_asset_topology \
             scripts.test_validate_release_notes \
             scripts.test_macos_signing_security \
             scripts.test_validate_windows_release_assets \

@@ -18,8 +18,7 @@ def complete_notes() -> str:
     blocks: list[str] = []
     for heading in publisher.LOCALIZED_NOTE_HEADINGS:
         links = []
-        for suffix in publisher.DIRECT_DOWNLOAD_SUFFIXES:
-            name = f"{DATE_TAG}-{suffix}"
+        for name in publisher.direct_download_names(DATE_TAG):
             url = (
                 f"https://github.com/{REPOSITORY}/releases/download/"
                 f"{RELEASE_TAG}/{name}"
@@ -89,8 +88,7 @@ class GeneratedReleaseNotesValidationTest(unittest.TestCase):
             self.validate(repository="https://github.com/wimi321/lizzieyzy-next")
 
     def test_rejects_missing_direct_download_link(self) -> None:
-        suffix = publisher.DIRECT_DOWNLOAD_SUFFIXES[0]
-        name = f"{DATE_TAG}-{suffix}"
+        name = publisher.direct_download_names(DATE_TAG)[0]
         url = (
             f"https://github.com/{REPOSITORY}/releases/download/"
             f"{RELEASE_TAG}/{name}"
