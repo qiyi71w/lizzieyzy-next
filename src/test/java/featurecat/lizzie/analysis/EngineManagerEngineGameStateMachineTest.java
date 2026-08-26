@@ -99,6 +99,8 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.leelaz2 = null;
     frame = allocate(TrackingFrame.class);
     frame.inputAttempts = new AtomicInteger();
+    frame.analysisRefreshRequests = new AtomicInteger();
+    frame.analysisTitleUpdateRequests = new AtomicInteger();
     toolbar = allocate(TrackingToolbar.class);
     toolbar.enableAttempts = new AtomicInteger();
     Lizzie.frame = frame;
@@ -1029,6 +1031,31 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   @Test
+  void kataGenmoveAnalyzeEmptyEqualsThenPlayCommitsMove() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameInfo game = gameInfo();
+    game.isGenmove = true;
+    black.isKatago = true;
+    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    assertTrue(black.genmoveForPk("B", transaction));
+    int commandId = firstCommandId(black.commandText());
+
+    black.parseEngineGameLineForTest("=" + commandId);
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+    assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(1, transaction.operationsInFlightForTest());
+
+    black.parseEngineGameLineForTest(kataAnalysisInfo());
+    assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+
+    black.parseEngineGameLineForTest("play D4");
+    assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+  }
+
+  @Test
   void validCoordinateAndPassResponsesCommitRealBoardAndSerializeNextGenmoveBehindPlayAck()
       throws Exception {
     RecordingBoard board = recordingBoard();
@@ -1805,6 +1832,135 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   @Test
+  void coldStartBootstrapNameErrorDoesNotFailEngineGameTransaction() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    black.isLoaded = false;
+    black.isCheckingName = true;
+    black.trackEngineGameBootstrapCompletion();
+
+    black.dispatchEngineGameBootstrapCommandsForTest(transaction);
+    assertTrue(black.engineGameBootstrapCompleted.await(2, TimeUnit.SECONDS));
+
+    assertTrue(black.commandText().contains("name"));
+    assertFalse(
+        usesEngineGameResponseCommandId(black.commandText(), "name"),
+        "cold-start bootstrap name must not use engine-game command id 600000000");
+    black.processCommandResponseLineForTest("?");
+
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+    assertEquals(EngineManager.EngineGamePhase.PREPARING, transaction.phase());
+  }
+
+  @Test
+  void coldStartBootstrapSetupErrorStillFailsEngineGameTransaction() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    black.isLoaded = false;
+    black.isCheckingName = true;
+    black.trackEngineGameBootstrapCompletion();
+
+    black.dispatchEngineGameBootstrapCommandsForTest(transaction);
+    assertTrue(black.engineGameBootstrapCompleted.await(2, TimeUnit.SECONDS));
+    assertFalse(usesEngineGameResponseCommandId(black.commandText(), "name"));
+    assertFalse(
+        usesEngineGameResponseCommandId(black.commandText(), "boardsize 19")
+            || usesEngineGameResponseCommandId(black.commandText(), "boardsize 13"),
+        "pre-recognition boardsize must not use engine-game command id 600000000");
+
+    black.processCommandResponseLineForTest("=");
+    black.processCommandResponseLineForTest("=");
+    black.processCommandResponseLineForTest("=");
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+
+    black.processCommandResponseLineForTest("?");
+    assertEquals(EngineManager.EngineGamePhase.FAILED, transaction.phase());
+  }
+
+  @Test
+  void engineGameCommandsUseDedicatedIdsOnlyAfterNameRecognition() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    black.isLoaded = false;
+    black.isCheckingName = true;
+    black.trackEngineGameBootstrapCompletion();
+
+    black.dispatchEngineGameBootstrapCommandsForTest(transaction);
+    assertTrue(black.engineGameBootstrapCompleted.await(2, TimeUnit.SECONDS));
+    assertFalse(usesEngineGameResponseCommandId(black.commandText(), "name"));
+
+    black.isCheckingName = false;
+    black.isLoaded = true;
+    int expectedId = black.nextEngineGameResponseCommandIdForTest();
+    black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
+
+    assertEquals(expectedId, commandIdFor(black.commandText(), "clear_cache"));
+    assertTrue(expectedId >= 600000000 && expectedId < 700000000);
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+  }
+
+
+  @Test
+  void nameRecognitionTimeoutCancelsEngineGameTransaction() throws Exception {
+    ShortNameTimeoutEngineManager manager =
+        installManager(new ShortNameTimeoutEngineManager(allEngines()));
+    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    black.started = true;
+    black.isLoaded = false;
+    black.isCheckingName = true;
+    Object incarnation = black.currentEngineIncarnation();
+    assertTrue(EngineManager.bindEngineGameStartupIncarnation(transaction, black, incarnation));
+
+    EngineManager.PkEngineSynchronization completion =
+        manager.synchronizePkEngineWhenReadyForTest(
+            transaction, black, incarnation, () -> {}, () -> {});
+
+    assertFalse(completion.awaitUntil(System.nanoTime() + TimeUnit.SECONDS.toNanos(2)));
+    assertEquals(EngineManager.EngineGamePhase.FAILED, transaction.phase());
+  }
+
+  @Test
+  void alreadyRecognizedParticipantDoesNotWaitForNameRecognition() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    black.started = true;
+    black.isLoaded = true;
+    black.isCheckingName = false;
+    Object incarnation = black.currentEngineIncarnation();
+    assertTrue(EngineManager.bindEngineGameStartupIncarnation(transaction, black, incarnation));
+    CountDownLatch synchronizedReady = new CountDownLatch(1);
+
+    manager.synchronizePkEngineWhenReadyForTest(
+        transaction, black, incarnation, synchronizedReady::countDown, () -> {});
+
+    assertTrue(synchronizedReady.await(2, TimeUnit.SECONDS));
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+  }
+
+  @Test
+  void closingEngineGameDialogCancelsPendingStart() {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    AtomicBoolean failed = new AtomicBoolean();
+    manager.attachEngineGameStartDialog(
+        new EngineManager.EngineGameStartDialogHost() {
+          @Override
+          public void onEngineGameStartSucceeded() {
+            throw new AssertionError("closing the dialog must not start the game");
+          }
+
+          @Override
+          public void onEngineGameStartFailed(String message) {
+            failed.set(true);
+          }
+        });
+
+    manager.cancelEngineGameStartFromDialog();
+
+    assertFalse(EngineManager.isCurrentEngineGameTransaction(transaction));
+    assertFalse(failed.get(), "dialog close must cancel without a failure prompt");
+  }
+  @Test
   void startupCommandErrorFailsPreparingTransactionAndReleasesPhysicalLease() throws Exception {
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
@@ -2059,6 +2215,45 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(1, black.exactAnalysisActions.get());
     assertEquals(0, black.ordinaryAnalysisActions.get());
     assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+  }
+
+  @Test
+  void exactAnalysisParticipantsAlternateFourMovesAndRefreshCurrentOutput() {
+    EngineManager.EngineGameTransaction transaction = startExactAnalysisGame();
+    startExactAnalyze(black, transaction, "B");
+
+    playExactAnalysisMove(black, "D4", 1);
+    playExactAnalysisMove(white, "Q16", 2);
+    playExactAnalysisMove(black, "C3", 3);
+    playExactAnalysisMove(white, "Q3", 4);
+
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+  }
+
+  @Test
+  void exactAnalysisDuplicateOutputAndStaleContextDoNotCommitAgain() {
+    EngineManager.EngineGameTransaction transaction = startExactAnalysisGame();
+    startExactAnalyze(black, transaction, "B");
+    EngineManager.EngineGamePrimaryContext firstContext =
+        EngineManager.captureEngineGamePrimaryContext(
+            black, black.currentEngineIncarnation());
+    assertNotNull(firstContext);
+
+    playExactAnalysisMove(black, "D4", 1);
+    int refreshAfterCommit = frame.analysisRefreshRequests.get();
+    int titleAfterCommit = frame.analysisTitleUpdateRequests.get();
+
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    black.parseAnalysisLineForTest(kataAnalysisInfo("D4"));
+    black.notifyAutoPkForEngineGameTest(true, firstContext);
+
+    assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals("D4", lastMoveCoordinate());
+    assertEquals(refreshAfterCommit, frame.analysisRefreshRequests.get());
+    assertEquals(titleAfterCommit, frame.analysisTitleUpdateRequests.get());
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
   }
 
   @Test
@@ -4232,8 +4427,80 @@ class EngineManagerEngineGameStateMachineTest {
     return move;
   }
 
+  private EngineManager.EngineGameTransaction startExactAnalysisGame() {
+    EngineGameInfo game = gameInfo();
+    game.firstPlayoutsBlack = 1;
+    game.firstPlayoutsWhite = 1;
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    black.isKatago = true;
+    white.isKatago = true;
+    return transaction;
+  }
+
+  private void startExactAnalyze(
+      StateMachineLeelaz engine,
+      EngineManager.EngineGameTransaction transaction,
+      String color) {
+    String command = "kata-analyze " + color + " 1";
+    engine.sendEngineGameStartupCommandForTest(command, transaction);
+    engine.processCommandResponseLineForTest(
+        "=" + commandIdFor(engine.commandText(), command));
+  }
+
+  private void settleEngineGameCommands(StateMachineLeelaz engine) {
+    int settled = 0;
+    while (true) {
+      int[] ids = numberedCommandIds(engine.commandText());
+      if (ids.length == settled) {
+        return;
+      }
+      for (int index = settled; index < ids.length; index++) {
+        engine.processCommandResponseLineForTest("=" + ids[index]);
+      }
+      settled = ids.length;
+    }
+  }
+
+  private void playExactAnalysisMove(
+      StateMachineLeelaz engine, String coordinate, int expectedMoveNumber) {
+    int refreshBefore = frame.analysisRefreshRequests.get();
+    int titleBefore = frame.analysisTitleUpdateRequests.get();
+    engine.parseAnalysisLineForTest(kataAnalysisInfo(coordinate));
+    assertEquals(expectedMoveNumber, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(coordinate, lastMoveCoordinate());
+    assertTrue(frame.analysisRefreshRequests.get() > refreshBefore);
+    assertEquals(titleBefore, frame.analysisTitleUpdateRequests.get());
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+  }
+
+  private static String lastMoveCoordinate() {
+    return Lizzie.board
+        .getLastMove()
+        .map(coords -> Board.convertCoordinatesToName(coords[0], coords[1]))
+        .orElseThrow(() -> new AssertionError("missing last move"));
+  }
+
   private static String kataAnalysisInfo() {
-    return "info move D4 visits 40 winrate 0.51 scoreLead 2.5 scoreStdev 0.75 prior 0.2 pv D4";
+    return kataAnalysisInfo("D4");
+  }
+
+  private static String kataAnalysisInfo(String coordinate) {
+    return "info move "
+        + coordinate
+        + " visits 40 winrate 0.51 scoreLead 2.5 scoreStdev 0.75 prior 0.2 pv "
+        + coordinate;
+  }
+
+  private static int[] numberedCommandIds(String output) {
+    return output
+        .lines()
+        .map(String::trim)
+        .map(line -> line.split("\\s+", 2)[0])
+        .filter(token -> !token.isEmpty() && token.chars().allMatch(Character::isDigit))
+        .mapToInt(Integer::parseInt)
+        .toArray();
   }
 
   private static int firstCommandId(String output) {
@@ -4250,6 +4517,26 @@ class EngineManagerEngineGameStateMachineTest {
         .mapToInt(Integer::parseInt)
         .findFirst()
         .orElseThrow(() -> new AssertionError("missing command '" + command + "' in: " + output));
+  }
+
+  private static boolean usesEngineGameResponseCommandId(String output, String command) {
+    return output
+        .lines()
+        .map(String::trim)
+        .filter(line -> line.equals(command) || line.endsWith(" " + command))
+        .anyMatch(
+            line -> {
+              String[] parts = line.split("\\s+", 2);
+              if (parts.length < 2) {
+                return false;
+              }
+              try {
+                int commandId = Integer.parseInt(parts[0]);
+                return commandId >= 600000000 && commandId < 700000000;
+              } catch (NumberFormatException ignored) {
+                return false;
+              }
+            });
   }
 
   private static int commandLineIndex(String output, String command) {
@@ -4411,16 +4698,28 @@ class EngineManagerEngineGameStateMachineTest {
       StateMachineLeelaz engine, EngineManager.EngineGameTransaction transaction)
       throws InterruptedException {
     java.util.HashSet<Integer> settled = new java.util.HashSet<>();
+    int unnumberedSettled = 0;
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
     while (transaction.operationsInFlightForTest() != 0 && System.nanoTime() < deadline) {
-      for (String line : engine.commandText().split("\\R")) {
+      String[] lines = engine.commandText().split("\\R");
+      int unnumberedSeen = 0;
+      for (String line : lines) {
         String trimmed = line.trim();
         if (trimmed.isEmpty()) {
           continue;
         }
-        int id = Integer.parseInt(trimmed.split("\\s+", 2)[0]);
-        if (settled.add(id)) {
-          engine.processCommandResponseLineForTest("=" + id);
+        String[] parts = trimmed.split("\\s+", 2);
+        try {
+          int id = Integer.parseInt(parts[0]);
+          if (settled.add(id)) {
+            engine.processCommandResponseLineForTest("=" + id);
+          }
+        } catch (NumberFormatException unnumbered) {
+          unnumberedSeen++;
+          if (unnumberedSeen > unnumberedSettled) {
+            engine.processCommandResponseLineForTest("=");
+            unnumberedSettled++;
+          }
         }
       }
       Thread.sleep(5L);
@@ -4449,6 +4748,22 @@ class EngineManagerEngineGameStateMachineTest {
     return (T) ((sun.misc.Unsafe) field.get(null)).allocateInstance(type);
   }
 
+
+  private static final class ShortNameTimeoutEngineManager extends ImmediateUiEngineManager {
+    private ShortNameTimeoutEngineManager(List<Leelaz> engines) {
+      super(engines);
+    }
+
+    @Override
+    protected long engineGameNameRecognitionTimeoutMillis() {
+      return 10L;
+    }
+
+    @Override
+    protected long engineSynchronizationTimeoutMillis(Leelaz engine) {
+      return 10L;
+    }
+  }
   private static void setRemoteTransport(Leelaz engine, EngineTransport transport)
       throws Exception {
     Field field = Leelaz.class.getDeclaredField("remoteTransport");
@@ -4477,6 +4792,11 @@ class EngineManagerEngineGameStateMachineTest {
     @Override
     protected long engineGameStartupTimeoutMillis(EngineGameInfo gameInfo) {
       return timeoutMillis;
+    }
+
+    @Override
+    protected long engineGameNameRecognitionTimeoutMillis() {
+      return 0L;
     }
 
     @Override
@@ -5184,6 +5504,8 @@ class EngineManagerEngineGameStateMachineTest {
     private AtomicInteger inputAttempts;
     private volatile boolean throwOnInputRestore;
     private volatile BoardHistoryNode displayNodeOverride;
+    private AtomicInteger analysisRefreshRequests;
+    private AtomicInteger analysisTitleUpdateRequests;
 
     @Override
     public boolean isInputRoutingInitialized() {
@@ -5209,10 +5531,14 @@ class EngineManagerEngineGameStateMachineTest {
     }
 
     @Override
-    public void requestAnalysisRefresh() {}
+    public void requestAnalysisRefresh() {
+      analysisRefreshRequests.incrementAndGet();
+    }
 
     @Override
-    public void requestAnalysisTitleUpdate() {}
+    public void requestAnalysisTitleUpdate() {
+      analysisTitleUpdateRequests.incrementAndGet();
+    }
 
     @Override
     public void refresh() {}

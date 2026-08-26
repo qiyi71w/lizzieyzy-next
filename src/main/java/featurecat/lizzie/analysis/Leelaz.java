@@ -334,6 +334,12 @@ public class Leelaz {
       ordinaryLiveBoardForwardingContext = new ThreadLocal<>();
   private static final ThreadLocal<EngineManager.EngineGameTransaction>
       engineGameStartupCommandContext = new ThreadLocal<>();
+  /**
+   * Cold-start PK bootstrap stays unnumbered until 引擎对局参与者名称识别完成. Only name/version/list_commands
+   * GTP errors are ignored; later setup commands still fail the transaction.
+   */
+  private static final ThreadLocal<Boolean> ordinaryEngineGameBootstrapCommands =
+      new ThreadLocal<>();
   /** Isolates a retired match participant restart from ordinary foreground startup presentation. */
   private static final ThreadLocal<Boolean> deferredEngineGameRecoveryStartupContext =
       new ThreadLocal<>();
@@ -1076,39 +1082,42 @@ public class Leelaz {
                     }
                     times++;
                   }
-                  int nameRequests = sshBootstrap ? 3 : 1;
-                  for (int request = 0; request < nameRequests; request++) {
-                    sendEngineBootstrapCommand(transaction, "name");
-                  }
-                  sendEngineBootstrapCommand(transaction, "version");
-                  sendEngineBootstrapCommand(transaction, "list_commands");
-                  requireCurrentEngineGameStartupTransaction(transaction);
-                  enqueueSavedGtpConfiguration();
-                  if (!sshBootstrap
-                      && !(Lizzie.frame.isPlayingAgainstLeelaz
-                          || Lizzie.frame.isAnaPlayingAgainstLeelaz)) {
-                    sendEngineBootstrapCommand(transaction, "komi " + komi);
-                  }
-                  if (transaction == null) {
-                    boardSizeForEngine(width, height);
-                  } else {
-                    boardSizeForEngineGame(transaction, width, height);
-                  }
-                  if (sshBootstrap
-                      && !(Lizzie.frame.isPlayingAgainstLeelaz
-                          || Lizzie.frame.isAnaPlayingAgainstLeelaz)) {
-                    sendEngineBootstrapCommand(transaction, "komi " + komi);
-                  }
-                  if (initialCommand != null && !initialCommand.equals("")) {
-                    String[] initialCommands = initialCommand.trim().split(";");
-                    for (String command : initialCommands) {
-                      sendEngineBootstrapCommand(transaction, command);
-                    }
-                  }
-                  if (sshBootstrap && transaction == null) {
-                    requireCurrentEngineGameStartupTransaction(transaction);
-                    setResponseUpToDate();
-                  }
+                  runWithOrdinaryEngineGameBootstrap(
+                      () -> {
+                        int nameRequests = sshBootstrap ? 3 : 1;
+                        for (int request = 0; request < nameRequests; request++) {
+                          sendEngineBootstrapCommand(transaction, "name");
+                        }
+                        sendEngineBootstrapCommand(transaction, "version");
+                        sendEngineBootstrapCommand(transaction, "list_commands");
+                        requireCurrentEngineGameStartupTransaction(transaction);
+                        enqueueSavedGtpConfiguration();
+                        if (!sshBootstrap
+                            && !(Lizzie.frame.isPlayingAgainstLeelaz
+                                || Lizzie.frame.isAnaPlayingAgainstLeelaz)) {
+                          sendEngineBootstrapCommand(transaction, "komi " + komi);
+                        }
+                        if (transaction == null) {
+                          boardSizeForEngine(width, height);
+                        } else {
+                          boardSizeForEngineGame(transaction, width, height);
+                        }
+                        if (sshBootstrap
+                            && !(Lizzie.frame.isPlayingAgainstLeelaz
+                                || Lizzie.frame.isAnaPlayingAgainstLeelaz)) {
+                          sendEngineBootstrapCommand(transaction, "komi " + komi);
+                        }
+                        if (initialCommand != null && !initialCommand.equals("")) {
+                          String[] initialCommands = initialCommand.trim().split(";");
+                          for (String command : initialCommands) {
+                            sendEngineBootstrapCommand(transaction, command);
+                          }
+                        }
+                        if (sshBootstrap && transaction == null) {
+                          requireCurrentEngineGameStartupTransaction(transaction);
+                          setResponseUpToDate();
+                        }
+                      });
                   afterEngineGameBootstrapCommandsForTest(transaction);
                 }));
   }
@@ -1126,10 +1135,40 @@ public class Leelaz {
     }
   }
 
+  private static void runWithOrdinaryEngineGameBootstrap(Runnable action) {
+    Boolean previous = ordinaryEngineGameBootstrapCommands.get();
+    ordinaryEngineGameBootstrapCommands.set(Boolean.TRUE);
+    try {
+      action.run();
+    } finally {
+      if (previous == null) {
+        ordinaryEngineGameBootstrapCommands.remove();
+      } else {
+        ordinaryEngineGameBootstrapCommands.set(previous);
+      }
+    }
+  }
+
+  private static boolean isNameRecognitionBootstrapCommand(String command) {
+    return "name".equals(command)
+        || "version".equals(command)
+        || "list_commands".equals(command);
+  }
+
   private void sendEngineBootstrapCommand(
       EngineManager.EngineGameTransaction transaction, String command) {
     requireCurrentEngineGameStartupTransaction(transaction);
-    sendCommand(command);
+    Boolean previous = ordinaryEngineGameBootstrapCommands.get();
+    ordinaryEngineGameBootstrapCommands.set(Boolean.TRUE);
+    try {
+      sendCommand(command);
+    } finally {
+      if (previous == null) {
+        ordinaryEngineGameBootstrapCommands.remove();
+      } else {
+        ordinaryEngineGameBootstrapCommands.set(previous);
+      }
+    }
   }
 
   private static void requireCurrentEngineGameStartupTransaction(
@@ -4646,9 +4685,11 @@ public class Leelaz {
       throws IOException {
     if (moveResponseHandler != null
         && parseResponseCommandId(line) == NO_RESPONSE_COMMAND_ID
-        && isUnnumberedEngineGameTerminalCarrier(line)) {
+        && isUnnumberedEngineGameTerminalCarrier(line)
+        && !moveResponseHandler.acceptsUnnumberedAnalyzePlay(line)) {
       // Exact genmove requests are numbered. Never let a late legacy/unframed predecessor response
       // borrow the current carrier and mutate the board while leaving its real permit unsettled.
+      // Analyze-style genmove streams ACK with an empty numbered "=" and finish on unnumbered "play".
       return;
     }
     EngineManager.EngineGameMoveResponseContext moveResponseContext =
@@ -4808,6 +4849,15 @@ public class Leelaz {
               : line.trim().split(" ");
       // currentCmdNum = Integer.parseInt(params[0].substring(1).trim());
       if (params.length <= 1) {
+        if (moveResponseHandler != null
+            && moveResponseHandler.isAnalyzeStream()
+            && line.startsWith("=")
+            && parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID) {
+          // kata-genmove_analyze / lz-genmove_analyze ACK. Keep the numbered carrier in flight
+          // until the later unnumbered play/resign/pass terminal.
+          isCommandLine = false;
+          return;
+        }
         if (parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID) {
           processCommandResponseLine(line, sourceEngineIncarnation);
           afterEngineGameResponseSettledForTest();
@@ -4828,6 +4878,17 @@ public class Leelaz {
           afterEngineGameResponseSettledForTest();
           isCommandLine = false;
           if (!responseLease.isCurrent()) return;
+        } else if (moveResponseHandler != null
+            && moveResponseHandler.acceptsUnnumberedAnalyzePlay(line)
+            && !params[1].startsWith("Passing")) {
+          int pendingId = pendingResponseCommandIdFor(moveResponseHandler);
+          if (pendingId != NO_RESPONSE_COMMAND_ID) {
+            processCommandResponseLine(
+                "=" + pendingId + " " + params[1], sourceEngineIncarnation);
+            afterEngineGameResponseSettledForTest();
+            isCommandLine = false;
+            if (!responseLease.isCurrent()) return;
+          }
         }
         if (this.isZen) {
           if (!publishExactZenEngineGameBestMoves(moveResponseContext)) {
@@ -6380,7 +6441,9 @@ public class Leelaz {
                   }
                 }
                 outcome.requestAnalysisRefresh =
-                    !EngineManager.isEngineGame || (!played && treatCurrentInfoAsPrimary);
+                    !EngineManager.isEngineGame
+                        || route.acceptsExactEngineGameOutput()
+                        || (!played && treatCurrentInfoAsPrimary);
                 outcome.requestAnalysisTitleUpdate = !outcome.requestAnalysisRefresh;
                 // don't follow the maxAnalyzeTime rule if we are in game
                 if (!Lizzie.frame.isPlayingAgainstLeelaz
@@ -7835,7 +7898,6 @@ public class Leelaz {
     if (game == null
         || game.gameInfo.isGenmove
         || game.participant != this
-        || played
         || LizzieFrame.toolbar.isPkStop) {
       return;
     }
@@ -10433,9 +10495,15 @@ public class Leelaz {
         throw new IllegalStateException(
             "Engine-game startup command has no live reader binding: " + command);
       }
+      boolean ordinaryBootstrap =
+          Boolean.TRUE.equals(ordinaryEngineGameBootstrapCommands.get());
       settlement =
           new EngineGameStartupCommandPermit(
-              this, startupTransaction, startupBinding);
+              this,
+              startupTransaction,
+              startupBinding,
+              ordinaryBootstrap,
+              !ordinaryBootstrap || !isNameRecognitionBootstrapCommand(command));
       readBoardGmaResponseBinding = startupBinding;
     }
     if (shouldDropStaleForegroundRestoreCommand()
@@ -10792,6 +10860,7 @@ public class Leelaz {
         || (startupTransactionAtAdmission != null
             && !EngineManager.isEngineGameOutputAdmissionOpen(startupTransactionAtAdmission))
         || (exclusiveGtpLifecycleQueueGate
+            && !isExactSnapshotRestoreAdmissionContextActive()
             && !isCurrentRestartBootstrapReceiptLocked(bootstrapReceipt))
         || (readBoardGmaResponseBinding != null
             && (readerStreamBinding != readBoardGmaResponseBinding
@@ -12400,7 +12469,9 @@ public class Leelaz {
     return handler instanceof BoardSynchronizationResponseHandler
         || handler instanceof EngineGameResponseHandler
         || handler instanceof EngineGameTimeLeftResponseHandler
-        || (queuedCommand != null && queuedCommand.isEngineGameCommand())
+        || (queuedCommand != null
+            && queuedCommand.isEngineGameCommand()
+            && !queuedCommand.isOrdinaryEngineGameBootstrap())
         || exactLoadSgf
         || (getRcentLine && isRecentParameterReadCommand(command))
         || (command != null
@@ -12431,6 +12502,9 @@ public class Leelaz {
     }
     if (handler instanceof EngineGameTimeLeftResponseHandler) {
       return engineGameResponseCommandIds.getAndIncrement();
+    }
+    if (queuedCommand != null && queuedCommand.isOrdinaryEngineGameBootstrap()) {
+      return NO_RESPONSE_COMMAND_ID;
     }
     if (queuedCommand != null && queuedCommand.isEngineGameCommand()) {
       return engineGameResponseCommandIds.getAndIncrement();
@@ -12743,6 +12817,9 @@ public class Leelaz {
     if (!isUnnumberedEngineGameTerminalCarrier(line)) {
       return false;
     }
+    if (analyzeStreamHandlerForUnnumberedPlay(line, binding) != null) {
+      return false;
+    }
     ReaderStreamBinding currentBinding = currentReaderStreamBinding();
     PendingResponseHandler matched = peekPendingResponseHandler(line);
     if (matched != null && !matched.isStaleResponseBinding(binding, currentBinding)) {
@@ -12836,8 +12913,12 @@ public class Leelaz {
       EngineGameResponseHandler active = activeEngineGameResponseHandler.get();
       if (active != null
           && active.isActiveFor(binding)
-          && !isUnnumberedEngineGameTerminalCarrier(line)) {
+          && (!isUnnumberedEngineGameTerminalCarrier(line)
+              || active.acceptsUnnumberedAnalyzePlay(line))) {
         handler = active;
+      }
+      if (handler == null) {
+        handler = analyzeStreamHandlerForUnnumberedPlay(line, binding);
       }
     }
     return handler != null && handler.binding == binding ? handler : null;
@@ -12852,6 +12933,57 @@ public class Leelaz {
         || trimmed.startsWith("?")
         || trimmed.equals("play")
         || trimmed.startsWith("play ");
+  }
+
+  private static boolean isAnalyzeStyleEngineGameGenmove(String command) {
+    if (command == null) {
+      return false;
+    }
+    return command.trim().toLowerCase(Locale.ROOT).contains("genmove_analyze");
+  }
+
+  private EngineGameResponseHandler analyzeStreamHandlerForUnnumberedPlay(
+      String line, ReaderStreamBinding binding) {
+    if (binding == null) {
+      return null;
+    }
+    EngineGameResponseHandler active = activeEngineGameResponseHandler.get();
+    if (active != null
+        && active.binding == binding
+        && active.isActiveFor(binding)
+        && active.acceptsUnnumberedAnalyzePlay(line)) {
+      return active;
+    }
+    ReaderStreamBinding currentBinding = currentReaderStreamBinding();
+    ArrayDeque<PendingResponseHandler> handlers = pendingResponseHandlers();
+    synchronized (handlers) {
+      for (PendingResponseHandler pending : handlers) {
+        if (pending.isStaleResponseBinding(binding, currentBinding)
+            || !(pending.handler instanceof EngineGameResponseHandler)) {
+          continue;
+        }
+        EngineGameResponseHandler candidate = (EngineGameResponseHandler) pending.handler;
+        if (candidate.binding == binding && candidate.acceptsUnnumberedAnalyzePlay(line)) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  }
+
+  private int pendingResponseCommandIdFor(Runnable handler) {
+    if (handler == null) {
+      return NO_RESPONSE_COMMAND_ID;
+    }
+    ArrayDeque<PendingResponseHandler> handlers = pendingResponseHandlers();
+    synchronized (handlers) {
+      for (PendingResponseHandler pending : handlers) {
+        if (pending.handler == handler) {
+          return pending.responseCommandId;
+        }
+      }
+    }
+    return NO_RESPONSE_COMMAND_ID;
   }
 
   private PendingResponseHandler findPendingResponseHandler(String line, boolean remove) {
@@ -16001,6 +16133,7 @@ public class Leelaz {
     private final Leelaz owner;
     private final EngineManager.EngineGameMoveResponseContext context;
     private final ReaderStreamBinding binding;
+    private final boolean analyzeStream;
     private final AtomicInteger state = new AtomicInteger(RESERVED);
     private final AtomicReference<EngineManager.EngineGamePhysicalRequestLease> physicalLease =
         new AtomicReference<>();
@@ -16009,10 +16142,24 @@ public class Leelaz {
     private EngineGameResponseHandler(
         Leelaz owner,
         EngineManager.EngineGameMoveResponseContext context,
-        ReaderStreamBinding binding) {
+        ReaderStreamBinding binding,
+        boolean analyzeStream) {
       this.owner = owner;
       this.context = context;
       this.binding = binding;
+      this.analyzeStream = analyzeStream;
+    }
+
+    private boolean isAnalyzeStream() {
+      return analyzeStream;
+    }
+
+    private boolean acceptsUnnumberedAnalyzePlay(String line) {
+      if (!analyzeStream || line == null) {
+        return false;
+      }
+      String trimmed = line.trim();
+      return trimmed.equals("play") || trimmed.startsWith("play ");
     }
 
     private boolean claimPhysicalWrite() {
@@ -18068,6 +18215,8 @@ public class Leelaz {
     private final Leelaz owner;
     private final EngineManager.EngineGameTransaction transaction;
     private final ReaderStreamBinding binding;
+    private final boolean ordinaryBootstrap;
+    private final boolean failTransactionOnGtpError;
     private final AtomicInteger state = new AtomicInteger(RESERVED);
     private final AtomicReference<EngineManager.EngineGamePhysicalRequestLease> physicalLease =
         new AtomicReference<>();
@@ -18076,9 +18225,20 @@ public class Leelaz {
         Leelaz owner,
         EngineManager.EngineGameTransaction transaction,
         ReaderStreamBinding binding) {
+      this(owner, transaction, binding, false, true);
+    }
+
+    private EngineGameStartupCommandPermit(
+        Leelaz owner,
+        EngineManager.EngineGameTransaction transaction,
+        ReaderStreamBinding binding,
+        boolean ordinaryBootstrap,
+        boolean failTransactionOnGtpError) {
       this.owner = owner;
       this.transaction = transaction;
       this.binding = binding;
+      this.ordinaryBootstrap = ordinaryBootstrap;
+      this.failTransactionOnGtpError = failTransactionOnGtpError;
     }
 
     private boolean belongsTo(EngineManager.EngineGameTransaction expected) {
@@ -18131,7 +18291,7 @@ public class Leelaz {
     public void onResponseSettled() {
       boolean responseError = owner.currentCommandResponseError;
       String responseLine = owner.currentCommandResponseLine;
-      if (!settle() || !responseError) {
+      if (!settle() || !responseError || !failTransactionOnGtpError) {
         return;
       }
       EngineManager.failEngineGameTransaction(
@@ -18255,6 +18415,11 @@ public class Leelaz {
           || settlement instanceof EngineGameStartupCommandPermit
           || (settlement instanceof StartupCommandDelivery
               && ((StartupCommandDelivery) settlement).engineGameTransaction() != null);
+    }
+
+    private boolean isOrdinaryEngineGameBootstrap() {
+      return settlement instanceof EngineGameStartupCommandPermit
+          && ((EngineGameStartupCommandPermit) settlement).ordinaryBootstrap;
     }
 
     private EngineManager.EngineGameTransaction engineGameTransaction() {
@@ -20808,7 +20973,8 @@ public class Leelaz {
       return false;
     }
     EngineGameResponseHandler responseHandler =
-        new EngineGameResponseHandler(this, responseContext, binding);
+        new EngineGameResponseHandler(
+            this, responseContext, binding, isAnalyzeStyleEngineGameGenmove(command));
     boolean accepted =
         sendCommand(
             command,

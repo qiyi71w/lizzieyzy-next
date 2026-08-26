@@ -178,6 +178,159 @@ class EngineManagerEngineGameOccupancyHandoffTest {
   }
 
   @Test
+  void endThenUnfinishedRestoreThenWarmKataGoImmediateRestartActivatesRouteOwnedRestore()
+      throws Exception {
+    WarmKataGoOccupancyLeelaz blackEngine = new WarmKataGoOccupancyLeelaz(true);
+    WarmKataGoOccupancyLeelaz whiteEngine = new WarmKataGoOccupancyLeelaz(false);
+    CountingLeaseEngineManager restartManager =
+        new CountingLeaseEngineManager(List.of(blackEngine, whiteEngine));
+    restartManager.runWorkersInline = true;
+    blackEngine.bindWarmKataGoRuntime();
+    whiteEngine.bindWarmKataGoRuntime();
+    Lizzie.setPrimaryEngine(blackEngine);
+    Lizzie.engineManager = restartManager;
+    EngineManager.currentEngineNo = 0;
+    try {
+      EngineManager.EngineGameTransaction firstGame =
+          EngineManager.beginEngineGameTransaction(restartManager, gameInfo(), null, true);
+      assertTrue(EngineManager.transitionEngineGameToDispatched(firstGame));
+      assertTrue(
+          EngineManager.activateEngineGameTransaction(
+              firstGame,
+              blackEngine,
+              0,
+              blackEngine.currentEngineIncarnation(),
+              whiteEngine.currentEngineIncarnation()));
+
+      restartManager.stopEngineGame(0, true);
+      assertFalse(EngineManager.isEngineGame);
+      assertFalse(EngineManager.isPreEngineGame);
+      assertSame(blackEngine, Lizzie.leelaz);
+      assertTrue(blackEngine.isUnfinishedForegroundRestoreOccupancyHeldForTest());
+
+      long generationBefore = blackEngine.exclusiveOccupancyPromptGeneration();
+      EngineManager.EngineGameTransaction[] secondGame = new EngineManager.EngineGameTransaction[1];
+      SwingUtilities.invokeAndWait(
+          () -> {
+            blackEngine.showExclusiveGtpConflictMessage();
+            assertTrue(
+                blackEngine.beginExclusiveGtpLifecycleTransition(),
+                "unfinished end-game restore occupancy must hand off to the next start");
+            try {
+              secondGame[0] =
+                  EngineManager.beginEngineGameTransaction(
+                      restartManager, gameInfo(), null, true);
+            } finally {
+              blackEngine.endExclusiveGtpLifecycleTransition();
+            }
+          });
+      assertTrue(secondGame[0] != null, "second engine-game transaction must publish");
+
+      EngineManager.PkEngineSynchronization blackSync =
+          restartManager.startEngineForPkSynchronizationForTest(secondGame[0], 0, blackEngine);
+      EngineManager.PkEngineSynchronization whiteSync =
+          restartManager.startEngineForPkSynchronizationForTest(secondGame[0], 1, whiteEngine);
+
+      assertTrue(
+          EngineManager.isCurrentEngineGameTransaction(secondGame[0]),
+          "warm KataGo PK start must keep the second transaction current");
+      assertFalse(
+          blackSync.hasFailed(),
+          "black warm KataGo PK start must pass ordinary-command admission");
+      assertFalse(
+          whiteSync.hasFailed(),
+          "white warm KataGo PK start must pass ordinary-command admission");
+      assertTrue(EngineManager.transitionEngineGameToDispatched(secondGame[0]));
+      assertTrue(
+          restartManager.finishPkEngineSynchronizations(secondGame[0], blackSync, whiteSync));
+      assertTrue(
+          EngineManager.activateEngineGameTransaction(
+              secondGame[0],
+              blackEngine,
+              0,
+              blackEngine.currentEngineIncarnation(),
+              whiteEngine.currentEngineIncarnation()));
+
+      assertEquals(0, restartManager.leaseConflictCount);
+      assertTrue(
+          blackEngine.exclusiveOccupancyPromptGeneration() > generationBefore,
+          "immediate restart must hand off unfinished end-game restore occupancy");
+      assertFalse(blackEngine.isUnfinishedForegroundRestoreOccupancyHeldForTest());
+      assertTrue(EngineManager.isEngineGame);
+      assertFalse(EngineManager.isPreEngineGame);
+      assertEquals(EngineManager.EngineGamePhase.ACTIVE, secondGame[0].phase());
+      SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(
+          List.of(),
+          blackEngine.displayedKeys,
+          "a delayed exclusive-task prompt from end-game restore must not appear after occupancy already succeeded");
+      assertEquals(List.of(), whiteEngine.displayedKeys);
+      assertTrue(
+          hasRouteOwnedRestoreCommand(blackEngine.transport),
+          "black warm KataGo must execute the frozen restore route");
+      assertTrue(
+          hasRouteOwnedRestoreCommand(whiteEngine.transport),
+          "white warm KataGo must execute the frozen restore route");
+    } finally {
+      blackEngine.started = false;
+      blackEngine.isLoaded = false;
+      whiteEngine.started = false;
+      whiteEngine.isLoaded = false;
+    }
+  }
+
+  @Test
+  void ownEdtEngineModeReservationDoesNotRejectWarmForegroundStartEngineGame()
+      throws Exception {
+    WarmKataGoOccupancyLeelaz blackEngine = new WarmKataGoOccupancyLeelaz(true);
+    WarmKataGoOccupancyLeelaz whiteEngine = new WarmKataGoOccupancyLeelaz(false);
+    CountingLeaseEngineManager restartManager =
+        new CountingLeaseEngineManager(List.of(blackEngine, whiteEngine));
+    restartManager.runWorkersInline = true;
+    blackEngine.bindWarmKataGoRuntime();
+    whiteEngine.bindWarmKataGoRuntime();
+    Lizzie.setPrimaryEngine(whiteEngine);
+    Lizzie.engineManager = restartManager;
+    EngineManager.currentEngineNo = 1;
+    try {
+      boolean[] started = new boolean[1];
+      SwingUtilities.invokeAndWait(
+          () -> {
+            Leelaz.EngineModeReservation reservation =
+                whiteEngine.beginEngineModeReservation();
+            assertTrue(
+                reservation != null, "EDT must hold the current foreground reservation");
+            try {
+              started[0] =
+                  restartManager.startEngineGame(
+                      0, 1, 2, 2, 0, 0, 0, 0, false, 1, "", false, true, false, false, -1);
+            } finally {
+              reservation.close();
+            }
+          });
+
+      assertTrue(started[0], "the same dialog action must start the next engine game");
+      assertTrue(EngineManager.isEngineGame);
+      assertFalse(EngineManager.isPreEngineGame);
+      EngineManager.EngineGameTransaction transaction = activeEngineGameTransaction();
+      assertTrue(transaction != null, "activated engine-game transaction must remain current");
+      assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+      assertEquals(0, restartManager.leaseConflictCount);
+      assertTrue(
+          hasRouteOwnedRestoreCommand(blackEngine.transport),
+          "black warm KataGo must execute the frozen restore route");
+      assertTrue(
+          hasRouteOwnedRestoreCommand(whiteEngine.transport),
+          "white warm KataGo must execute the frozen restore route");
+    } finally {
+      blackEngine.started = false;
+      blackEngine.isLoaded = false;
+      whiteEngine.started = false;
+      whiteEngine.isLoaded = false;
+    }
+  }
+
+  @Test
   void occupancyFailureRefusesStartEngineGameAndDoesNotEnterInGameUi() throws Exception {
     Leelaz.ExclusiveGtpLifecycleReservation reservation =
         black.beginExclusiveGtpLifecycleReservation(new Object());
@@ -237,6 +390,32 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     return gameInfo;
   }
 
+  private static boolean hasRouteOwnedRestoreCommand(
+      ExactSnapshotRestoreProtocolFixture.Transport transport) {
+    for (String command : transport.commands()) {
+      if (command.startsWith("loadsgf ")
+          || command.startsWith("play ")
+          || command.equals("clear_board")
+          || command.startsWith("clear_board ")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static void setLeelazField(Leelaz engine, String name, Object value) throws Exception {
+    Field field = Leelaz.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(engine, value);
+  }
+
+  private static EngineManager.EngineGameTransaction activeEngineGameTransaction()
+      throws Exception {
+    Field field = EngineManager.class.getDeclaredField("activeEngineGameTransaction");
+    field.setAccessible(true);
+    return (EngineManager.EngineGameTransaction) field.get(null);
+  }
+
   @SuppressWarnings("unchecked")
   private static <T> T allocate(Class<T> type) throws Exception {
     Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
@@ -247,6 +426,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
   private static final class CountingLeaseEngineManager extends EngineManager {
     private int leaseConflictCount;
+    private boolean runWorkersInline;
 
     private CountingLeaseEngineManager(List<Leelaz> engines) {
       super(engines);
@@ -265,6 +445,23 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     @Override
     protected void dispatchEngineGameUi(Runnable update) {
       update.run();
+    }
+
+    @Override
+    protected Thread createEngineGameWorker(Runnable task, String name) {
+      if (!runWorkersInline || isEngineGameDeadlineWatcher(name)) {
+        return super.createEngineGameWorker(task, name);
+      }
+      return new Thread(task, name) {
+        @Override
+        public synchronized void start() {
+          run();
+        }
+      };
+    }
+
+    private static boolean isEngineGameDeadlineWatcher(String name) {
+      return name != null && name.startsWith("engine-game-deadline-");
     }
   }
 
@@ -297,6 +494,45 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
     @Override
     public void sendCommand(String command) {}
+
+    @Override
+    protected void displayExclusiveGtpConflictMessage(String key) {
+      displayedKeys.add(key);
+    }
+  }
+
+  private static final class WarmKataGoOccupancyLeelaz extends Leelaz {
+    private final List<String> displayedKeys = new ArrayList<>();
+    private final ExactSnapshotRestoreProtocolFixture.Transport transport;
+    private final boolean gateRootReplayAfterKomi;
+    private int komiCommandCount;
+
+    private WarmKataGoOccupancyLeelaz(boolean gateRootReplayAfterKomi) throws Exception {
+      super("");
+      this.gateRootReplayAfterKomi = gateRootReplayAfterKomi;
+      transport =
+          ExactSnapshotRestoreProtocolFixture.install(this, this::respondToCommand);
+    }
+
+    private ExactSnapshotRestoreProtocolFixture.Response respondToCommand(String command)
+        throws Exception {
+      // Reproduce the tracking-release gate appearing between captured root replay commands.
+      if (gateRootReplayAfterKomi && command.startsWith("komi ") && ++komiCommandCount == 2) {
+        setLeelazField(this, "exclusiveGtpLifecycleQueueGate", true);
+      }
+      return ExactSnapshotRestoreProtocolFixture.Response.success();
+    }
+
+    private void bindWarmKataGoRuntime() {
+      installFreshCommandOutputForTest(transport);
+      started = true;
+      isLoaded = true;
+      isCheckingName = false;
+      isKatago = true;
+      firstLoad = false;
+      width = 19;
+      height = 19;
+    }
 
     @Override
     protected void displayExclusiveGtpConflictMessage(String key) {
@@ -360,6 +596,17 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
     @Override
     public void updateTitle() {}
+
+    @Override
+    public void reSetLoc() {}
+
+    @Override
+    public void clearWRNforGame(boolean isGenmove) {}
+
+    @Override
+    public boolean resetMovelistFrameandAnalysisFrame() {
+      return false;
+    }
   }
 
   private static final class SilentToolbar extends BottomToolbar {
@@ -378,5 +625,8 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
     @Override
     public void setBtnRankMark() {}
+
+    @Override
+    public void updateMenuStatusForEngine() {}
   }
 }

@@ -18,6 +18,7 @@ import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import featurecat.lizzie.util.Utils;
+import featurecat.lizzie.logging.LogCategories;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.BufferedWriter;
@@ -53,12 +54,26 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class EngineManager {
+  private static final Logger ENGINE_LOG = LoggerFactory.getLogger(LogCategories.ENGINE);
+  private static final long ENGINE_GAME_NAME_RECOGNITION_TIMEOUT_MILLIS =
+      TimeUnit.SECONDS.toMillis(180L);
   private static final long ENGINE_GAME_PHYSICAL_REQUEST_FORCE_GRACE_MILLIS = 5_000L;
   private static final ScheduledThreadPoolExecutor ENGINE_GAME_PHYSICAL_REQUEST_WATCHDOG =
       createEngineGamePhysicalRequestWatchdogExecutor();
   private static final Set<Leelaz> REMOTE_ENGINES_RESTARTING = ConcurrentHashMap.newKeySet();
+
+  public interface EngineGameStartDialogHost {
+    void onEngineGameStartSucceeded();
+
+    void onEngineGameStartFailed(String message);
+  }
+
+  private final AtomicReference<EngineGameStartDialogHost> engineGameStartDialogHost =
+      new AtomicReference<>();
 
   /** Serializes the provisional owner pointer and its committed index/empty-state publication. */
   private static final Object ENGINE_SELECTION_STATE_LOCK = new Object();
@@ -193,6 +208,7 @@ public class EngineManager {
     private final boolean newMoveNumberInBranch;
     private final Leelaz previousPrimary;
     private final long previousPrimaryGeneration;
+    private final Object retainedForegroundLifecycleOwner;
     private final AtomicLong deadlineNanos;
     private final AtomicInteger tuningBudgetParticipants = new AtomicInteger();
     private final AtomicInteger operationsInFlight = new AtomicInteger();
@@ -234,6 +250,7 @@ public class EngineManager {
         Leelaz whiteEngine,
         Leelaz previousPrimary,
         long previousPrimaryGeneration,
+        Object retainedForegroundLifecycleOwner,
         long deadlineNanos) {
       this.manager = manager;
       this.gameInfo = gameInfo;
@@ -250,6 +267,7 @@ public class EngineManager {
           Lizzie.config != null && Lizzie.config.newMoveNumberInBranch;
       this.previousPrimary = previousPrimary;
       this.previousPrimaryGeneration = previousPrimaryGeneration;
+      this.retainedForegroundLifecycleOwner = retainedForegroundLifecycleOwner;
       this.deadlineNanos = new AtomicLong(deadlineNanos);
     }
 
@@ -2365,10 +2383,12 @@ public class EngineManager {
         showForegroundEngineLeaseInUse();
         return null;
       }
+      Object retainedForegroundLifecycleOwner = Thread.currentThread();
       gameTransaction =
           beginEngineGameTransactionUnderForegroundLease(
               currentForegroundEngine,
               currentForegroundGeneration,
+              retainedForegroundLifecycleOwner,
               gameAtStart,
               expectedInactiveEpoch,
               publishGameInfo);
@@ -2380,7 +2400,8 @@ public class EngineManager {
               expectedInactiveEpoch,
               publishGameInfo,
               currentForegroundEngine,
-              currentForegroundGeneration);
+              currentForegroundGeneration,
+              null);
     }
     if (gameTransaction == null) {
       return null;
@@ -2704,6 +2725,7 @@ public class EngineManager {
   private EngineGameTransaction beginEngineGameTransactionUnderForegroundLease(
       Leelaz foregroundEngine,
       long foregroundGeneration,
+      Object retainedForegroundLifecycleOwner,
       EngineGameInfo gameInfo,
       Long expectedInactiveEpoch,
       boolean publishGameInfo) {
@@ -2717,7 +2739,8 @@ public class EngineManager {
               expectedInactiveEpoch,
               publishGameInfo,
               foregroundEngine,
-              foregroundGeneration);
+              foregroundGeneration,
+              retainedForegroundLifecycleOwner);
       return transaction;
     } catch (RuntimeException | Error admissionFailure) {
       primaryFailure = admissionFailure;
@@ -2880,6 +2903,14 @@ public class EngineManager {
     }
   }
 
+  private static void disableKatagoWrnForEngineGame(Leelaz engine) {
+    if (engine == null || !engine.isKatago) {
+      return;
+    }
+    engine.wrn = 0;
+    engine.sendCommand("kata-set-param analysisWideRootNoise 0");
+  }
+
   private void startEngineGameAnalysisCompletionWorkers(
       EngineGameTransaction transaction,
       EngineGameInfo gameInfo,
@@ -2895,6 +2926,16 @@ public class EngineManager {
               selectedEngine::isResponseUpToDate,
               "Engine-game analysis startup timed out waiting for command responses")) {
             return;
+          }
+          if (Lizzie.config.disableWRNInGame) {
+            if (!runEngineGameIoStep(
+                transaction, () -> disableKatagoWrnForEngineGame(transaction.blackEngine))) {
+              return;
+            }
+            if (!runEngineGameIoStep(
+                transaction, () -> disableKatagoWrnForEngineGame(transaction.whiteEngine))) {
+              return;
+            }
           }
           if (!runEngineGameIoStep(transaction, selectedEngine::ponder)) return;
           if (!runEngineGameIoStep(transaction, selectedEngine::clearBestMoves)) return;
@@ -3094,6 +3135,7 @@ public class EngineManager {
                   if (failure != null) {
                     failure.printStackTrace();
                   }
+                  notifyEngineGameStartSucceeded();
                 });
     if (SwingUtilities.isEventDispatchThread()) {
       presentation.run();
@@ -4415,11 +4457,21 @@ public class EngineManager {
     newEng.pkMoveTimeGame = 0;
     Board restoreBoard = Lizzie.board;
     Leelaz proposedRestoreMirror = newEng.resolveLoadSgfMirrorEngine();
+    Object retainedLifecycleOwner =
+        transaction != null && newEng == transaction.previousPrimary
+            ? transaction.retainedForegroundLifecycleOwner
+            : null;
     InitialEngineStartupSynchronization lifecycleSynchronization = null;
     try {
       lifecycleSynchronization =
           InitialEngineStartupSynchronization.capturePrepared(
-              null, newEng, proposedRestoreMirror, restoreBoard, false, false);
+              null,
+              newEng,
+              proposedRestoreMirror,
+              restoreBoard,
+              false,
+              false,
+              retainedLifecycleOwner);
       lifecycleSynchronization.bindEngineGameTransaction(transaction);
       lifecycleSynchronization.acquireReservation();
       lifecycleSynchronization.beginLifecycleCompletionClaim();
@@ -4443,7 +4495,10 @@ public class EngineManager {
         return completion;
       }
       newEng.komi = lifecycleSynchronization.pendingRoute.rootKomi.floatValue();
-      if (!newEng.isStarted()) {
+      final boolean alreadyStarted = newEng.isStarted();
+      final boolean nameAlreadyRecognized =
+          alreadyStarted && newEng.isLoaded() && !newEng.isCheckingName;
+      if (!alreadyStarted) {
         try {
           startEngineForPkWithTransactionContext(transaction, newEng, index);
         } catch (IOException failure) {
@@ -4454,7 +4509,7 @@ public class EngineManager {
           completion.fail();
           return completion;
         }
-      } else {
+      } else if (nameAlreadyRecognized) {
         newEng.canRestoreDymPda = false;
         if (!runEngineGameStartupCommandStep(
                 transaction,
@@ -4470,11 +4525,6 @@ public class EngineManager {
         newEng.pkMoveStartTime = System.currentTimeMillis();
       }
       newEng.isResigning = false;
-      if (!runEngineGameStartupCommandStep(transaction, newEng::clearWithoutPonder)) {
-        lifecycleSynchronization.close();
-        completion.fail();
-        return completion;
-      }
       Object synchronizationIncarnation = newEng.currentEngineIncarnation();
       if (transaction != null
           && !bindEngineGameStartupIncarnation(
@@ -4485,6 +4535,24 @@ public class EngineManager {
       }
       Runnable syncBoard =
           () -> {
+            if (!nameAlreadyRecognized) {
+              if (alreadyStarted) {
+                newEng.canRestoreDymPda = false;
+                if (!runEngineGameStartupCommandStep(
+                        transaction,
+                        () ->
+                            newEng.boardSizeForEngineGame(
+                                transaction, newEng.width, newEng.height))
+                    || !runEngineGameStartupCommandStep(
+                        transaction, () -> newEng.sendCommand("komi " + newEng.komi))) {
+                  frozenLifecycleSynchronization.close();
+                  completion.fail();
+                  return;
+                }
+                newEng.pkMoveStartTime = System.currentTimeMillis();
+              }
+            }
+            // Frozen exact/root restore owns board reset. Do not send startup stop/clear.
             if (!frozenLifecycleSynchronization.runUntilStableForBoundEngineGame()) {
               frozenLifecycleSynchronization.close();
               completion.fail();
@@ -4781,6 +4849,9 @@ public class EngineManager {
             if (failure != null) {
               failure.printStackTrace();
             }
+            notifyEngineGameStartFailed(
+                resourceText(
+                    "EngineManager.engineGameStartFailed", "Engine game failed to start"));
           } finally {
             try {
               if (afterRestore != null) {
@@ -6814,7 +6885,8 @@ public class EngineManager {
         expectedInactiveEpoch,
         publishGameInfo,
         expectedPrimary,
-        expectedPrimaryGeneration);
+        expectedPrimaryGeneration,
+        null);
   }
 
   private static EngineGameTransaction beginEngineGameTransaction(
@@ -6823,7 +6895,8 @@ public class EngineManager {
       Long expectedInactiveEpoch,
       boolean publishGameInfo,
       Leelaz expectedPrimary,
-      long expectedPrimaryGeneration) {
+      long expectedPrimaryGeneration,
+      Object retainedForegroundLifecycleOwner) {
     if (manager == null || gameInfo == null) {
       return null;
     }
@@ -6884,6 +6957,7 @@ public class EngineManager {
                   whiteEngine,
                   expectedPrimary,
                   expectedPrimaryGeneration,
+                  retainedForegroundLifecycleOwner,
                   deadlineNanos);
           engineGameInfo = gameInfo;
           activeEngineGameTransaction = transaction;
@@ -7249,6 +7323,7 @@ public class EngineManager {
       Leelaz.runWithEngineGameStartupCommandContext(transaction, operation);
       return lease.isCurrent();
     } catch (RuntimeException | Error failure) {
+      logEngineGameStartRefused("startup-command-rejected");
       failEngineGameTransaction(transaction, failure);
       throw failure;
     } finally {
@@ -8478,6 +8553,38 @@ public class EngineManager {
 
   protected long engineGameStartupTimeoutMillis() {
     return TimeUnit.SECONDS.toMillis(30L);
+  }
+
+  protected long engineGameNameRecognitionTimeoutMillis() {
+    return ENGINE_GAME_NAME_RECOGNITION_TIMEOUT_MILLIS;
+  }
+
+  static void logEngineGameStartRefused(String reason) {
+    ENGINE_LOG.info("engine-game event=start-refused reason={}", reason);
+  }
+
+  public void attachEngineGameStartDialog(EngineGameStartDialogHost host) {
+    engineGameStartDialogHost.set(host);
+  }
+
+  public void cancelEngineGameStartFromDialog() {
+    engineGameStartDialogHost.set(null);
+    logEngineGameStartRefused("dialog-cancel");
+    clearEngineGame();
+  }
+
+  private void notifyEngineGameStartSucceeded() {
+    EngineGameStartDialogHost host = engineGameStartDialogHost.getAndSet(null);
+    if (host != null) {
+      host.onEngineGameStartSucceeded();
+    }
+  }
+
+  private void notifyEngineGameStartFailed(String message) {
+    EngineGameStartDialogHost host = engineGameStartDialogHost.getAndSet(null);
+    if (host != null) {
+      host.onEngineGameStartFailed(message);
+    }
   }
 
   /**
@@ -12980,10 +13087,15 @@ public class EngineManager {
       return false;
     }
     long now = System.nanoTime();
-    long deadline =
-        now
-            + TimeUnit.MILLISECONDS.toNanos(
-                Math.max(1L, engineSynchronizationTimeoutMillis(engine)));
+    long timeoutMillis = Math.max(1L, engineSynchronizationTimeoutMillis(engine));
+    if (transaction != null) {
+      timeoutMillis = Math.max(timeoutMillis, engineGameNameRecognitionTimeoutMillis());
+      long nameNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+      long nameDeadline =
+          now > Long.MAX_VALUE - nameNanos ? Long.MAX_VALUE : now + nameNanos;
+      extendEngineGameDeadline(transaction.deadlineNanos, nameDeadline);
+    }
+    long deadline = now + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
     boolean tuningTimeoutApplied = false;
     while (true) {
       if (transaction != null
@@ -13012,6 +13124,13 @@ public class EngineManager {
         tuningTimeoutApplied = true;
       }
       if (now >= deadline) {
+        if (transaction != null && isCurrentEngineGameTransaction(transaction)) {
+          logEngineGameStartRefused("name-recognition-timeout");
+          failEngineGameTransaction(
+              transaction,
+              new IllegalStateException(
+                  "Engine-game participant name recognition timed out"));
+        }
         return false;
       }
       long remainingMillis = Math.max(1L, TimeUnit.NANOSECONDS.toMillis(deadline - now));
@@ -13042,6 +13161,11 @@ public class EngineManager {
         lifecycleClose,
         completion);
     return completion;
+  }
+
+  PkEngineSynchronization startEngineForPkSynchronizationForTest(
+      EngineGameTransaction transaction, int index, Leelaz expectedEngine) {
+    return startEngineForPkSynchronization(transaction, index, expectedEngine);
   }
 
   protected long engineSynchronizationTimeoutMillis(Leelaz engine) {

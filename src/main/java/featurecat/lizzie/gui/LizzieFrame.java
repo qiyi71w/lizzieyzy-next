@@ -19157,28 +19157,8 @@ public class LizzieFrame extends JFrame {
             Lizzie.leelaz.sendCommand("kata-set-param analysisWideRootNoise 0");
           }
         } else {
-          {
-            if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-                .isKatago) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise 0");
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-                      .wrn =
-                  0;
-            }
-            if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.secondEngineIndex)
-                .isKatago) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise 0");
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.secondEngineIndex)
-                      .wrn =
-                  0;
-            }
-          }
+          // Engine-game analysis applies WRN 0 before ponder. Sending it here would interrupt
+          // kata-analyze and leave the first move waiting for info that never arrives.
         }
       }
     }
