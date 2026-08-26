@@ -122,7 +122,7 @@ public final class UpdateAdmission {
         "Could not check the official channel. Check your network and retry.");
   }
 
-  private static String invalidTestPointerMessage() {
+  static String invalidTestPointerMessage() {
     return UpdateText.tr(
         "WindowsUpdate.invalidTestPointer",
         "测试通道指针不是已签名的测试版清单。",

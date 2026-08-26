@@ -26,6 +26,15 @@ public final class WindowsUpdateController {
     if (selected != UpdateChannel.BETA) {
       UpdateSource.persist(selectedSource);
     }
+    UpdateCheckSelection selection =
+        UpdateCheckSelection.of(selected, selectedSource, Lizzie.nextVersion);
+    if (WindowsUpdatePaths.isWindowsRuntime()) {
+      Thread thread =
+          new Thread(() -> checkWindows(parent, selection), "lizzie-update-manual");
+      thread.setDaemon(true);
+      thread.start();
+      return;
+    }
     if (!UpdateAdmission.shouldFetch(Lizzie.nextVersion)) {
       Utils.showMsg(
           UpdateText.tr(
@@ -38,11 +47,7 @@ public final class WindowsUpdateController {
         new Thread(
             () -> {
               try {
-                if (WindowsUpdatePaths.isWindowsRuntime()) {
-                  checkWindows(parent, selected, selectedSource);
-                } else {
-                  checkPackage(parent, selected, selectedSource);
-                }
+                checkPackage(parent, selected, selectedSource);
               } catch (Exception e) {
                 e.printStackTrace();
                 SwingUtilities.invokeLater(
@@ -63,20 +68,56 @@ public final class WindowsUpdateController {
     thread.start();
   }
 
-  private static void checkWindows(
-      Component parent, UpdateChannel channel, UpdateSource source) throws Exception {
-    WindowsUpdateService service = new WindowsUpdateService(channel, source);
-    Optional<WindowsUpdatePlan> maybePlan = service.checkForUpdate();
-    if (maybePlan.isEmpty()) {
-      showNoUpdate(channel);
-      return;
+  private static void checkWindows(Component parent, UpdateCheckSelection selection) {
+    UpdateCheckResult result = UpdateDiscovery.check(selection);
+    switch (result.reason) {
+      case OFFER:
+        if (result.windowsPlan == null) {
+          showFailure(selection.channel, UpdateCheckResult.FailureKind.ADAPTER);
+          return;
+        }
+        WindowsUpdateService service =
+            new WindowsUpdateService(selection.channel, selection.effectiveSource);
+        SwingUtilities.invokeLater(
+            () -> {
+              disposeCheckPage(parent);
+              new WindowsUpdateDialog(Lizzie.frame, service, result.windowsPlan).setVisible(true);
+            });
+        return;
+      case UNAVAILABLE_BUILD:
+        SwingUtilities.invokeLater(
+            () ->
+                Utils.showMsg(
+                    UpdateText.tr(
+                        "WindowsUpdate.devBuild",
+                        "当前是开发版或未打包版本，无法检查更新。",
+                        "This development or unpackaged build cannot check for updates.")));
+        return;
+      case NO_UPDATE:
+        showNoUpdate(selection.channel);
+        return;
+      case UNSUPPORTED_PLATFORM:
+        SwingUtilities.invokeLater(
+            () ->
+                Utils.showMsg(
+                    UpdateText.tr(
+                        "WindowsUpdate.unsupportedPlatform",
+                        "当前平台不支持应用内更新。",
+                        "This platform cannot check for in-app updates.")));
+        return;
+      case NO_PACKAGE:
+        SwingUtilities.invokeLater(
+            () ->
+                Utils.showMsg(
+                    UpdateText.tr(
+                        "WindowsUpdate.noPackage",
+                        "已有更新版本，但没有匹配当前安装的更新包。",
+                        "A newer release exists, but no matching installable update is available.")));
+        return;
+      case FAILURE:
+        showFailure(selection.channel, result.failureKind);
+        return;
     }
-    WindowsUpdatePlan plan = maybePlan.get();
-    SwingUtilities.invokeLater(
-        () -> {
-          disposeCheckPage(parent);
-          new WindowsUpdateDialog(Lizzie.frame, service, plan).setVisible(true);
-        });
   }
 
   private static void checkPackage(
@@ -98,6 +139,21 @@ public final class WindowsUpdateController {
   private static void showNoUpdate(UpdateChannel channel) {
     SwingUtilities.invokeLater(
         () -> Utils.showMsg(UpdateAdmission.noUpdateMessage(channel)));
+  }
+
+  private static void showFailure(
+      UpdateChannel channel, UpdateCheckResult.FailureKind kind) {
+    String message;
+    if (kind == UpdateCheckResult.FailureKind.FETCH) {
+      message = UpdateAdmission.fetchFailureMessage(channel);
+    } else if (kind == UpdateCheckResult.FailureKind.INVALID_TEST_POINTER) {
+      message = UpdateAdmission.invalidTestPointerMessage();
+    } else {
+      message =
+          UpdateText.tr(
+              "WindowsUpdate.checkFailed", "检查更新失败", "Update check failed");
+    }
+    SwingUtilities.invokeLater(() -> Utils.showMsg(message));
   }
 
   private static void disposeCheckPage(Component parent) {
