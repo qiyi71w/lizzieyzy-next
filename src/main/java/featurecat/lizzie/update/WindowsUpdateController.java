@@ -23,15 +23,13 @@ public final class WindowsUpdateController {
   private static final class ProductionHandoff implements UpdateCheckCoordinator.OfferHandoff {
     @Override
     public void openWindows(UpdateCheckSelection selection, WindowsUpdatePlan plan) {
-      WindowsUpdateService service =
-          new WindowsUpdateService(selection.channel, selection.effectiveSource);
+      WindowsUpdateService service = new WindowsUpdateService();
       new WindowsUpdateDialog(Lizzie.frame, service, plan).setVisible(true);
     }
 
     @Override
     public void openPackage(UpdateCheckSelection selection, PackageUpdatePlan plan) {
-      PlatformUpdateService service =
-          new PlatformUpdateService(selection.channel, selection.effectiveSource);
+      PlatformUpdateService service = new PlatformUpdateService();
       new PackageUpdateDialog(Lizzie.frame, service, plan).setVisible(true);
     }
   }
