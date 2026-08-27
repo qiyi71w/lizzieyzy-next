@@ -163,6 +163,10 @@ public class EngineGameInfo {
     else return Board.boardWidth * Board.boardHeight * 2;
   }
 
+  public int configuredMaxGameMoves() {
+    return maxGameMoves;
+  }
+
   public void setMaxGameMoves(int maxMoves) {
     maxGameMoves = maxMoves;
   }

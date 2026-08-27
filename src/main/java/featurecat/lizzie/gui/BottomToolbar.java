@@ -1940,99 +1940,22 @@ public class BottomToolbar extends JPanel {
     btnEnginePkStop.setMargin(new Insets(0, 0, 0, 0));
     btnEnginePkStop.addActionListener(
         new ActionListener() {
-          @Override
           public void actionPerformed(ActionEvent e) {
-            // TBD未完成
             setTxtUnfocuse();
-            if (isGenmoveToolbar) {
-              if (isPkStop) {
-                if (!isPkGenmoveStop) {
-                  Utils.showMsg(
-                      Lizzie.resourceBundle.getString(
-                          "BottomToolbar.genmoveStopHint")); // (BottomToolbar.genmoveStopHint);
-                  //                  Message msg = new Message();
-                  //                  msg.setMessage("Genmove模式下暂停后须等待最后一步落子完成");
-                  //                  msg.setVisible(true);
-                  return;
-                }
-                btnEnginePkStop.setText(text("BottomToolbar.detail.pause", "暂停"));
-                isPkStop = false;
-                if (isPkStopGenmoveB) {
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .nameCmd();
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .genmoveForPk("B");
-                  if (Lizzie.config.enginePkPonder)
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                        .ponder();
-                } else {
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .nameCmd();
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .genmoveForPk("W");
-                  if (Lizzie.config.enginePkPonder)
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.blackEngineIndex)
-                        .ponder();
-                }
-
-              } else {
-                btnEnginePkStop.setText(text("BottomToolbar.detail.continue", "继续"));
-                isPkStop = true;
-                isPkGenmoveStop = false;
+            featurecat.lizzie.enginegame.EngineGameTransaction product =
+                Lizzie.engineGame.transaction();
+            boolean paused = product != null && product.paused();
+            if (paused) {
+              if (isGenmoveToolbar && !product.genmovePauseSettled()) {
+                Utils.showMsg(
+                    Lizzie.resourceBundle.getString("BottomToolbar.genmoveStopHint"));
+                return;
               }
-
+              Lizzie.engineGame.resume();
+              btnEnginePkStop.setText(text("BottomToolbar.detail.pause", "暂停"));
             } else {
-              if (isPkStop) {
-                btnEnginePkStop.setText(text("BottomToolbar.detail.pause", "暂停"));
-                isPkStop = false;
-                if (Lizzie.config.enginePkPonder) {
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .ponder();
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .ponder();
-                } else {
-                  if (Lizzie.board.getData().blackToPlay) {
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.blackEngineIndex)
-                        .ponder();
-                  } else {
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                        .ponder();
-                  }
-                }
-              } else {
-                btnEnginePkStop.setText(text("BottomToolbar.detail.continue", "继续"));
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.blackEngineIndex)
-                    .nameCmd();
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                    .nameCmd();
-                isPkStop = true;
-              }
-              //  Lizzie.engineManager.startInfoTime = System.currentTimeMillis();
-              //  Lizzie.engineManager.gameTime = System.currentTimeMillis();
+              Lizzie.engineGame.pause();
+              btnEnginePkStop.setText(text("BottomToolbar.detail.continue", "继续"));
             }
             LizzieFrame.menu.toggleDoubleMenuGameStatus();
           }

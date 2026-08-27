@@ -7,7 +7,14 @@ import featurecat.lizzie.gui.DesktopTimeControl;
 import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.gui.EnginePkIdentity;
 import featurecat.lizzie.enginegame.EngineParticipantIdentity;
-
+import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.EngineGamePlayMode;
+import featurecat.lizzie.enginegame.EngineGameResignPolicy;
+import featurecat.lizzie.enginegame.EngineGameSide;
+import featurecat.lizzie.enginegame.EngineGameSideLimits;
+import featurecat.lizzie.enginegame.EngineGameTimeMode;
+import featurecat.lizzie.enginegame.LifecycleBinding;
+import featurecat.lizzie.enginegame.ParticipantBinding;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
 import featurecat.lizzie.gui.SgfWinLossList;
@@ -233,6 +240,12 @@ public class EngineManager {
     private volatile Throwable terminalFailure;
     private volatile boolean externalTerminalOwner;
     private volatile long inactiveEpoch = -1L;
+    private volatile featurecat.lizzie.enginegame.EngineGameTransaction product;
+    private volatile ParticipantBinding blackBinding;
+    private volatile ParticipantBinding whiteBinding;
+    private volatile boolean paused;
+    private volatile boolean genmovePauseSettled;
+    private volatile EngineGameSide pendingGenmoveSide;
 
     private EngineGameTransaction(
         EngineManager manager,
@@ -278,11 +291,62 @@ public class EngineManager {
     }
 
     boolean isGenmove() {
+      ParticipantBinding binding = blackBinding;
+      if (binding != null) {
+        return binding.playMode() == EngineGamePlayMode.GENMOVE;
+      }
       return gameInfo.isGenmove;
+    }
+
+    ParticipantBinding bindingFor(Leelaz participant) {
+      if (participant == blackEngine) {
+        return blackBinding;
+      }
+      if (participant == whiteEngine) {
+        return whiteBinding;
+      }
+      return null;
+    }
+
+    ParticipantBinding bindingForSide(boolean black) {
+      return black ? blackBinding : whiteBinding;
+    }
+
+    Leelaz blackEngine() {
+      return blackEngine;
+    }
+
+    Leelaz whiteEngine() {
+      return whiteEngine;
+    }
+
+    boolean paused() {
+      return paused || (product != null && product.paused());
+    }
+
+    boolean genmovePauseSettled() {
+      return genmovePauseSettled
+          || (product != null && product.genmovePauseSettled());
+    }
+
+    void recordPendingGenmoveSide(EngineGameSide side) {
+      pendingGenmoveSide = side;
+      genmovePauseSettled = true;
+      if (product != null) {
+        product.recordPendingGenmoveSide(side);
+      }
     }
 
     int operationsInFlightForTest() {
       return operationsInFlight.get();
+    }
+
+    boolean pausedForTest() {
+      return paused();
+    }
+
+    EngineGameSide pendingGenmoveSideForTest() {
+      return pendingGenmoveSide;
     }
 
     boolean retirementFinishedForTest() {
@@ -1830,6 +1894,14 @@ public class EngineManager {
    * Stops exactly the supplied game transaction. A delayed parser callback must never fall back to
    * the public "stop whichever game is current" operation after a successor has been admitted.
    */
+  public static boolean stopEngineGameIfCurrent(
+      Object ownerToken, int resignEngineIndex, boolean manual) {
+    if (!(ownerToken instanceof EngineGameTransaction transaction)) {
+      return false;
+    }
+    return stopEngineGameIfCurrent(transaction, resignEngineIndex, manual);
+  }
+
   static boolean stopEngineGameIfCurrent(
       EngineGameTransaction transaction, int resignEngineIndex, boolean manual) {
     if (transaction == null || transaction.manager == null) {
@@ -6909,6 +6981,7 @@ public class EngineManager {
                   expectedPrimaryGeneration,
                   retainedForegroundLifecycleOwner,
                   deadlineNanos);
+          attachEngineGameBindings(transaction, gameInfo);
           engineGameInfo = gameInfo;
           activeEngineGameTransaction = transaction;
           isEngineGame = false;
@@ -6923,6 +6996,189 @@ public class EngineManager {
       ENGINE_GAME_ANALYSIS_OUTPUT_MUTATION_LOCK.unlock();
     }
   }
+
+  private static void attachEngineGameBindings(
+      EngineGameTransaction owner, EngineGameInfo gameInfo) {
+    featurecat.lizzie.enginegame.EngineGameTransaction product =
+        Lizzie.engineGame == null ? null : Lizzie.engineGame.transaction();
+    EngineGamePlayMode playMode;
+    EngineGameSideLimits blackLimits;
+    EngineGameSideLimits whiteLimits;
+    int maxMoves;
+    if (product != null
+        && product.plan() != null
+        && product.plan().blackIndex() == owner.blackIndex
+        && product.plan().whiteIndex() == owner.whiteIndex) {
+      EngineGamePlan plan = product.plan();
+      playMode = plan.playMode();
+      blackLimits = plan.blackLimits();
+      whiteLimits = plan.whiteLimits();
+      maxMoves = plan.maxMoveLimitEnabled() ? plan.maxMoves() : 0;
+    } else {
+      product = null;
+      playMode =
+          gameInfo.isGenmove ? EngineGamePlayMode.GENMOVE : EngineGamePlayMode.ANALYSIS;
+      blackLimits = sideLimitsFromInfo(gameInfo, true);
+      whiteLimits = sideLimitsFromInfo(gameInfo, false);
+      maxMoves = gameInfo.configuredMaxGameMoves();
+    }
+    ParticipantBinding black =
+        ParticipantBinding.of(
+            product,
+            EngineGameSide.BLACK,
+            owner.blackIndex,
+            blackLimits,
+            playMode,
+            maxMoves);
+    ParticipantBinding white =
+        ParticipantBinding.of(
+            product,
+            EngineGameSide.WHITE,
+            owner.whiteIndex,
+            whiteLimits,
+            playMode,
+            maxMoves);
+    owner.blackBinding = black;
+    owner.whiteBinding = white;
+    owner.product = product;
+    if (product != null) {
+      product.attach(LifecycleBinding.ofOwner(owner), black, white);
+    }
+  }
+
+  private static EngineGameSideLimits sideLimitsFromInfo(EngineGameInfo info, boolean black) {
+    EngineGameResignPolicy resign =
+        new EngineGameResignPolicy(
+            black ? info.blackMinMove : info.whiteMinMove,
+            black ? info.blackResignMoveCounts : info.whiteResignMoveCounts,
+            resignWinrate(black ? info.blackResignWinrate : info.whiteResignWinrate));
+    return new EngineGameSideLimits(
+        EngineGameTimeMode.fromDesktop(black ? info.blackTimeMode : info.whiteTimeMode),
+        black ? info.timeBlack : info.timeWhite,
+        black ? info.advanceBlackTimeCmd : info.advanceWhiteTimeCmd,
+        black ? info.playoutsBlack : info.playoutsWhite,
+        black ? info.firstPlayoutsBlack : info.firstPlayoutsWhite,
+        resign);
+  }
+
+  private static double resignWinrate(Double value) {
+    return value == null ? 10.0 : value;
+  }
+
+  public static void pauseEngineGame(Object ownerToken) {
+    if (ownerToken instanceof EngineGameTransaction owner) {
+      pauseEngineGame(owner);
+    }
+  }
+
+  public static void pauseEngineGame(EngineGameTransaction owner) {
+    if (owner == null) {
+      return;
+    }
+    owner.paused = true;
+    if (owner.product != null) {
+      owner.product.setPaused(true);
+    }
+    if (owner.phase != EngineGamePhase.ACTIVE) {
+      return;
+    }
+    if (owner.isGenmove()) {
+      owner.genmovePauseSettled = false;
+      return;
+    }
+    owner.blackEngine.nameCmd();
+    owner.whiteEngine.nameCmd();
+  }
+
+  public static void resumeEngineGame(Object ownerToken) {
+    if (ownerToken instanceof EngineGameTransaction owner) {
+      resumeEngineGame(owner);
+    }
+  }
+
+  public static void resumeEngineGame(EngineGameTransaction owner) {
+    if (owner == null) {
+      return;
+    }
+    EngineGameSide pending =
+        owner.product != null ? owner.product.takePendingGenmoveSide() : owner.pendingGenmoveSide;
+    owner.pendingGenmoveSide = null;
+    owner.genmovePauseSettled = false;
+    owner.paused = false;
+    if (owner.product != null) {
+      owner.product.setPaused(false);
+    }
+    if (owner.phase != EngineGamePhase.ACTIVE) {
+      return;
+    }
+    if (owner.isGenmove()) {
+      if (pending == null) {
+        return;
+      }
+      Leelaz mover = pending == EngineGameSide.BLACK ? owner.blackEngine : owner.whiteEngine;
+      String color = pending == EngineGameSide.BLACK ? "B" : "W";
+      mover.nameCmd();
+      mover.genmoveForPk(color, owner);
+      if (Lizzie.config != null && Lizzie.config.enginePkPonder) {
+        Leelaz opponent =
+            pending == EngineGameSide.BLACK ? owner.whiteEngine : owner.blackEngine;
+        opponent.ponder();
+      }
+      return;
+    }
+    if (Lizzie.config != null && Lizzie.config.enginePkPonder) {
+      owner.blackEngine.ponder();
+      owner.whiteEngine.ponder();
+    } else if (Lizzie.board != null && Lizzie.board.getData().blackToPlay) {
+      owner.blackEngine.ponder();
+    } else if (Lizzie.board != null) {
+      owner.whiteEngine.ponder();
+    }
+  }
+
+  public void playEngineGameManualMove(
+      boolean blacksTurn, Stone color, String move, boolean ponderAsWhite) {
+    EngineGameTransaction txn;
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      txn = activeEngineGameTransaction;
+      if (txn == null
+          || !isCurrentEngineGameTransactionLocked(txn)
+          || txn.phase != EngineGamePhase.ACTIVE) {
+        return;
+      }
+    }
+    boolean previousPause = txn.paused();
+    txn.paused = true;
+    if (txn.product != null) {
+      txn.product.setPaused(true);
+    }
+    try {
+      if (blacksTurn) {
+        Lizzie.setPrimaryEngine(txn.whiteEngine);
+        txn.blackEngine.playMoveNoPonder(color, move);
+        if (Lizzie.config != null && Lizzie.config.enginePkPonder) {
+          txn.blackEngine.ponder(true, ponderAsWhite);
+        }
+      } else {
+        Lizzie.setPrimaryEngine(txn.blackEngine);
+        txn.whiteEngine.playMoveNoPonder(color, move);
+        if (Lizzie.config != null && Lizzie.config.enginePkPonder) {
+          txn.whiteEngine.ponder(true, ponderAsWhite);
+        }
+      }
+      if (Lizzie.leelaz != null) {
+        Lizzie.leelaz.playMovePonder(color.isBlack() ? "B" : "W", move);
+      }
+    } finally {
+      if (!previousPause) {
+        txn.paused = false;
+        if (txn.product != null) {
+          txn.product.setPaused(false);
+        }
+      }
+    }
+  }
+
 
   static boolean runIfNoActiveEngineGameAnalysisOutput(Runnable action) {
     if (action == null) {
@@ -8950,16 +9206,13 @@ public class EngineManager {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameTransactionLocked(transaction)
           || transaction.phase != EngineGamePhase.ACTIVE
-          || !transaction.gameInfo.isGenmove
+          || !transaction.isGenmove()
           || Lizzie.board == null) {
         return null;
       }
       boolean blackToPlay = Lizzie.board.getHistory().isBlacksTurn();
       boolean requestsBlack = color.equalsIgnoreCase("b");
-      int participantIndex =
-          requestsBlack
-              ? transaction.gameInfo.blackEngineIndex
-              : transaction.gameInfo.whiteEngineIndex;
+      int participantIndex = requestsBlack ? transaction.blackIndex : transaction.whiteIndex;
       Object expectedIncarnation =
           requestsBlack ? transaction.blackIncarnation : transaction.whiteIncarnation;
       if (requestsBlack != blackToPlay

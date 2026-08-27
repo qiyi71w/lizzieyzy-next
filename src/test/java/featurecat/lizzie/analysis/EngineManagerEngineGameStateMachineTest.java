@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.GtpConsolePane;
@@ -877,6 +878,26 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(EngineManager.EngineGamePhase.FAILED, transaction.phase());
     assertEquals(0, transaction.operationsInFlightForTest());
     assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+  }
+
+  @Test
+  void pausedGenmoveRecordsExactPendingSideWithoutToolbarFlags() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameInfo game = gameInfo();
+    game.isGenmove = true;
+    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    LizzieFrame.toolbar.isPkStop = false;
+    LizzieFrame.toolbar.isPkGenmoveStop = false;
+    LizzieFrame.toolbar.isPkStopGenmoveB = false;
+
+    EngineManager.pauseEngineGame(transaction);
+
+    assertTrue(transaction.pausedForTest());
+    assertFalse(black.genmoveForPk("B", transaction));
+    assertEquals(EngineGameSide.BLACK, transaction.pendingGenmoveSideForTest());
+    assertFalse(LizzieFrame.toolbar.isPkStop);
+    assertFalse(LizzieFrame.toolbar.isPkGenmoveStop);
+    assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
   }
 
   @Test

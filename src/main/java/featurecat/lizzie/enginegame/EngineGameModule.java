@@ -113,43 +113,56 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
 
   @Override
   public void pause() {
-    boolean apply = false;
+    EngineGameTransaction pausedTransaction = null;
     synchronized (lock) {
       if (snapshot instanceof EngineGameSnapshot.BatchActive active
           && active.activity() instanceof GameActivity.Playing playing
           && playing.runState() == RunState.RUNNING) {
+        if (transaction != null) {
+          transaction.setPaused(true);
+        }
         publishLocked(
             new EngineGameSnapshot.BatchActive(
                 active.batch(), new GameActivity.Playing(playing.view(), RunState.PAUSED)));
-        apply = true;
+        pausedTransaction = transaction;
       }
     }
-    if (apply) {
+    if (pausedTransaction != null) {
       BottomToolbar toolbar = LizzieFrame.toolbar;
       if (toolbar != null) {
         toolbar.isPkStop = true;
       }
+      EngineManager.pauseEngineGame(ownerOf(pausedTransaction));
     }
   }
 
   @Override
   public void resume() {
-    boolean apply = false;
+    EngineGameTransaction resumedTransaction = null;
     synchronized (lock) {
       if (snapshot instanceof EngineGameSnapshot.BatchActive active
           && active.activity() instanceof GameActivity.Playing playing
           && playing.runState() == RunState.PAUSED) {
+        if (transaction != null
+            && transaction.plan().playMode() == EngineGamePlayMode.GENMOVE
+            && !transaction.genmovePauseSettled()) {
+          return;
+        }
+        if (transaction != null) {
+          transaction.setPaused(false);
+        }
         publishLocked(
             new EngineGameSnapshot.BatchActive(
                 active.batch(), new GameActivity.Playing(playing.view(), RunState.RUNNING)));
-        apply = true;
+        resumedTransaction = transaction;
       }
     }
-    if (apply) {
+    if (resumedTransaction != null) {
       BottomToolbar toolbar = LizzieFrame.toolbar;
       if (toolbar != null) {
         toolbar.isPkStop = false;
       }
+      EngineManager.resumeEngineGame(ownerOf(resumedTransaction));
     }
   }
 
@@ -186,6 +199,46 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
     synchronized (lock) {
       return transaction;
     }
+  }
+
+  /**
+   * Routes a normal per-game outcome. Duplicate or stale owner tokens are inert. This is not
+   * {@link #stop()}.
+   */
+  public boolean complete(GameOutcome outcome, Object ownerToken, int participantIndex) {
+    Objects.requireNonNull(outcome, "outcome");
+    EngineGameTransaction product;
+    synchronized (lock) {
+      product = transaction;
+      if (product != null) {
+        if (ownerToken != null
+            && product.lifecycle() != null
+            && !product.lifecycle().sameOwner(ownerToken)) {
+          return false;
+        }
+        if (!product.claimComplete()) {
+          return false;
+        }
+      }
+    }
+    int index = participantIndex;
+    if (index < 0 && outcome instanceof GameOutcome.Resign resign && product != null) {
+      ParticipantBinding binding =
+          resign.side() == EngineGameSide.BLACK
+              ? product.blackBinding()
+              : product.whiteBinding();
+      if (binding != null) {
+        index = binding.catalogIndex();
+      }
+    }
+    return EngineManager.stopEngineGameIfCurrent(ownerToken, index, false);
+  }
+
+  private static Object ownerOf(EngineGameTransaction product) {
+    if (product == null || product.lifecycle() == null) {
+      return null;
+    }
+    return product.lifecycle().ownerToken();
   }
 
 

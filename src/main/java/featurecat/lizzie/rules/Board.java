@@ -2943,37 +2943,9 @@ public class Board {
       }
       boolean needGenmove = false;
       if (forManual && !Lizzie.frame.isPlayingAgainstLeelaz && !Lizzie.leelaz.isInputCommand) {
-        LizzieFrame.toolbar.isPkStop = true;
         String move = convertCoordinatesToName(x, y);
-        if (getHistory().isBlacksTurn()) {
-          Lizzie.setPrimaryEngine(
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex));
-          Lizzie.engineManager
-              .engineList
-              .get(EngineManager.engineGameInfo.blackEngineIndex)
-              .playMoveNoPonder(color, move);
-          if (Lizzie.config.enginePkPonder) {
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.blackEngineIndex)
-                .ponder(true, color.isWhite());
-          }
-        } else {
-          Lizzie.setPrimaryEngine(
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex));
-          Lizzie.engineManager
-              .engineList
-              .get(EngineManager.engineGameInfo.whiteEngineIndex)
-              .playMoveNoPonder(color, move);
-          if (Lizzie.config.enginePkPonder) {
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                .ponder(true, color.isWhite());
-          }
-        }
-        Lizzie.leelaz.playMovePonder(color.isBlack() ? "B" : "W", move);
-        LizzieFrame.toolbar.isPkStop = false;
+        Lizzie.engineManager.playEngineGameManualMove(
+            getHistory().isBlacksTurn(), color, move, color.isWhite());
       } else if (Lizzie.frame.isPlayingAgainstLeelaz
           && Lizzie.frame.playerIsBlack == getData().blackToPlay
           && !isEngineFollowTrialActive()) {

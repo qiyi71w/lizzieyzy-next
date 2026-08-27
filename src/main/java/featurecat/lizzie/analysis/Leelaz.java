@@ -3,6 +3,11 @@ package featurecat.lizzie.analysis;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlayMode;
+import featurecat.lizzie.enginegame.EngineGameSide;
+import featurecat.lizzie.enginegame.EngineGameSideLimits;
+import featurecat.lizzie.enginegame.GameOutcome;
+import featurecat.lizzie.enginegame.ParticipantBinding;
 import featurecat.lizzie.analysis.gtpconfig.GtpConfigurationProbe;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
@@ -4586,15 +4591,12 @@ public class Leelaz {
         Lizzie.config.isDoubleEngineMode() && Lizzie.leelaz2 != null && this == Lizzie.leelaz2;
     boolean engineGameParticipantToMove = true;
     if (!secondaryDisplay && EngineManager.isEngineGame && Lizzie.config.enginePkPonder) {
+      EngineManager.EngineGamePrimaryContext game =
+          EngineManager.captureEngineGamePrimaryContext();
       engineGameParticipantToMove =
-          (Lizzie.board.getHistory().isBlacksTurn()
-                  && this
-                      == Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.blackEngineIndex))
-              || (!Lizzie.board.getHistory().isBlacksTurn()
-                  && this
-                      == Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.whiteEngineIndex));
+          game != null
+              && ((Lizzie.board.getHistory().isBlacksTurn() && this == game.blackEngine)
+                  || (!Lizzie.board.getHistory().isBlacksTurn() && this == game.whiteEngine));
     }
     if (!secondaryDisplay && !engineGameParticipantToMove) {
       return;
@@ -4869,9 +4871,15 @@ public class Leelaz {
         return;
       }
       if (params.length >= 2) {
-        EngineGameInfo responseGame = moveResponseContext.gameInfo;
-        boolean moverIsBlack =
-            moveResponseContext.participantIndex == responseGame.blackEngineIndex;
+        ParticipantBinding binding =
+            moveResponseContext.transaction.bindingFor(moveResponseContext.participant);
+        boolean moverIsBlack = binding != null && binding.isBlack();
+        int selectedIndex =
+            binding != null ? binding.catalogIndex() : moveResponseContext.participantIndex;
+        int maxGameMoves =
+            binding != null
+                ? binding.maxGameMoves(Board.boardWidth, Board.boardHeight)
+                : moveResponseContext.gameInfo.getMaxGameMoves();
         if (parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID
             && !params[1].startsWith("Passing")) {
           processCommandResponseLine(line, sourceEngineIncarnation);
@@ -4900,7 +4908,7 @@ public class Leelaz {
           finishExactEngineGameAnalysis(moveResponseContext, AnalysisGameTerminal.RESIGN);
           return;
         }
-        if (moveResponseContext.moveNumber > responseGame.getMaxGameMoves()) {
+        if (moveResponseContext.moveNumber > maxGameMoves) {
           if (!recordExactEngineGameMoveTime(moveResponseContext, false)) return;
           finishExactEngineGameAnalysis(moveResponseContext, AnalysisGameTerminal.MAX_MOVES);
           return;
@@ -4921,8 +4929,6 @@ public class Leelaz {
           boolean doublePassNow = moveResponseContext.boardNode.getData().isPassNode();
           Leelaz selectedEngine =
               moverIsBlack ? moveResponseContext.blackEngine : moveResponseContext.whiteEngine;
-          int selectedIndex =
-              moverIsBlack ? responseGame.blackEngineIndex : responseGame.whiteEngineIndex;
           EngineManager.EngineGamePostMoveToken postMove =
               EngineManager.commitEngineGameMove(
                   moveResponseContext, null, null, selectedEngine, selectedIndex);
@@ -4955,8 +4961,6 @@ public class Leelaz {
           if (!recordExactEngineGameMoveTime(moveResponseContext, true)) return;
           Leelaz selectedEngine =
               moverIsBlack ? moveResponseContext.blackEngine : moveResponseContext.whiteEngine;
-          int selectedIndex =
-              moverIsBlack ? responseGame.blackEngineIndex : responseGame.whiteEngineIndex;
           int moveX = coords.get()[0];
           int moveY = coords.get()[1];
           EngineManager.EngineGamePostMoveToken postMove =
@@ -6767,8 +6771,6 @@ public class Leelaz {
             : analysisOutputRouteAtParse.activeExactContext;
     EngineManager engineManagerAtParse =
         engineGameContextAtParse == null ? null : engineGameContextAtParse.manager;
-    EngineGameInfo engineGameInfoAtParse =
-        engineGameContextAtParse == null ? null : engineGameContextAtParse.gameInfo;
     Board engineGameBoardAtParse = Lizzie.board;
     long engineGameBoardRevisionAtParse =
         engineGameBoardAtParse == null ? -1L : engineGameBoardAtParse.getContextRevision();
@@ -6800,28 +6802,21 @@ public class Leelaz {
         if ((upToDate)) {
           if (engineGameContextAtParse != null
               && engineManagerAtParse != null
-              && engineGameInfoAtParse != null
               && Lizzie.engineManager == engineManagerAtParse
-              && EngineManager.engineGameInfo == engineGameInfoAtParse
-              && engineGameInfoAtParse.blackEngineIndex >= 0
-              && engineGameInfoAtParse.blackEngineIndex < engineManagerAtParse.engineList.size()
-              && engineGameInfoAtParse.whiteEngineIndex >= 0
-              && engineGameInfoAtParse.whiteEngineIndex < engineManagerAtParse.engineList.size()) {
-            // Lizzie.frame.subBoardRenderer.reverseBestmoves = false;
-            // Lizzie.frame.boardRenderer.reverseBestmoves = false;
+              && EngineManager.isCurrentEngineGameTransaction(
+                  engineGameContextAtParse.transaction)
+              && engineGameContextAtParse.blackEngine != null
+              && engineGameContextAtParse.whiteEngine != null) {
             if (engineGamePonderRoutingAtParse) {
-              if ((engineGameBlackToPlayAtParse
-                      && this
-                          == engineManagerAtParse.engineList.get(
-                              engineGameInfoAtParse.blackEngineIndex))
-                  || !engineGameBlackToPlayAtParse
-                      && this
-                          == engineManagerAtParse.engineList.get(
-                              engineGameInfoAtParse.whiteEngineIndex)) {
+              Leelaz toMove =
+                  engineGameBlackToPlayAtParse
+                      ? engineGameContextAtParse.blackEngine
+                      : engineGameContextAtParse.whiteEngine;
+              if (this == toMove) {
                 int expectedIndex =
                     engineGameBlackToPlayAtParse
-                        ? engineGameInfoAtParse.blackEngineIndex
-                        : engineGameInfoAtParse.whiteEngineIndex;
+                        ? engineGameContextAtParse.blackIndex
+                        : engineGameContextAtParse.whiteIndex;
                 primaryPublicationAfterInfo =
                     EngineManager.prepareEngineGamePrimaryPublication(
                         engineGameContextAtParse,
@@ -7724,7 +7719,20 @@ public class Leelaz {
           oriEnginename + " " + Lizzie.resourceBundle.getString("Leelaz.resign") + "\n");
     Lizzie.board.updateComment();
     if (needPass) Lizzie.board.pass();
-    Lizzie.engineManager.stopEngineGame(currentEngineN, false);
+    EngineManager.EngineGamePrimaryContext game =
+        EngineManager.captureEngineGamePrimaryContext(this, currentEngineIncarnation());
+    if (game == null || game.participantIndex < 0) {
+      return;
+    }
+    ParticipantBinding binding = game.transaction.bindingFor(this);
+    EngineGameSide side =
+        binding != null
+            ? binding.side()
+            : (game.participantIndex == game.blackIndex
+                ? EngineGameSide.BLACK
+                : EngineGameSide.WHITE);
+    Lizzie.engineGame.complete(
+        new GameOutcome.Resign(side), game.transaction, game.participantIndex);
   }
 
   //	public void resignGame() {
@@ -7751,143 +7759,6 @@ public class Leelaz {
       AnalysisInfoSnapshot acceptedInfo) {
     if (exactGame != null) {
       notifyAutoPKExact(playImmediately, exactGame, acceptedInfo);
-      return;
-    }
-    List<MoveData> acceptedMoves =
-        acceptedInfo == null ? List.of() : acceptedInfo.moves;
-    int acceptedPlayouts = acceptedInfo == null ? 0 : acceptedInfo.totalPlayouts;
-    if (!EngineManager.isEngineGame || played || LizzieFrame.toolbar.isPkStop) {
-      return;
-    }
-    if (resigned) {
-      nameCmd();
-      isResigning = true;
-      if (Lizzie.gtpConsole.isVisible() || Lizzie.config.alwaysGtp)
-        Lizzie.gtpConsole.addLine(
-            oriEnginename + " " + Lizzie.resourceBundle.getString("Leelaz.resign") + "\n");
-      Lizzie.engineManager.stopEngineGame(currentEngineN, false);
-      return;
-    }
-    boolean shouldPlay = false;
-    int time = 0;
-    int playouts = 0;
-    int firstPlayouts = 0;
-    int minMove = 0;
-    int resginMoveCounts = 2;
-    double resignWinrate = 10.0;
-    MoveData best;
-    try {
-      best = acceptedMoves.get(0);
-    } catch (Exception e) {
-      e.printStackTrace();
-      return;
-    }
-    double curWR = best.winrate;
-    int thisIdx = currentEngineN;
-    int blackIdx = EngineManager.engineGameInfo.blackEngineIndex;
-    // int whiteIdx=Lizzie.engineManager.engineGameInfo.whiteEngineIndex;
-    boolean isBlackEngine = thisIdx == blackIdx;
-    if (isBlackEngine) {
-      time = EngineManager.engineGameInfo.timeBlack * 1000;
-      playouts = EngineManager.engineGameInfo.playoutsBlack;
-      firstPlayouts = EngineManager.engineGameInfo.firstPlayoutsBlack;
-      minMove = EngineManager.engineGameInfo.blackMinMove;
-      resginMoveCounts = EngineManager.engineGameInfo.blackResignMoveCounts;
-      resignWinrate = EngineManager.engineGameInfo.blackResignWinrate;
-    } else {
-      time = EngineManager.engineGameInfo.timeWhite * 1000;
-      playouts = EngineManager.engineGameInfo.playoutsWhite;
-      firstPlayouts = EngineManager.engineGameInfo.firstPlayoutsWhite;
-      minMove = EngineManager.engineGameInfo.whiteMinMove;
-      resginMoveCounts = EngineManager.engineGameInfo.whiteResignMoveCounts;
-      resignWinrate = EngineManager.engineGameInfo.whiteResignWinrate;
-    }
-    if (Lizzie.board.getHistory().isBlacksTurn() && !isBlackEngine
-        || !Lizzie.board.getHistory().isBlacksTurn() & isBlackEngine) return;
-    if (Lizzie.board.getHistory().getMoveNumber()
-        > EngineManager.engineGameInfo.getMaxGameMoves()) {
-      outOfMoveNum = true;
-      resigned = true;
-    }
-    if (isZen) {
-      if (Lizzie.board.getHistory().getCurrentHistoryNode().getData().moveNumber < 3)
-        shouldPlay = true;
-    }
-    if (playImmediately || playNow) shouldPlay = true;
-    if (firstPlayouts > 0 && best.playouts >= firstPlayouts) shouldPlay = true;
-    if (firstPlayouts > 0 && best.playouts >= firstPlayouts) shouldPlay = true;
-    if (playouts > 0) {
-      if (acceptedPlayouts >= playouts) shouldPlay = true;
-    }
-    if (time > 0) {
-      if (System.currentTimeMillis() - startPonderTime >= time) {
-        shouldPlay = true;
-      }
-    }
-    if (shouldPlay) {
-      played = true;
-      playNow = false;
-      if ((curWR < resignWinrate) && Lizzie.board.getHistory().getMoveNumber() > minMove) {
-        if (isBlackEngine) {
-          blackResignMoveCounts = blackResignMoveCounts + 1;
-          if (blackResignMoveCounts >= resginMoveCounts) resigned = true;
-        } else {
-          whiteResignMoveCounts = whiteResignMoveCounts + 1;
-          if (whiteResignMoveCounts >= resginMoveCounts) resigned = true;
-        }
-      } else {
-        if (isBlackEngine) blackResignMoveCounts = 0;
-        else whiteResignMoveCounts = 0;
-      }
-      if (!resigned) {
-        MoveData playMove = null;
-        if (LizzieFrame.toolbar.isRandomMove
-            && Lizzie.board.getHistory().getMoveNumber() <= LizzieFrame.toolbar.randomMove)
-          playMove =
-              this.randomBestmove(
-                  acceptedMoves, LizzieFrame.toolbar.randomDiffWinrate, false);
-        else playMove = best;
-        int coords[] = Board.convertNameToCoordinates(playMove.coordinate);
-        if (coords[0] >= 0 && coords[1] >= 0) {
-          Lizzie.board.place(coords[0], coords[1]);
-        } else {
-          if (!Lizzie.board.getLastMove().isPresent()) {
-            doublePass = true;
-            resigned = true;
-          }
-          Lizzie.board.pass();
-        }
-        if (!resigned) {
-          if (isBlackEngine) {
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.blackEngineIndex)
-                .playMoveNoPonder("B", playMove.coordinate);
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                .playMovePonder("B", playMove.coordinate);
-          } else {
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                .playMoveNoPonder("W", playMove.coordinate);
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.blackEngineIndex)
-                .playMovePonder("W", playMove.coordinate);
-          }
-        }
-      }
-      checkForGomokuFullBoard(false);
-    }
-    if (resigned) {
-      nameCmd();
-      isResigning = true;
-      if (Lizzie.gtpConsole.isVisible() || Lizzie.config.alwaysGtp)
-        Lizzie.gtpConsole.addLine(
-            oriEnginename + " " + Lizzie.resourceBundle.getString("Leelaz.resign") + "\n");
-      Lizzie.engineManager.stopEngineGame(currentEngineN, false);
     }
   }
 
@@ -7895,10 +7766,13 @@ public class Leelaz {
       boolean playImmediately,
       EngineManager.EngineGamePrimaryContext game,
       AnalysisInfoSnapshot acceptedInfo) {
+    ParticipantBinding binding =
+        game == null ? null : game.transaction.bindingFor(game.participant);
     if (game == null
-        || game.gameInfo.isGenmove
+        || binding == null
+        || binding.playMode() == EngineGamePlayMode.GENMOVE
         || game.participant != this
-        || LizzieFrame.toolbar.isPkStop) {
+        || game.transaction.paused()) {
       return;
     }
     EngineManager.EngineGameMoveResponseContext moveContext =
@@ -7910,7 +7784,8 @@ public class Leelaz {
       finishExactEngineGameAnalysis(moveContext, AnalysisGameTerminal.RESIGN);
       return;
     }
-    if (game.moveNumber > game.gameInfo.getMaxGameMoves()) {
+    if (game.moveNumber
+        > binding.maxGameMoves(Board.boardWidth, Board.boardHeight)) {
       finishExactEngineGameAnalysis(moveContext, AnalysisGameTerminal.MAX_MOVES);
       return;
     }
@@ -7923,14 +7798,11 @@ public class Leelaz {
     } catch (RuntimeException noMove) {
       return;
     }
-    EngineGameInfo frozenGame = game.gameInfo;
-    boolean blackParticipant = game.participantIndex == game.blackIndex;
-    int timeMillis =
-        (blackParticipant ? frozenGame.timeBlack : frozenGame.timeWhite) * 1000;
-    int playoutLimit =
-        blackParticipant ? frozenGame.playoutsBlack : frozenGame.playoutsWhite;
-    int firstPlayoutLimit =
-        blackParticipant ? frozenGame.firstPlayoutsBlack : frozenGame.firstPlayoutsWhite;
+    boolean blackParticipant = binding.isBlack();
+    EngineGameSideLimits limits = binding.limits();
+    int timeMillis = limits.timeSeconds() * 1000;
+    int playoutLimit = limits.visits();
+    int firstPlayoutLimit = limits.firstMoveVisits();
     boolean shouldPlay =
         playImmediately
             || playNow
@@ -7941,14 +7813,9 @@ public class Leelaz {
     if (!shouldPlay) {
       return;
     }
-    int minMove =
-        blackParticipant ? frozenGame.blackMinMove : frozenGame.whiteMinMove;
-    int requiredResignMoves =
-        blackParticipant
-            ? frozenGame.blackResignMoveCounts
-            : frozenGame.whiteResignMoveCounts;
-    double resignWinrate =
-        blackParticipant ? frozenGame.blackResignWinrate : frozenGame.whiteResignWinrate;
+    int minMove = limits.resign().minMove();
+    int requiredResignMoves = limits.resign().consecutiveMoves();
+    double resignWinrate = limits.resign().winrate();
     AtomicBoolean resignNow = new AtomicBoolean();
     if (!EngineManager.runIfCurrentEngineGameMoveResponse(
         moveContext,
@@ -8056,8 +7923,10 @@ public class Leelaz {
         context, () -> markEngineGameAnalysisTerminal(terminal))) {
       return;
     }
-    EngineManager.stopEngineGameIfCurrent(
-        context.transaction, context.participantIndex, false);
+    Lizzie.engineGame.complete(
+        outcomeFor(terminal, context.transaction, context.participantIndex),
+        context.transaction,
+        context.participantIndex);
   }
 
   private void finishExactEngineGameAnalysis(
@@ -8068,7 +7937,28 @@ public class Leelaz {
         turn, () -> markEngineGameAnalysisTerminal(terminal))) {
       return;
     }
-    EngineManager.stopEngineGameIfCurrent(turn.transaction, participantIndex, false);
+    Lizzie.engineGame.complete(
+        outcomeFor(terminal, turn.transaction, participantIndex),
+        turn.transaction,
+        participantIndex);
+  }
+
+  private static GameOutcome outcomeFor(
+      AnalysisGameTerminal terminal,
+      EngineManager.EngineGameTransaction owner,
+      int participantIndex) {
+    return switch (terminal) {
+      case RESIGN -> {
+        ParticipantBinding black = owner.bindingForSide(true);
+        EngineGameSide side =
+            black != null && black.catalogIndex() == participantIndex
+                ? EngineGameSide.BLACK
+                : EngineGameSide.WHITE;
+        yield new GameOutcome.Resign(side);
+      }
+      case DOUBLE_PASS -> new GameOutcome.DoublePass();
+      case MAX_MOVES -> new GameOutcome.MaxMoves();
+    };
   }
 
   private void markEngineGameAnalysisTerminal(AnalysisGameTerminal terminal) {
@@ -8716,39 +8606,15 @@ public class Leelaz {
     }
   }
 
-  private void playPassInEngineGame() {
-    // TODO Auto-generated method stub
-    played = true;
-    Lizzie.board.pass();
-    boolean isBlackEngine = currentEngineN == EngineManager.engineGameInfo.blackEngineIndex;
-    if (isBlackEngine) {
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.blackEngineIndex)
-          .playMoveNoPonder("B", "pass");
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.whiteEngineIndex)
-          .playMovePonder("B", "pass");
-    } else {
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.whiteEngineIndex)
-          .playMoveNoPonder("W", "pass");
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.blackEngineIndex)
-          .playMovePonder("W", "pass");
-    }
-  }
-
   private void playPassInEngineGame(EngineManager.EngineGamePrimaryContext game) {
     EngineManager.EngineGameMoveResponseContext moveContext =
         EngineManager.captureEngineGameAnalysisMoveContext(game);
     if (moveContext == null) {
       return;
     }
-    boolean blackParticipant = game.participantIndex == game.blackIndex;
+    ParticipantBinding binding = game.transaction.bindingFor(this);
+    boolean blackParticipant =
+        binding != null ? binding.isBlack() : game.participantIndex == game.blackIndex;
     EngineManager.EngineGamePostMoveToken postMove =
         EngineManager.commitEngineGameMove(
             moveContext, null, null, this, game.participantIndex);
@@ -20931,21 +20797,12 @@ public class Leelaz {
       EngineManager.EngineGameTransaction transaction,
       EngineManager.EngineGamePostMoveToken turn) {
     if (rejectNewExclusiveWorkDuringGtpLease()) return false;
-    if (LizzieFrame.toolbar.isPkStop) {
-      LizzieFrame.toolbar.isPkGenmoveStop = true;
-      if (color.equals("B")) {
-        LizzieFrame.toolbar.isPkStopGenmoveB = true;
-      } else {
-        LizzieFrame.toolbar.isPkStopGenmoveB = false;
-      }
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.whiteEngineIndex)
-          .nameCmdfornoponder();
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.blackEngineIndex)
-          .nameCmdfornoponder();
+    if (transaction != null && transaction.paused()) {
+      EngineGameSide pending =
+          "B".equalsIgnoreCase(color) ? EngineGameSide.BLACK : EngineGameSide.WHITE;
+      transaction.recordPendingGenmoveSide(pending);
+      transaction.whiteEngine().nameCmdfornoponder();
+      transaction.blackEngine().nameCmdfornoponder();
       return false;
     }
     String command =

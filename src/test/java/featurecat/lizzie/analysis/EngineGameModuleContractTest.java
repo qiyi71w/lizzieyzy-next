@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
@@ -14,9 +15,15 @@ import featurecat.lizzie.enginegame.Acceptance;
 import featurecat.lizzie.enginegame.EngineGameBatchSpec;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.EngineGameParsedStart;
+import featurecat.lizzie.enginegame.EngineGamePlayMode;
+import featurecat.lizzie.enginegame.EngineGameResignPolicy;
+import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.enginegame.EngineGameSnapshot;
+import featurecat.lizzie.enginegame.EngineGameTransaction;
 import featurecat.lizzie.enginegame.EngineParticipantIdentity;
 import featurecat.lizzie.enginegame.GameActivity;
+import featurecat.lizzie.enginegame.GameOutcome;
+import featurecat.lizzie.enginegame.ParticipantBinding;
 import featurecat.lizzie.enginegame.Rejection;
 import featurecat.lizzie.enginegame.RunState;
 import featurecat.lizzie.enginegame.StartFailure;
@@ -267,16 +274,19 @@ class EngineGameModuleContractTest {
 
   @Test
   void pauseResumeAndReviseBatchLimitUpdateProductStateWithoutPlaceholders() {
-    assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(genmoveSpec(), observer));
+    assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(analysisSpec(), observer));
     Lizzie.engineGame.onOwnerPlaying();
+    EngineGameTransaction txn = Lizzie.engineGame.transaction();
     Lizzie.engineGame.pause();
     GameActivity.Playing paused = (GameActivity.Playing) activity(Lizzie.engineGame.current());
     assertEquals(RunState.PAUSED, paused.runState());
+    assertTrue(txn.paused());
     assertTrue(LizzieFrame.toolbar.isPkStop);
 
     Lizzie.engineGame.resume();
     GameActivity.Playing running = (GameActivity.Playing) activity(Lizzie.engineGame.current());
     assertEquals(RunState.RUNNING, running.runState());
+    assertFalse(txn.paused());
     assertFalse(LizzieFrame.toolbar.isPkStop);
 
     Lizzie.engineGame.reviseBatchLimit(8);
@@ -286,6 +296,63 @@ class EngineGameModuleContractTest {
     assertEquals(8, EngineManager.engineGameInfo.batchNumber);
   }
 
+  @Test
+  void acceptAttachesExactParticipantBindingsFromFrozenPlan() {
+    EngineGameBatchSpec spec =
+        EngineGameBatchSpecFactory.from(
+            EngineGameParsedStart.builder()
+                .first(FIRST)
+                .second(SECOND)
+                .visitLimitEnabled(true)
+                .firstVisits(100)
+                .secondVisits(200)
+                .maxMoveLimitEnabled(true)
+                .maxMoves(50)
+                .firstResign(new EngineGameResignPolicy(10, 3, 5.0))
+                .secondResign(new EngineGameResignPolicy(12, 4, 6.0))
+                .build());
+    assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(spec, observer));
+
+    EngineGameTransaction txn = Lizzie.engineGame.transaction();
+    assertNotNull(txn);
+    assertNotNull(txn.lifecycle());
+    ParticipantBinding black = txn.blackBinding();
+    ParticipantBinding white = txn.whiteBinding();
+    assertNotNull(black);
+    assertNotNull(white);
+    assertSame(txn, black.transaction());
+    assertSame(txn, white.transaction());
+    assertEquals(EngineGameSide.BLACK, black.side());
+    assertEquals(EngineGameSide.WHITE, white.side());
+    assertEquals(EngineGamePlayMode.ANALYSIS, black.playMode());
+    assertEquals(txn.plan().blackLimits(), black.limits());
+    assertEquals(txn.plan().whiteLimits(), white.limits());
+    assertEquals(100, black.limits().visits());
+    assertEquals(200, white.limits().visits());
+    assertEquals(50, black.maxGameMoves(19, 19));
+    assertEquals(0, black.catalogIndex());
+    assertEquals(1, white.catalogIndex());
+
+    EngineManager.engineGameInfo.playoutsBlack = 1;
+    EngineManager.engineGameInfo.playoutsWhite = 1;
+    EngineManager.engineGameInfo.setMaxGameMoves(3);
+    assertEquals(100, txn.blackBinding().limits().visits());
+    assertEquals(200, txn.whiteBinding().limits().visits());
+    assertEquals(50, txn.blackBinding().maxGameMoves(19, 19));
+  }
+
+  @Test
+  void staleAndDuplicateCompleteCannotMoveCurrentTransaction() {
+    assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(genmoveSpec(), observer));
+    EngineGameTransaction txn = Lizzie.engineGame.transaction();
+    Object owner = txn.lifecycle().ownerToken();
+
+    Lizzie.engineGame.complete(new GameOutcome.DoublePass(), owner, 0);
+    assertTrue(txn.alreadyCompleted());
+    assertFalse(Lizzie.engineGame.complete(new GameOutcome.DoublePass(), owner, 0));
+    assertFalse(
+        Lizzie.engineGame.complete(new GameOutcome.Resign(EngineGameSide.BLACK), new Object(), 0));
+  }
 
   @Test
   void resolvedCatalogSlotsFollowIdentityAfterReorder() throws Exception {
@@ -318,6 +385,17 @@ class EngineGameModuleContractTest {
             .timeLimitEnabled(true)
             .firstTimeSeconds(2)
             .secondTimeSeconds(2)
+            .build());
+  }
+
+  private static EngineGameBatchSpec analysisSpec() {
+    return EngineGameBatchSpecFactory.from(
+        EngineGameParsedStart.builder()
+            .first(FIRST)
+            .second(SECOND)
+            .visitLimitEnabled(true)
+            .firstVisits(10)
+            .secondVisits(10)
             .build());
   }
 
@@ -397,10 +475,19 @@ class EngineGameModuleContractTest {
     public void notPondering() {}
 
     @Override
+    public void ponder() {}
+
+    @Override
+    public void ponder(boolean first, boolean white) {}
+
+    @Override
     public void clearBestMoves() {}
 
     @Override
     public void nameCmd() {}
+
+    @Override
+    public void nameCmdfornoponder() {}
 
     @Override
     public void clearWithoutPonder() {}
