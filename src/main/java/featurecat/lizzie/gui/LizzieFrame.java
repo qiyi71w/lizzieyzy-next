@@ -12338,11 +12338,87 @@ public class LizzieFrame extends JFrame {
             + System.getProperty("os.version", "unknown"));
   }
 
+  static int nativeMenuBarReserve(
+      boolean usesNativeMenuBar, int menuBarHeight, int preferredMenuBarHeight) {
+    if (!usesNativeMenuBar) {
+      return 0;
+    }
+    if (menuBarHeight > 0) {
+      return menuBarHeight;
+    }
+    return Math.max(0, preferredMenuBarHeight);
+  }
+
+  static int resolvedContentLength(
+      int laidOutLength, int frameLength, int insetStart, int insetEnd, int extraChrome) {
+    if (laidOutLength > 0) {
+      return laidOutLength;
+    }
+    return Math.max(
+        0,
+        frameLength - Math.max(0, insetStart) - Math.max(0, insetEnd) - Math.max(0, extraChrome));
+  }
+
+  static int preferLaidOutLength(int primary, int secondary) {
+    if (primary > 0) {
+      return primary;
+    }
+    return Math.max(0, secondary);
+  }
+
+  static final class MainContentLayout {
+    final Rectangle mainPanel;
+    final Rectangle toolbar;
+    final Rectangle trainingBar;
+
+    MainContentLayout(Rectangle mainPanel, Rectangle toolbar, Rectangle trainingBar) {
+      this.mainPanel = mainPanel;
+      this.toolbar = toolbar;
+      this.trainingBar = trainingBar;
+    }
+  }
+
+  static MainContentLayout layoutMainContent(
+      int contentWidth,
+      int contentHeight,
+      int windowMenuHeight,
+      int topPanelHeight,
+      boolean includeTopPanelInBoard,
+      int toolbarHeight,
+      int trainingBarHeight) {
+    int width = Math.max(0, contentWidth);
+    int height = Math.max(0, contentHeight);
+    int top =
+        Math.max(0, windowMenuHeight) + (includeTopPanelInBoard ? Math.max(0, topPanelHeight) : 0);
+    int toolbarH = Math.max(0, toolbarHeight);
+    int trainingH = Math.max(0, trainingBarHeight);
+    int boardHeight = Math.max(0, height - top - toolbarH - trainingH);
+    return new MainContentLayout(
+        new Rectangle(0, top, width, boardHeight),
+        new Rectangle(0, height - toolbarH, width, toolbarH),
+        new Rectangle(0, height - toolbarH - trainingH, width, trainingH));
+  }
+
+  private int currentNativeMenuBarReserve() {
+    JMenuBar bar = getJMenuBar();
+    int height = bar == null ? 0 : bar.getHeight();
+    int preferred =
+        bar == null || bar.getPreferredSize() == null ? 0 : bar.getPreferredSize().height;
+    return nativeMenuBarReserve(menuPresentationMode.usesNativeMenuBar(), height, preferred);
+  }
+
   public void reSetLoc() {
     SwingUtilities.invokeLater(
         new Thread() {
           public void run() {
-            int width = getWidth() - getInsets().left - getInsets().right;
+            Insets insets = getInsets();
+            int width =
+                resolvedContentLength(
+                    preferLaidOutLength(basePanel.getWidth(), getContentPane().getWidth()),
+                    getWidth(),
+                    insets.left,
+                    insets.right,
+                    0);
             if (menuPresentationMode.usesNativeMenuBar()) {
               windowMenuHeight = 0;
               windowMenuStrip.setVisible(false);
@@ -12392,35 +12468,29 @@ public class LizzieFrame extends JFrame {
               topPanel.setVisible(false);
             }
             int trainingBarHeight = humanSlTrainingBar.isVisible() ? 58 : 0;
+            int contentHeight =
+                resolvedContentLength(
+                    preferLaidOutLength(basePanel.getHeight(), getContentPane().getHeight()),
+                    getHeight(),
+                    insets.top,
+                    insets.bottom,
+                    currentNativeMenuBarReserve());
+            MainContentLayout layout =
+                layoutMainContent(
+                    width,
+                    contentHeight,
+                    windowMenuHeight,
+                    topPanelHeight,
+                    Lizzie.config.showDoubleMenu,
+                    toolbarHeight,
+                    trainingBarHeight);
             mainPanel.setBounds(
-                0,
-                windowMenuHeight + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0),
-                Utils.zoomOut(width),
-                Utils.zoomOut(
-                    Lizzie.frame.getHeight()
-                        - Lizzie.frame.getInsets().top
-                        - Lizzie.frame.getInsets().bottom
-                        - windowMenuHeight
-                        - toolbarHeight
-                        - trainingBarHeight
-                        - (Lizzie.config.showDoubleMenu ? topPanelHeight : 0)));
-            humanSlTrainingBar.setBounds(
-                0,
-                Lizzie.frame.getHeight()
-                    - Lizzie.frame.getInsets().top
-                    - Lizzie.frame.getInsets().bottom
-                    - toolbarHeight
-                    - trainingBarHeight,
-                width,
-                trainingBarHeight);
-            toolbar.setBounds(
-                0,
-                Lizzie.frame.getHeight()
-                    - Lizzie.frame.getInsets().top
-                    - Lizzie.frame.getInsets().bottom
-                    - toolbarHeight,
-                width,
-                toolbarHeight);
+                layout.mainPanel.x,
+                layout.mainPanel.y,
+                Utils.zoomOut(layout.mainPanel.width),
+                Utils.zoomOut(layout.mainPanel.height));
+            humanSlTrainingBar.setBounds(layout.trainingBar);
+            toolbar.setBounds(layout.toolbar);
             layoutEngineStartupStatus(width);
             if (toolbar.showDetail) toolbar.setDetailIcon();
             toolbar.reSetButtonLocation();
@@ -15390,7 +15460,14 @@ public class LizzieFrame extends JFrame {
     }
     Dimension preferred = engineStartupStatusButton.getPreferredSize();
     int width = Math.min(Math.max(180, preferred.width + 8), Math.max(180, availableWidth - 20));
-    int contentHeight = getHeight() - getInsets().top - getInsets().bottom;
+    Insets insets = getInsets();
+    int contentHeight =
+        resolvedContentLength(
+            preferLaidOutLength(basePanel.getHeight(), getContentPane().getHeight()),
+            getHeight(),
+            insets.top,
+            insets.bottom,
+            currentNativeMenuBarReserve());
     int y = Math.max(windowMenuHeight + topPanelHeight + 4, contentHeight - toolbarHeight - 48);
     engineStartupStatusButton.setBounds(10, y, width, 32);
   }
