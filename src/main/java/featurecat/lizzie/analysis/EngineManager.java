@@ -165,7 +165,6 @@ public class EngineManager {
   public static volatile EngineGameInfo engineGameInfo = new EngineGameInfo();
   public static volatile boolean isEngineGame = false;
   public static volatile boolean isPreEngineGame = false;
-  public static boolean isSaveingEngineSGF = false;
   public EngineCountDown playingAgainstHumanEngineCountDown;
   public EngineCountDown firstEngineCountDown;
   public EngineCountDown secondEngineCountDown;
@@ -1939,7 +1938,6 @@ public class EngineManager {
     EngineGameInfo engineGameInfo = stopClaim.gameInfo;
     EngineGameTransaction stoppedTransaction = stopClaim.transaction;
     boolean restoreOnFailure = false;
-    boolean ownsSavingFlag = false;
     try {
       if (stoppedTransaction == null && !stopClaim.wasActive && !stopClaim.wasStarting) {
         return;
@@ -1963,8 +1961,6 @@ public class EngineManager {
         return;
       }
 
-    isSaveingEngineSGF = true;
-    ownsSavingFlag = true;
     stopCountDown();
     LizzieFrame.menu.toggleDoubleMenuGameStatus();
     LizzieFrame.toolbar.isPkStop = false;
@@ -2013,7 +2009,6 @@ public class EngineManager {
                 + File.separator
                 + "EngineGames"));
       }
-      isSaveingEngineSGF = false;
       return;
     }
     SGFParser.appendGameTimeAndPlayouts();
@@ -2180,7 +2175,6 @@ public class EngineManager {
           engineGameInfo.resultOther);
 
       if (Lizzie.engineGame != null && Lizzie.engineGame.successorPending()) {
-        isSaveingEngineSGF = false;
         scheduleProductSuccessorAfterRetirement(stoppedTransaction, stopClaim);
         return;
       }
@@ -2263,7 +2257,6 @@ public class EngineManager {
       }
       Utils.showMsgNoModal(jg);
     }
-    isSaveingEngineSGF = false;
     markEngineGameParticipantsStopped(stoppedTransaction, engineGameInfo);
     Lizzie.frame.addInput(true);
     changeEngIcoForEndPk();
@@ -2274,9 +2267,6 @@ public class EngineManager {
       }
       throw stopFailure;
     } finally {
-      if (ownsSavingFlag) {
-        isSaveingEngineSGF = false;
-      }
       if (stoppedTransaction != null) {
         finishEngineGameTransactionRetirement(stoppedTransaction, restoreOnFailure);
       }

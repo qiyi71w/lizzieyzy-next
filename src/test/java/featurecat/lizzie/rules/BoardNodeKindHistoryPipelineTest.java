@@ -14,6 +14,7 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.ExactSnapshotRestoreProtocolFixture;
+import featurecat.lizzie.enginegame.EngineGameRecordContext;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
 import featurecat.lizzie.gui.BoardRenderer;
@@ -4013,14 +4014,16 @@ class BoardNodeKindHistoryPipelineTest {
   @Test
   void engineSgfSetupSnapshotKeepsItsOwnComment() throws Exception {
     TestEnvironment env = TestEnvironment.open();
-    boolean previousSavingEngineSgf = EngineManager.isSaveingEngineSGF;
     try {
       BoardHistoryList history =
           SGFParser.parseSgf("(;SZ[3];W[cc];B[aa]C[m1]AB[bb]C[setup])", false);
 
       BoardHistoryNode moveNode = history.getStart().next().orElseThrow().next().orElseThrow();
       BoardHistoryNode setupNode = moveNode.next().orElseThrow();
-      EngineManager.isSaveingEngineSGF = true;
+      Lizzie.board
+          .getHistory()
+          .getGameInfo()
+          .attachEngineGameRecordContext(EngineGameRecordContext.saveFormattingMarker());
       String exportedSetup = generateNode(setupNode);
 
       assertTrue(setupNode.getData().isSnapshotNode(), "fixture should create a setup snapshot.");
@@ -4032,7 +4035,6 @@ class BoardNodeKindHistoryPipelineTest {
           exportedSetup.contains("C[setup]"),
           "engine SGF export should keep the setup snapshot comment.");
     } finally {
-      EngineManager.isSaveingEngineSGF = previousSavingEngineSgf;
       env.close();
     }
   }
@@ -4040,7 +4042,6 @@ class BoardNodeKindHistoryPipelineTest {
   @Test
   void engineSaveMaterializedSnapshotKeepsOwnCommentAndMarkup() throws Exception {
     TestEnvironment env = TestEnvironment.open();
-    boolean previousSavingEngineSgf = EngineManager.isSaveingEngineSGF;
     try {
       BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
       BoardData firstMove = moveNode(0, 0, Stone.BLACK, false, 1);
@@ -4067,7 +4068,10 @@ class BoardNodeKindHistoryPipelineTest {
       history.add(snapshot);
 
       BoardHistoryNode snapshotNode = history.getStart().next().orElseThrow().next().orElseThrow();
-      EngineManager.isSaveingEngineSGF = true;
+      Lizzie.board
+          .getHistory()
+          .getGameInfo()
+          .attachEngineGameRecordContext(EngineGameRecordContext.saveFormattingMarker());
       String exportedSnapshot = generateNode(snapshotNode);
 
       assertTrue(
@@ -4080,7 +4084,6 @@ class BoardNodeKindHistoryPipelineTest {
           exportedSnapshot.contains("LB[bb:S]"),
           "materialized snapshot should keep its own markup on engine-save path.");
     } finally {
-      EngineManager.isSaveingEngineSGF = previousSavingEngineSgf;
       env.close();
     }
   }

@@ -17,7 +17,10 @@ import featurecat.lizzie.enginegame.EngineGameBatchSpec;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.EngineGameParsedStart;
 import featurecat.lizzie.enginegame.EngineGamePlayMode;
+import featurecat.lizzie.enginegame.EngineGameRecord;
+import featurecat.lizzie.enginegame.EngineGameRecordContext;
 import featurecat.lizzie.enginegame.EngineGameResignPolicy;
+import featurecat.lizzie.enginegame.EngineGameSaveSnapshot;
 import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.enginegame.EngineGameTransaction;
@@ -40,6 +43,7 @@ import featurecat.lizzie.gui.SgfWinLossList;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
+import featurecat.lizzie.rules.SGFParser;
 
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
@@ -573,6 +577,126 @@ class EngineGameModuleContractTest {
     assertEquals(List.of(), observer.failures);
     assertEquals(1, Lizzie.engineGame.lastSummary().doublePassGames());
   }
+
+  @Test
+  void playingAttachesRecordContextToExactHistory() {
+    playAccepted(genmoveSpec());
+    GameInfo info = Lizzie.board.getHistory().getGameInfo();
+    EngineGameRecordContext context = info.engineGameRecordContext();
+    assertNotNull(context);
+    assertSame(Lizzie.engineGame.transaction().plan(), context.plan());
+    assertEquals(FIRST, context.black().identity());
+    assertEquals(SECOND, context.white().identity());
+    assertEquals(-1, context.openingIndex());
+    assertNull(info.engineGameRecord());
+  }
+
+  @Test
+  void validCompleteFreezesRecordOnceOnTheSameHistory() {
+    playAccepted(genmoveSpec());
+    black.pkMoveTimeGame = 1100;
+    white.pkMoveTimeGame = 2200;
+    black.oriEnginename = "BlackEngine";
+    white.oriEnginename = "WhiteEngine";
+    GameInfo info = Lizzie.board.getHistory().getGameInfo();
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    EngineGameRecord record = info.engineGameRecord();
+    assertNotNull(record);
+    assertEquals(FIRST, record.context().black().identity());
+    assertEquals("BlackEngine", record.blackDisplayName());
+    assertEquals("WhiteEngine", record.whiteDisplayName());
+    assertEquals(-1, record.openingIndex());
+    assertInstanceOf(GameOutcome.Resign.class, record.outcome());
+    assertEquals(EngineGameSide.BLACK, ((GameOutcome.Resign) record.outcome()).side());
+    assertEquals(1100, record.blackTimeMs());
+    assertEquals(2200, record.whiteTimeMs());
+    EngineGameRecord frozen = record;
+    assertFalse(Lizzie.engineGame.complete(new GameOutcome.DoublePass(), new Object(), 0));
+    assertSame(frozen, info.engineGameRecord());
+  }
+
+  @Test
+  void activeSaveSnapshotDoesNotChangeBatchTotals() {
+    playAccepted(genmoveBatchSpec(2, false));
+    black.pkMoveTimeGame = 400;
+    white.pkMoveTimeGame = 500;
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstTotalTimeMs());
+    EngineGameSaveSnapshot snapshot = Lizzie.engineGame.captureSaveSnapshot();
+    assertNotNull(snapshot);
+    assertEquals(400, snapshot.blackTimeMs());
+    assertEquals(500, snapshot.whiteTimeMs());
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstTotalTimeMs());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+    assertNull(Lizzie.board.getHistory().getGameInfo().engineGameRecord());
+  }
+
+  @Test
+  void secondActiveSaveRecapturesSnapshotClocks() throws Exception {
+    playAccepted(genmoveSpec());
+    black.pkMoveTime = 111;
+    white.pkMoveTime = 222;
+    assertEquals(111, Lizzie.engineGame.captureSaveSnapshot().blackMoveTimeMs());
+    black.pkMoveTime = 333;
+    white.pkMoveTime = 444;
+    SGFParser.saveToString(false);
+    EngineGameSaveSnapshot snapshot =
+        Lizzie.board.getHistory().getGameInfo().engineGameSaveSnapshot();
+    assertNotNull(snapshot);
+    assertEquals(333, snapshot.blackMoveTimeMs());
+    assertEquals(444, snapshot.whiteMoveTimeMs());
+  }
+
+
+  @Test
+  void previousHistoryKeepsPreviousRecordAfterNextGameStarts() {
+    playAccepted(genmoveBatchSpec(2, true));
+    GameInfo firstInfo = Lizzie.board.getHistory().getGameInfo();
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    EngineGameRecord firstRecord = firstInfo.engineGameRecord();
+    assertNotNull(firstRecord);
+    assertEquals(FIRST, firstRecord.context().black().identity());
+
+    BoardHistoryList nextHistory = new BoardHistoryList(BoardData.empty(19, 19));
+    Lizzie.board.setHistory(nextHistory);
+    Lizzie.engineGame.onOwnerRetired();
+    Lizzie.engineGame.onOwnerPlaying();
+    GameInfo secondInfo = Lizzie.board.getHistory().getGameInfo();
+    assertNotSame(firstInfo, secondInfo);
+    assertSame(firstRecord, firstInfo.engineGameRecord());
+    assertEquals(SECOND, Lizzie.engineGame.transaction().plan().black());
+    assertEquals(SECOND, secondInfo.engineGameRecordContext().black().identity());
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.WHITE));
+    assertSame(firstRecord, firstInfo.engineGameRecord());
+    assertEquals(FIRST, firstInfo.engineGameRecord().context().black().identity());
+    assertEquals(SECOND, secondInfo.engineGameRecord().context().black().identity());
+  }
+
+  @Test
+  void repeatedCompletedHistorySaveDoesNotChangeBatchStatistics() {
+    playAccepted(genmoveSpec());
+    completeCurrent(new GameOutcome.DoublePass());
+    assertEquals(1, Lizzie.engineGame.lastSummary().doublePassGames());
+    GameInfo info = Lizzie.board.getHistory().getGameInfo();
+    assertNotNull(info.engineGameRecord());
+    Lizzie.engineGame.captureSaveSnapshot();
+    SGFParser.appendGameTimeAndPlayouts();
+    SGFParser.appendGameTimeAndPlayouts();
+    assertEquals(1, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+  }
+
+  @Test
+  void userStopDoesNotFreezeANormalRecord() {
+    playAccepted(genmoveBatchSpec(3, false));
+    GameInfo info = Lizzie.board.getHistory().getGameInfo();
+    assertNotNull(info.engineGameRecordContext());
+    Lizzie.engineGame.stop();
+    assertNull(info.engineGameRecord());
+    assertNotNull(info.engineGameRecordContext());
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+  }
+
 
   @Test
   void resolvedCatalogSlotsFollowIdentityAfterReorder() throws Exception {

@@ -3,6 +3,7 @@ package featurecat.lizzie.enginegame;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineGameInfo;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.DesktopTimeControl;
@@ -16,7 +17,7 @@ import java.util.Random;
 
 /**
  * Owns product batch admission, GamePlan, product transaction identity, BatchState statistics,
- * successor planning after exact retirement, and the public snapshot.
+ * successor planning after exact retirement, history records, and the public snapshot.
  */
 public final class EngineGameModule implements EngineGameControl, EngineGameState {
   private final Object lock = new Object();
@@ -253,6 +254,41 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   }
 
   /**
+   * One-shot immutable save input for the exact current history. Does not update batch totals.
+   */
+  public EngineGameSaveSnapshot captureSaveSnapshot() {
+    synchronized (lock) {
+      GameInfo info = currentGameInfo();
+      EngineGameRecordContext context = info == null ? null : info.engineGameRecordContext();
+      if (context == null && plan != null) {
+        context = contextFromPlan(plan);
+        if (info != null) {
+          info.attachEngineGameRecordContext(context);
+        }
+      }
+      if (context == null) {
+        return null;
+      }
+      long[] visits = sideVisits();
+      EngineGameSaveSnapshot snapshot =
+          new EngineGameSaveSnapshot(
+              context,
+              displayName(context.black(), context.blackIndex()),
+              displayName(context.white(), context.whiteIndex()),
+              engineTime(context.blackIndex()),
+              engineTime(context.whiteIndex()),
+              visits[0],
+              visits[1],
+              moveTime(context.blackIndex()),
+              moveTime(context.whiteIndex()));
+      if (info != null) {
+        info.setEngineGameSaveSnapshot(snapshot);
+      }
+      return snapshot;
+    }
+  }
+
+  /**
    * Routes a normal per-game outcome. Duplicate or stale owner tokens are inert. This is not
    * {@link #stop()}.
    */
@@ -360,6 +396,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       if (batch == null || plan == null) {
         return;
       }
+      attachRecordContextToCurrentHistoryLocked();
       publishLocked(
           new EngineGameSnapshot.BatchActive(
               batch.summary(), new GameActivity.Playing(plan.view(), RunState.RUNNING)));
@@ -432,6 +469,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
             secondVisits);
     batch.apply(lastCompletion);
     lastSummary = batch.summary();
+    freezeRecordOnCurrentHistoryLocked(lastCompletion);
   }
 
   private void clearAcceptedLocked() {
@@ -546,15 +584,112 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         spec.output());
   }
 
-  private static long engineTime(int index) {
+  private void attachRecordContextToCurrentHistoryLocked() {
+    if (plan == null) {
+      return;
+    }
+    GameInfo info = currentGameInfo();
+    if (info == null || info.engineGameRecord() != null) {
+      return;
+    }
+    info.attachEngineGameRecordContext(contextFromPlan(plan));
+  }
+
+  private void freezeRecordOnCurrentHistoryLocked(EngineGameCompletionFacts facts) {
+    GameInfo info = currentGameInfo();
+    if (info == null || facts == null) {
+      return;
+    }
+    EngineGameRecordContext context = info.engineGameRecordContext();
+    if (context == null && plan != null) {
+      context = contextFromPlan(plan);
+      info.attachEngineGameRecordContext(context);
+    }
+    if (context == null) {
+      return;
+    }
+    info.freezeEngineGameRecord(
+        new EngineGameRecord(
+            context,
+            facts,
+            displayName(context.black(), context.blackIndex()),
+            displayName(context.white(), context.whiteIndex())));
+  }
+
+  private EngineGameRecordContext contextFromPlan(EngineGamePlan current) {
+    return new EngineGameRecordContext(
+        current,
+        descriptor(current.black(), current.blackIndex()),
+        descriptor(current.white(), current.whiteIndex()));
+  }
+
+  private static EngineGameParticipantDescriptor descriptor(
+      EngineParticipantIdentity identity, int index) {
+    Leelaz engine = engineAt(index);
+    String displayName = "";
+    boolean katago = false;
+    boolean sai = false;
+    int rules = 0;
+    if (engine != null) {
+      if (engine.oriEnginename != null && !engine.oriEnginename.isEmpty()) {
+        displayName = engine.oriEnginename;
+      } else if (engine.currentEnginename != null) {
+        displayName = engine.currentEnginename;
+      }
+      katago = engine.isKatago;
+      sai = engine.isSai;
+      rules = engine.usingSpecificRules;
+    }
+    if (displayName.isEmpty() && identity != null) {
+      displayName = identity.name();
+    }
+    return new EngineGameParticipantDescriptor(identity, displayName, katago, sai, rules);
+  }
+
+  private static String displayName(EngineGameParticipantDescriptor descriptor, int index) {
+    Leelaz engine = engineAt(index);
+    if (engine != null) {
+      if (engine.oriEnginename != null && !engine.oriEnginename.isEmpty()) {
+        return engine.oriEnginename;
+      }
+      if (engine.currentEnginename != null && !engine.currentEnginename.isEmpty()) {
+        return engine.currentEnginename;
+      }
+    }
+    if (descriptor != null && !descriptor.displayName().isEmpty()) {
+      return descriptor.displayName();
+    }
+    if (descriptor != null) {
+      return descriptor.identity().name();
+    }
+    return "";
+  }
+
+  private static GameInfo currentGameInfo() {
+    if (Lizzie.board == null || Lizzie.board.getHistory() == null) {
+      return null;
+    }
+    return Lizzie.board.getHistory().getGameInfo();
+  }
+
+  private static Leelaz engineAt(int index) {
     EngineManager manager = Lizzie.engineManager;
     if (manager == null
         || manager.engineList == null
         || index < 0
         || index >= manager.engineList.size()) {
-      return 0L;
+      return null;
     }
-    Leelaz engine = manager.engineList.get(index);
+    return manager.engineList.get(index);
+  }
+
+  private static long moveTime(int index) {
+    Leelaz engine = engineAt(index);
+    return engine == null ? 0L : engine.pkMoveTime;
+  }
+
+  private static long engineTime(int index) {
+    Leelaz engine = engineAt(index);
     return engine == null ? 0L : engine.pkMoveTimeGame;
   }
 

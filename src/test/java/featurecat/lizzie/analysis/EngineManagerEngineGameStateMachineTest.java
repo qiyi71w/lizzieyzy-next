@@ -588,7 +588,6 @@ class EngineManagerEngineGameStateMachineTest {
         assertThrows(AssertionError.class, () -> manager.stopEngineGame(0, false)));
     assertTrue(manager.sawForcedEngineGame);
     assertFalse(manager.sawActiveFlag);
-    assertFalse(EngineManager.isSaveingEngineSGF);
   }
 
   @Test
@@ -611,13 +610,11 @@ class EngineManagerEngineGameStateMachineTest {
     firstStop.start();
     assertTrue(manager.savingStarted.await(2, TimeUnit.SECONDS));
     manager.stopEngineGame(0, false);
-    assertTrue(EngineManager.isSaveingEngineSGF);
     manager.releaseSaving.countDown();
     firstStop.join(2000L);
 
     assertFalse(firstStop.isAlive());
     assertSame(manager.stopFailure, firstFailure.get());
-    assertFalse(EngineManager.isSaveingEngineSGF);
   }
 
   @Test
