@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ResourceBundle;
 
 public class WinrateGraph {
 
@@ -1501,6 +1502,21 @@ public class WinrateGraph {
     return controller != null && !controller.isFinished() && !controller.isLiveAnalysisMode();
   }
 
+  static List<String> lineLegendLabels(
+      boolean twoLine, boolean hasScoreLead, ResourceBundle bundle) {
+    ArrayList<String> labels = new ArrayList<>();
+    if (twoLine) {
+      labels.add(bundle.getString("WinrateGraph.legendBlackWinrate"));
+      labels.add(bundle.getString("WinrateGraph.legendWhiteWinrate"));
+    } else {
+      labels.add(bundle.getString("WinrateGraph.legendWinrate"));
+    }
+    if (hasScoreLead) {
+      labels.add(bundle.getString("WinrateGraph.legendScoreLead"));
+    }
+    return labels;
+  }
+
   private void drawLineLegend(Graphics2D g, int graphX, int graphY, int graphWidth) {
     if (graphWidth < 240) return;
     Font font =
@@ -1511,20 +1527,16 @@ public class WinrateGraph {
     boolean hasScoreLead = Lizzie.config.showScoreLeadLine;
     boolean isTwoLine = mode == 1;
 
-    ArrayList<String> labels = new ArrayList<>();
+    List<String> labels = lineLegendLabels(isTwoLine, hasScoreLead, Lizzie.resourceBundle);
     ArrayList<Color> colors = new ArrayList<>();
 
     if (isTwoLine) {
-      labels.add("\u9ed1\u80dc\u7387");
       colors.add(winrateLineColor());
-      labels.add("\u767d\u80dc\u7387");
       colors.add(winrateMissLineColor());
     } else {
-      labels.add("\u80dc\u7387");
       colors.add(winrateLineColor());
     }
     if (hasScoreLead) {
-      labels.add("\u76ee\u5dee");
       colors.add(
           Lizzie.config.scoreMeanLineColor != null
               ? Lizzie.config.scoreMeanLineColor
