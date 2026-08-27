@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import featurecat.lizzie.AppLocale;
+import featurecat.lizzie.Lizzie;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -12,11 +14,26 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class BlunderListPanelLayoutTest {
+  private ResourceBundle previousBundle;
+
+  @BeforeEach
+  void useSimplifiedChineseEmptyStateCopy() {
+    previousBundle = Lizzie.resourceBundle;
+    Lizzie.resourceBundle = AppLocale.SIMPLIFIED_CHINESE.loadBundle();
+  }
+
+  @AfterEach
+  void restoreApplicationBundle() {
+    Lizzie.resourceBundle = previousBundle;
+  }
 
   @Test
   void problemListTracksViewportWidthInsteadOfStaleComponentWidth() {
