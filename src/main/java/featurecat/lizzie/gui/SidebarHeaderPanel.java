@@ -145,6 +145,7 @@ public class SidebarHeaderPanel extends JPanel {
       setPreferredSize(new Dimension(200, height));
       revalidate();
     }
+    repaint();
   }
 
   private int layoutWidth() {

@@ -209,22 +209,26 @@ class SidebarHeaderPanelHitTest {
     useEnglishLabels();
     FontMetrics metrics = headerMetrics();
     String progress = SidebarHeaderPanel.progressLabelFor(snapshot(229, 229, false));
-    SidebarHeaderPanel.HeaderLayout painted =
-        SidebarHeaderPanel.headerLayout(true, true, metrics, WIDE_SIDEBAR, progress);
 
-    assertTrue(painted.filtersWrapped);
-    assertTrue(painted.height > 56);
+    SidebarHeaderPanel.HeaderLayout wrapped =
+        SidebarHeaderPanel.headerLayout(true, true, metrics, NARROW_SIDEBAR, progress);
+    assertTrue(wrapped.filtersWrapped);
+    assertTrue(wrapped.height > 56);
     assertEquals(
         0,
         SidebarHeaderPanel.sideSegmentIndexAt(
-            center(painted.black), true, metrics, WIDE_SIDEBAR, progress));
+            center(wrapped.black), true, metrics, NARROW_SIDEBAR, progress));
     assertEquals(
         1,
         SidebarHeaderPanel.sideSegmentIndexAt(
-            center(painted.white), true, metrics, WIDE_SIDEBAR, progress));
+            center(wrapped.white), true, metrics, NARROW_SIDEBAR, progress));
     assertEquals(
-        painted.height,
-        SidebarHeaderPanel.preferredHeight(true, true, metrics, WIDE_SIDEBAR, progress));
+        wrapped.height,
+        SidebarHeaderPanel.preferredHeight(true, true, metrics, NARROW_SIDEBAR, progress));
+
+    SidebarHeaderPanel.HeaderLayout roomy =
+        SidebarHeaderPanel.headerLayout(true, true, metrics, ROOMY_SIDEBAR, progress);
+    assertFalse(roomy.filtersWrapped);
   }
 
   @Test
@@ -260,6 +264,7 @@ class SidebarHeaderPanelHitTest {
 
   private static final int WIDE_SIDEBAR = 500;
   private static final int NARROW_SIDEBAR = 200;
+  private static final int ROOMY_SIDEBAR = 2000;
 
   private static void useEnglishLabels() {
     Lizzie.resourceBundle = AppLocale.ENGLISH.loadBundle();
