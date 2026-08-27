@@ -12,7 +12,9 @@
 
 - 当前维护版公开主推 13 个首次下载稳定资产，另有 6 个 Windows 实验便携包和 1 个 Windows 免安装小更新包
 - Windows 默认优先推荐 `portable.zip`
-- 大多数普通用户先下 `windows64.opencl.portable.zip`
+- RTX 20/30/40/50 NVIDIA 用户优先下载 `windows64.nvidia.portable.zip`
+- AMD、Intel 或较老 NVIDIA 显卡用户下载 `windows64.opencl.portable.zip`
+- 没有合适 GPU，或 GPU 版本无法正常启动时，使用 `windows64.with-katago.portable.zip` CPU 兼容版
 - 已有 Windows 免安装版的老用户，日常升级优先下载 `windows64.core-update.zip` 覆盖旧目录，只更新主程序和启动器配置
 - OpenCL 表现不好时改用 `windows64.with-katago.portable.zip`
 - RTX 20/30/40/50 NVIDIA 显卡统一使用 CUDA 12.8 的 `windows64.nvidia.portable.zip`
@@ -36,12 +38,12 @@
 
 | 包类型 | 典型文件名 | 适合谁 |
 | --- | --- | --- |
-| Windows 64 位 OpenCL 免安装包 | `<date>-windows64.opencl.portable.zip` | 普通用户首选，解压后直接运行 |
-| Windows 64 位 OpenCL 安装器 | `<date>-windows64.opencl.installer.exe` | 想保留安装流程的 OpenCL 用户 |
-| Windows 64 位 CPU 兜底免安装包 | `<date>-windows64.with-katago.portable.zip` | OpenCL 表现不好时切换使用 |
-| Windows 64 位 CPU 兜底安装器 | `<date>-windows64.with-katago.installer.exe` | 想安装的 CPU 兜底用户 |
-| Windows 64 位 NVIDIA CUDA 免安装包 | `<date>-windows64.nvidia.portable.zip` | RTX 20/30/40/50 NVIDIA 显卡，解压即用 |
+| Windows 64 位 NVIDIA CUDA 免安装包 | `<date>-windows64.nvidia.portable.zip` | RTX 20/30/40/50 NVIDIA 显卡，推荐，解压即用 |
 | Windows 64 位 NVIDIA CUDA 安装器 | `<date>-windows64.nvidia.installer.exe` | RTX 20/30/40/50 NVIDIA 显卡，想保留安装流程 |
+| Windows 64 位 OpenCL 免安装包 | `<date>-windows64.opencl.portable.zip` | AMD、Intel 或较老 NVIDIA 显卡，解压后直接运行 |
+| Windows 64 位 OpenCL 安装器 | `<date>-windows64.opencl.installer.exe` | 想保留安装流程的 OpenCL 用户 |
+| Windows 64 位 CPU 兜底免安装包 | `<date>-windows64.with-katago.portable.zip` | 没有合适 GPU 或 GPU 版本无法启动时使用 |
+| Windows 64 位 CPU 兜底安装器 | `<date>-windows64.with-katago.installer.exe` | 想安装的 CPU 兜底用户 |
 | Windows 免安装小更新包 | `<date>-windows64.core-update.zip` | 已经有旧版免安装目录，只想日常升级主程序的用户 |
 | Windows 64 位 TensorRT 可选分卷包 | `<date>-windows64.nvidia.tensorrt.portable.7z.001` 等全部分卷 | 熟悉 7-Zip、想离线使用 TensorRT 的 RTX 30 系及以下用户 |
 | Windows 64 位无引擎便携包 | `<date>-windows64.without.engine.portable.zip` | 想自己配置分析引擎 |
@@ -101,8 +103,9 @@
 
 如果你只想尽快开始：
 
-- Windows：选 `windows64.opencl.portable.zip`
 - Windows + RTX 20/30/40/50 NVIDIA 显卡：统一选 `windows64.nvidia.portable.zip`
+- Windows + AMD、Intel 或较老 NVIDIA 显卡：选 `windows64.opencl.portable.zip`
+- Windows 没有合适 GPU，或 CUDA/OpenCL 无法正常启动：选 `windows64.with-katago.portable.zip`
 - macOS：按芯片选对应的 `with-katago.dmg`
 - Linux：选 `linux64.with-katago.zip`
 

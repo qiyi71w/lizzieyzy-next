@@ -12,9 +12,9 @@
 
 ## 下载前先看这几句
 
-- Windows 用户先下载 `<date>-windows64.opencl.portable.zip`
-- 如果 OpenCL 在你的电脑上表现不好，就改用 `<date>-windows64.with-katago.portable.zip`
 - RTX 20/30/40/50 NVIDIA 显卡统一下载 `<date>-windows64.nvidia.portable.zip`，内置 CUDA 12.8 + cuDNN 9.8
+- AMD、Intel 或较老 NVIDIA 显卡下载 `<date>-windows64.opencl.portable.zip`
+- 没有合适 GPU，或 CUDA/OpenCL 无法正常启动时，使用 `<date>-windows64.with-katago.portable.zip` CPU 兼容版
 - RTX 40/50 默认推荐 CUDA；TensorRT 是 RTX 30 系及以下 NVIDIA 显卡的软件内可选方案
 - 推荐完整包默认内置官方 B11 旗舰 Transformer：单次判断更强、复杂局面效果更好，但搜索可能比 B10 慢；追求速度可在一键设置中切换 B10
 - 抓野狐棋谱时直接输入“野狐昵称”，程序会自动找到账号并抓最近公开棋谱
@@ -35,12 +35,12 @@
 
 | 你的系统 | 直接下载这个 | 说明 |
 | --- | --- | --- |
-| Windows 64 位 | `<date>-windows64.opencl.portable.zip` | 主推荐，解压后直接运行 |
-| Windows 64 位 | `<date>-windows64.opencl.installer.exe` | 想保留安装流程时再选 |
+| Windows 64 位，RTX 20/30/40/50 NVIDIA | `<date>-windows64.nvidia.portable.zip` | 推荐 CUDA 12.8 包，免安装 |
+| Windows 64 位，RTX 20/30/40/50 NVIDIA | `<date>-windows64.nvidia.installer.exe` | 推荐 CUDA 12.8 包，安装器 |
+| Windows 64 位，AMD / Intel / 较老 NVIDIA | `<date>-windows64.opencl.portable.zip` | OpenCL 兼容版，免安装 |
+| Windows 64 位，AMD / Intel / 较老 NVIDIA | `<date>-windows64.opencl.installer.exe` | OpenCL 兼容版，安装器 |
 | Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | OpenCL 表现不好时的 CPU 兜底免安装版 |
 | Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 想安装的 CPU 兜底版 |
-| Windows 64 位，RTX 20/30/40/50 NVIDIA | `<date>-windows64.nvidia.portable.zip` | 统一 CUDA 12.8 包，免安装 |
-| Windows 64 位，RTX 20/30/40/50 NVIDIA | `<date>-windows64.nvidia.installer.exe` | 统一 CUDA 12.8 包，安装器 |
 | Windows 64 位，RTX 30 系及以下 TensorRT | 先下载统一 NVIDIA 包 | 打开后在 `KataGo 一键设置` 里按需安装 |
 | Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 想自己决定分析引擎时再选 |
 | Windows 64 位 | `<date>-windows64.without.engine.installer.exe` | 想保留安装流程，但自己决定分析引擎 |
@@ -66,12 +66,12 @@
 
 ## Download quick guide
 
-- Windows x64: choose `<date>-windows64.opencl.portable.zip`
+- Windows x64 with RTX 20/30/40/50 NVIDIA GPU: choose `<date>-windows64.nvidia.portable.zip`
+- Windows x64 NVIDIA installer alternative: choose `<date>-windows64.nvidia.installer.exe`
+- Windows x64 with AMD, Intel, or older NVIDIA GPU: choose `<date>-windows64.opencl.portable.zip`
 - Windows x64 OpenCL installer alternative: choose `<date>-windows64.opencl.installer.exe`
 - Windows x64 CPU fallback: choose `<date>-windows64.with-katago.portable.zip`
 - Windows x64 CPU fallback installer: choose `<date>-windows64.with-katago.installer.exe`
-- Windows x64 with RTX 20/30/40/50 NVIDIA GPU: choose the unified `<date>-windows64.nvidia.portable.zip`
-- Windows x64 NVIDIA installer alternative: choose `<date>-windows64.nvidia.installer.exe`
 - Windows x64 RTX 30 series and earlier TensorRT: start with the unified NVIDIA package, then install TensorRT from KataGo Auto Setup
 - Windows x64 custom engine: choose `<date>-windows64.without.engine.portable.zip`
 - Windows x64 custom engine installer: choose `<date>-windows64.without.engine.installer.exe`
