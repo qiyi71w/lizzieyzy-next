@@ -953,21 +953,7 @@ public class SGFParser {
             + "\n"
             + Lizzie.resourceBundle.getString("SGFParse.totalVisits")
             + +whitePlayouts;
-    if (EngineManager.engineGameInfo.firstEngineIndex
-        == EngineManager.engineGameInfo.blackEngineIndex) {
-      EngineManager.engineGameInfo.firstEngineTotlePlayouts += blackPlayouts;
-      EngineManager.engineGameInfo.secondEngineTotlePlayouts += whitePlayouts;
-
-    } else {
-      EngineManager.engineGameInfo.firstEngineTotlePlayouts += whitePlayouts;
-      EngineManager.engineGameInfo.secondEngineTotlePlayouts += blackPlayouts;
-    }
-    EngineManager.engineGameInfo.firstEngineTotleTime +=
-        Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-            .pkMoveTimeGame;
-    EngineManager.engineGameInfo.secondEngineTotleTime +=
-        Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.secondEngineIndex)
-            .pkMoveTimeGame;
+    // Batch time/visit totals are owned by EngineGameModule at normal completion.
   }
 
   public static void appendAiScoreBlunder() {

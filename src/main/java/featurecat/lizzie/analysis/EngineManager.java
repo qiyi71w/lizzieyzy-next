@@ -8,7 +8,9 @@ import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.gui.EnginePkIdentity;
 import featurecat.lizzie.enginegame.EngineParticipantIdentity;
 import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.BatchSummary;
 import featurecat.lizzie.enginegame.EngineGamePlayMode;
+import featurecat.lizzie.enginegame.OpeningStanding;
 import featurecat.lizzie.enginegame.EngineGameResignPolicy;
 import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.enginegame.EngineGameSideLimits;
@@ -1287,6 +1289,10 @@ public class EngineManager {
   }
 
   public boolean startEngineGame(EngineGameInfo engineGameInfo) {
+    return startEngineGame(engineGameInfo, true);
+  }
+
+  public boolean startEngineGame(EngineGameInfo engineGameInfo, boolean firstGame) {
     if (engineGameInfo == null) {
       return false;
     }
@@ -1307,25 +1313,27 @@ public class EngineManager {
     if (engineBlack == engineWhite) {
       return false;
     }
-    engineGameInfo.SF = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
-    if (Lizzie.frame != null && Lizzie.frame.enginePkSgfWinLoss != null) {
-      engineGameInfo.engineGameSgfWinLoss = Lizzie.frame.enginePkSgfWinLoss;
+    if (firstGame) {
+      engineGameInfo.SF = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
+      if (Lizzie.frame != null && Lizzie.frame.enginePkSgfWinLoss != null) {
+        engineGameInfo.engineGameSgfWinLoss = Lizzie.frame.enginePkSgfWinLoss;
+      }
+      fillEngineGameSettingStrings(engineGameInfo);
+      if (engineGameInfo.isBatchGame
+          && (engineGameInfo.batchGameName == null || engineGameInfo.batchGameName.equals(""))) {
+        String generated =
+            getEngineName(engineGameInfo.firstEngineIndex)
+                + "_VS_"
+                + getEngineName(engineGameInfo.secondEngineIndex)
+                + "_"
+                + engineGameInfo.SF;
+        generated = generated.replaceAll("[/\\\\:*?|]", ".");
+        generated = generated.replaceAll("[\"<>]", "'");
+        engineGameInfo.batchGameName = generated;
+      }
     }
-    fillEngineGameSettingStrings(engineGameInfo);
-    if (engineGameInfo.isBatchGame
-        && (engineGameInfo.batchGameName == null || engineGameInfo.batchGameName.equals(""))) {
-      String generated =
-          getEngineName(engineGameInfo.firstEngineIndex)
-              + "_VS_"
-              + getEngineName(engineGameInfo.secondEngineIndex)
-              + "_"
-              + engineGameInfo.SF;
-      generated = generated.replaceAll("[/\\\\:*?|]", ".");
-      generated = generated.replaceAll("[\"<>]", "'");
-      engineGameInfo.batchGameName = generated;
-    }
-
-    EngineGameTransaction gameTransaction = startNewEngineGame(true, engineGameInfo, null, true);
+    EngineGameTransaction gameTransaction =
+        startNewEngineGame(firstGame, engineGameInfo, null, true);
     if (gameTransaction == null || !isCurrentEngineGameTransaction(gameTransaction)) {
       return false;
     }
@@ -1938,15 +1946,22 @@ public class EngineManager {
       }
       // Retirement has already cleared the legacy game booleans. Pass the terminal owner's exact
       // captured state to the parser instead of temporarily republishing a global saving flag.
+      projectProductBatchSummary(engineGameInfo);
       appendEngineGameStopComment(stopClaim.wasActive);
       if (!stopClaim.wasActive) {
         if (stoppedTransaction != null) {
-          finishEngineGameTransactionRetirement(stoppedTransaction, true);
+          if (!mannul
+              && Lizzie.engineGame != null
+              && Lizzie.engineGame.successorPending()) {
+            scheduleProductSuccessorAfterRetirement(stoppedTransaction, stopClaim);
+          } else {
+            finishEngineGameTransactionRetirement(stoppedTransaction, true);
+          }
         } else {
           restoreUiAfterEngineGameStartAbort(inactiveUiToken(stopClaim), null);
+        }
+        return;
       }
-      return;
-    }
 
     isSaveingEngineSGF = true;
     ownsSavingFlag = true;
@@ -1961,6 +1976,7 @@ public class EngineManager {
       changeEngIcoForEndPk();
       LizzieFrame.toolbar.enableDisabelForEngineGame(true);
       Lizzie.frame.addInput(true);
+      projectProductBatchSummary(engineGameInfo);
       if (engineGameInfo.isBatchGame && engineGameInfo.batchNumberCurrent > 1) {
         File file = new File("");
         String courseFile = "";
@@ -2001,57 +2017,12 @@ public class EngineManager {
       return;
     }
     SGFParser.appendGameTimeAndPlayouts();
+    projectProductBatchSummary(engineGameInfo);
     if (engineGameInfo.isBatchGame || LizzieFrame.toolbar.AutosavePk) {
       saveEngineGameFile(resgnEngineIndex);
     }
     if (engineGameInfo.isBatchGame) {
-      if (engineList.get(resgnEngineIndex).doublePass) {
-        engineGameInfo.doublePassGame++;
-      } else if (engineList.get(resgnEngineIndex).outOfMoveNum) {
-        engineGameInfo.maxMoveGame++;
-      } else {
-        if (resgnEngineIndex == engineGameInfo.firstEngineIndex) {
-          if (resgnEngineIndex == engineGameInfo.blackEngineIndex) {
-            engineGameInfo.secondEngineWinAsWhite++;
-            for (SgfWinLossList wl : engineGameInfo.engineGameSgfWinLoss) {
-              if (wl.SgfNumber == LizzieFrame.toolbar.currentEnginePkSgfNum) {
-                wl.engineTwoWins++;
-                wl.engineTwoWinsAsWhite++;
-                break;
-              }
-            }
-          } else {
-            engineGameInfo.secondEngineWinAsBlack++;
-            for (SgfWinLossList wl : engineGameInfo.engineGameSgfWinLoss) {
-              if (wl.SgfNumber == LizzieFrame.toolbar.currentEnginePkSgfNum) {
-                wl.engineTwoWins++;
-                wl.engineTwoWinsAsBlack++;
-                break;
-              }
-            }
-          }
-        } else {
-          if (resgnEngineIndex == engineGameInfo.blackEngineIndex) {
-            engineGameInfo.firstEngineWinAsWhite++;
-            for (SgfWinLossList wl : engineGameInfo.engineGameSgfWinLoss) {
-              if (wl.SgfNumber == LizzieFrame.toolbar.currentEnginePkSgfNum) {
-                wl.engineOneWins++;
-                wl.engineOneWinsAsWhite++;
-                break;
-              }
-            }
-          } else {
-            engineGameInfo.firstEngineWinAsBlack++;
-            for (SgfWinLossList wl : engineGameInfo.engineGameSgfWinLoss) {
-              if (wl.SgfNumber == LizzieFrame.toolbar.currentEnginePkSgfNum) {
-                wl.engineOneWins++;
-                wl.engineOneWinsAsBlack++;
-                break;
-              }
-            }
-          }
-        }
-      }
+      // Batch statistics are owned by EngineGameModule; this path only formats results.
       // 保存对局结果txt
 
       // resultOther, resultFirst, resultSecond;
@@ -2208,39 +2179,9 @@ public class EngineManager {
           engineGameInfo.resultSecond,
           engineGameInfo.resultOther);
 
-      if (engineGameInfo.batchNumberCurrent < engineGameInfo.batchNumber) {
-        engineGameInfo.batchNumberCurrent++;
-        if (engineGameInfo.isExchange) engineGameInfo.exChangeBlackWhite();
+      if (Lizzie.engineGame != null && Lizzie.engineGame.successorPending()) {
         isSaveingEngineSGF = false;
-        EngineGameInfo nextGame = engineGameInfo;
-        EngineGameInactiveUiToken failedNextGameUi =
-            new EngineGameInactiveUiToken(
-                this, nextGame, stopClaim.invalidationEpoch, null);
-        runAfterEngineGameTransactionRetirement(
-            stoppedTransaction,
-            () -> {
-              if (!isEngineGameBatchContinuationCurrent(
-                  this, nextGame, stopClaim.invalidationEpoch)) {
-                return;
-              }
-              try {
-                if (startNewEngineGame(
-                        false, nextGame, stopClaim.invalidationEpoch, false)
-                        == null
-                    && isEngineGameBatchContinuationCurrent(
-                        this, nextGame, stopClaim.invalidationEpoch)) {
-                  restoreUiAfterEngineGameStartAbort(failedNextGameUi, null);
-                }
-              } catch (RuntimeException | Error nextGameFailure) {
-                if (isEngineGameBatchContinuationCurrent(
-                    this, nextGame, stopClaim.invalidationEpoch)) {
-                  restoreUiAfterEngineGameStartAbort(failedNextGameUi, null);
-                }
-                throw nextGameFailure;
-              }
-            },
-            () -> restoreUiAfterEngineGameStartAbort(failedNextGameUi, null));
-        finishEngineGameTransactionRetirement(stoppedTransaction, false);
+        scheduleProductSuccessorAfterRetirement(stoppedTransaction, stopClaim);
         return;
       }
     }
@@ -2741,6 +2682,85 @@ public class EngineManager {
     } finally {
       gameTransaction.workers.remove(startupThread);
       startupLease.close();
+    }
+  }
+
+  private void scheduleProductSuccessorAfterRetirement(
+      EngineGameTransaction stoppedTransaction, EngineGameStopClaim stopClaim) {
+    EngineGameInactiveUiToken failedNextGameUi =
+        new EngineGameInactiveUiToken(
+            this, stopClaim.gameInfo, stopClaim.invalidationEpoch, null);
+    runAfterEngineGameTransactionRetirement(
+        stoppedTransaction,
+        () -> {
+          if (Lizzie.engineGame == null || !Lizzie.engineGame.onOwnerRetired()) {
+            restoreUiAfterEngineGameStartAbort(failedNextGameUi, null);
+          }
+        },
+        () -> restoreUiAfterEngineGameStartAbort(failedNextGameUi, null));
+    finishEngineGameTransactionRetirement(stoppedTransaction, false);
+  }
+
+  public static void syncProductBatchSummaryReaders() {
+    projectProductBatchSummary(engineGameInfo);
+  }
+
+  private static void projectProductBatchSummary(EngineGameInfo info) {
+    if (Lizzie.engineGame == null) {
+      return;
+    }
+    BatchSummary summary = Lizzie.engineGame.lastSummary();
+    if (summary == null) {
+      return;
+    }
+    if (info != null) {
+      info.firstEngineWinAsBlack = summary.firstWinAsBlack();
+      info.firstEngineWinAsWhite = summary.firstWinAsWhite();
+      info.secondEngineWinAsBlack = summary.secondWinAsBlack();
+      info.secondEngineWinAsWhite = summary.secondWinAsWhite();
+      info.doublePassGame = summary.doublePassGames();
+      info.maxMoveGame = summary.maxMoveGames();
+      info.firstEngineTotleTime = (int) Math.min(Integer.MAX_VALUE, summary.firstTotalTimeMs());
+      info.secondEngineTotleTime = (int) Math.min(Integer.MAX_VALUE, summary.secondTotalTimeMs());
+      info.firstEngineTotlePlayouts = summary.firstTotalVisits();
+      info.secondEngineTotlePlayouts = summary.secondTotalVisits();
+    }
+    projectOpeningStandings(summary, info);
+  }
+
+  private static void projectOpeningStandings(BatchSummary summary, EngineGameInfo info) {
+    ArrayList<SgfWinLossList> rows = info != null ? info.engineGameSgfWinLoss : null;
+    if (rows == null && Lizzie.frame != null) {
+      rows = Lizzie.frame.enginePkSgfWinLoss;
+    }
+    if (rows == null) {
+      rows = new ArrayList<>();
+    }
+    for (OpeningStanding standing : summary.openingStandings()) {
+      SgfWinLossList row = null;
+      for (SgfWinLossList existing : rows) {
+        if (existing.SgfNumber == standing.openingIndex()) {
+          row = existing;
+          break;
+        }
+      }
+      if (row == null) {
+        row = new SgfWinLossList();
+        row.SgfNumber = standing.openingIndex();
+        rows.add(row);
+      }
+      row.engineOneWins = standing.firstWins();
+      row.engineOneWinsAsBlack = standing.firstWinsAsBlack();
+      row.engineOneWinsAsWhite = standing.firstWinsAsWhite();
+      row.engineTwoWins = standing.secondWins();
+      row.engineTwoWinsAsBlack = standing.secondWinsAsBlack();
+      row.engineTwoWinsAsWhite = standing.secondWinsAsWhite();
+    }
+    if (info != null) {
+      info.engineGameSgfWinLoss = rows;
+    }
+    if (Lizzie.frame != null) {
+      Lizzie.frame.enginePkSgfWinLoss = rows;
     }
   }
 
@@ -8541,20 +8561,7 @@ public class EngineManager {
     }
   }
 
-  private static boolean isEngineGameBatchContinuationCurrent(
-      EngineManager manager, EngineGameInfo gameInfo, long expectedInactiveEpoch) {
-    synchronized (ENGINE_SELECTION_STATE_LOCK) {
-      return manager != null
-          && Lizzie.engineManager == manager
-          && engineGameInfo == gameInfo
-          && engineGameTransactionSequence == expectedInactiveEpoch
-          && activeEngineGameTransaction == null
-          && retiringEngineGameTransaction == null
-          && activeEngineGameRecoveryBatch == null
-          && !isEngineGame
-          && !isPreEngineGame;
-    }
-  }
+
 
   private static void dispatchEngineGameRetirementContinuation(
       EngineGameTransaction transaction) {

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
@@ -23,6 +24,7 @@ import featurecat.lizzie.enginegame.EngineGameTransaction;
 import featurecat.lizzie.enginegame.EngineParticipantIdentity;
 import featurecat.lizzie.enginegame.GameActivity;
 import featurecat.lizzie.enginegame.GameOutcome;
+import featurecat.lizzie.enginegame.OpeningStanding;
 import featurecat.lizzie.enginegame.ParticipantBinding;
 import featurecat.lizzie.enginegame.Rejection;
 import featurecat.lizzie.enginegame.RunState;
@@ -34,6 +36,7 @@ import featurecat.lizzie.gui.JFontMenu;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
 import featurecat.lizzie.gui.WinrateGraph;
+import featurecat.lizzie.gui.SgfWinLossList;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
@@ -95,6 +98,7 @@ class EngineGameModuleContractTest {
     EngineManager.resetEngineGameTransactionStateForTest();
     Config config = allocate(Config.class);
     config.uiConfig = new JSONObject();
+    config.leelazConfig = new JSONObject();
     config.newEngineGameHandicap = 0;
     config.newEngineGameKomi = 7.5;
     config.pkAdvanceTimeSettings = false;
@@ -355,6 +359,189 @@ class EngineGameModuleContractTest {
   }
 
   @Test
+  void successorStartsOnlyAfterRetirementAndPublishesBetweenGames() {
+    playAccepted(genmoveBatchSpec(2, false));
+    black.pkMoveTimeGame = 1500;
+    white.pkMoveTimeGame = 2500;
+    EngineGameTransaction first = Lizzie.engineGame.transaction();
+    completeCurrent(new GameOutcome.DoublePass());
+
+    assertInstanceOf(GameActivity.BetweenGames.class, activity(Lizzie.engineGame.current()));
+    assertSame(first, Lizzie.engineGame.transaction());
+    assertEquals(1, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertEquals(1500, Lizzie.engineGame.lastSummary().firstTotalTimeMs());
+    assertEquals(2500, Lizzie.engineGame.lastSummary().secondTotalTimeMs());
+    assertEquals(1, observer.playing);
+    assertTrue(Lizzie.engineGame.successorPending());
+
+    Lizzie.engineGame.onOwnerRetired();
+
+    assertFalse(Lizzie.engineGame.successorPending());
+    assertNotSame(first, Lizzie.engineGame.transaction());
+    assertInstanceOf(GameActivity.Starting.class, activity(Lizzie.engineGame.current()));
+    assertEquals(
+        2, ((EngineGameSnapshot.BatchActive) Lizzie.engineGame.current()).batch().gameOrdinal());
+    assertEquals(1, observer.playing);
+    assertEquals(List.of(), observer.failures);
+  }
+
+  @Test
+  void exchangeColorsAndScoreAttributionAcrossGames() {
+    playAccepted(genmoveBatchSpec(2, true));
+    assertEquals(FIRST, Lizzie.engineGame.transaction().plan().black());
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(1, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(1, Lizzie.engineGame.lastSummary().secondWinAsWhite());
+
+    Lizzie.engineGame.onOwnerRetired();
+    assertEquals(SECOND, Lizzie.engineGame.transaction().plan().black());
+    assertEquals(FIRST, Lizzie.engineGame.transaction().plan().white());
+    Lizzie.engineGame.onOwnerPlaying();
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.WHITE));
+
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(2, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(1, Lizzie.engineGame.lastSummary().secondWinAsBlack());
+    assertEquals(1, Lizzie.engineGame.lastSummary().secondWinAsWhite());
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+  }
+
+  @Test
+  void sequentialOpeningsAdvanceCursorAndAttributeResults() {
+    EngineGameBatchSpec spec =
+        EngineGameBatchSpecFactory.from(
+            EngineGameParsedStart.builder()
+                .first(FIRST)
+                .second(SECOND)
+                .genmove(true)
+                .timeLimitEnabled(true)
+                .firstTimeSeconds(2)
+                .secondTimeSeconds(2)
+                .batch(true)
+                .batchLimit(2)
+                .sgfOpening(true)
+                .sgfOpenings(List.of(List.of(), List.of()))
+                .build());
+    playAccepted(spec);
+    assertEquals(0, Lizzie.engineGame.transaction().plan().openingIndex());
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    OpeningStanding standing = Lizzie.engineGame.lastSummary().openingStandings().get(0);
+    assertEquals(0, standing.openingIndex());
+    assertEquals(1, standing.secondWinsAsWhite());
+
+    Lizzie.engineGame.onOwnerRetired();
+    assertEquals(1, Lizzie.engineGame.transaction().plan().openingIndex());
+    assertTrue(Lizzie.engineGame.transaction().plan().openingMoves().isEmpty());
+  }
+
+  @Test
+  void successorEngineGameInfoCarriesAccumulatedScores() {
+    playAccepted(genmoveBatchSpec(2, false));
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    Lizzie.engineGame.onOwnerRetired();
+    EngineGameInfo successor = manager.lastSuccessorInfo;
+    assertNotNull(successor);
+    assertEquals(0, successor.getFirstEngineWins());
+    assertEquals(1, successor.getSecondEngineWins());
+    assertEquals(1, successor.secondEngineWinAsWhite);
+    assertEquals(0, successor.doublePassGame);
+  }
+
+  @Test
+  void openingStandingsProjectOntoExistingTxtRows() {
+    SgfWinLossList firstOpening = new SgfWinLossList();
+    firstOpening.SgfNumber = 0;
+    SgfWinLossList secondOpening = new SgfWinLossList();
+    secondOpening.SgfNumber = 1;
+    Lizzie.frame.enginePkSgfWinLoss = new ArrayList<>(List.of(firstOpening, secondOpening));
+    EngineGameBatchSpec spec =
+        EngineGameBatchSpecFactory.from(
+            EngineGameParsedStart.builder()
+                .first(FIRST)
+                .second(SECOND)
+                .genmove(true)
+                .timeLimitEnabled(true)
+                .firstTimeSeconds(2)
+                .secondTimeSeconds(2)
+                .batch(true)
+                .batchLimit(2)
+                .sgfOpening(true)
+                .sgfOpenings(List.of(List.of(), List.of()))
+                .build());
+    playAccepted(spec);
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    assertEquals(1, firstOpening.engineTwoWinsAsWhite);
+    assertEquals(1, firstOpening.engineTwoWins);
+    assertEquals(0, secondOpening.engineTwoWins);
+  }
+
+  @Test
+  void loweringLimitToCurrentOrdinalEndsAfterComplete() {
+    playAccepted(genmoveBatchSpec(3, false));
+    Lizzie.engineGame.reviseBatchLimit(1);
+    completeCurrent(new GameOutcome.DoublePass());
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertFalse(Lizzie.engineGame.successorPending());
+    Lizzie.engineGame.onOwnerRetired();
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertNull(Lizzie.engineGame.transaction());
+  }
+
+  @Test
+  void loweringLimitDuringBetweenGamesCancelsSuccessor() {
+    playAccepted(genmoveBatchSpec(3, false));
+    completeCurrent(new GameOutcome.DoublePass());
+    assertInstanceOf(GameActivity.BetweenGames.class, activity(Lizzie.engineGame.current()));
+    Lizzie.engineGame.reviseBatchLimit(1);
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertFalse(Lizzie.engineGame.successorPending());
+    Lizzie.engineGame.onOwnerRetired();
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertNull(Lizzie.engineGame.transaction());
+    assertEquals(1, Lizzie.engineGame.lastSummary().doublePassGames());
+  }
+
+  @Test
+  void raisingLimitAllowsAdditionalSuccessor() {
+    playAccepted(genmoveBatchSpec(1, false));
+    Lizzie.engineGame.reviseBatchLimit(2);
+    completeCurrent(new GameOutcome.DoublePass());
+    assertInstanceOf(GameActivity.BetweenGames.class, activity(Lizzie.engineGame.current()));
+    Lizzie.engineGame.onOwnerRetired();
+    assertInstanceOf(GameActivity.Starting.class, activity(Lizzie.engineGame.current()));
+    assertEquals(2, Lizzie.engineGame.transaction().plan().gameOrdinal());
+  }
+
+  @Test
+  void userStopDoesNotCountCurrentGameOrStartSuccessor() {
+    playAccepted(genmoveBatchSpec(3, false));
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    Lizzie.engineGame.onOwnerRetired();
+    Lizzie.engineGame.onOwnerPlaying();
+    assertEquals(1, Lizzie.engineGame.lastSummary().secondWins());
+    Lizzie.engineGame.stop();
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertEquals(1, Lizzie.engineGame.lastSummary().secondWins());
+    assertFalse(Lizzie.engineGame.successorPending());
+    Lizzie.engineGame.onOwnerRetired();
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertNull(Lizzie.engineGame.transaction());
+  }
+
+  @Test
+  void laterGameStartupFailureEndsBatchWithoutReusingObserver() {
+    playAccepted(genmoveBatchSpec(2, false));
+    completeCurrent(new GameOutcome.DoublePass());
+    manager.failNextNonFirstStart = true;
+    assertFalse(Lizzie.engineGame.onOwnerRetired());
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertEquals(1, observer.playing);
+    assertEquals(List.of(), observer.failures);
+    assertEquals(1, Lizzie.engineGame.lastSummary().doublePassGames());
+  }
+
+  @Test
   void resolvedCatalogSlotsFollowIdentityAfterReorder() throws Exception {
     OccupancyLeelaz alpha = new OccupancyLeelaz();
     OccupancyLeelaz beta = new OccupancyLeelaz();
@@ -362,19 +549,43 @@ class EngineGameModuleContractTest {
     beta.bindLiveRuntime();
     alpha.setEngineCommand("cmd-a");
     beta.setEngineCommand("cmd-b");
-    CountingLeaseEngineManager reordered =
-        new CountingLeaseEngineManager(List.of(beta, alpha));
+    CountingLeaseEngineManager reordered = new CountingLeaseEngineManager(List.of(beta, alpha));
     assertEquals(
-        1,
-        reordered.resolveEngineGameParticipant(new EngineParticipantIdentity("cmd-a", "")));
+        1, reordered.resolveEngineGameParticipant(new EngineParticipantIdentity("cmd-a", "")));
     assertEquals(
-        0,
-        reordered.resolveEngineGameParticipant(new EngineParticipantIdentity("cmd-b", "")));
+        0, reordered.resolveEngineGameParticipant(new EngineParticipantIdentity("cmd-b", "")));
   }
 
   private static GameActivity activity(EngineGameSnapshot snapshot) {
     return ((EngineGameSnapshot.BatchActive) snapshot).activity();
   }
+
+  private void playAccepted(EngineGameBatchSpec spec) {
+    assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(spec, observer));
+    Lizzie.engineGame.onOwnerPlaying();
+  }
+
+  private void completeCurrent(GameOutcome outcome) {
+    EngineGameTransaction txn = Lizzie.engineGame.transaction();
+    Object owner = txn.lifecycle() == null ? null : txn.lifecycle().ownerToken();
+    assertTrue(Lizzie.engineGame.complete(outcome, owner, 0));
+  }
+
+  private static EngineGameBatchSpec genmoveBatchSpec(int games, boolean exchange) {
+    return EngineGameBatchSpecFactory.from(
+        EngineGameParsedStart.builder()
+            .first(FIRST)
+            .second(SECOND)
+            .genmove(true)
+            .timeLimitEnabled(true)
+            .firstTimeSeconds(2)
+            .secondTimeSeconds(2)
+            .batch(true)
+            .batchLimit(games)
+            .exchangeColors(exchange)
+            .build());
+  }
+
 
   private static EngineGameBatchSpec genmoveSpec() {
     return EngineGameBatchSpecFactory.from(
@@ -425,9 +636,24 @@ class EngineGameModuleContractTest {
   private static final class CountingLeaseEngineManager extends EngineManager {
     private int leaseConflictCount;
     private boolean runWorkersInline;
+    private boolean failNextNonFirstStart;
+    private EngineGameInfo lastSuccessorInfo;
 
     private CountingLeaseEngineManager(List<Leelaz> engines) {
       super(engines);
+    }
+
+    @Override
+    public boolean startEngineGame(EngineGameInfo engineGameInfo, boolean firstGame) {
+      if (!firstGame) {
+        lastSuccessorInfo = engineGameInfo;
+        if (failNextNonFirstStart) {
+          failNextNonFirstStart = false;
+          return false;
+        }
+        return true;
+      }
+      return super.startEngineGame(engineGameInfo, firstGame);
     }
 
     @Override
@@ -449,6 +675,16 @@ class EngineGameModuleContractTest {
         @Override
         public synchronized void start() {
           run();
+        }
+      };
+    }
+
+    @Override
+    protected Thread createEngineGameRetirementContinuationWorker(Runnable task, String name) {
+      return new Thread(task, name) {
+        @Override
+        public synchronized void start() {
+          // Contract tests drive onOwnerRetired explicitly.
         }
       };
     }
@@ -494,6 +730,11 @@ class EngineGameModuleContractTest {
 
     @Override
     public void sendCommand(String command) {}
+
+    @Override
+    public String getEngineName(int index) {
+      return oriEngineCommand == null || oriEngineCommand.isEmpty() ? "engine" : oriEngineCommand;
+    }
   }
 
   private static final class SilentFrame extends LizzieFrame {

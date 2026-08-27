@@ -9,6 +9,8 @@ public final class EngineGamePlan {
   private final EngineParticipantIdentity white;
   private final int blackIndex;
   private final int whiteIndex;
+  private final int firstIndex;
+  private final int secondIndex;
   private final EngineGamePlayMode playMode;
   private final EngineGameSideLimits blackLimits;
   private final EngineGameSideLimits whiteLimits;
@@ -31,6 +33,8 @@ public final class EngineGamePlan {
       EngineParticipantIdentity white,
       int blackIndex,
       int whiteIndex,
+      int firstIndex,
+      int secondIndex,
       EngineGamePlayMode playMode,
       EngineGameSideLimits blackLimits,
       EngineGameSideLimits whiteLimits,
@@ -51,6 +55,8 @@ public final class EngineGamePlan {
     this.white = Objects.requireNonNull(white, "white");
     this.blackIndex = blackIndex;
     this.whiteIndex = whiteIndex;
+    this.firstIndex = firstIndex;
+    this.secondIndex = secondIndex;
     this.playMode = Objects.requireNonNull(playMode, "playMode");
     this.blackLimits = Objects.requireNonNull(blackLimits, "blackLimits");
     this.whiteLimits = Objects.requireNonNull(whiteLimits, "whiteLimits");
@@ -83,6 +89,14 @@ public final class EngineGamePlan {
 
   public int whiteIndex() {
     return whiteIndex;
+  }
+
+  public int firstIndex() {
+    return firstIndex;
+  }
+
+  public int secondIndex() {
+    return secondIndex;
   }
 
   public EngineGamePlayMode playMode() {

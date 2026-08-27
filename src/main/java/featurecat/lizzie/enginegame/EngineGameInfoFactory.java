@@ -2,20 +2,21 @@ package featurecat.lizzie.enginegame;
 
 import featurecat.lizzie.analysis.EngineGameInfo;
 import featurecat.lizzie.gui.DesktopTimeControl;
+import featurecat.lizzie.gui.SgfWinLossList;
 import featurecat.lizzie.rules.Movelist;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Builds the still-live {@link EngineGameInfo} bag from a frozen first {@link EngineGamePlan}. */
+/** Builds the still-live {@link EngineGameInfo} bag from a frozen {@link EngineGamePlan}. */
 final class EngineGameInfoFactory {
   private EngineGameInfoFactory() {}
 
-  static EngineGameInfo from(EngineGamePlan plan) {
+  static EngineGameInfo from(EngineGamePlan plan, EngineGameBatchState batch) {
     EngineGameInfo info = new EngineGameInfo();
     info.blackEngineIndex = plan.blackIndex();
     info.whiteEngineIndex = plan.whiteIndex();
-    info.firstEngineIndex = plan.blackIndex();
-    info.secondEngineIndex = plan.whiteIndex();
+    info.firstEngineIndex = plan.firstIndex();
+    info.secondEngineIndex = plan.secondIndex();
     info.isGenmove = plan.playMode() == EngineGamePlayMode.GENMOVE;
     info.blackTimeMode = EngineGameTimeModes.sideMode(plan.blackLimits().timeMode());
     info.whiteTimeMode = EngineGameTimeModes.sideMode(plan.whiteLimits().timeMode());
@@ -33,19 +34,21 @@ final class EngineGameInfoFactory {
     }
     info.timeBlack = timeBlack;
     info.timeWhite = timeWhite;
-    info.timeFirstEngine = timeBlack;
-    info.timeSecondEngine = timeWhite;
+    boolean firstIsBlack = plan.firstIndex() == plan.blackIndex();
+    info.timeFirstEngine = firstIsBlack ? timeBlack : timeWhite;
+    info.timeSecondEngine = firstIsBlack ? timeWhite : timeBlack;
     info.playoutsBlack = plan.blackLimits().visits();
     info.playoutsWhite = plan.whiteLimits().visits();
-    info.playoutsFirstEngine = plan.blackLimits().visits();
-    info.playoutsSecondEngine = plan.whiteLimits().visits();
+    info.playoutsFirstEngine = firstIsBlack ? info.playoutsBlack : info.playoutsWhite;
+    info.playoutsSecondEngine = firstIsBlack ? info.playoutsWhite : info.playoutsBlack;
     info.firstPlayoutsBlack = plan.blackLimits().firstMoveVisits();
     info.firstPlayoutsWhite = plan.whiteLimits().firstMoveVisits();
-    info.firstPlayoutsFirstEngine = plan.blackLimits().firstMoveVisits();
-    info.firstPlayoutsSecondEngine = plan.whiteLimits().firstMoveVisits();
+    info.firstPlayoutsFirstEngine =
+        firstIsBlack ? info.firstPlayoutsBlack : info.firstPlayoutsWhite;
+    info.firstPlayoutsSecondEngine =
+        firstIsBlack ? info.firstPlayoutsWhite : info.firstPlayoutsBlack;
     info.isBatchGame = plan.batch();
     info.batchNumber = plan.batchLimit();
-
     info.batchNumberCurrent = plan.gameOrdinal();
     info.isExchange = plan.exchangeColors();
     info.isContinueGame = plan.continueGame();
@@ -62,11 +65,43 @@ final class EngineGameInfoFactory {
     } else {
       info.setMaxGameMoves(-1);
     }
-    info.batchGameName = plan.output().batchName();
+    info.batchGameName =
+        batch != null && !batch.batchGameName().isEmpty()
+            ? batch.batchGameName()
+            : plan.output().batchName();
+    if (batch != null && !batch.timestamp().isEmpty()) {
+      info.SF = batch.timestamp();
+    }
     info.openingFrozen = true;
     info.frozenStartList = toMoveList(plan.openingMoves());
     if (info.isContinueGame) {
       info.continueGameList = info.frozenStartList;
+    }
+    if (batch != null) {
+      BatchSummary summary = batch.summary();
+      info.firstEngineWinAsBlack = summary.firstWinAsBlack();
+      info.firstEngineWinAsWhite = summary.firstWinAsWhite();
+      info.secondEngineWinAsBlack = summary.secondWinAsBlack();
+      info.secondEngineWinAsWhite = summary.secondWinAsWhite();
+      info.doublePassGame = summary.doublePassGames();
+      info.maxMoveGame = summary.maxMoveGames();
+      info.firstEngineTotleTime = (int) Math.min(Integer.MAX_VALUE, summary.firstTotalTimeMs());
+      info.secondEngineTotleTime = (int) Math.min(Integer.MAX_VALUE, summary.secondTotalTimeMs());
+      info.firstEngineTotlePlayouts = summary.firstTotalVisits();
+      info.secondEngineTotlePlayouts = summary.secondTotalVisits();
+      ArrayList<SgfWinLossList> rows = new ArrayList<>();
+      for (OpeningStanding standing : summary.openingStandings()) {
+        SgfWinLossList row = new SgfWinLossList();
+        row.SgfNumber = standing.openingIndex();
+        row.engineOneWins = standing.firstWins();
+        row.engineOneWinsAsBlack = standing.firstWinsAsBlack();
+        row.engineOneWinsAsWhite = standing.firstWinsAsWhite();
+        row.engineTwoWins = standing.secondWins();
+        row.engineTwoWinsAsBlack = standing.secondWinsAsBlack();
+        row.engineTwoWinsAsWhite = standing.secondWinsAsWhite();
+        rows.add(row);
+      }
+      info.engineGameSgfWinLoss = rows;
     }
     return info;
   }
