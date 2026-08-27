@@ -147,7 +147,7 @@ jobs:
           grep -q "first launch should work offline" "$note_file"
           grep -q "qiyi71w/readboard v3.0.6" "$note_file"
           grep -q "JCEF browser runtime" "$note_file"
-          grep -q "Unified CUDA 12.8 package for RTX 20/30/40/50" "$note_file"
+          grep -q "NVIDIA CUDA package for RTX 20/30/40/50" "$note_file"
           test -f "dist/windows/input-with-katago/engines/katago/windows-x64/katago.exe"
           test -f "dist/windows/input-with-katago/PROJECT_INFO.txt"
           test -f "dist/windows/input-with-katago/readboard/readboard.exe"

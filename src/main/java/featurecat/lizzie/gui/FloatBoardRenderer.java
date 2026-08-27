@@ -493,7 +493,7 @@ public class FloatBoardRenderer {
 
   public boolean shouldShowCountBlockBelow() {
     Leelaz leelaz = Lizzie.leelaz;
-    if (leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
+    if (leelaz != null && leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
       return Lizzie.config.showPureEstimateBigBelow;
     }
     return Lizzie.config.showKataGoEstimateBigBelow;
@@ -501,7 +501,7 @@ public class FloatBoardRenderer {
 
   public boolean shouldShowCountBlockBig() {
     Leelaz leelaz = Lizzie.leelaz;
-    if (leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
+    if (leelaz != null && leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
       return Lizzie.config.showPureEstimateBigBelow;
     }
     return Lizzie.config.showKataGoEstimateBigBelow;

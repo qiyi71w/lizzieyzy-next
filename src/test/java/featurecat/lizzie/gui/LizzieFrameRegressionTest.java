@@ -100,6 +100,33 @@ class LizzieFrameRegressionTest {
   }
 
   @Test
+  void estimateRenderersUseSafeDefaultsWithoutAForegroundEngine() throws Exception {
+    Config previousConfig = Lizzie.config;
+    Leelaz previousEngine = Lizzie.leelaz;
+    try {
+      Config config = allocate(Config.class);
+      config.showKataGoEstimateBigBelow = true;
+      config.showPureEstimateBigBelow = false;
+      Lizzie.config = config;
+      Lizzie.leelaz = null;
+
+      BoardRenderer boardRenderer = allocate(BoardRenderer.class);
+      FloatBoardRenderer floatBoardRenderer = allocate(FloatBoardRenderer.class);
+      SubBoardRenderer subBoardRenderer = allocate(SubBoardRenderer.class);
+
+      assertTrue(boardRenderer.shouldShowCountBlockBelow());
+      assertTrue(boardRenderer.shouldShowCountBlockBig());
+      assertTrue(floatBoardRenderer.shouldShowCountBlockBelow());
+      assertTrue(floatBoardRenderer.shouldShowCountBlockBig());
+      assertTrue(subBoardRenderer.shouldShowCountBlockBelow());
+      assertTrue(subBoardRenderer.shouldShowCountBlockBig());
+    } finally {
+      Lizzie.config = previousConfig;
+      Lizzie.leelaz = previousEngine;
+    }
+  }
+
+  @Test
   void captureRulesPaintDoesNotThrowWithoutAForegroundEngine() throws Exception {
     Font previousFont = LizzieFrame.uiFont;
     try (TestEnvironment env = TestEnvironment.open()) {
