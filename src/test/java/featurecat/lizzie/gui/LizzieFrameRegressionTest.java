@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
@@ -39,6 +40,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -94,6 +96,42 @@ class LizzieFrameRegressionTest {
       allocate(LizzieFrame.class).toggleShowKataEstimate();
     } finally {
       Lizzie.leelaz = previousEngine;
+    }
+  }
+
+  @Test
+  void captureRulesPaintDoesNotThrowWithoutAForegroundEngine() throws Exception {
+    Font previousFont = LizzieFrame.uiFont;
+    try (TestEnvironment env = TestEnvironment.open()) {
+      EmptyEngineUiFrame frame = prepareEmptyEngineUiFrame();
+      LizzieFrame.uiFont = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+      BufferedImage image = new BufferedImage(200, 120, BufferedImage.TYPE_INT_ARGB);
+      Graphics2D graphics = image.createGraphics();
+      try {
+        assertDoesNotThrow(() -> invokeDrawCaptured(frame, graphics, 0, 0, 200, 120, false));
+        assertDoesNotThrow(() -> invokeDrawMoveStatistics(frame, graphics, 0, 0, 200, 120));
+      } finally {
+        graphics.dispose();
+      }
+    } finally {
+      LizzieFrame.uiFont = previousFont;
+    }
+  }
+
+  @Test
+  void commentSetAndRefreshDoNotTreatAMissingEngineAsLoading() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      EmptyEngineUiFrame frame = prepareEmptyEngineUiFrame();
+
+      assertDoesNotThrow(() -> invokeSetComment(frame, false));
+      assertDoesNotThrow(() -> frame.appendComment());
+      assertDoesNotThrow(() -> frame.refresh());
+
+      String comment = String.valueOf(getField(frame, "cachedComment"));
+      assertEquals("", comment);
+      assertFalse(
+          comment.contains(Lizzie.resourceBundle.getString("LizzieFrame.display.loading")),
+          "an absent foreground engine is idle, not still loading");
     }
   }
 
@@ -2160,6 +2198,80 @@ class LizzieFrameRegressionTest {
     assertSame(frame.replacementReadBoard, frame.readBoard);
   }
 
+  private static EmptyEngineUiFrame prepareEmptyEngineUiFrame() throws Exception {
+    Config config = allocate(Config.class);
+    config.showComment = true;
+    config.commentFontSize = 16;
+    config.uiFontName = Font.SANS_SERIF;
+    config.appendWinrateToComment = false;
+    config.UsePlayMode = false;
+    Lizzie.config = config;
+    installEmptyBoard();
+    EmptyEngineUiFrame frame = allocate(EmptyEngineUiFrame.class);
+    setField(frame, "cachedComment", "");
+    Lizzie.frame = frame;
+    Lizzie.leelaz = null;
+    EngineManager.isEmpty = true;
+    EngineManager.isEngineGame = false;
+    EngineManager.isPreEngineGame = false;
+    return frame;
+  }
+
+  private static void invokeDrawCaptured(
+      LizzieFrame frame, Graphics2D graphics, int x, int y, int width, int height, boolean small)
+      throws Exception {
+    Method method =
+        LizzieFrame.class.getDeclaredMethod(
+            "drawCaptured",
+            Graphics2D.class,
+            int.class,
+            int.class,
+            int.class,
+            int.class,
+            boolean.class);
+    method.setAccessible(true);
+    invokeUnchecked(method, frame, graphics, x, y, width, height, small);
+  }
+
+  private static void invokeDrawMoveStatistics(
+      LizzieFrame frame, Graphics2D graphics, int x, int y, int width, int height)
+      throws Exception {
+    Method method =
+        LizzieFrame.class.getDeclaredMethod(
+            "drawMoveStatistics",
+            Graphics2D.class,
+            int.class,
+            int.class,
+            int.class,
+            int.class);
+    method.setAccessible(true);
+    invokeUnchecked(method, frame, graphics, x, y, width, height);
+  }
+
+  private static void invokeSetComment(LizzieFrame frame, boolean needReaddText) throws Exception {
+    Method method = LizzieFrame.class.getDeclaredMethod("setComment", boolean.class);
+    method.setAccessible(true);
+    invokeUnchecked(method, frame, needReaddText);
+  }
+
+  private static void invokeUnchecked(Method method, Object target, Object... arguments) {
+    try {
+      method.invoke(target, arguments);
+    } catch (InvocationTargetException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof RuntimeException) {
+        throw (RuntimeException) cause;
+      }
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
+      throw new RuntimeException(cause);
+    } catch (ReflectiveOperationException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+
   private static boolean invokeShouldAutoQuickAnalyze(LizzieFrame frame) throws Exception {
     Method method = LizzieFrame.class.getDeclaredMethod("shouldAutoQuickAnalyzeLoadedGame");
     method.setAccessible(true);
@@ -2500,6 +2612,14 @@ class LizzieFrameRegressionTest {
     Field field = Leelaz.class.getDeclaredField(name);
     field.setAccessible(true);
     field.set(engine, value);
+  }
+
+  private static final class EmptyEngineUiFrame extends LizzieFrame {
+    @Override
+    public void requestProblemListRefresh() {}
+
+    @Override
+    public void repaint() {}
   }
 
   private static final class TestEnvironment implements AutoCloseable {

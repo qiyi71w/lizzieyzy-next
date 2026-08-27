@@ -396,10 +396,7 @@ public class Config {
     Path workingDirectory = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath();
     Optional<Path> commandAppRoot =
         bundledAppRootForExecutable(workingDirectory, commandParts.get(0));
-    Optional<Path> activeAppRoot = findBundledAppRoot();
-    if (!commandAppRoot.isPresent()
-        || !activeAppRoot.isPresent()
-        || !samePath(commandAppRoot.get(), activeAppRoot.get())) {
+    if (!commandAppRoot.isPresent()) {
       return false;
     }
     String modelToken = modelToken(command);
@@ -467,17 +464,6 @@ public class Config {
     return path.isAbsolute()
         ? path.toAbsolutePath().normalize()
         : workingDirectory.resolve(path).toAbsolutePath().normalize();
-  }
-
-  private static boolean samePath(Path first, Path second) {
-    if (first == null || second == null) {
-      return false;
-    }
-    try {
-      return Files.isSameFile(first, second);
-    } catch (IOException e) {
-      return first.toAbsolutePath().normalize().equals(second.toAbsolutePath().normalize());
-    }
   }
 
   private static String modelToken(String command) {
@@ -662,15 +648,15 @@ public class Config {
       }
       String name = engineInfo.optString("name", "");
       String command = engineInfo.optString("command", "");
-      boolean managedDefaultCommand = isManagedBundledDefaultCommand(command);
+      boolean managedDefaultCommand =
+          !engineInfo.optBoolean("useJavaSSH", false)
+              && isManagedBundledDefaultCommand(command);
       if (autoSetupIndex < 0 && "KataGo Auto Setup".equals(name) && managedDefaultCommand) {
         autoSetupIndex = i;
       }
       if (bundledIndex < 0
           && managedDefaultCommand
-          && (BUNDLED_ENGINE_NAME.equals(name)
-              || "KataGo Auto Setup".equals(name)
-              || isBundledKataGoCommand(command))) {
+          && (BUNDLED_ENGINE_NAME.equals(name) || "KataGo Auto Setup".equals(name))) {
         bundledIndex = i;
       }
     }
@@ -719,7 +705,9 @@ public class Config {
                 ui.optBoolean("analysis-engine-command-customized", false),
                 ui.optString("analysis-engine-command", ""));
         String analysisCommand = ui.optString("analysis-engine-command", "");
-        if ((!analysisCustomized && isManagedBundledDefaultCommand(analysisCommand))
+        if ((!analysisCustomized
+                && !analysisCommandUsesJavaSsh(leelaz)
+                && isManagedBundledDefaultCommand(analysisCommand))
             || isClearlyBrokenJavaJarCommand(analysisCommand)) {
           ui.put("analysis-engine-command", bundledConfig.analysisCommand);
           ui.put("analysis-engine-command-customized", false);
@@ -801,6 +789,14 @@ public class Config {
       writeConfig(this.config, new File(configFilename));
     }
     return changed;
+  }
+
+  private static boolean analysisCommandUsesJavaSsh(JSONObject leelaz) {
+    if (leelaz == null) {
+      return false;
+    }
+    JSONObject sshInfo = leelaz.optJSONObject("analysis-engine-ssh-info");
+    return sshInfo != null && sshInfo.optBoolean("useJavaSSH", false);
   }
 
   public boolean moveListTopCurNode = false;

@@ -1177,7 +1177,7 @@ public class SGFParser {
             }
           }
         } else {
-          if (Lizzie.leelaz.isKatago && !fromAutoSave) {
+          if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && !fromAutoSave) {
             String rules = "";
             boolean usingSpecificRues = false;
             if (Lizzie.leelaz.isKatago) {
@@ -1263,7 +1263,7 @@ public class SGFParser {
                     "KM[%s]PW[%s]PB[%s]DT[%s]DZ[Y]AP[LizzieYzy Next: %s]RE[%s]SZ[%s]CA[UTF-8]",
                     komi, playerW, playerB, date, Lizzie.nextVersion, result, boardSizeTag));
         } else {
-          if (Lizzie.leelaz.isKatago || Lizzie.board.isKataBoard)
+          if ((Lizzie.leelaz != null && Lizzie.leelaz.isKatago) || Lizzie.board.isKataBoard)
             generalProps.append(
                 String.format(
                     "KM[%s]PW[%s]PB[%s]DT[%s]DZ[G]AP[LizzieYzy Next: %s]RE[%s]SZ[%s]CA[UTF-8]",
