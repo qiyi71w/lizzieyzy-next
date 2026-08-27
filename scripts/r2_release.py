@@ -45,6 +45,10 @@ WINDOWS_PORTABLE = re.compile(
 WINDOWS_CORE = re.compile(
     r"^(?P<date>\d{4}-\d{2}-\d{2})-windows64\.core-update\.zip$"
 )
+WINDOWS_AMD_ROCM = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2})-windows64\.experimental\.rocm\.gfx120x"
+    r"\.portable\.zip$"
+)
 MAC_DMG = re.compile(
     r"^(?P<date>\d{4}-\d{2}-\d{2})-mac-"
     r"(?P<chip>apple-silicon|intel)\.with-katago\.dmg$"
@@ -121,7 +125,7 @@ def select_r2_assets(
     if not tag:
         raise ReleaseError("Release tag is missing")
     selected: list[Asset] = []
-    counts = {"windows": 0, "core": 0, "mac": 0, "tensorrt": 0}
+    counts = {"windows": 0, "core": 0, "amd_rocm": 0, "mac": 0, "tensorrt": 0}
     for raw in release_assets(release):
         name = str(raw.get("name") or "")
         match = WINDOWS_PORTABLE.fullmatch(name)
@@ -138,26 +142,34 @@ def select_r2_assets(
                 kwargs = {"flavor": "all", "arch": "x64"}
                 counts["core"] += 1
             else:
-                match = MAC_DMG.fullmatch(name)
+                match = WINDOWS_AMD_ROCM.fullmatch(name)
                 if match:
-                    category = "macos-dmg"
-                    kwargs = {
-                        "flavor": "with-katago",
-                        "arch": "arm64" if match.group("chip") == "apple-silicon" else "x64",
-                    }
-                    counts["mac"] += 1
+                    category = "amd-rocm-experimental"
+                    kwargs = {"flavor": "rocm-gfx120x", "arch": "x64"}
+                    counts["amd_rocm"] += 1
                 else:
-                    match = TENSORRT_ASSET.fullmatch(name)
+                    match = MAC_DMG.fullmatch(name)
                     if match:
-                        category = "tensorrt-optional"
-                        kwargs = {"flavor": "nvidia-tensorrt", "arch": "x64"}
-                        counts["tensorrt"] += 1
+                        category = "macos-dmg"
+                        kwargs = {
+                            "flavor": "with-katago",
+                            "arch": (
+                                "arm64" if match.group("chip") == "apple-silicon" else "x64"
+                            ),
+                        }
+                        counts["mac"] += 1
+                    else:
+                        match = TENSORRT_ASSET.fullmatch(name)
+                        if match:
+                            category = "tensorrt-optional"
+                            kwargs = {"flavor": "nvidia-tensorrt", "arch": "x64"}
+                            counts["tensorrt"] += 1
         if not category:
             continue
         asset = Asset.from_github(raw, category, **kwargs)
         selected.append(dataclasses.replace(asset, r2_key=f"releases/{tag}/{name}"))
 
-    expected = {"windows": 4, "core": 1, "mac": 2, "tensorrt": 5}
+    expected = {"windows": 4, "core": 1, "amd_rocm": 1, "mac": 2, "tensorrt": 5}
     if counts != expected:
         raise ReleaseError(f"R2 asset whitelist mismatch: expected {expected}, found {counts}")
     names = [asset.name for asset in selected]
@@ -363,6 +375,7 @@ def catalog_label(asset: Asset) -> tuple[str, str, bool]:
         "nvidia": ("Windows NVIDIA", "Windows NVIDIA", False),
         "without.engine": ("Windows 无引擎版", "Windows without engine", False),
         "nvidia-tensorrt": ("RTX 30 系及以下可选 TensorRT", "Optional TensorRT for RTX 30 and earlier", True),
+        "rocm-gfx120x": ("AMD RX 9000 ROCm 实验版", "AMD RX 9000 ROCm experimental", True),
     }
     if asset.category == "macos-dmg":
         return (
