@@ -1942,22 +1942,7 @@ public class BottomToolbar extends JPanel {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             setTxtUnfocuse();
-            featurecat.lizzie.enginegame.EngineGameTransaction product =
-                Lizzie.engineGame.transaction();
-            boolean paused = product != null && product.paused();
-            if (paused) {
-              if (isGenmoveToolbar && !product.genmovePauseSettled()) {
-                Utils.showMsg(
-                    Lizzie.resourceBundle.getString("BottomToolbar.genmoveStopHint"));
-                return;
-              }
-              Lizzie.engineGame.resume();
-              btnEnginePkStop.setText(text("BottomToolbar.detail.pause", "暂停"));
-            } else {
-              Lizzie.engineGame.pause();
-              btnEnginePkStop.setText(text("BottomToolbar.detail.continue", "继续"));
-            }
-            LizzieFrame.menu.toggleDoubleMenuGameStatus();
+            EngineGameDesktop.togglePause();
           }
         });
 
@@ -2020,10 +2005,10 @@ public class BottomToolbar extends JPanel {
             //              return;
             //            }
 
-            if (!EngineManager.isEngineGame) {
+            if (!EngineGameDesktop.batchActive()) {
               startEngineGame();
             } else {
-              Lizzie.engineManager.stopEngineGame(-1, true);
+              EngineGameDesktop.stop();
             }
             setTxtUnfocuse();
           }
@@ -2114,24 +2099,15 @@ public class BottomToolbar extends JPanel {
     dt.addDocumentListener(
         new DocumentListener() {
           public void insertUpdate(DocumentEvent e) {
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              EngineManager.engineGameInfo.batchNumber =
-                  Utils.parseTextToInt(txtenginePkBatch, EngineManager.engineGameInfo.batchNumber);
-            }
+            applyLiveBatchLimit();
           }
 
           public void removeUpdate(DocumentEvent e) {
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              EngineManager.engineGameInfo.batchNumber =
-                  Utils.parseTextToInt(txtenginePkBatch, EngineManager.engineGameInfo.batchNumber);
-            }
+            applyLiveBatchLimit();
           }
 
           public void changedUpdate(DocumentEvent e) {
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              EngineManager.engineGameInfo.batchNumber =
-                  Utils.parseTextToInt(txtenginePkBatch, EngineManager.engineGameInfo.batchNumber);
-            }
+            applyLiveBatchLimit();
           }
         });
 
@@ -3950,6 +3926,12 @@ public class BottomToolbar extends JPanel {
               public void startFailed(StartFailure failure) {}
             });
     return acceptance instanceof Acceptance.Accepted;
+  }
+
+  private void applyLiveBatchLimit() {
+    if (EngineGameDesktop.batchActive()) {
+      EngineGameDesktop.reviseLiveBatchLimit(txtenginePkBatch.getText());
+    }
   }
 
 

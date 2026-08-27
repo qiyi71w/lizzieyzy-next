@@ -1963,7 +1963,6 @@ public class EngineManager {
 
     stopCountDown();
     LizzieFrame.menu.toggleDoubleMenuGameStatus();
-    LizzieFrame.toolbar.isPkStop = false;
     Lizzie.frame.hasEnginePkTitile = true;
     Lizzie.frame.enginePkTitile = "";
     // 保存SGF文件
@@ -4865,7 +4864,6 @@ public class EngineManager {
                     () -> {
           if (LizzieFrame.toolbar != null) {
             LizzieFrame.toolbar.enableDisabelForEngineGame(true);
-                        LizzieFrame.toolbar.isPkStop = false;
           }
                     });
             failure =

@@ -30,6 +30,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   private boolean pendingSuccessor;
   private BatchSummary lastSummary;
   private EngineGameCompletionFacts lastCompletion;
+  private EngineGameChrome chrome = SwingEngineGameChrome.INSTANCE;
 
   @Override
   public Acceptance accept(EngineGameBatchSpec spec, StartObserver observer) {
@@ -88,6 +89,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         batch.rememberOutputIdentity(gameInfo.batchGameName, gameInfo.SF);
       }
     }
+    publishChrome(EngineGameChromeTransition.Kind.STARTING);
     return new Acceptance.Accepted();
   }
 
@@ -125,6 +127,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
     if (pending != null) {
       pending.startFailed(new StartFailure.CancelledByUser());
     }
+    publishChrome(EngineGameChromeTransition.Kind.USER_STOPPED);
     if (betweenGames) {
       return;
     }
@@ -154,10 +157,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       }
     }
     if (pausedTransaction != null) {
-      BottomToolbar toolbar = LizzieFrame.toolbar;
-      if (toolbar != null) {
-        toolbar.isPkStop = true;
-      }
+      publishChrome(EngineGameChromeTransition.Kind.PAUSED);
       EngineManager.pauseEngineGame(ownerOf(pausedTransaction));
     }
   }
@@ -184,16 +184,14 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       }
     }
     if (resumedTransaction != null) {
-      BottomToolbar toolbar = LizzieFrame.toolbar;
-      if (toolbar != null) {
-        toolbar.isPkStop = false;
-      }
+      publishChrome(EngineGameChromeTransition.Kind.RESUMED);
       EngineManager.resumeEngineGame(ownerOf(resumedTransaction));
     }
   }
 
   @Override
   public void reviseBatchLimit(int gameCount) {
+    EngineGameChromeTransition.Kind chromeKind = null;
     synchronized (lock) {
       if (batch == null || !(snapshot instanceof EngineGameSnapshot.BatchActive)) {
         return;
@@ -207,12 +205,16 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         plan = null;
         transaction = null;
         publishLocked(new EngineGameSnapshot.Idle());
+        chromeKind = EngineGameChromeTransition.Kind.BATCH_ENDED;
       } else {
         publishLocked(new EngineGameSnapshot.BatchActive(batch.summary(), active.activity()));
       }
     }
     if (EngineManager.engineGameInfo != null) {
       EngineManager.engineGameInfo.batchNumber = gameCount;
+    }
+    if (chromeKind != null) {
+      publishChrome(chromeKind);
     }
   }
 
@@ -295,6 +297,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   public boolean complete(GameOutcome outcome, Object ownerToken, int participantIndex) {
     Objects.requireNonNull(outcome, "outcome");
     EngineGameTransaction product;
+    EngineGameChromeTransition.Kind chromeKind = null;
     synchronized (lock) {
       product = transaction;
       if (product != null) {
@@ -312,13 +315,18 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
           publishLocked(
               new EngineGameSnapshot.BatchActive(
                   batch.summary(), new GameActivity.BetweenGames()));
+          chromeKind = EngineGameChromeTransition.Kind.BETWEEN_GAMES;
         } else {
           pendingSuccessor = false;
           plan = null;
           transaction = null;
           publishLocked(new EngineGameSnapshot.Idle());
+          chromeKind = EngineGameChromeTransition.Kind.BATCH_ENDED;
         }
       }
+    }
+    if (chromeKind != null) {
+      publishChrome(chromeKind);
     }
     EngineManager.syncProductBatchSummaryReaders();
     int index = participantIndex;
@@ -341,7 +349,8 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
    * @return false when a pending successor failed to start
    */
   public boolean onOwnerRetired() {
-    EngineGameInfo nextInfo;
+    EngineGameInfo nextInfo = null;
+    EngineGameChromeTransition.Kind chromeKind = null;
     synchronized (lock) {
       boolean betweenGames =
           snapshot instanceof EngineGameSnapshot.BatchActive active
@@ -355,15 +364,20 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         plan = null;
         transaction = null;
         publishLocked(new EngineGameSnapshot.Idle());
-        return true;
+        chromeKind = EngineGameChromeTransition.Kind.BATCH_ENDED;
+      } else {
+        pendingSuccessor = false;
+        batch.beginSuccessor();
+        plan = createPlan(batch);
+        transaction = new EngineGameTransaction(plan);
+        nextInfo = EngineGameInfoFactory.from(plan, batch);
+        publishLocked(
+            new EngineGameSnapshot.BatchActive(batch.summary(), new GameActivity.Starting()));
       }
-      pendingSuccessor = false;
-      batch.beginSuccessor();
-      plan = createPlan(batch);
-      transaction = new EngineGameTransaction(plan);
-      nextInfo = EngineGameInfoFactory.from(plan, batch);
-      publishLocked(
-          new EngineGameSnapshot.BatchActive(batch.summary(), new GameActivity.Starting()));
+    }
+    if (chromeKind == EngineGameChromeTransition.Kind.BATCH_ENDED) {
+      publishChrome(chromeKind);
+      return true;
     }
     EngineManager manager = Lizzie.engineManager;
     boolean started = manager != null && manager.startEngineGame(nextInfo, false);
@@ -373,6 +387,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         transaction = null;
         publishLocked(new EngineGameSnapshot.Idle());
       }
+      publishChrome(EngineGameChromeTransition.Kind.LATER_GAME_FAILED);
       return false;
     }
     synchronized (lock) {
@@ -380,6 +395,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         batch.rememberOutputIdentity(nextInfo.batchGameName, nextInfo.SF);
       }
     }
+    publishChrome(EngineGameChromeTransition.Kind.STARTING);
     return true;
   }
 
@@ -409,6 +425,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
     if (pending != null) {
       pending.playing();
     }
+    publishChrome(EngineGameChromeTransition.Kind.PLAYING);
   }
 
   public void onOwnerStartFailed(Throwable cause) {
@@ -432,6 +449,10 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       }
       publishLocked(new EngineGameSnapshot.Idle());
     }
+    publishChrome(
+        pending != null
+            ? EngineGameChromeTransition.Kind.START_FAILED
+            : EngineGameChromeTransition.Kind.LATER_GAME_FAILED);
     if (pending != null) {
       pending.startFailed(startFailureFrom(cause));
     }
@@ -443,8 +464,15 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       observerCompleted = false;
       lastSummary = null;
       lastCompletion = null;
+      chrome = SwingEngineGameChrome.INSTANCE;
       clearAcceptedLocked();
       snapshot = new EngineGameSnapshot.Idle();
+    }
+  }
+
+  public void replaceChromeForTest(EngineGameChrome chrome) {
+    synchronized (lock) {
+      this.chrome = chrome == null ? SwingEngineGameChrome.INSTANCE : chrome;
     }
   }
 
@@ -483,6 +511,18 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
     snapshot = next;
     if (next instanceof EngineGameSnapshot.BatchActive active) {
       lastSummary = active.batch();
+    }
+  }
+
+  private void publishChrome(EngineGameChromeTransition.Kind kind) {
+    EngineGameChrome target;
+    EngineGameSnapshot published;
+    synchronized (lock) {
+      target = chrome;
+      published = snapshot;
+    }
+    if (target != null) {
+      target.publish(new EngineGameChromeTransition(kind, published));
     }
   }
 

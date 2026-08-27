@@ -3037,7 +3037,7 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           @Override
           public void actionPerformed(ActionEvent e) {
-            Lizzie.engineManager.stopEngineGame(-1, true);
+            EngineGameDesktop.stop();
           }
         });
     gameMenu.add(breakEngineGame);
@@ -3049,7 +3049,7 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           @Override
           public void actionPerformed(ActionEvent e) {
-            LizzieFrame.toolbar.btnEnginePkStop.doClick();
+            EngineGameDesktop.togglePause();
           }
         });
     gameMenu.add(pauseEngineGame);
@@ -3069,16 +3069,13 @@ public class Menu extends JMenuBar {
                             resourceBundle.getString("Menu.changeEngineGameNumbersMessage"),
                             resourceBundle.getString("Menu.changeEngineGameNumbersTitle"),
                             JOptionPane.INFORMATION_MESSAGE);
-                    if (result != null)
-                      try {
-                        int numbers = Integer.parseInt(result);
-                        EngineManager.engineGameInfo.batchNumber = numbers;
-                      } catch (NumberFormatException ex) {
+                    if (result != null) {
+                      if (!EngineGameDesktop.reviseLiveBatchLimit(result)) {
                         Utils.showMsg(resourceBundle.getString("Menu.inputIntegerHint"));
                         return;
                       }
-                    LizzieFrame.toolbar.txtenginePkBatch.setText(
-                        String.valueOf(EngineManager.engineGameInfo.batchNumber));
+                      LizzieFrame.toolbar.txtenginePkBatch.setText(result.trim());
+                    }
                   }
                 });
           }
@@ -7687,8 +7684,8 @@ public class Menu extends JMenuBar {
       doubleMenuNewGame.addActionListener(
           new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-              if (EngineManager.isEngineGame) {
-                Lizzie.engineManager.stopEngineGame(-1, true);
+              if (EngineGameDesktop.batchActive()) {
+                EngineGameDesktop.stop();
                 return;
               }
               if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
@@ -8662,8 +8659,8 @@ public class Menu extends JMenuBar {
     doubleMenuNewGame.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) {
-              Lizzie.engineManager.stopEngineGame(-1, true);
+            if (EngineGameDesktop.batchActive()) {
+              EngineGameDesktop.stop();
               return;
             }
             if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
@@ -8713,8 +8710,8 @@ public class Menu extends JMenuBar {
     doubleMenuStopGame.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) {
-              Lizzie.engineManager.stopEngineGame(-1, true);
+            if (EngineGameDesktop.batchActive()) {
+              EngineGameDesktop.stop();
               return;
             }
             if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
@@ -9123,8 +9120,8 @@ public class Menu extends JMenuBar {
 
   private void pauseGame() {
     // TODO Auto-generated method stub
-    if (EngineManager.isEngineGame) {
-      LizzieFrame.toolbar.btnEnginePkStop.doClick();
+    if (EngineGameDesktop.batchActive()) {
+      EngineGameDesktop.togglePause();
       return;
     }
     if (Lizzie.frame.isAnaPlayingAgainstLeelaz || Lizzie.frame.isPlayingAgainstLeelaz) {

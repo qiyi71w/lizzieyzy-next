@@ -15,6 +15,8 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.enginegame.Acceptance;
 import featurecat.lizzie.enginegame.EngineGameBatchSpec;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
+import featurecat.lizzie.enginegame.EngineGameChrome;
+import featurecat.lizzie.enginegame.EngineGameChromeTransition;
 import featurecat.lizzie.enginegame.EngineGameParsedStart;
 import featurecat.lizzie.enginegame.EngineGamePlayMode;
 import featurecat.lizzie.enginegame.EngineGameRecord;
@@ -133,10 +135,12 @@ class EngineGameModuleContractTest {
     EngineManager.isEngineGame = false;
     EngineManager.isPreEngineGame = false;
     observer = new RecordingObserver();
+    Lizzie.engineGame.replaceChromeForTest(transition -> {});
   }
 
   @AfterEach
   void restoreFixture() throws Exception {
+    Lizzie.engineGame.replaceChromeForTest(null);
     EngineManager.resetEngineGameTransactionStateForTest();
     Lizzie.engineManager = previousManager;
     EngineManager.isEngineGame = previousEngineGame;
@@ -322,13 +326,11 @@ class EngineGameModuleContractTest {
     GameActivity.Playing paused = (GameActivity.Playing) activity(Lizzie.engineGame.current());
     assertEquals(RunState.PAUSED, paused.runState());
     assertTrue(txn.paused());
-    assertTrue(LizzieFrame.toolbar.isPkStop);
 
     Lizzie.engineGame.resume();
     GameActivity.Playing running = (GameActivity.Playing) activity(Lizzie.engineGame.current());
     assertEquals(RunState.RUNNING, running.runState());
     assertFalse(txn.paused());
-    assertFalse(LizzieFrame.toolbar.isPkStop);
 
     Lizzie.engineGame.reviseBatchLimit(8);
     EngineGameSnapshot.BatchActive active =
@@ -699,6 +701,86 @@ class EngineGameModuleContractTest {
 
 
   @Test
+  void recordingChromePublishesStartingPlayingPauseResumeAndUserStopInOrder() {
+    RecordingChrome chrome = new RecordingChrome();
+    Lizzie.engineGame.replaceChromeForTest(chrome);
+    try {
+      assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(analysisSpec(), observer));
+      Lizzie.engineGame.onOwnerPlaying();
+      Lizzie.engineGame.pause();
+      Lizzie.engineGame.resume();
+      Lizzie.engineGame.stop();
+      assertEquals(
+          List.of(
+              EngineGameChromeTransition.Kind.STARTING,
+              EngineGameChromeTransition.Kind.PLAYING,
+              EngineGameChromeTransition.Kind.PAUSED,
+              EngineGameChromeTransition.Kind.RESUMED,
+              EngineGameChromeTransition.Kind.USER_STOPPED),
+          chrome.kinds());
+      assertInstanceOf(GameActivity.Starting.class, activity(chrome.events.get(0).snapshot()));
+      assertInstanceOf(GameActivity.Playing.class, activity(chrome.events.get(1).snapshot()));
+      assertEquals(
+          RunState.PAUSED, ((GameActivity.Playing) activity(chrome.events.get(2).snapshot())).runState());
+      assertEquals(
+          RunState.RUNNING,
+          ((GameActivity.Playing) activity(chrome.events.get(3).snapshot())).runState());
+      assertInstanceOf(EngineGameSnapshot.Idle.class, chrome.events.get(4).snapshot());
+    } finally {
+      Lizzie.engineGame.replaceChromeForTest(null);
+    }
+  }
+
+  @Test
+  void recordingChromePublishesBetweenGamesBatchEndAndLaterGameFailure() {
+    RecordingChrome chrome = new RecordingChrome();
+    Lizzie.engineGame.replaceChromeForTest(chrome);
+    try {
+      playAccepted(genmoveBatchSpec(2, false));
+      completeCurrent(new GameOutcome.DoublePass());
+      assertEquals(EngineGameChromeTransition.Kind.BETWEEN_GAMES, chrome.kinds().get(2));
+      manager.failNextNonFirstStart = true;
+      assertFalse(Lizzie.engineGame.onOwnerRetired());
+      assertEquals(EngineGameChromeTransition.Kind.LATER_GAME_FAILED, chrome.lastKind());
+      assertInstanceOf(EngineGameSnapshot.Idle.class, chrome.lastSnapshot());
+    } finally {
+      Lizzie.engineGame.replaceChromeForTest(null);
+    }
+  }
+
+  @Test
+  void recordingChromePublishesStartFailureForFirstGame() {
+    RecordingChrome chrome = new RecordingChrome();
+    Lizzie.engineGame.replaceChromeForTest(chrome);
+    try {
+      assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(genmoveSpec(), observer));
+      Lizzie.engineGame.onOwnerStartFailed(new IllegalStateException("start"));
+      assertEquals(
+          List.of(
+              EngineGameChromeTransition.Kind.STARTING,
+              EngineGameChromeTransition.Kind.START_FAILED),
+          chrome.kinds());
+      assertInstanceOf(EngineGameSnapshot.Idle.class, chrome.lastSnapshot());
+    } finally {
+      Lizzie.engineGame.replaceChromeForTest(null);
+    }
+  }
+
+  @Test
+  void recordingChromePublishesBatchEndWhenNoSuccessor() {
+    RecordingChrome chrome = new RecordingChrome();
+    Lizzie.engineGame.replaceChromeForTest(chrome);
+    try {
+      playAccepted(genmoveSpec());
+      completeCurrent(new GameOutcome.DoublePass());
+      assertEquals(EngineGameChromeTransition.Kind.BATCH_ENDED, chrome.lastKind());
+      assertInstanceOf(EngineGameSnapshot.Idle.class, chrome.lastSnapshot());
+    } finally {
+      Lizzie.engineGame.replaceChromeForTest(null);
+    }
+  }
+
+  @Test
   void resolvedCatalogSlotsFollowIdentityAfterReorder() throws Exception {
     OccupancyLeelaz alpha = new OccupancyLeelaz();
     OccupancyLeelaz beta = new OccupancyLeelaz();
@@ -779,6 +861,31 @@ class EngineGameModuleContractTest {
     @Override
     public void startFailed(StartFailure failure) {
       failures.add(failure);
+    }
+  }
+
+  private static final class RecordingChrome implements EngineGameChrome {
+    private final List<EngineGameChromeTransition> events = new ArrayList<>();
+
+    @Override
+    public void publish(EngineGameChromeTransition transition) {
+      events.add(transition);
+    }
+
+    private List<EngineGameChromeTransition.Kind> kinds() {
+      List<EngineGameChromeTransition.Kind> kinds = new ArrayList<>();
+      for (EngineGameChromeTransition event : events) {
+        kinds.add(event.kind());
+      }
+      return kinds;
+    }
+
+    private EngineGameChromeTransition.Kind lastKind() {
+      return events.get(events.size() - 1).kind();
+    }
+
+    private EngineGameSnapshot lastSnapshot() {
+      return events.get(events.size() - 1).snapshot();
     }
   }
 
