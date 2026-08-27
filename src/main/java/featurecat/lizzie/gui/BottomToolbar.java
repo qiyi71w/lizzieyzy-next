@@ -4,6 +4,10 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
+import featurecat.lizzie.enginegame.Acceptance;
+import featurecat.lizzie.enginegame.StartFailure;
+import featurecat.lizzie.enginegame.StartObserver;
+
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Movelist;
@@ -4012,12 +4016,19 @@ public class BottomToolbar extends JPanel {
 
   public boolean startEngineGame() {
     List<EngineData> engines = Utils.getEngineData();
-    return EngineGameLegacyStartArgs.from(
-            EngineGameBatchSpecFactory.from(
-                EngineGameBatchSpecCapture.fromToolbar(this, engines)),
-            engines)
-        .submit(Lizzie.engineManager);
+    Acceptance acceptance =
+        Lizzie.engineGame.accept(
+            EngineGameBatchSpecFactory.from(EngineGameBatchSpecCapture.fromToolbar(this, engines)),
+            new StartObserver() {
+              @Override
+              public void playing() {}
+
+              @Override
+              public void startFailed(StartFailure failure) {}
+            });
+    return acceptance instanceof Acceptance.Accepted;
   }
+
 
   //  public void startEnginePk() {
   //    if (!Lizzie.engineManager.isEmpty && Lizzie.leelaz != null) {

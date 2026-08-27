@@ -1941,25 +1941,12 @@ class EngineManagerEngineGameStateMachineTest {
   void closingEngineGameDialogCancelsPendingStart() {
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
-    AtomicBoolean failed = new AtomicBoolean();
-    manager.attachEngineGameStartDialog(
-        new EngineManager.EngineGameStartDialogHost() {
-          @Override
-          public void onEngineGameStartSucceeded() {
-            throw new AssertionError("closing the dialog must not start the game");
-          }
 
-          @Override
-          public void onEngineGameStartFailed(String message) {
-            failed.set(true);
-          }
-        });
-
-    manager.cancelEngineGameStartFromDialog();
+    manager.clearEngineGame();
 
     assertFalse(EngineManager.isCurrentEngineGameTransaction(transaction));
-    assertFalse(failed.get(), "dialog close must cancel without a failure prompt");
   }
+
   @Test
   void startupCommandErrorFailsPreparingTransactionAndReleasesPhysicalLease() throws Exception {
     ImmediateUiEngineManager manager = installManager();

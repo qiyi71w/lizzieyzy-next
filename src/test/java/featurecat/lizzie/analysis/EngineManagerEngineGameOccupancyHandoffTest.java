@@ -8,6 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.Acceptance;
+import featurecat.lizzie.enginegame.EngineGameBatchSpec;
+import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
+import featurecat.lizzie.enginegame.EngineGameParsedStart;
+import featurecat.lizzie.enginegame.EngineParticipantIdentity;
+import featurecat.lizzie.enginegame.StartFailure;
+import featurecat.lizzie.enginegame.StartObserver;
+
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.gui.JFontMenu;
@@ -81,6 +89,9 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     black = new OccupancyLeelaz();
     white = new OccupancyLeelaz();
     black.bindLiveRuntime();
+    black.setEngineCommand("black-cmd");
+    white.setEngineCommand("white-cmd");
+
     white.bindLiveRuntime();
     Lizzie.setPrimaryEngine(black);
     frame = allocate(SilentFrame.class);
@@ -187,6 +198,9 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     restartManager.runWorkersInline = true;
     blackEngine.bindWarmKataGoRuntime();
     whiteEngine.bindWarmKataGoRuntime();
+    blackEngine.setEngineCommand("black-cmd");
+    whiteEngine.setEngineCommand("white-cmd");
+
     Lizzie.setPrimaryEngine(blackEngine);
     Lizzie.engineManager = restartManager;
     EngineManager.currentEngineNo = 0;
@@ -289,6 +303,9 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     restartManager.runWorkersInline = true;
     blackEngine.bindWarmKataGoRuntime();
     whiteEngine.bindWarmKataGoRuntime();
+    blackEngine.setEngineCommand("black-cmd");
+    whiteEngine.setEngineCommand("white-cmd");
+
     Lizzie.setPrimaryEngine(whiteEngine);
     Lizzie.engineManager = restartManager;
     EngineManager.currentEngineNo = 1;
@@ -301,9 +318,8 @@ class EngineManagerEngineGameOccupancyHandoffTest {
             assertTrue(
                 reservation != null, "EDT must hold the current foreground reservation");
             try {
-              started[0] =
-                  restartManager.startEngineGame(
-                      0, 1, 2, 2, 0, 0, 0, 0, false, 1, "", false, true, false, false, -1);
+              started[0] = acceptStart();
+
             } finally {
               reservation.close();
             }
@@ -336,9 +352,8 @@ class EngineManagerEngineGameOccupancyHandoffTest {
         black.beginExclusiveGtpLifecycleReservation(new Object());
     assertTrue(reservation != null);
     try {
-      boolean started =
-          manager.startEngineGame(
-              0, 1, 2, 2, 0, 0, 0, 0, false, 1, "", false, true, false, false, -1);
+      boolean started = acceptStart();
+
 
       assertFalse(started);
       assertFalse(EngineManager.isEngineGame);
@@ -378,6 +393,32 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     } finally {
       whiteReservation.close();
     }
+  }
+
+  private static boolean acceptStart() {
+    Acceptance acceptance =
+        Lizzie.engineGame.accept(
+            genmoveSpec(),
+            new StartObserver() {
+              @Override
+              public void playing() {}
+
+              @Override
+              public void startFailed(StartFailure failure) {}
+            });
+    return acceptance instanceof Acceptance.Accepted;
+  }
+
+  private static EngineGameBatchSpec genmoveSpec() {
+    return EngineGameBatchSpecFactory.from(
+        EngineGameParsedStart.builder()
+            .first(new EngineParticipantIdentity("black-cmd", ""))
+            .second(new EngineParticipantIdentity("white-cmd", ""))
+            .genmove(true)
+            .timeLimitEnabled(true)
+            .firstTimeSeconds(2)
+            .secondTimeSeconds(2)
+            .build());
   }
 
   private static EngineGameInfo gameInfo() {

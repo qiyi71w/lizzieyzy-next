@@ -6,6 +6,8 @@ import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.LeelazEngineCommandSink;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
+import featurecat.lizzie.enginegame.EngineGameModule;
+
 import featurecat.lizzie.gui.AppleStyleSupport;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.DesktopTimeControl;
@@ -293,6 +295,8 @@ public class Lizzie {
   public static boolean readMode = false;
   private static String[] mainArgs;
   public static EngineManager engineManager;
+  public static final EngineGameModule engineGame = new EngineGameModule();
+
   public static featurecat.lizzie.analysis.EngineFollowController engineFollowController;
   public static WebBoardManager webBoardManager = new WebBoardManager();
   public static int javaVersion = 8;

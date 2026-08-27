@@ -6,6 +6,8 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.DesktopTimeControl;
 import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.gui.EnginePkIdentity;
+import featurecat.lizzie.enginegame.EngineParticipantIdentity;
+
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
 import featurecat.lizzie.gui.SgfWinLossList;
@@ -66,15 +68,6 @@ public class EngineManager {
   private static final ScheduledThreadPoolExecutor ENGINE_GAME_PHYSICAL_REQUEST_WATCHDOG =
       createEngineGamePhysicalRequestWatchdogExecutor();
   private static final Set<Leelaz> REMOTE_ENGINES_RESTARTING = ConcurrentHashMap.newKeySet();
-
-  public interface EngineGameStartDialogHost {
-    void onEngineGameStartSucceeded();
-
-    void onEngineGameStartFailed(String message);
-  }
-
-  private final AtomicReference<EngineGameStartDialogHost> engineGameStartDialogHost =
-      new AtomicReference<>();
 
   /** Serializes the provisional owner pointer and its committed index/empty-state publication. */
   private static final Object ENGINE_SELECTION_STATE_LOCK = new Object();
@@ -1178,9 +1171,10 @@ public class EngineManager {
     rethrowLifecycleCleanupFailure(cleanupFailure);
   }
 
-  EngineManager(List<Leelaz> engines) {
+  public EngineManager(List<Leelaz> engines) {
     engineList = engines;
   }
+
 
   public void autoCheckEngineAlive(boolean enable) {
     if (enable) {
@@ -1203,102 +1197,87 @@ public class EngineManager {
     }
   }
 
-  public boolean startEngineGame(
-      int engineBlack,
-      int engineWhite,
-      int timeBlack,
-      int timeWhite,
-      int playoutsBlack,
-      int playoutsWhite,
-      int firstPlayoutsBlack,
-      int firstPlayoutsWhite,
-      boolean isBatchGame,
-      int batchGameNumber,
-      String batchGameName,
-      boolean isContinueGame,
-      boolean isGenmove,
-      boolean isExchange,
-      boolean checkGameMaxMove,
-      int maxGameMoves) {
-    DesktopTimeControl.SideMode blackTimeMode =
-        DesktopTimeControl.loadEngineGameSideMode(Lizzie.config, true);
-    DesktopTimeControl.SideMode whiteTimeMode =
-        DesktopTimeControl.loadEngineGameSideMode(Lizzie.config, false);
-    if (isGenmove
+  public int resolveEngineGameParticipant(EngineParticipantIdentity identity) {
+    if (identity == null || engineList == null || engineList.isEmpty()) {
+      return -1;
+    }
+    int commandMatch = -1;
+    for (int i = 0; i < engineList.size(); i++) {
+      Leelaz engine = engineList.get(i);
+      if (engine == null) {
+        continue;
+      }
+      String command = engine.oriEngineCommand == null ? "" : engine.oriEngineCommand;
+      if (!identity.commands().equals(command)) {
+        continue;
+      }
+      if (commandMatch < 0) {
+        commandMatch = i;
+      }
+      String name = engine.oriEnginename == null ? "" : engine.oriEnginename;
+      if (identity.name().equals(name)) {
+        return i;
+      }
+    }
+    return commandMatch;
+  }
+
+  public boolean startEngineGame(EngineGameInfo engineGameInfo) {
+    if (engineGameInfo == null) {
+      return false;
+    }
+    int engineBlack = engineGameInfo.blackEngineIndex;
+    int engineWhite = engineGameInfo.whiteEngineIndex;
+    if (engineGameInfo.isGenmove
         && DesktopTimeControl.rejectsEngineGame(
-            engineList, engineBlack, engineWhite, blackTimeMode, whiteTimeMode)) {
-      Lizzie.frame.showUnsupportedWebSocketAdvancedClock();
+            engineList,
+            engineBlack,
+            engineWhite,
+            engineGameInfo.blackTimeMode,
+            engineGameInfo.whiteTimeMode)) {
+      if (Lizzie.frame != null) {
+        Lizzie.frame.showUnsupportedWebSocketAdvancedClock();
+      }
       return false;
     }
     if (engineBlack == engineWhite) {
-      Utils.showMsg(resourceBundle.getString("EngineManager.engineGameSameEngine"));
       return false;
     }
-    if (!isGenmove) {
-      if (timeBlack <= 0 && playoutsBlack <= 0 && firstPlayoutsBlack <= 0) {
-        Utils.showMsg(resourceBundle.getString("EngineManager.engineGameBlackSettingWrong"));
-        return false;
-      }
-      if (timeWhite <= 0 && playoutsWhite <= 0 && firstPlayoutsWhite <= 0) {
-        Utils.showMsg(resourceBundle.getString("EngineManager.engineGameWhiteSettingWrong"));
-        return false;
-      }
-    }
-    // Construct the next game completely off to the side. Publishing a partially initialized
-    // object here used to invalidate an already-running game's identity even when validation or
-    // later setup failed.
-    EngineGameInfo engineGameInfo = new EngineGameInfo();
-    engineGameInfo.isGenmove = isGenmove;
-    engineGameInfo.blackEngineIndex = engineBlack;
-    engineGameInfo.whiteEngineIndex = engineWhite;
-    engineGameInfo.firstEngineIndex = engineBlack;
-    engineGameInfo.secondEngineIndex = engineWhite;
-    if (isGenmove) {
-      timeBlack =
-          DesktopTimeControl.fixedSecondsForToolbar(blackTimeMode, timeBlack > 0, timeBlack);
-      timeWhite =
-          DesktopTimeControl.fixedSecondsForToolbar(whiteTimeMode, timeWhite > 0, timeWhite);
-    }
-    engineGameInfo.timeBlack = timeBlack;
-    engineGameInfo.timeWhite = timeWhite;
-    engineGameInfo.timeFirstEngine = timeBlack;
-    engineGameInfo.timeSecondEngine = timeWhite;
-    engineGameInfo.blackTimeMode = blackTimeMode;
-    engineGameInfo.whiteTimeMode = whiteTimeMode;
-    engineGameInfo.advanceBlackTimeCmd = Lizzie.config.advanceBlackTimeTxt;
-    engineGameInfo.advanceWhiteTimeCmd = Lizzie.config.advanceWhiteTimeTxt;
-    engineGameInfo.playoutsBlack = playoutsBlack;
-    engineGameInfo.playoutsWhite = playoutsWhite;
-    engineGameInfo.playoutsFirstEngine = playoutsBlack;
-    engineGameInfo.firstPlayoutsFirstEngine = firstPlayoutsBlack;
-    engineGameInfo.playoutsSecondEngine = playoutsWhite;
-    engineGameInfo.firstPlayoutsSecondEngine = firstPlayoutsWhite;
-    engineGameInfo.firstPlayoutsBlack = firstPlayoutsBlack;
-    engineGameInfo.firstPlayoutsWhite = firstPlayoutsWhite;
-    engineGameInfo.isBatchGame = isBatchGame;
-    engineGameInfo.batchNumber = batchGameNumber;
-    engineGameInfo.isExchange = isExchange;
-    engineGameInfo.batchNumberCurrent = 1;
-    engineGameInfo.isContinueGame = isContinueGame;
-    engineGameInfo.handicap = Lizzie.config.newEngineGameHandicap;
-    engineGameInfo.komi = Lizzie.config.newEngineGameKomi;
-    engineGameInfo.blackMinMove = Lizzie.config.firstEngineMinMove;
-    engineGameInfo.blackResignMoveCounts = Lizzie.config.firstEngineResignMoveCounts;
-    engineGameInfo.blackResignWinrate = Lizzie.config.firstEngineResignWinrate;
-
-    engineGameInfo.whiteMinMove = Lizzie.config.secondEngineMinMove;
-    engineGameInfo.whiteResignMoveCounts = Lizzie.config.secondEngineResignMoveCounts;
-    engineGameInfo.whiteResignWinrate = Lizzie.config.secondEngineResignWinrate;
-    if (checkGameMaxMove) engineGameInfo.setMaxGameMoves(maxGameMoves);
-    else engineGameInfo.setMaxGameMoves(-1);
     engineGameInfo.SF = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
-    if (Lizzie.frame.enginePkSgfWinLoss != null)
+    if (Lizzie.frame != null && Lizzie.frame.enginePkSgfWinLoss != null) {
       engineGameInfo.engineGameSgfWinLoss = Lizzie.frame.enginePkSgfWinLoss;
-    if (isGenmove) {
+    }
+    fillEngineGameSettingStrings(engineGameInfo);
+    if (engineGameInfo.isBatchGame
+        && (engineGameInfo.batchGameName == null || engineGameInfo.batchGameName.equals(""))) {
+      String generated =
+          getEngineName(engineGameInfo.firstEngineIndex)
+              + "_VS_"
+              + getEngineName(engineGameInfo.secondEngineIndex)
+              + "_"
+              + engineGameInfo.SF;
+      generated = generated.replaceAll("[/\\\\:*?|]", ".");
+      generated = generated.replaceAll("[\"<>]", "'");
+      engineGameInfo.batchGameName = generated;
+    }
+
+    EngineGameTransaction gameTransaction = startNewEngineGame(true, engineGameInfo, null, true);
+    if (gameTransaction == null || !isCurrentEngineGameTransaction(gameTransaction)) {
+      return false;
+    }
+    publishEngineGamePreparingUi(gameTransaction);
+    return true;
+  }
+
+  private void fillEngineGameSettingStrings(EngineGameInfo engineGameInfo) {
+    if (resourceBundle == null || engineList == null) {
+      return;
+    }
+    if (engineGameInfo.isGenmove) {
       engineGameInfo.settingFirst =
-          resourceBundle.getString("EngineGameInfo.settingFirst"); // "第一引擎设置:";
+          resourceBundle.getString("EngineGameInfo.settingFirst");
       engineGameInfo.settingSecond =
-          resourceBundle.getString("EngineGameInfo.settingSecond"); // "第二引擎设置:";
+          resourceBundle.getString("EngineGameInfo.settingSecond");
       if (engineGameInfo.blackTimeMode == DesktopTimeControl.SideMode.RAW_ADVANCED) {
         engineGameInfo.settingFirst +=
             resourceBundle.getString("EngineGameInfo.time") + engineGameInfo.advanceBlackTimeCmd;
@@ -1325,106 +1304,75 @@ public class EngineManager {
           "\r\n"
               + resourceBundle.getString("EngineGameInfo.command")
               + engineList.get(engineGameInfo.secondEngineIndex).getEngineCommand();
-
-    } else {
-      engineGameInfo.settingFirst =
-          resourceBundle.getString("EngineGameInfo.settingFirst"); // "第一引擎设置:";
-      if (engineGameInfo.timeFirstEngine > 0)
-        engineGameInfo.settingFirst +=
-            resourceBundle.getString("EngineGameInfo.time")
-                + engineGameInfo.timeFirstEngine
-                + resourceBundle.getString("SGFParse.seconds");
-      if (engineGameInfo.playoutsFirstEngine > 0)
-        engineGameInfo.settingFirst +=
-            resourceBundle.getString("EngineGameInfo.totalVisits")
-                + engineGameInfo.playoutsFirstEngine;
-      if (engineGameInfo.firstPlayoutsFirstEngine > 0)
-        engineGameInfo.settingFirst +=
-            resourceBundle.getString("EngineGameInfo.firstVisits")
-                + engineGameInfo.firstPlayoutsFirstEngine;
-
+      return;
+    }
+    engineGameInfo.settingFirst = resourceBundle.getString("EngineGameInfo.settingFirst");
+    if (engineGameInfo.timeFirstEngine > 0)
       engineGameInfo.settingFirst +=
-          "\r\n"
-              + resourceBundle.getString("EngineGameInfo.resignThreshold")
-              + Lizzie.config.firstEngineMinMove
-              + resourceBundle.getString("EngineGameInfo.resignThreshold2")
-              + Lizzie.config.firstEngineResignMoveCounts
-              + resourceBundle.getString("EngineGameInfo.resignThreshold3")
-              + Lizzie.config.firstEngineResignWinrate;
-
+          resourceBundle.getString("EngineGameInfo.time")
+              + engineGameInfo.timeFirstEngine
+              + resourceBundle.getString("SGFParse.seconds");
+    if (engineGameInfo.playoutsFirstEngine > 0)
       engineGameInfo.settingFirst +=
-          "\r\n"
-              + resourceBundle.getString("EngineGameInfo.command")
-              + engineList.get(engineGameInfo.firstEngineIndex).getEngineCommand();
-
-      engineGameInfo.settingSecond =
-          resourceBundle.getString("EngineGameInfo.settingSecond"); // "第二引擎设置:";
-      if (engineGameInfo.timeSecondEngine > 0)
-        engineGameInfo.settingSecond +=
-            resourceBundle.getString("EngineGameInfo.time")
-                + engineGameInfo.timeSecondEngine
-                + resourceBundle.getString("SGFParse.seconds");
-      if (engineGameInfo.playoutsSecondEngine > 0)
-        engineGameInfo.settingSecond +=
-            resourceBundle.getString("EngineGameInfo.totalVisits")
-                + engineGameInfo.playoutsSecondEngine;
-      if (engineGameInfo.firstPlayoutsSecondEngine > 0)
-        engineGameInfo.settingSecond +=
-            resourceBundle.getString("EngineGameInfo.firstVisits")
-                + engineGameInfo.firstPlayoutsSecondEngine;
+          resourceBundle.getString("EngineGameInfo.totalVisits")
+              + engineGameInfo.playoutsFirstEngine;
+    if (engineGameInfo.firstPlayoutsFirstEngine > 0)
+      engineGameInfo.settingFirst +=
+          resourceBundle.getString("EngineGameInfo.firstVisits")
+              + engineGameInfo.firstPlayoutsFirstEngine;
+    engineGameInfo.settingFirst +=
+        "\r\n"
+            + resourceBundle.getString("EngineGameInfo.resignThreshold")
+            + engineGameInfo.blackMinMove
+            + resourceBundle.getString("EngineGameInfo.resignThreshold2")
+            + engineGameInfo.blackResignMoveCounts
+            + resourceBundle.getString("EngineGameInfo.resignThreshold3")
+            + engineGameInfo.blackResignWinrate;
+    engineGameInfo.settingFirst +=
+        "\r\n"
+            + resourceBundle.getString("EngineGameInfo.command")
+            + engineList.get(engineGameInfo.firstEngineIndex).getEngineCommand();
+    engineGameInfo.settingSecond = resourceBundle.getString("EngineGameInfo.settingSecond");
+    if (engineGameInfo.timeSecondEngine > 0)
       engineGameInfo.settingSecond +=
-          "\r\n"
-              + resourceBundle.getString("EngineGameInfo.resignThreshold")
-              + Lizzie.config.secondEngineMinMove
-              + resourceBundle.getString("EngineGameInfo.resignThreshold2")
-              + Lizzie.config.secondEngineResignMoveCounts
-              + resourceBundle.getString("EngineGameInfo.resignThreshold3")
-              + Lizzie.config.secondEngineResignWinrate;
-
+          resourceBundle.getString("EngineGameInfo.time")
+              + engineGameInfo.timeSecondEngine
+              + resourceBundle.getString("SGFParse.seconds");
+    if (engineGameInfo.playoutsSecondEngine > 0)
       engineGameInfo.settingSecond +=
-          "\r\n"
-              + resourceBundle.getString("EngineGameInfo.command")
-              + engineList.get(engineGameInfo.secondEngineIndex).getEngineCommand();
-    }
-
-    if (engineGameInfo.isContinueGame) {
-      engineGameInfo.continueGameList = Lizzie.board.getMoveList();
-    }
-    if (engineGameInfo.isBatchGame) {
-      if (batchGameName.equals("")) {
-        // batchPkName = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
-        String SF = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
-        SF =
-            getEngineName(engineGameInfo.firstEngineIndex)
-                + "_VS_"
-                + getEngineName(engineGameInfo.secondEngineIndex)
-                + "_"
-                + SF;
-        SF = SF.replaceAll("[/\\\\:*?|]", ".");
-        SF = SF.replaceAll("[\"<>]", "'");
-        engineGameInfo.batchGameName = SF;
-      } else {
-        engineGameInfo.batchGameName = batchGameName;
-      }
-    }
-
-    EngineGameTransaction gameTransaction = startNewEngineGame(true, engineGameInfo, null, true);
-    if (gameTransaction == null || !isCurrentEngineGameTransaction(gameTransaction)) {
-      return false;
-    }
-    publishEngineGamePreparingUi(gameTransaction);
-    return true;
+          resourceBundle.getString("EngineGameInfo.totalVisits")
+              + engineGameInfo.playoutsSecondEngine;
+    if (engineGameInfo.firstPlayoutsSecondEngine > 0)
+      engineGameInfo.settingSecond +=
+          resourceBundle.getString("EngineGameInfo.firstVisits")
+              + engineGameInfo.firstPlayoutsSecondEngine;
+    engineGameInfo.settingSecond +=
+        "\r\n"
+            + resourceBundle.getString("EngineGameInfo.resignThreshold")
+            + engineGameInfo.whiteMinMove
+            + resourceBundle.getString("EngineGameInfo.resignThreshold2")
+            + engineGameInfo.whiteResignMoveCounts
+            + resourceBundle.getString("EngineGameInfo.resignThreshold3")
+            + engineGameInfo.whiteResignWinrate;
+    engineGameInfo.settingSecond +=
+        "\r\n"
+            + resourceBundle.getString("EngineGameInfo.command")
+            + engineList.get(engineGameInfo.secondEngineIndex).getEngineCommand();
   }
+
 
   public ArrayList<Movelist> getStartListForEnginePk() {
     return getStartListForEnginePk(engineGameInfo);
   }
 
   private ArrayList<Movelist> getStartListForEnginePk(EngineGameInfo gameInfo) {
+    if (gameInfo.openingFrozen) {
+      return gameInfo.frozenStartList;
+    }
     if (gameInfo.isContinueGame) {
       return gameInfo.continueGameList;
     }
-    if (Lizzie.config.chkEngineSgfStart) {
+    if (Lizzie.config != null && Lizzie.config.chkEngineSgfStart) {
       int length = Lizzie.frame.enginePKSgfString.size();
       if (Lizzie.config.engineSgfStartRandom) {
         Random random = new Random();
@@ -1437,6 +1385,7 @@ public class EngineManager {
     }
     return null;
   }
+
 
   private ArrayList<Movelist> prepareEngineGameBoard(
       boolean firstTime, boolean analysisMode, EngineGameInfo engineGame) {
@@ -6869,6 +6818,8 @@ public class EngineManager {
       }
       closeDeferredEngineGameRecoverySynchronization(recoveryBatch.current);
     }
+    Lizzie.engineGame.resetForTest();
+
   }
 
   static EngineGameTransaction beginEngineGameTransaction(
@@ -8562,29 +8513,20 @@ public class EngineManager {
     ENGINE_LOG.info("engine-game event=start-refused reason={}", reason);
   }
 
-  public void attachEngineGameStartDialog(EngineGameStartDialogHost host) {
-    engineGameStartDialogHost.set(host);
-  }
-
-  public void cancelEngineGameStartFromDialog() {
-    engineGameStartDialogHost.set(null);
-    logEngineGameStartRefused("dialog-cancel");
-    clearEngineGame();
-  }
-
   private void notifyEngineGameStartSucceeded() {
-    EngineGameStartDialogHost host = engineGameStartDialogHost.getAndSet(null);
-    if (host != null) {
-      host.onEngineGameStartSucceeded();
-    }
+    Lizzie.engineGame.onOwnerPlaying();
   }
 
   private void notifyEngineGameStartFailed(String message) {
-    EngineGameStartDialogHost host = engineGameStartDialogHost.getAndSet(null);
-    if (host != null) {
-      host.onEngineGameStartFailed(message);
+    Throwable cause = null;
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      if (retiringEngineGameTransaction != null) {
+        cause = retiringEngineGameTransaction.terminalFailure();
+      }
     }
+    Lizzie.engineGame.onOwnerStartFailed(cause);
   }
+
 
   /**
    * Returns the first-stage budget for this exact pair of participants.

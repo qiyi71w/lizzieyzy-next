@@ -12,6 +12,9 @@ public class EngineGameInfo {
   public boolean isGenmove;
   public boolean isContinueGame;
   public ArrayList<Movelist> continueGameList;
+  public boolean openingFrozen;
+  public ArrayList<Movelist> frozenStartList;
+
   public int blackEngineIndex; // 当前黑白方
   public int whiteEngineIndex;
   public int firstEngineIndex; // 第一第二引擎

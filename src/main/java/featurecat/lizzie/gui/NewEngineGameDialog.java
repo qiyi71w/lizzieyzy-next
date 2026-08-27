@@ -8,6 +8,12 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
+import featurecat.lizzie.enginegame.Acceptance;
+import featurecat.lizzie.enginegame.EngineGameBatchSpec;
+import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
+import featurecat.lizzie.enginegame.StartFailure;
+import featurecat.lizzie.enginegame.StartObserver;
+
 import featurecat.lizzie.util.Utils;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -626,9 +632,8 @@ public class NewEngineGameDialog extends JDialog {
             if (pendingEngineGameStart) {
               pendingEngineGameStart = false;
               cancelled = true;
-              if (Lizzie.engineManager != null) {
-                Lizzie.engineManager.cancelEngineGameStartFromDialog();
-              }
+              Lizzie.engineGame.stop();
+
             }
           }
         });
@@ -1127,32 +1132,37 @@ public class NewEngineGameDialog extends JDialog {
       LizzieFrame.toolbar.chkenginePk.setSelected(true);
       okButton.setEnabled(false);
       pendingEngineGameStart = true;
-      if (Lizzie.engineManager != null) {
-        Lizzie.engineManager.attachEngineGameStartDialog(
-            new EngineManager.EngineGameStartDialogHost() {
-              @Override
-              public void onEngineGameStartSucceeded() {
-                pendingEngineGameStart = false;
-                setVisible(false);
-              }
+      EngineGameBatchSpec spec =
+          EngineGameBatchSpecFactory.from(
+              EngineGameBatchSpecCapture.fromToolbar(LizzieFrame.toolbar, Utils.getEngineData()));
+      Acceptance acceptance =
+          Lizzie.engineGame.accept(
+              spec,
+              new StartObserver() {
+                @Override
+                public void playing() {
+                  pendingEngineGameStart = false;
+                  setVisible(false);
+                }
 
-              @Override
-              public void onEngineGameStartFailed(String message) {
-                pendingEngineGameStart = false;
-                cancelled = true;
-                okButton.setEnabled(true);
-                Utils.showMsg(message, NewEngineGameDialog.this);
-              }
-            });
-      }
-      if (!LizzieFrame.toolbar.startEngineGame()) {
+                @Override
+                public void startFailed(StartFailure failure) {
+                  pendingEngineGameStart = false;
+                  cancelled = true;
+                  okButton.setEnabled(true);
+                  if (!(failure instanceof StartFailure.CancelledByUser)) {
+                    Utils.showMsg(
+                        Lizzie.resourceBundle.getString("EngineManager.engineGameStartFailed"),
+                        NewEngineGameDialog.this);
+                  }
+                }
+              });
+      if (acceptance instanceof Acceptance.Rejected) {
         pendingEngineGameStart = false;
         cancelled = true;
         okButton.setEnabled(true);
-        if (Lizzie.engineManager != null) {
-          Lizzie.engineManager.attachEngineGameStartDialog(null);
-        }
       }
+
     } catch (ParseException e) {
       Utils.showMsg(
           Lizzie.resourceBundle.getString(EngineGameHandicapApply.ERROR_RESOURCE_KEY), this);
