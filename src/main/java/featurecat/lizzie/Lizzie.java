@@ -1412,8 +1412,16 @@ public class Lizzie {
   }
 
   public static void shutdown() {
+    shutdown(System::exit);
+  }
+
+  static void shutdown(IntConsumer exit) {
     logShutdownRequested();
-    if (config.autoSaveOnExit) frame.saveAutoGame(1);
+    try {
+      if (config.autoSaveOnExit) frame.saveAutoGame(1);
+    } catch (Exception e) {
+      APP.error("failed to auto-save on shutdown", e);
+    }
     if (Lizzie.config.uiConfig.optBoolean("autoload-last", false)) {
       Lizzie.config.uiConfig.put("last-engine", EngineManager.currentEngineNo);
     }
@@ -1475,7 +1483,7 @@ public class Lizzie {
         e.printStackTrace();
       }
     }
-    shutdownLoggingThenExit(System::exit);
+    shutdownLoggingThenExit(exit);
   }
 
   public static void shutdownLoggingThenExit(IntConsumer exit) {

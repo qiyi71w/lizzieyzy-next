@@ -7333,7 +7333,7 @@ public class LizzieFrame extends JFrame {
     boolean isKataStyle = false;
     if (curData.isKataData
         || curData.isSaiData
-        || (Lizzie.leelaz.isKatago && !EngineManager.isEmpty)
+        || (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && !EngineManager.isEmpty)
         || (EngineManager.isEngineGame
             && (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
                     .isKatago
@@ -7371,7 +7371,7 @@ public class LizzieFrame extends JFrame {
                 + String.format(Locale.ENGLISH, "%.1f", scoreStdev)
                 + " ";
     }
-    if (Lizzie.leelaz.isColorEngine) {
+    if (Lizzie.leelaz != null && Lizzie.leelaz.isColorEngine) {
       // "阶段:""贴目:"
       text =
           text
@@ -7546,7 +7546,8 @@ public class LizzieFrame extends JFrame {
                   .usingSpecificRules
               > 0) return true;
     }
-    if (Lizzie.leelaz.isKatago && Lizzie.leelaz.usingSpecificRules > 0) return true;
+    if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && Lizzie.leelaz.usingSpecificRules > 0)
+      return true;
     return false;
   }
 
@@ -7787,7 +7788,7 @@ public class LizzieFrame extends JFrame {
               : Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex);
     else leela = Lizzie.leelaz;
     // ||(Lizzie.engineManager.isEngineGame&&Lizzie.engineManager.engineGameInfo.isGenmove)
-    if (leela.isKatago && !EngineManager.isEmpty) {
+    if (leela != null && leela.isKatago && !EngineManager.isEmpty) {
       switch (leela.usingSpecificRules) {
         case 1:
           moveOrRules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
@@ -9225,7 +9226,7 @@ public class LizzieFrame extends JFrame {
               Lizzie.board.getHistory().getCurrentHistoryNode().previous().get().getData().comment;
         else {
           if (Lizzie.board.getHistory().getData().comment.equals("")) {
-            if ((Lizzie.leelaz.isPondering()
+            if (((Lizzie.leelaz != null && Lizzie.leelaz.isPondering())
                     || EngineManager.isEngineGame
                     || Lizzie.frame.isPlayingAgainstLeelaz)
                 && Lizzie.config.appendWinrateToComment
