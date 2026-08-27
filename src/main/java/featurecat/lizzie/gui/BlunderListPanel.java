@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.ResourceBundle;
 import javax.swing.*;
 
 public class BlunderListPanel extends JPanel implements Scrollable {
@@ -224,6 +225,15 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     int width = Math.max(1, getWidth());
     drawColumn(g2, getMergedEntries(), 0, HEADER_HEIGHT, width);
     g2.dispose();
+  }
+
+  static String emptyStatePrimary(boolean analysisRunning, ResourceBundle bundle) {
+    return bundle.getString(
+        analysisRunning ? "BlunderListPanel.organizing" : "BlunderListPanel.empty");
+  }
+
+  static String emptyStateHint(ResourceBundle bundle) {
+    return bundle.getString("BlunderListPanel.emptyHint");
   }
 
   private void drawEmptyState(Graphics g) {
@@ -560,13 +570,20 @@ public class BlunderListPanel extends JPanel implements Scrollable {
       int textInset,
       Font titleFont,
       Font subtitleFont) {
-    String title = analysisRunning ? EMPTY_STATE_ANALYZING_TITLE : EMPTY_STATE_TITLE;
+    String title =
+        Lizzie.resourceBundle != null
+            ? emptyStatePrimary(analysisRunning, Lizzie.resourceBundle)
+            : (analysisRunning ? EMPTY_STATE_ANALYZING_TITLE : EMPTY_STATE_TITLE);
+    String subtitle =
+        Lizzie.resourceBundle != null
+            ? emptyStateHint(Lizzie.resourceBundle)
+            : EMPTY_STATE_SUBTITLE;
     int inset = Math.max(4, textInset);
     int boxW = emptyStateBoxWidth(panelWidth);
     int boxX = Math.max(Math.min(EMPTY_STATE_MARGIN, panelWidth / 8), (panelWidth - boxW) / 2);
     int innerWidth = Math.max(1, boxW - inset * 2);
     List<String> wrappedTitle = wrapToWidth(titleMetrics, title, innerWidth);
-    List<String> wrappedSubtitle = wrapToWidth(subtitleMetrics, EMPTY_STATE_SUBTITLE, innerWidth);
+    List<String> wrappedSubtitle = wrapToWidth(subtitleMetrics, subtitle, innerWidth);
     int titleLineHeight = lineHeight(titleMetrics);
     int subtitleLineHeight = lineHeight(subtitleMetrics);
     int titleBlockHeight = Math.max(titleLineHeight, wrappedTitle.size() * titleLineHeight);

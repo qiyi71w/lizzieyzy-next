@@ -5213,7 +5213,8 @@ public class Menu extends JMenuBar {
     checkUpdate.addActionListener(e -> WindowsUpdateController.openCheckUpdatePage(Lizzie.frame));
 
     helpMenu.addSeparator();
-    final JFontMenuItem clearUserData = new JFontMenuItem("清除所有个人数据");
+    final JFontMenuItem clearUserData =
+        new JFontMenuItem(resourceBundle.getString("Menu.clearAllPersonalData"));
     helpMenu.add(clearUserData);
     clearUserData.addActionListener(
         new ActionListener() {
@@ -5221,9 +5222,8 @@ public class Menu extends JMenuBar {
             int choice =
                 JOptionPane.showConfirmDialog(
                     Lizzie.frame,
-                    "将清除以下个人数据:\n  • 野狐账号搜索记录\n  • 最近打开的棋谱列表\n  • 批量分析记录\n  • 分享棋谱历史\n\n"
-                        + "该操作不可撤销，是否继续?",
-                    "清除所有个人数据",
+                    resourceBundle.getString("Menu.clearAllPersonalData.confirmMessage"),
+                    resourceBundle.getString("Menu.clearAllPersonalData.confirmTitle"),
                     JOptionPane.OK_CANCEL_OPTION,
                     JOptionPane.WARNING_MESSAGE);
             if (choice != JOptionPane.OK_OPTION) return;
@@ -5237,7 +5237,10 @@ public class Menu extends JMenuBar {
               ex.printStackTrace();
             }
             JOptionPane.showMessageDialog(
-                Lizzie.frame, "已清除。", "完成", JOptionPane.INFORMATION_MESSAGE);
+                Lizzie.frame,
+                resourceBundle.getString("Menu.clearAllPersonalData.doneMessage"),
+                resourceBundle.getString("Menu.clearAllPersonalData.doneTitle"),
+                JOptionPane.INFORMATION_MESSAGE);
           }
         });
 
