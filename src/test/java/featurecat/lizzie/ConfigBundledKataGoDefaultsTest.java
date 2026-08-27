@@ -439,6 +439,228 @@ public class ConfigBundledKataGoDefaultsTest {
   }
 
   @Test
+  void copiedBundledDefaultSlotRebindsToCurrentPackageWhileOldBundleStillExists() throws Exception {
+    Path currentRoot = Files.createTempDirectory("lizzie-current-package");
+    Path previousRoot = Files.createTempDirectory("lizzie-previous-package");
+    Files.writeString(currentRoot.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(currentRoot);
+    createBundledKataGoAssets(previousRoot);
+
+    String previousCommand = bundledGtpCommand(previousRoot);
+    String previousAnalysis = bundledAnalysisCommand(previousRoot);
+    String currentCommand = bundledGtpCommand(currentRoot);
+    String currentAnalysis = bundledAnalysisCommand(currentRoot);
+
+    Config config = ConfigTestHelper.createForTests(currentRoot);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-default", false)
+            .put("autoload-last", false)
+            .put("autoload-empty", true)
+            .put("default-engine", 0)
+            .put("analysis-engine-command", previousAnalysis)
+            .put("analysis-engine-command-customized", false);
+    JSONObject bundledEngine =
+        new JSONObject()
+            .put("name", "KataGo Auto Setup")
+            .put("command", previousCommand)
+            .put("isDefault", true);
+    JSONObject leelaz =
+        new JSONObject().put("engine-settings-list", new JSONArray().put(bundledEngine));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(currentRoot, () -> applyBundledKataGoDefaults(config));
+
+    JSONObject storedEngine = leelaz.getJSONArray("engine-settings-list").getJSONObject(0);
+    assertEquals(currentCommand, storedEngine.getString("command"));
+    assertEquals(currentAnalysis, ui.getString("analysis-engine-command"));
+    assertFalse(ui.getBoolean("analysis-engine-command-customized"));
+    assertTrue(ui.getBoolean("autoload-empty"));
+    assertFalse(ui.getBoolean("autoload-default"));
+    assertTrue(Files.isRegularFile(bundledExecutable(previousRoot)));
+  }
+
+  @Test
+  void movedBundledDefaultSlotRebindsWhenOldExecutableIsGone() throws Exception {
+    Path currentRoot = Files.createTempDirectory("lizzie-moved-current-package");
+    Path previousRoot = Files.createTempDirectory("lizzie-moved-previous-package");
+    Files.writeString(currentRoot.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(currentRoot);
+    String previousCommand = bundledGtpCommand(previousRoot);
+    String previousAnalysis = bundledAnalysisCommand(previousRoot);
+    Files.deleteIfExists(previousRoot);
+
+    Config config = ConfigTestHelper.createForTests(currentRoot);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-empty", true)
+            .put("default-engine", 0)
+            .put("analysis-engine-command", previousAnalysis)
+            .put("analysis-engine-command-customized", false);
+    JSONObject leelaz =
+        new JSONObject()
+            .put(
+                "engine-settings-list",
+                new JSONArray()
+                    .put(
+                        new JSONObject()
+                            .put("name", "KataGo Bundled")
+                            .put("command", previousCommand)
+                            .put("isDefault", true)));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(currentRoot, () -> applyBundledKataGoDefaults(config));
+
+    assertEquals(
+        bundledGtpCommand(currentRoot),
+        leelaz.getJSONArray("engine-settings-list").getJSONObject(0).getString("command"));
+    assertEquals(bundledAnalysisCommand(currentRoot), ui.getString("analysis-engine-command"));
+    assertTrue(ui.getBoolean("autoload-empty"));
+    assertFalse(Files.isRegularFile(bundledExecutable(previousRoot)));
+  }
+
+  @Test
+  void customizedAnalysisCommandSurvivesCopiedBundledDefaultRebind() throws Exception {
+    Path currentRoot = Files.createTempDirectory("lizzie-copied-custom-analysis");
+    Path previousRoot = Files.createTempDirectory("lizzie-copied-custom-analysis-old");
+    Files.writeString(currentRoot.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(currentRoot);
+    createBundledKataGoAssets(previousRoot);
+    String customAnalysis = "\"/opt/custom/katago\" analysis --keep-mine true";
+
+    Config config = ConfigTestHelper.createForTests(currentRoot);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-empty", true)
+            .put("analysis-engine-command", customAnalysis)
+            .put("analysis-engine-command-customized", true);
+    JSONObject leelaz =
+        new JSONObject()
+            .put(
+                "engine-settings-list",
+                new JSONArray()
+                    .put(
+                        new JSONObject()
+                            .put("name", "KataGo Bundled")
+                            .put("command", bundledGtpCommand(previousRoot))
+                            .put("isDefault", true)));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(currentRoot, () -> applyBundledKataGoDefaults(config));
+
+    assertEquals(
+        bundledGtpCommand(currentRoot),
+        leelaz.getJSONArray("engine-settings-list").getJSONObject(0).getString("command"));
+    assertEquals(customAnalysis, ui.getString("analysis-engine-command"));
+    assertTrue(ui.getBoolean("analysis-engine-command-customized"));
+  }
+
+  @Test
+  void sshRemoteAndJavaSshCommandsAreNotReboundToCurrentPackage() throws Exception {
+    Path currentRoot = Files.createTempDirectory("lizzie-copied-remote-engines");
+    Files.writeString(currentRoot.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(currentRoot);
+    String sshCommand = "ssh user@host ./katago gtp";
+    String javaSshCommand = "katago gtp -model /opt/remote.bin.gz";
+
+    Config config = ConfigTestHelper.createForTests(currentRoot);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-empty", true)
+            .put("default-engine", 0)
+            .put("analysis-engine-command", RemoteComputeConfig.COMMAND_ZHIZI)
+            .put("analysis-engine-command-customized", false);
+    JSONObject sshEngine =
+        new JSONObject()
+            .put("name", "KataGo Bundled")
+            .put("command", sshCommand)
+            .put("useJavaSSH", false)
+            .put("ip", "192.0.2.10")
+            .put("isDefault", true);
+    JSONObject remoteEngine =
+        new JSONObject()
+            .put("name", "Zhizi Cloud")
+            .put("command", RemoteComputeConfig.COMMAND_ZHIZI)
+            .put("isDefault", false);
+    JSONObject javaSshEngine =
+        new JSONObject()
+            .put("name", "Java SSH")
+            .put("command", javaSshCommand)
+            .put("useJavaSSH", true)
+            .put("ip", "192.0.2.11")
+            .put("isDefault", false);
+    JSONObject leelaz =
+        new JSONObject()
+            .put(
+                "engine-settings-list",
+                new JSONArray().put(sshEngine).put(remoteEngine).put(javaSshEngine));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(currentRoot, () -> applyBundledKataGoDefaults(config));
+
+    JSONArray engines = leelaz.getJSONArray("engine-settings-list");
+    assertEquals(sshCommand, engines.getJSONObject(0).getString("command"));
+    assertEquals(RemoteComputeConfig.COMMAND_ZHIZI, engines.getJSONObject(1).getString("command"));
+    assertEquals(javaSshCommand, engines.getJSONObject(2).getString("command"));
+    assertEquals(RemoteComputeConfig.COMMAND_ZHIZI, ui.getString("analysis-engine-command"));
+    assertTrue(ui.getBoolean("autoload-empty"));
+  }
+
+  @Test
+  void javaSshDefaultNamedBundledLayoutCommandIsNotRebound() throws Exception {
+    Path currentRoot = Files.createTempDirectory("lizzie-java-ssh-bundled-layout");
+    Path remoteRoot = Files.createTempDirectory("lizzie-java-ssh-remote-bundle");
+    Files.writeString(currentRoot.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(currentRoot);
+    createBundledKataGoAssets(remoteRoot);
+    String remoteCommand = bundledGtpCommand(remoteRoot);
+    String remoteAnalysis = bundledAnalysisCommand(remoteRoot);
+
+    Config config = ConfigTestHelper.createForTests(currentRoot);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-empty", true)
+            .put("default-engine", 0)
+            .put("analysis-engine-command", remoteAnalysis)
+            .put("analysis-engine-command-customized", false);
+    JSONObject javaSshEngine =
+        new JSONObject()
+            .put("name", "KataGo Bundled")
+            .put("command", remoteCommand)
+            .put("useJavaSSH", true)
+            .put("ip", "192.0.2.20")
+            .put("port", "22")
+            .put("userName", "katago")
+            .put("isDefault", true);
+    JSONObject leelaz =
+        new JSONObject()
+            .put("engine-settings-list", new JSONArray().put(javaSshEngine))
+            .put(
+                "analysis-engine-ssh-info",
+                new JSONObject()
+                    .put("useJavaSSH", true)
+                    .put("ip", "192.0.2.20")
+                    .put("port", "22")
+                    .put("userName", "katago"));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(currentRoot, () -> applyBundledKataGoDefaults(config));
+
+    JSONObject storedEngine = leelaz.getJSONArray("engine-settings-list").getJSONObject(0);
+    assertEquals(remoteCommand, storedEngine.getString("command"));
+    assertTrue(storedEngine.getBoolean("useJavaSSH"));
+    assertEquals("192.0.2.20", storedEngine.getString("ip"));
+    assertEquals(remoteAnalysis, ui.getString("analysis-engine-command"));
+    assertTrue(ui.getBoolean("autoload-empty"));
+  }
+
+
+  @Test
   void customCommandInDefaultSlotSurvivesRestart() throws Exception {
     Path tempRoot = Files.createTempDirectory("lizzie-bundled-katago-custom");
     Files.writeString(tempRoot.resolve("config.txt"), "{}");
@@ -710,38 +932,39 @@ public class ConfigBundledKataGoDefaultsTest {
   }
 
   @Test
-  void completeExternalBundleIsNeverTreatedAsTheRunningBundle() throws Exception {
+  void completeExternalBundleInNonDefaultSlotIsNotRebound() throws Exception {
     Path currentRoot = Files.createTempDirectory("lizzie-current-bundle");
     Path externalRoot = Files.createTempDirectory("lizzie-external-bundle");
-    createBundledKataGoAssets(currentRoot, "b10c512h8nbt3tflrs-fson-silu-rsnh.bin.gz");
-    createBundledKataGoAssets(externalRoot, "b10c512h8nbt3tflrs-fson-silu-rsnh.bin.gz");
-    String externalCommand =
-        quote(bundledExecutable(externalRoot))
-            + " gtp -model "
-            + quote(externalRoot.resolve("weights").resolve("default.bin.gz"))
-            + " -config "
-            + quote(
-                externalRoot
-                    .resolve("engines")
-                    .resolve("katago")
-                    .resolve("configs")
-                    .resolve("gtp.cfg"));
-    String externalCommandWithoutModel =
-        quote(bundledExecutable(externalRoot))
-            + " gtp -config "
-            + quote(
-                externalRoot
-                    .resolve("engines")
-                    .resolve("katago")
-                    .resolve("configs")
-                    .resolve("gtp.cfg"));
+    Files.writeString(currentRoot.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(currentRoot);
+    createBundledKataGoAssets(externalRoot);
+    String externalCommand = bundledGtpCommand(externalRoot);
 
-    withUserDir(
-        currentRoot,
-        () -> {
-          assertFalse(Config.isManagedBundledDefaultCommand(externalCommand));
-          assertFalse(Config.isManagedBundledDefaultCommand(externalCommandWithoutModel));
-        });
+    Config config = ConfigTestHelper.createForTests(currentRoot);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-empty", true)
+            .put("default-engine", 0);
+    JSONObject leelaz =
+        new JSONObject()
+            .put(
+                "engine-settings-list",
+                new JSONArray()
+                    .put(
+                        new JSONObject()
+                            .put("name", "External KataGo")
+                            .put("command", externalCommand)
+                            .put("isDefault", true)));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(currentRoot, () -> applyBundledKataGoDefaults(config));
+
+    JSONArray engines = leelaz.getJSONArray("engine-settings-list");
+    assertEquals("External KataGo", engines.getJSONObject(0).getString("name"));
+    assertEquals(externalCommand, engines.getJSONObject(0).getString("command"));
+    assertTrue(engines.getJSONObject(0).getBoolean("isDefault"));
+    assertTrue(ui.getBoolean("autoload-empty"));
   }
 
   @Test
@@ -1050,6 +1273,24 @@ public class ConfigBundledKataGoDefaultsTest {
         System.setProperty("user.dir", previousUserDir);
       }
     }
+  }
+
+  private static String bundledGtpCommand(Path root) {
+    return quote(bundledExecutable(root))
+        + " gtp -model "
+        + quote(root.resolve("weights").resolve("default.bin.gz"))
+        + " -config "
+        + quote(root.resolve("engines").resolve("katago").resolve("configs").resolve("gtp.cfg"));
+  }
+
+  private static String bundledAnalysisCommand(Path root) {
+    return quote(bundledExecutable(root))
+        + " analysis -model "
+        + quote(root.resolve("weights").resolve("default.bin.gz"))
+        + " -config "
+        + quote(
+            root.resolve("engines").resolve("katago").resolve("configs").resolve("analysis.cfg"))
+        + " -quit-without-waiting";
   }
 
   private static void createBundledKataGoAssets(Path root) throws Exception {
