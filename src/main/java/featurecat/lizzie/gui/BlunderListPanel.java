@@ -146,11 +146,37 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     return !getVisibleBlackEntries().isEmpty() || !getVisibleWhiteEntries().isEmpty();
   }
 
+  private boolean showingEmptyState() {
+    return currentSnapshot == null || !hasVisibleEntries();
+  }
+
+  private String emptyStateFontName() {
+    return Lizzie.config != null && Lizzie.config.uiFontName != null
+        ? Lizzie.config.uiFontName
+        : Font.SANS_SERIF;
+  }
+
+  private int emptyStatePreferredHeight(int panelWidth) {
+    Font titleFont = new Font(emptyStateFontName(), Font.PLAIN, 14);
+    Font subtitleFont = new Font(emptyStateFontName(), Font.PLAIN, 12);
+    EmptyStateLayout layout =
+        layoutEmptyState(
+            panelWidth,
+            1,
+            getFontMetrics(titleFont),
+            getFontMetrics(subtitleFont),
+            currentSnapshot != null && currentSnapshot.analysisRunning);
+    return layout.boxH + EMPTY_STATE_MARGIN * 2;
+  }
+
   @Override
   public Dimension getPreferredSize() {
-    int rows = currentSnapshot == null ? 0 : getMergedEntries().size();
-    int height = currentSnapshot == null ? 1 : HEADER_HEIGHT + rows * CARD_HEIGHT + PADDING;
-    return new Dimension(preferredViewportWidth(), Math.max(1, height));
+    int width = preferredViewportWidth();
+    if (showingEmptyState()) {
+      return new Dimension(width, Math.max(1, emptyStatePreferredHeight(width)));
+    }
+    int rows = getMergedEntries().size();
+    return new Dimension(width, Math.max(1, HEADER_HEIGHT + rows * CARD_HEIGHT + PADDING));
   }
 
   @Override
@@ -197,7 +223,7 @@ public class BlunderListPanel extends JPanel implements Scrollable {
   @Override
   protected void paintComponent(Graphics g) {
     super.paintComponent(g);
-    if (currentSnapshot == null || !hasVisibleEntries()) {
+    if (showingEmptyState()) {
       drawEmptyState(g);
       return;
     }
@@ -213,12 +239,8 @@ public class BlunderListPanel extends JPanel implements Scrollable {
   private void drawEmptyState(Graphics g) {
     Graphics2D g2 = (Graphics2D) g.create();
     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    String fontName =
-        Lizzie.config != null && Lizzie.config.uiFontName != null
-            ? Lizzie.config.uiFontName
-            : Font.SANS_SERIF;
-    Font titleFont = new Font(fontName, Font.PLAIN, 14);
-    Font subtitleFont = new Font(fontName, Font.PLAIN, 12);
+    Font titleFont = new Font(emptyStateFontName(), Font.PLAIN, 14);
+    Font subtitleFont = new Font(emptyStateFontName(), Font.PLAIN, 12);
     EmptyStateLayout layout =
         layoutEmptyState(
             Math.max(1, getWidth()),
@@ -460,6 +482,27 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     return Math.max(1, Math.min(panelWidth - EMPTY_STATE_MARGIN * 2, EMPTY_STATE_MAX_BOX_WIDTH));
   }
 
+  static int lineHeight(FontMetrics metrics) {
+    return Math.max(metrics.getHeight(), metrics.getAscent() + metrics.getDescent());
+  }
+
+  static int emptyStateCardHeight(
+      FontMetrics titleMetrics,
+      FontMetrics subtitleMetrics,
+      int boxW,
+      boolean analysisRunning) {
+    String title = analysisRunning ? EMPTY_STATE_ANALYZING_TITLE : EMPTY_STATE_TITLE;
+    int innerWidth = Math.max(1, boxW - EMPTY_STATE_TEXT_INSET * 2);
+    int titleLines = Math.max(1, wrapToWidth(titleMetrics, title, innerWidth).size());
+    int subtitleLines =
+        Math.max(1, wrapToWidth(subtitleMetrics, EMPTY_STATE_SUBTITLE, innerWidth).size());
+    int contentHeight =
+        titleLines * lineHeight(titleMetrics)
+            + EMPTY_STATE_TITLE_SUBTITLE_GAP
+            + subtitleLines * lineHeight(subtitleMetrics);
+    return Math.max(EMPTY_STATE_MIN_BOX_HEIGHT, contentHeight + EMPTY_STATE_TEXT_INSET * 2);
+  }
+
   static List<String> wrapToWidth(FontMetrics metrics, String text, int maxWidth) {
     List<String> lines = new ArrayList<>();
     if (text == null || text.isEmpty()) {
@@ -496,13 +539,17 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     int innerWidth = Math.max(1, boxW - EMPTY_STATE_TEXT_INSET * 2);
     List<String> wrappedTitle = wrapToWidth(titleMetrics, title, innerWidth);
     List<String> wrappedSubtitle = wrapToWidth(subtitleMetrics, EMPTY_STATE_SUBTITLE, innerWidth);
-    int titleBlockHeight =
-        Math.max(titleMetrics.getHeight(), wrappedTitle.size() * titleMetrics.getHeight());
+    int titleLineHeight = lineHeight(titleMetrics);
+    int subtitleLineHeight = lineHeight(subtitleMetrics);
+    int titleBlockHeight = Math.max(titleLineHeight, wrappedTitle.size() * titleLineHeight);
     int subtitleBlockHeight =
-        Math.max(subtitleMetrics.getHeight(), wrappedSubtitle.size() * subtitleMetrics.getHeight());
+        Math.max(subtitleLineHeight, wrappedSubtitle.size() * subtitleLineHeight);
     int contentHeight = titleBlockHeight + EMPTY_STATE_TITLE_SUBTITLE_GAP + subtitleBlockHeight;
-    int boxH = Math.max(EMPTY_STATE_MIN_BOX_HEIGHT, contentHeight + EMPTY_STATE_TEXT_INSET * 2);
+    int boxH = emptyStateCardHeight(titleMetrics, subtitleMetrics, boxW, analysisRunning);
     int boxY = Math.max(EMPTY_STATE_MARGIN, (panelHeight - boxH) / 2 - EMPTY_STATE_MARGIN);
+    if (boxY + boxH + EMPTY_STATE_MARGIN > panelHeight) {
+      boxY = EMPTY_STATE_MARGIN;
+    }
     int contentTop = boxY + Math.max(EMPTY_STATE_TEXT_INSET, (boxH - contentHeight) / 2);
 
     List<EmptyStateLine> titleLines = new ArrayList<>();
@@ -517,7 +564,7 @@ public class BlunderListPanel extends JPanel implements Scrollable {
               width,
               titleMetrics.getAscent(),
               titleMetrics.getDescent()));
-      titleBaseline += titleMetrics.getHeight();
+      titleBaseline += titleLineHeight;
     }
 
     List<EmptyStateLine> subtitleLines = new ArrayList<>();
@@ -533,8 +580,15 @@ public class BlunderListPanel extends JPanel implements Scrollable {
               width,
               subtitleMetrics.getAscent(),
               subtitleMetrics.getDescent()));
-      subtitleBaseline += subtitleMetrics.getHeight();
+      subtitleBaseline += subtitleLineHeight;
     }
+
+    int contentBottom =
+        subtitleLines.isEmpty()
+            ? contentTop + contentHeight
+            : subtitleLines.get(subtitleLines.size() - 1).baselineY
+                + subtitleLines.get(subtitleLines.size() - 1).descent;
+    boxH = Math.max(boxH, contentBottom + EMPTY_STATE_TEXT_INSET - boxY);
 
     return new EmptyStateLayout(boxX, boxY, boxW, boxH, titleLines, subtitleLines);
   }
