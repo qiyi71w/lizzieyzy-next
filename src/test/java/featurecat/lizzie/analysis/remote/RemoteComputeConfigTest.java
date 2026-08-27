@@ -613,9 +613,10 @@ class RemoteComputeConfigTest {
   void switchingBackToLocalPersistsLocalEngineForNextStartup() throws Exception {
     withConfig(
         () -> {
+          Path root = Files.createTempDirectory("remote-local-engine-persistence");
           ArrayList<EngineData> engines = new ArrayList<>();
           EngineData local = new EngineData();
-          local.commands = "katago.exe gtp -config default.cfg";
+          local.commands = usableKataGoCommand(root);
           local.name = "Local KataGo";
           local.isDefault = false;
           engines.add(local);
@@ -645,6 +646,82 @@ class RemoteComputeConfigTest {
   }
 
   @Test
+  void switchingBackToLocalKeepsRemoteSelectionWhenEveryLocalEngineIsStale() throws Exception {
+    withConfig(
+        () -> {
+          EngineData stale = new EngineData();
+          stale.commands = "missing-katago gtp -config missing.cfg";
+          stale.name = "Stale KataGo";
+
+          EngineData zhizi = new EngineData();
+          zhizi.commands = RemoteComputeConfig.COMMAND_ZHIZI;
+          zhizi.name = "Zhizi Cloud";
+          zhizi.isDefault = true;
+
+          Utils.saveEngineSettings(new ArrayList<>(List.of(stale, zhizi)));
+          Lizzie.config.uiConfig.put("default-engine", 1);
+          Lizzie.config.uiConfig.put("last-engine", 1);
+          RemoteComputeConfig.State state = RemoteComputeConfig.load();
+          state.provider = RemoteComputeConfig.PROVIDER_ZHIZI;
+          RemoteComputeConfig.save(state);
+
+          int localIndex = RemoteComputeConfig.saveLocalProviderAndDefaultEngine();
+
+          assertEquals(-1, localIndex);
+          assertEquals(RemoteComputeConfig.PROVIDER_ZHIZI, RemoteComputeConfig.load().provider);
+          ArrayList<EngineData> savedEngines = Utils.getEngineData();
+          assertFalse(savedEngines.get(0).isDefault);
+          assertTrue(savedEngines.get(1).isDefault);
+          assertEquals(1, Lizzie.config.uiConfig.optInt("default-engine", -1));
+          assertEquals(1, Lizzie.config.uiConfig.optInt("last-engine", -1));
+        });
+  }
+
+  @Test
+  void switchingBackToLocalPrefersAUsableEngineOverAStaleSlot() throws Exception {
+    withConfig(
+        () -> {
+          Path root = Files.createTempDirectory("remote-local-engine-selection");
+          Path executable = Files.write(root.resolve("katago"), new byte[] {1});
+          Path model = Files.write(root.resolve("default.bin.gz"), new byte[] {1});
+          Path gtpConfig = Files.write(root.resolve("gtp.cfg"), new byte[] {1});
+
+          EngineData stale = new EngineData();
+          stale.commands =
+              quote(root.resolve("missing-katago"))
+                  + " gtp -model "
+                  + quote(model)
+                  + " -config "
+                  + quote(gtpConfig);
+          stale.name = "Stale KataGo";
+
+          EngineData usable = new EngineData();
+          usable.commands =
+              quote(executable)
+                  + " gtp -model "
+                  + quote(model)
+                  + " -config "
+                  + quote(gtpConfig);
+          usable.name = "Usable KataGo";
+
+          EngineData zhizi = new EngineData();
+          zhizi.commands = RemoteComputeConfig.COMMAND_ZHIZI;
+          zhizi.name = "Zhizi Cloud";
+          zhizi.isDefault = true;
+
+          Utils.saveEngineSettings(new ArrayList<>(List.of(stale, usable, zhizi)));
+
+          int localIndex = RemoteComputeConfig.saveLocalProviderAndDefaultEngine();
+
+          assertEquals(1, localIndex);
+          ArrayList<EngineData> savedEngines = Utils.getEngineData();
+          assertFalse(savedEngines.get(0).isDefault);
+          assertTrue(savedEngines.get(1).isDefault);
+          assertFalse(savedEngines.get(2).isDefault);
+        });
+  }
+
+  @Test
   void customWebSocketUrlIsNormalizedAndRecognized() {
     assertEquals(
         "wss://example.com/katago?token=abc",
@@ -666,13 +743,15 @@ class RemoteComputeConfigTest {
   @Test
   void customWebSocketEngineCanBecomeDefaultAndLocalSwitchSkipsIt() throws Exception {
     withConfig(
-        () ->
-            withResourceBundle(
+        () -> {
+          Path root = Files.createTempDirectory("remote-custom-local-engine");
+          String localCommand = usableKataGoCommand(root);
+          withResourceBundle(
                 AppLocale.ENGLISH.loadBundle(),
                 () -> {
                   ArrayList<EngineData> engines = new ArrayList<>();
                   EngineData local = new EngineData();
-                  local.commands = "katago.exe gtp -config default.cfg";
+                  local.commands = localCommand;
                   local.name = "Local KataGo";
                   local.isDefault = false;
                   engines.add(local);
@@ -702,7 +781,8 @@ class RemoteComputeConfigTest {
                   assertTrue(savedEngines.get(0).isDefault);
                   assertFalse(savedEngines.get(customIndex).isDefault);
                   assertEquals(0, Lizzie.config.uiConfig.optInt("last-engine", -1));
-                }));
+                });
+        });
   }
 
   @Test
@@ -710,10 +790,11 @@ class RemoteComputeConfigTest {
     withConfig(
         () -> {
           RemoteComputeConfig.clearZhiziToken();
+          Path root = Files.createTempDirectory("remote-startup-local-engine");
           ArrayList<EngineData> engines = new ArrayList<>();
           EngineData local = new EngineData();
           local.index = 0;
-          local.commands = "katago.exe gtp -config default.cfg";
+          local.commands = usableKataGoCommand(root);
           local.name = "Local KataGo";
           local.isDefault = false;
           engines.add(local);
@@ -812,6 +893,21 @@ class RemoteComputeConfigTest {
 
   private static void withConfig(ThrowingRunnable action) throws Exception {
     withConfigAndStore(store -> action.run());
+  }
+
+  private static String quote(Path path) {
+    return "\"" + path.toAbsolutePath().normalize() + "\"";
+  }
+
+  private static String usableKataGoCommand(Path root) throws Exception {
+    Path executable = Files.write(root.resolve("katago"), new byte[] {1});
+    Path model = Files.write(root.resolve("default.bin.gz"), new byte[] {1});
+    Path gtpConfig = Files.write(root.resolve("gtp.cfg"), new byte[] {1});
+    return quote(executable)
+        + " gtp -model "
+        + quote(model)
+        + " -config "
+        + quote(gtpConfig);
   }
 
   private static void withConfigAndStore(ThrowingStoreRunnable action) throws Exception {

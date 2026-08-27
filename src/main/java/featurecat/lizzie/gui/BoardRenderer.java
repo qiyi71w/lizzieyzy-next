@@ -1247,7 +1247,7 @@ public class BoardRenderer {
 
   public boolean shouldShowCountBlockBelow() {
     Leelaz leelaz = this.boardIndex == 1 && Lizzie.leelaz2 != null ? Lizzie.leelaz2 : Lizzie.leelaz;
-    if (leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
+    if (leelaz != null && leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
       return Lizzie.config.showPureEstimateBigBelow;
     }
     return Lizzie.config.showKataGoEstimateBigBelow;
@@ -1255,7 +1255,7 @@ public class BoardRenderer {
 
   public boolean shouldShowCountBlockBig() {
     Leelaz leelaz = this.boardIndex == 1 && Lizzie.leelaz2 != null ? Lizzie.leelaz2 : Lizzie.leelaz;
-    if (leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
+    if (leelaz != null && leelaz.isKatago && leelaz.iskataHeatmapShowOwner) {
       return Lizzie.config.showPureEstimateBigBelow;
     }
     return Lizzie.config.showKataGoEstimateBigBelow;

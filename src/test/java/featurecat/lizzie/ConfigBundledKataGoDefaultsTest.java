@@ -482,6 +482,65 @@ public class ConfigBundledKataGoDefaultsTest {
   }
 
   @Test
+  void mixedBundledPathsRebindAsOneManagedProfile() throws Exception {
+    Path currentRoot = Files.createTempDirectory("lizzie-current-mixed-package");
+    Path staleRoot = Files.createTempDirectory("lizzie-stale-mixed-package");
+    Files.writeString(currentRoot.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(currentRoot);
+
+    String mixedGtpCommand =
+        quote(bundledExecutable(staleRoot))
+            + " gtp -model "
+            + quote(currentRoot.resolve("weights").resolve("default.bin.gz"))
+            + " -config "
+            + quote(
+                currentRoot
+                    .resolve("engines")
+                    .resolve("katago")
+                    .resolve("configs")
+                    .resolve("gtp.cfg"));
+    String mixedAnalysisCommand =
+        quote(bundledExecutable(staleRoot))
+            + " analysis -model "
+            + quote(currentRoot.resolve("weights").resolve("default.bin.gz"))
+            + " -config "
+            + quote(
+                currentRoot
+                    .resolve("engines")
+                    .resolve("katago")
+                    .resolve("configs")
+                    .resolve("analysis.cfg"))
+            + " -quit-without-waiting";
+
+    Config config = ConfigTestHelper.createForTests(currentRoot);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-default", false)
+            .put("autoload-last", false)
+            .put("autoload-empty", true)
+            .put("default-engine", 0)
+            .put("analysis-engine-command", mixedAnalysisCommand)
+            .put("analysis-engine-command-customized", false);
+    JSONObject bundledEngine =
+        new JSONObject()
+            .put("name", "KataGo Auto Setup")
+            .put("command", mixedGtpCommand)
+            .put("isDefault", true);
+    JSONObject leelaz =
+        new JSONObject().put("engine-settings-list", new JSONArray().put(bundledEngine));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(currentRoot, () -> applyBundledKataGoDefaults(config));
+
+    JSONArray engines = leelaz.getJSONArray("engine-settings-list");
+    assertEquals(1, engines.length());
+    assertEquals(bundledGtpCommand(currentRoot), engines.getJSONObject(0).getString("command"));
+    assertEquals(bundledAnalysisCommand(currentRoot), ui.getString("analysis-engine-command"));
+    assertTrue(ui.getBoolean("autoload-empty"));
+  }
+
+  @Test
   void movedBundledDefaultSlotRebindsWhenOldExecutableIsGone() throws Exception {
     Path currentRoot = Files.createTempDirectory("lizzie-moved-current-package");
     Path previousRoot = Files.createTempDirectory("lizzie-moved-previous-package");
