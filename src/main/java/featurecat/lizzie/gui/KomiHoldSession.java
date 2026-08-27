@@ -39,6 +39,7 @@ final class KomiHoldSession {
   private final int initialDelayMs;
   private final int repeatDelayMs;
   private final BooleanSupplier lifecycleReady;
+  private final boolean customLifecycleReady;
   private volatile boolean holding;
   private boolean focusManagerBound;
   private Timer timer;
@@ -144,6 +145,7 @@ final class KomiHoldSession {
     this.holdStep = Objects.requireNonNull(holdStep, "holdStep");
     this.initialDelayMs = initialDelayMs;
     this.repeatDelayMs = repeatDelayMs;
+    this.customLifecycleReady = lifecycleReady != null;
     this.lifecycleReady = lifecycleReady == null ? this::hasActiveWindow : lifecycleReady;
   }
 
@@ -265,6 +267,12 @@ final class KomiHoldSession {
 
   private void onFocusedWindowChanged(PropertyChangeEvent event) {
     if (!holding) {
+      return;
+    }
+    if (customLifecycleReady) {
+      if (!canRepeat()) {
+        stopHold();
+      }
       return;
     }
     Window ancestor = SwingUtilities.getWindowAncestor(control);

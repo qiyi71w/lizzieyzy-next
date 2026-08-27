@@ -4,6 +4,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.util.KataGoRuntimeHelper;
 import featurecat.lizzie.util.Utils;
 import java.io.IOException;
 import java.net.URI;
@@ -451,12 +452,16 @@ public final class RemoteComputeConfig {
   }
 
   public static int saveLocalProviderAndDefaultEngine() {
+    ArrayList<EngineData> engines = Utils.getEngineData();
+    int localIndex = firstLocalEngineIndex(engines);
+    if (localIndex < 0) {
+      return -1;
+    }
+
     State state = load();
     state.provider = PROVIDER_LOCAL;
     save(state);
 
-    ArrayList<EngineData> engines = Utils.getEngineData();
-    int localIndex = firstLocalEngineIndex(engines);
     for (int i = 0; i < engines.size(); i++) {
       EngineData engine = engines.get(i);
       if (engine != null) {
@@ -478,11 +483,76 @@ public final class RemoteComputeConfig {
       if (engine == null || engine.commands == null || engine.commands.trim().isEmpty()) {
         continue;
       }
-      if (!isRemoteComputeEngineCommand(engine.commands)) {
+      if (isRemoteComputeEngineCommand(engine.commands)) {
+        continue;
+      }
+      if (isUsableLocalEngine(engine)) {
         return i;
       }
     }
     return -1;
+  }
+
+  private static boolean isUsableLocalEngine(EngineData engine) {
+    if (engine == null || engine.useJavaSSH) {
+      return false;
+    }
+    List<String> command = Utils.splitCommand(engine.commands);
+    if (command.isEmpty()) {
+      return false;
+    }
+    Path executable = KataGoRuntimeHelper.resolveCommandExecutable(command);
+    if (executable == null || !Files.isRegularFile(executable)) {
+      return false;
+    }
+    for (int i = 0; i < command.size(); i++) {
+      String token = command.get(i);
+      if (token == null) {
+        continue;
+      }
+      String normalized = token.toLowerCase(Locale.ROOT);
+      String referencedPath = null;
+      if ("-model".equals(normalized)
+          || "--model".equals(normalized)
+          || "-config".equals(normalized)
+          || "--config".equals(normalized)
+          || "-jar".equals(normalized)) {
+        if (i + 1 >= command.size()) {
+          return false;
+        }
+        referencedPath = command.get(++i);
+      } else if (normalized.startsWith("-model=")
+          || normalized.startsWith("--model=")
+          || normalized.startsWith("-config=")
+          || normalized.startsWith("--config=")) {
+        referencedPath = token.substring(token.indexOf('=') + 1);
+      }
+      if (referencedPath != null && !commandFileExists(referencedPath, executable.getParent())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static boolean commandFileExists(String value, Path executableDirectory) {
+    if (value == null || value.trim().isEmpty()) {
+      return false;
+    }
+    try {
+      Path path = Path.of(value.trim());
+      if (path.isAbsolute()) {
+        return Files.isRegularFile(path.toAbsolutePath().normalize());
+      }
+      Path workingDirectory =
+          Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+      if (Files.isRegularFile(workingDirectory.resolve(path).normalize())) {
+        return true;
+      }
+      return executableDirectory != null
+          && Files.isRegularFile(executableDirectory.resolve(path).normalize());
+    } catch (RuntimeException e) {
+      return false;
+    }
   }
 
   public static String displayNameForZhiziArgs(String args) {

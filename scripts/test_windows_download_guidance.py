@@ -48,6 +48,13 @@ class WindowsDownloadGuidanceTest(unittest.TestCase):
         self.assertIn("AMD、Intel 或较老 NVIDIA", combined)
         self.assertIn("CPU 兼容版", combined)
 
+        workflow = (
+            ROOT / ".github" / "workflows" / "build-windows-release.yml"
+        ).read_text(encoding="utf-8")
+        install_note_fragment = "NVIDIA CUDA package for RTX 20/30/40/50"
+        self.assertIn(install_note_fragment, combined)
+        self.assertIn(install_note_fragment, workflow)
+
     def test_future_release_notes_put_cuda_before_opencl(self) -> None:
         date_tag = "2026-08-27"
         asset_map = {

@@ -1226,7 +1226,7 @@ public class LizzieFrame extends JFrame {
                   listTable.revalidate();
                 }
                 if (Lizzie.config.isShowingBlunderTabel) {
-                  if (Lizzie.leelaz.isLoaded()) {
+                  if (Lizzie.leelaz != null && Lizzie.leelaz.isLoaded()) {
                     if (Lizzie.board.isKataBoard || Lizzie.leelaz.isKatago || Lizzie.leelaz.isSai) {
                       if (scoreIsHiddenInBlunderTable) {
                         resumColumn(3, blunderTabelBlack, blunderTableColum3Width);

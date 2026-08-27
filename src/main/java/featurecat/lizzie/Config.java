@@ -254,12 +254,17 @@ public class Config {
   public int movelistSelectedIndexTop = 0;
 
   private static class BundledKataGoConfig {
+    private final Path appRoot;
     private final String engineCommand;
     private final String analysisCommand;
     private final boolean transformerDefault;
 
     private BundledKataGoConfig(
-        String engineCommand, String analysisCommand, boolean transformerDefault) {
+        Path appRoot,
+        String engineCommand,
+        String analysisCommand,
+        boolean transformerDefault) {
+      this.appRoot = appRoot;
       this.engineCommand = engineCommand;
       this.analysisCommand = analysisCommand;
       this.transformerDefault = transformerDefault;
@@ -386,6 +391,10 @@ public class Config {
   }
 
   static boolean isManagedBundledDefaultCommand(String command) {
+    return isManagedBundledDefaultCommand(command, null);
+  }
+
+  private static boolean isManagedBundledDefaultCommand(String command, Path activeAppRoot) {
     if (command == null || command.trim().isEmpty() || !isBundledKataGoCommand(command)) {
       return command == null || command.trim().isEmpty();
     }
@@ -396,12 +405,17 @@ public class Config {
     Path workingDirectory = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath();
     Optional<Path> commandAppRoot =
         bundledAppRootForExecutable(workingDirectory, commandParts.get(0));
-    if (!commandAppRoot.isPresent()) {
-      return false;
-    }
     String modelToken = modelToken(command);
-    return modelToken.isEmpty()
-        || isDefaultOrLegacyBundledWeight(commandAppRoot.get(), workingDirectory, modelToken);
+    if (modelToken.isEmpty()) {
+      return commandAppRoot.isPresent();
+    }
+    if (commandAppRoot.isPresent()
+        && isDefaultOrLegacyBundledWeight(
+            commandAppRoot.get(), workingDirectory, modelToken)) {
+      return true;
+    }
+    return activeAppRoot != null
+        && isDefaultOrLegacyBundledWeight(activeAppRoot, workingDirectory, modelToken);
   }
 
   private static Optional<Path> bundledAppRootForExecutable(
@@ -603,7 +617,7 @@ public class Config {
             + quotePath(analysisConfigPath)
             + " -quit-without-waiting";
     return new BundledKataGoConfig(
-        engineCommand, analysisCommand, isBundledTransformerDefault(appRoot));
+        appRoot, engineCommand, analysisCommand, isBundledTransformerDefault(appRoot));
   }
 
   private static boolean isBundledTransformerDefault(Path appRoot) {
@@ -650,7 +664,7 @@ public class Config {
       String command = engineInfo.optString("command", "");
       boolean managedDefaultCommand =
           !engineInfo.optBoolean("useJavaSSH", false)
-              && isManagedBundledDefaultCommand(command);
+              && isManagedBundledDefaultCommand(command, bundledConfig.appRoot);
       if (autoSetupIndex < 0 && "KataGo Auto Setup".equals(name) && managedDefaultCommand) {
         autoSetupIndex = i;
       }
@@ -685,7 +699,8 @@ public class Config {
       reusedAutoSetupEntry = "KataGo Auto Setup".equals(bundledEngine.optString("name", ""));
       String existingCommand = bundledEngine.optString("command", "");
       refreshBundledCommand =
-          existingCommand.trim().isEmpty() || isManagedBundledDefaultCommand(existingCommand);
+          existingCommand.trim().isEmpty()
+              || isManagedBundledDefaultCommand(existingCommand, bundledConfig.appRoot);
     } else {
       bundledEngine = new JSONObject();
       engineSettings.put(bundledEngine);
@@ -707,7 +722,7 @@ public class Config {
         String analysisCommand = ui.optString("analysis-engine-command", "");
         if ((!analysisCustomized
                 && !analysisCommandUsesJavaSsh(leelaz)
-                && isManagedBundledDefaultCommand(analysisCommand))
+                && isManagedBundledDefaultCommand(analysisCommand, bundledConfig.appRoot))
             || isClearlyBrokenJavaJarCommand(analysisCommand)) {
           ui.put("analysis-engine-command", bundledConfig.analysisCommand);
           ui.put("analysis-engine-command-customized", false);
