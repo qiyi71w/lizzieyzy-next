@@ -19,6 +19,14 @@ public class BlunderListPanel extends JPanel implements Scrollable {
   private static final int CARD_HEIGHT = 64;
   private static final int PADDING = 10;
   private static final int DEFAULT_CARD_CORNER_RADIUS = 10;
+  static final int EMPTY_STATE_MAX_BOX_WIDTH = 220;
+  static final int EMPTY_STATE_MIN_BOX_HEIGHT = 86;
+  static final int EMPTY_STATE_MARGIN = 12;
+  static final int EMPTY_STATE_TEXT_INSET = 16;
+  static final int EMPTY_STATE_TITLE_SUBTITLE_GAP = 8;
+  static final String EMPTY_STATE_TITLE = "当前无问题手";
+  static final String EMPTY_STATE_ANALYZING_TITLE = "⏳ 正在整理问题手...";
+  static final String EMPTY_STATE_SUBTITLE = "全盘分析后，这里会列出掉胜率较多的问题手";
 
   private static final Color COLOR_DANGER = new Color(0xEF, 0x44, 0x44); // 🔴
   private static final Color COLOR_WARNING = new Color(0xF9, 0x73, 0x16); // 🟧
@@ -205,26 +213,34 @@ public class BlunderListPanel extends JPanel implements Scrollable {
   private void drawEmptyState(Graphics g) {
     Graphics2D g2 = (Graphics2D) g.create();
     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    g2.setFont(new Font(Lizzie.config.uiFontName, Font.PLAIN, 14));
-    String text =
-        currentSnapshot != null && currentSnapshot.analysisRunning ? "⏳ 正在整理问题手..." : "当前无问题手";
-    FontMetrics fm = g2.getFontMetrics();
+    String fontName =
+        Lizzie.config != null && Lizzie.config.uiFontName != null
+            ? Lizzie.config.uiFontName
+            : Font.SANS_SERIF;
+    Font titleFont = new Font(fontName, Font.PLAIN, 14);
+    Font subtitleFont = new Font(fontName, Font.PLAIN, 12);
+    EmptyStateLayout layout =
+        layoutEmptyState(
+            Math.max(1, getWidth()),
+            Math.max(1, getHeight()),
+            g2.getFontMetrics(titleFont),
+            g2.getFontMetrics(subtitleFont),
+            currentSnapshot != null && currentSnapshot.analysisRunning);
     // Both styles use a dark sidebar surface, so the boxed empty state works for both.
-    int boxW = Math.min(getWidth() - 24, 220);
-    int boxH = 86;
-    int boxX = Math.max(12, (getWidth() - boxW) / 2);
-    int boxY = Math.max(12, (getHeight() - boxH) / 2 - 12);
     g2.setColor(new Color(255, 255, 255, 14));
-    g2.fillRoundRect(boxX, boxY, boxW, boxH, 18, 18);
+    g2.fillRoundRect(layout.boxX, layout.boxY, layout.boxW, layout.boxH, 18, 18);
     g2.setColor(new Color(255, 255, 255, 24));
-    g2.drawRoundRect(boxX, boxY, boxW - 1, boxH - 1, 18, 18);
+    g2.drawRoundRect(layout.boxX, layout.boxY, layout.boxW - 1, layout.boxH - 1, 18, 18);
+    g2.setFont(titleFont);
     g2.setColor(TEXT_PRIMARY);
-    g2.drawString(text, boxX + (boxW - fm.stringWidth(text)) / 2, boxY + 34);
+    for (EmptyStateLine line : layout.titleLines) {
+      g2.drawString(line.text, line.x, line.baselineY);
+    }
+    g2.setFont(subtitleFont);
     g2.setColor(TEXT_SECONDARY);
-    String sub = "全盘分析后，这里会列出掉胜率较多的问题手";
-    g2.setFont(new Font(Lizzie.config.uiFontName, Font.PLAIN, 12));
-    FontMetrics subFm = g2.getFontMetrics();
-    g2.drawString(sub, boxX + (boxW - subFm.stringWidth(sub)) / 2, boxY + 58);
+    for (EmptyStateLine line : layout.subtitleLines) {
+      g2.drawString(line.text, line.x, line.baselineY);
+    }
     g2.dispose();
   }
 
@@ -438,5 +454,130 @@ public class BlunderListPanel extends JPanel implements Scrollable {
   private Color withAlpha(Color color, int alpha) {
     return new Color(
         color.getRed(), color.getGreen(), color.getBlue(), Math.max(0, Math.min(255, alpha)));
+  }
+
+  static int emptyStateBoxWidth(int panelWidth) {
+    return Math.max(1, Math.min(panelWidth - EMPTY_STATE_MARGIN * 2, EMPTY_STATE_MAX_BOX_WIDTH));
+  }
+
+  static List<String> wrapToWidth(FontMetrics metrics, String text, int maxWidth) {
+    List<String> lines = new ArrayList<>();
+    if (text == null || text.isEmpty()) {
+      return lines;
+    }
+    int limit = Math.max(1, maxWidth);
+    StringBuilder line = new StringBuilder();
+    int index = 0;
+    while (index < text.length()) {
+      int next = index + Character.charCount(text.codePointAt(index));
+      String ch = text.substring(index, next);
+      if (line.length() > 0 && metrics.stringWidth(line.toString() + ch) > limit) {
+        lines.add(line.toString());
+        line.setLength(0);
+      }
+      line.append(ch);
+      index = next;
+    }
+    if (line.length() > 0) {
+      lines.add(line.toString());
+    }
+    return lines;
+  }
+
+  static EmptyStateLayout layoutEmptyState(
+      int panelWidth,
+      int panelHeight,
+      FontMetrics titleMetrics,
+      FontMetrics subtitleMetrics,
+      boolean analysisRunning) {
+    String title = analysisRunning ? EMPTY_STATE_ANALYZING_TITLE : EMPTY_STATE_TITLE;
+    int boxW = emptyStateBoxWidth(panelWidth);
+    int boxX = Math.max(EMPTY_STATE_MARGIN, (panelWidth - boxW) / 2);
+    int innerWidth = Math.max(1, boxW - EMPTY_STATE_TEXT_INSET * 2);
+    List<String> wrappedTitle = wrapToWidth(titleMetrics, title, innerWidth);
+    List<String> wrappedSubtitle = wrapToWidth(subtitleMetrics, EMPTY_STATE_SUBTITLE, innerWidth);
+    int titleBlockHeight =
+        Math.max(titleMetrics.getHeight(), wrappedTitle.size() * titleMetrics.getHeight());
+    int subtitleBlockHeight =
+        Math.max(subtitleMetrics.getHeight(), wrappedSubtitle.size() * subtitleMetrics.getHeight());
+    int contentHeight = titleBlockHeight + EMPTY_STATE_TITLE_SUBTITLE_GAP + subtitleBlockHeight;
+    int boxH = Math.max(EMPTY_STATE_MIN_BOX_HEIGHT, contentHeight + EMPTY_STATE_TEXT_INSET * 2);
+    int boxY = Math.max(EMPTY_STATE_MARGIN, (panelHeight - boxH) / 2 - EMPTY_STATE_MARGIN);
+    int contentTop = boxY + Math.max(EMPTY_STATE_TEXT_INSET, (boxH - contentHeight) / 2);
+
+    List<EmptyStateLine> titleLines = new ArrayList<>();
+    int titleBaseline = contentTop + titleMetrics.getAscent();
+    for (String line : wrappedTitle) {
+      int width = titleMetrics.stringWidth(line);
+      titleLines.add(
+          new EmptyStateLine(
+              line,
+              boxX + (boxW - width) / 2,
+              titleBaseline,
+              width,
+              titleMetrics.getAscent(),
+              titleMetrics.getDescent()));
+      titleBaseline += titleMetrics.getHeight();
+    }
+
+    List<EmptyStateLine> subtitleLines = new ArrayList<>();
+    int subtitleBaseline =
+        contentTop + titleBlockHeight + EMPTY_STATE_TITLE_SUBTITLE_GAP + subtitleMetrics.getAscent();
+    for (String line : wrappedSubtitle) {
+      int width = subtitleMetrics.stringWidth(line);
+      subtitleLines.add(
+          new EmptyStateLine(
+              line,
+              boxX + (boxW - width) / 2,
+              subtitleBaseline,
+              width,
+              subtitleMetrics.getAscent(),
+              subtitleMetrics.getDescent()));
+      subtitleBaseline += subtitleMetrics.getHeight();
+    }
+
+    return new EmptyStateLayout(boxX, boxY, boxW, boxH, titleLines, subtitleLines);
+  }
+
+  static final class EmptyStateLine {
+    final String text;
+    final int x;
+    final int baselineY;
+    final int width;
+    final int ascent;
+    final int descent;
+
+    EmptyStateLine(String text, int x, int baselineY, int width, int ascent, int descent) {
+      this.text = text;
+      this.x = x;
+      this.baselineY = baselineY;
+      this.width = width;
+      this.ascent = ascent;
+      this.descent = descent;
+    }
+  }
+
+  static final class EmptyStateLayout {
+    final int boxX;
+    final int boxY;
+    final int boxW;
+    final int boxH;
+    final List<EmptyStateLine> titleLines;
+    final List<EmptyStateLine> subtitleLines;
+
+    EmptyStateLayout(
+        int boxX,
+        int boxY,
+        int boxW,
+        int boxH,
+        List<EmptyStateLine> titleLines,
+        List<EmptyStateLine> subtitleLines) {
+      this.boxX = boxX;
+      this.boxY = boxY;
+      this.boxW = boxW;
+      this.boxH = boxH;
+      this.titleLines = Collections.unmodifiableList(new ArrayList<>(titleLines));
+      this.subtitleLines = Collections.unmodifiableList(new ArrayList<>(subtitleLines));
+    }
   }
 }
