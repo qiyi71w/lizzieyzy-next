@@ -1,6 +1,8 @@
 package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.AppLocale;
 import featurecat.lizzie.Lizzie;
@@ -8,6 +10,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.util.Collections;
 import java.util.ResourceBundle;
@@ -89,6 +92,152 @@ class SidebarHeaderPanelHitTest {
   }
 
   @Test
+  void classicEnglishCommentsAndProblemsDoNotOverlap() {
+    useEnglishLabels();
+    FontMetrics metrics = headerMetrics();
+    SidebarHeaderPanel.HeaderLayout layout =
+        SidebarHeaderPanel.headerLayout(false, false, metrics, WIDE_SIDEBAR, "");
+
+    assertFalse(
+        layout.comments.intersects(layout.problems),
+        "Comments and Problem moves must not share pixels.");
+    assertEquals(
+        0,
+        SidebarHeaderPanel.primarySegmentIndexAt(center(layout.comments), false, metrics, WIDE_SIDEBAR));
+    assertEquals(
+        1,
+        SidebarHeaderPanel.primarySegmentIndexAt(center(layout.problems), false, metrics, WIDE_SIDEBAR));
+  }
+
+  @Test
+  void classicEnglishProblemPageLabelsDoNotOverlap() {
+    useEnglishLabels();
+    FontMetrics metrics = headerMetrics();
+    SidebarHeaderPanel.HeaderLayout layout =
+        SidebarHeaderPanel.headerLayout(false, true, metrics, WIDE_SIDEBAR, "");
+
+    assertNoOverlap(layout.comments, layout.problems, layout.black, layout.white);
+    assertEquals(
+        0,
+        SidebarHeaderPanel.primarySegmentIndexAt(center(layout.comments), false, metrics, WIDE_SIDEBAR));
+    assertEquals(
+        1,
+        SidebarHeaderPanel.primarySegmentIndexAt(center(layout.problems), false, metrics, WIDE_SIDEBAR));
+    assertEquals(
+        0, SidebarHeaderPanel.sideSegmentIndexAt(center(layout.black), false, metrics, WIDE_SIDEBAR));
+    assertEquals(
+        1, SidebarHeaderPanel.sideSegmentIndexAt(center(layout.white), false, metrics, WIDE_SIDEBAR));
+  }
+
+  @Test
+  void appleEnglishSegmentedControlFitsProblemMoves() {
+    useEnglishLabels();
+    FontMetrics metrics = headerMetrics();
+    SidebarHeaderPanel.HeaderLayout layout =
+        SidebarHeaderPanel.headerLayout(true, false, metrics, WIDE_SIDEBAR, "");
+    int problemsWidth = metrics.stringWidth(Lizzie.resourceBundle.getString("SidebarHeader.problems"));
+
+    assertTrue(
+        layout.problems.width >= problemsWidth,
+        "Apple half-width must fit Problem moves, not clip it into a 66px cell.");
+    assertFalse(layout.comments.intersects(layout.problems));
+    assertEquals(
+        0,
+        SidebarHeaderPanel.primarySegmentIndexAt(center(layout.comments), true, metrics, WIDE_SIDEBAR));
+    assertEquals(
+        1,
+        SidebarHeaderPanel.primarySegmentIndexAt(center(layout.problems), true, metrics, WIDE_SIDEBAR));
+  }
+
+  @Test
+  void appleEnglishProblemPageLabelsDoNotOverlap() {
+    useEnglishLabels();
+    FontMetrics metrics = headerMetrics();
+    SidebarHeaderPanel.HeaderLayout layout =
+        SidebarHeaderPanel.headerLayout(true, true, metrics, WIDE_SIDEBAR, "");
+
+    assertNoOverlap(layout.comments, layout.problems, layout.black, layout.white);
+    assertEquals(
+        0, SidebarHeaderPanel.sideSegmentIndexAt(center(layout.black), true, metrics, WIDE_SIDEBAR));
+    assertEquals(
+        1, SidebarHeaderPanel.sideSegmentIndexAt(center(layout.white), true, metrics, WIDE_SIDEBAR));
+  }
+
+  @Test
+  void englishProblemPageWrapsFiltersOnlyWhenTheyDoNotFit() {
+    useEnglishLabels();
+    FontMetrics metrics = headerMetrics();
+
+    SidebarHeaderPanel.HeaderLayout wide =
+        SidebarHeaderPanel.headerLayout(false, true, metrics, WIDE_SIDEBAR, "");
+    assertEquals(48, wide.height);
+    assertFalse(wide.filtersWrapped);
+
+    SidebarHeaderPanel.HeaderLayout narrow =
+        SidebarHeaderPanel.headerLayout(false, true, metrics, NARROW_SIDEBAR, "");
+    assertTrue(narrow.height > 48);
+    assertTrue(narrow.filtersWrapped);
+    assertTrue(narrow.black.y > narrow.comments.y);
+    assertNoOverlap(narrow.comments, narrow.problems, narrow.black, narrow.white);
+    assertEquals(
+        0,
+        SidebarHeaderPanel.sideSegmentIndexAt(
+            center(narrow.black), false, metrics, NARROW_SIDEBAR));
+    assertEquals(
+        1,
+        SidebarHeaderPanel.sideSegmentIndexAt(
+            center(narrow.white), false, metrics, NARROW_SIDEBAR));
+  }
+
+  @Test
+  void progressPillStaysVisibleWhenItDoesNotOverlapLabels() {
+    useEnglishLabels();
+    FontMetrics metrics = headerMetrics();
+    String progress = SidebarHeaderPanel.progressLabelFor(snapshot(229, 229, false));
+    SidebarHeaderPanel.HeaderLayout layout =
+        SidebarHeaderPanel.headerLayout(false, true, metrics, WIDE_SIDEBAR, progress);
+
+    assertFalse(layout.progress.isEmpty());
+    assertFalse(layout.progress.intersects(layout.comments));
+    assertFalse(layout.progress.intersects(layout.problems));
+    assertFalse(layout.progress.intersects(layout.black));
+    assertFalse(layout.progress.intersects(layout.white));
+  }
+
+  @Test
+  void appleEnglishHitsFollowPaintedWrapWhenProgressIsVisible() {
+    useEnglishLabels();
+    FontMetrics metrics = headerMetrics();
+    String progress = SidebarHeaderPanel.progressLabelFor(snapshot(229, 229, false));
+    SidebarHeaderPanel.HeaderLayout painted =
+        SidebarHeaderPanel.headerLayout(true, true, metrics, WIDE_SIDEBAR, progress);
+
+    assertTrue(painted.filtersWrapped);
+    assertTrue(painted.height > 56);
+    assertEquals(
+        0,
+        SidebarHeaderPanel.sideSegmentIndexAt(
+            center(painted.black), true, metrics, WIDE_SIDEBAR, progress));
+    assertEquals(
+        1,
+        SidebarHeaderPanel.sideSegmentIndexAt(
+            center(painted.white), true, metrics, WIDE_SIDEBAR, progress));
+    assertEquals(
+        painted.height,
+        SidebarHeaderPanel.preferredHeight(true, true, metrics, WIDE_SIDEBAR, progress));
+  }
+
+  @Test
+  void simplifiedChineseProblemPageStaysOneRowWithWideOrNarrowSidebar() {
+    FontMetrics metrics = headerMetrics();
+    assertEquals(
+        48, SidebarHeaderPanel.headerLayout(false, true, metrics, NARROW_SIDEBAR, "").height);
+    assertEquals(48, SidebarHeaderPanel.headerLayout(false, true, metrics, WIDE_SIDEBAR, "").height);
+    assertEquals(
+        56, SidebarHeaderPanel.headerLayout(true, true, metrics, WIDE_SIDEBAR, "").height);
+  }
+
+  @Test
   void progressLabelExplainsTheRightSideCounter() {
     assertEquals("", SidebarHeaderPanel.progressLabelFor(snapshot(0, 0, false)));
     assertEquals("评估中 228/229", SidebarHeaderPanel.progressLabelFor(snapshot(228, 229, true)));
@@ -106,6 +255,27 @@ class SidebarHeaderPanelHitTest {
       return graphics.getFontMetrics();
     } finally {
       graphics.dispose();
+    }
+  }
+
+  private static final int WIDE_SIDEBAR = 500;
+  private static final int NARROW_SIDEBAR = 200;
+
+  private static void useEnglishLabels() {
+    Lizzie.resourceBundle = AppLocale.ENGLISH.loadBundle();
+  }
+
+  private static Point center(Rectangle bounds) {
+    return new Point(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  }
+
+  private static void assertNoOverlap(Rectangle... bounds) {
+    for (int i = 0; i < bounds.length; i++) {
+      for (int j = i + 1; j < bounds.length; j++) {
+        assertFalse(
+            bounds[i].intersects(bounds[j]),
+            "label rectangles intersect: " + bounds[i] + " vs " + bounds[j]);
+      }
     }
   }
 

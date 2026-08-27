@@ -40,6 +40,14 @@ public class SidebarHeaderPanel extends JPanel {
   private static final int CLASSIC_BLUNDER_HEIGHT = 48;
   private static final int APPLE_COMMENT_HEIGHT = 56;
   private static final int APPLE_BLUNDER_HEIGHT = 56;
+  private static final int APPLE_LABEL_INSET = 8;
+  private static final int APPLE_CONTROL_GAP = 6;
+  private static final int APPLE_WRAP_GAP = 4;
+  private static final int APPLE_DOT_SIZE = 8;
+  private static final int APPLE_DOT_GAP = 5;
+  private static final int CLASSIC_LABEL_GAP = 16;
+  private static final int CLASSIC_WRAPPED_HEIGHT = CLASSIC_COMMENT_HEIGHT + CLASSIC_ROW_HEIGHT;
+  private static final int APPLE_WRAPPED_HEIGHT = APPLE_COMMENT_HEIGHT + APPLE_PRIMARY_HEIGHT;
 
   public SidebarHeaderPanel(SidebarPanel parentPanel) {
     this.parentPanel = parentPanel;
@@ -73,7 +81,13 @@ public class SidebarHeaderPanel extends JPanel {
             Point point = e.getPoint();
             FontMetrics metrics = getFontMetrics(headerFont());
 
-            int primarySegment = primarySegmentIndexAt(point, Lizzie.config.isAppleStyle, metrics);
+            int primarySegment =
+                primarySegmentIndexAt(
+                    point,
+                    Lizzie.config.isAppleStyle,
+                    metrics,
+                    layoutWidth(),
+                    progressLabelFor(currentSnapshot));
             if (primarySegment == FIRST_SEGMENT) {
               parentPanel.switchTo("COMMENTS");
               return;
@@ -87,7 +101,13 @@ public class SidebarHeaderPanel extends JPanel {
               return;
             }
 
-            int sideSegment = sideSegmentIndexAt(point, Lizzie.config.isAppleStyle, metrics);
+            int sideSegment =
+                sideSegmentIndexAt(
+                    point,
+                    Lizzie.config.isAppleStyle,
+                    metrics,
+                    layoutWidth(),
+                    progressLabelFor(currentSnapshot));
             if (sideSegment == FIRST_SEGMENT) {
               Lizzie.frame.setProblemListSideFilter(ProblemListSideFilter.BLACK);
             } else if (sideSegment == SECOND_SEGMENT) {
@@ -95,16 +115,40 @@ public class SidebarHeaderPanel extends JPanel {
             }
           }
         });
+    addComponentListener(
+        new ComponentAdapter() {
+          @Override
+          public void componentResized(ComponentEvent event) {
+            if (Lizzie.config != null) {
+              applyPreferredHeight(Lizzie.config.isShowingBlunderTabel);
+            }
+          }
+        });
   }
 
   public void setShowingBlunders(boolean showingBlunders) {
-    int height = preferredHeight(showingBlunders, Lizzie.config.isAppleStyle);
+    applyPreferredHeight(showingBlunders);
+    repaint();
+  }
+
+  private void applyPreferredHeight(boolean showingBlunders) {
+    int width = layoutWidth();
+    int height =
+        preferredHeight(
+            showingBlunders,
+            Lizzie.config.isAppleStyle,
+            getFontMetrics(headerFont()),
+            width,
+            progressLabelFor(currentSnapshot));
     Dimension preferredSize = getPreferredSize();
     if (preferredSize == null || preferredSize.height != height) {
       setPreferredSize(new Dimension(200, height));
       revalidate();
     }
-    repaint();
+  }
+
+  private int layoutWidth() {
+    return getWidth() > 0 ? getWidth() : Integer.MAX_VALUE;
   }
 
   public void updateSnapshot(ProblemListSnapshot snapshot) {
@@ -112,7 +156,7 @@ public class SidebarHeaderPanel extends JPanel {
     this.currentSnapshot = snapshot;
     setToolTipText(progressTooltipFor(snapshot));
     AccessibilitySupport.announce(this, previous, progressLabelFor(snapshot));
-    repaint();
+    applyPreferredHeight(Lizzie.config != null && Lizzie.config.isShowingBlunderTabel);
   }
 
   static int preferredHeight(boolean showingBlunders, boolean appleStyle) {
@@ -120,6 +164,20 @@ public class SidebarHeaderPanel extends JPanel {
       return showingBlunders ? APPLE_BLUNDER_HEIGHT : APPLE_COMMENT_HEIGHT;
     }
     return showingBlunders ? CLASSIC_BLUNDER_HEIGHT : CLASSIC_COMMENT_HEIGHT;
+  }
+
+  static int preferredHeight(
+      boolean showingBlunders, boolean appleStyle, FontMetrics metrics, int availableWidth) {
+    return preferredHeight(showingBlunders, appleStyle, metrics, availableWidth, "");
+  }
+
+  static int preferredHeight(
+      boolean showingBlunders,
+      boolean appleStyle,
+      FontMetrics metrics,
+      int availableWidth,
+      String progressText) {
+    return headerLayout(appleStyle, showingBlunders, metrics, availableWidth, progressText).height;
   }
 
   static String progressLabelFor(ProblemListSnapshot snapshot) {
@@ -164,72 +222,73 @@ public class SidebarHeaderPanel extends JPanel {
 
     g2.setFont(headerFont());
     FontMetrics fm = g2.getFontMetrics();
+    String pillText = progressLabelFor(currentSnapshot);
+    HeaderLayout layout =
+        headerLayout(Lizzie.config.isAppleStyle, showBlunders, fm, layoutWidth(), pillText);
 
     if (!Lizzie.config.isAppleStyle) {
-      // Classic mode: same hit geometry as before (locked by SidebarHeaderPanelHitTest),
-      // but drawn as real tabs — the active label gets an accent underline instead of
-      // relying on text brightness alone.
-      int x = CONTROL_X;
-      int y = CLASSIC_PRIMARY_BASELINE;
       Color accent = glassAccentColor();
       String commentsText = text("SidebarHeader.comments", "Comments");
       String problemsText = text("SidebarHeader.problems", "Problems");
-      int secondLabelOffset = classicSecondLabelOffset(fm, commentsText);
 
       g2.setColor(showBlunders ? TEXT_NORMAL : TEXT_SELECTED);
-      g2.drawString(commentsText, x, y);
+      g2.drawString(commentsText, layout.commentsTextX, layout.primaryBaseline);
       g2.setColor(showBlunders ? TEXT_SELECTED : TEXT_NORMAL);
-      g2.drawString(problemsText, x + secondLabelOffset, y);
+      g2.drawString(problemsText, layout.problemsTextX, layout.primaryBaseline);
 
-      int underlineY = y + 7;
+      int underlineY = layout.primaryBaseline + 7;
       g2.setColor(withAlpha(accent, 220));
       if (showBlunders) {
         g2.fillRoundRect(
-            x + secondLabelOffset, underlineY, fm.stringWidth(problemsText), 3, 3, 3);
+            layout.problemsTextX, underlineY, fm.stringWidth(problemsText), 3, 3, 3);
       } else {
-        g2.fillRoundRect(x, underlineY, fm.stringWidth(commentsText), 3, 3, 3);
+        g2.fillRoundRect(
+            layout.commentsTextX, underlineY, fm.stringWidth(commentsText), 3, 3, 3);
       }
 
-      String pillText = progressLabelFor(currentSnapshot);
-      if (!pillText.isEmpty()) {
-        int textWidth = fm.stringWidth(pillText);
-        int progressX = getWidth() - textWidth - 10;
-        int leftEdgeToAvoid =
-            showBlunders
-                ? CLASSIC_SIDE_X + CLASSIC_SIDE_LEGACY_WIDTH + 8
-                : CONTROL_X + CLASSIC_PRIMARY_LEGACY_WIDTH + 8;
-        if (progressX > leftEdgeToAvoid) {
-          boolean running = currentSnapshot != null && currentSnapshot.analysisRunning;
-          g2.setColor(running ? new Color(255, 184, 77, 40) : new Color(255, 255, 255, 18));
-          g2.fillRoundRect(progressX - 8, y - fm.getAscent() - 1, textWidth + 16, 22, 11, 11);
-          g2.setColor(running ? new Color(255, 213, 153, 64) : new Color(255, 255, 255, 30));
-          g2.drawRoundRect(progressX - 8, y - fm.getAscent() - 1, textWidth + 15, 21, 11, 11);
-          g2.setColor(running ? TEXT_SELECTED : TEXT_NORMAL);
-          g2.drawString(pillText, progressX, y);
-        }
+      if (!layout.progress.isEmpty()) {
+        boolean running = currentSnapshot != null && currentSnapshot.analysisRunning;
+        int progressX = layout.progress.x + 8;
+        g2.setColor(running ? new Color(255, 184, 77, 40) : new Color(255, 255, 255, 18));
+        g2.fillRoundRect(
+            layout.progress.x,
+            layout.progress.y,
+            layout.progress.width,
+            layout.progress.height,
+            11,
+            11);
+        g2.setColor(running ? new Color(255, 213, 153, 64) : new Color(255, 255, 255, 30));
+        g2.drawRoundRect(
+            layout.progress.x,
+            layout.progress.y,
+            layout.progress.width - 1,
+            layout.progress.height - 1,
+            11,
+            11);
+        g2.setColor(running ? TEXT_SELECTED : TEXT_NORMAL);
+        g2.drawString(pillText, progressX, layout.primaryBaseline);
       }
 
       if (showBlunders) {
-        x = CLASSIC_SIDE_X;
         String blackText = text("SidebarHeader.black", "Black");
         String whiteText = text("SidebarHeader.white", "White");
-        int sideSecondOffset = classicSecondLabelOffset(fm, blackText);
         boolean blackSelected = sideFilter == ProblemListSideFilter.BLACK;
         g2.setColor(blackSelected ? TEXT_SELECTED : TEXT_NORMAL);
-        g2.drawString(blackText, x, y);
+        g2.drawString(blackText, layout.blackTextX, layout.sideBaseline);
         g2.setColor(!blackSelected ? TEXT_SELECTED : TEXT_NORMAL);
-        g2.drawString(whiteText, x + sideSecondOffset, y);
+        g2.drawString(whiteText, layout.whiteTextX, layout.sideBaseline);
 
-        // Side-colored underline: black bar for 黑棋, bordered white bar for 白棋.
+        int sideUnderlineY = layout.sideBaseline + 7;
         if (blackSelected) {
           g2.setColor(new Color(16, 18, 22));
-          g2.fillRoundRect(x, underlineY, fm.stringWidth(blackText), 3, 3, 3);
+          g2.fillRoundRect(layout.blackTextX, sideUnderlineY, fm.stringWidth(blackText), 3, 3, 3);
           g2.setColor(new Color(255, 255, 255, 170));
-          g2.drawRoundRect(x, underlineY, fm.stringWidth(blackText) - 1, 2, 3, 3);
+          g2.drawRoundRect(
+              layout.blackTextX, sideUnderlineY, fm.stringWidth(blackText) - 1, 2, 3, 3);
         } else {
           g2.setColor(new Color(245, 247, 250));
           g2.fillRoundRect(
-              x + sideSecondOffset, underlineY, fm.stringWidth(whiteText), 3, 3, 3);
+              layout.whiteTextX, sideUnderlineY, fm.stringWidth(whiteText), 3, 3, 3);
         }
       }
       paintKeyboardFocus(g2);
@@ -238,21 +297,18 @@ public class SidebarHeaderPanel extends JPanel {
     }
 
     Color accent = glassAccentColor();
-
-    // 1. [ 评论 | 问题手 ] (Apple Style Segmented Control)
-    int x = CONTROL_X;
-    int y = APPLE_PRIMARY_Y;
-    int segW = APPLE_PRIMARY_WIDTH;
-    int segH = APPLE_PRIMARY_HEIGHT;
+    int x = layout.comments.x;
+    int y = layout.comments.y;
+    int segW = layout.comments.width + layout.problems.width;
+    int segH = layout.comments.height;
     int arc = 15;
-    int baseline = y + segH / 2 + fm.getAscent() / 2 - 1;
+    int halfW = layout.comments.width;
 
     g2.setColor(new Color(255, 255, 255, 24));
     g2.fillRoundRect(x, y, segW, segH, arc, arc);
     g2.setColor(new Color(255, 255, 255, 18));
     g2.drawRoundRect(x, y, segW - 1, segH - 1, arc, arc);
 
-    int halfW = segW / 2;
     g2.setColor(showBlunders ? withAlpha(accent, 132) : new Color(255, 255, 255, 58));
     if (!showBlunders) {
       g2.fillRoundRect(x + 2, y + 2, halfW - 2, segH - 4, arc - 2, arc - 2);
@@ -262,44 +318,42 @@ public class SidebarHeaderPanel extends JPanel {
 
     g2.setColor(!showBlunders ? TEXT_SELECTED : TEXT_NORMAL);
     String t1 = text("SidebarHeader.comments", "Comments");
-    g2.drawString(t1, x + (halfW - fm.stringWidth(t1)) / 2, baseline);
+    g2.drawString(t1, layout.commentsTextX, layout.primaryBaseline);
 
     g2.setColor(showBlunders ? TEXT_SELECTED : TEXT_NORMAL);
     String t2 = text("SidebarHeader.problems", "Problems");
-    g2.drawString(t2, x + halfW + (halfW - fm.stringWidth(t2)) / 2, baseline);
+    g2.drawString(t2, layout.problemsTextX, layout.primaryBaseline);
 
-    // 2. Progress pill
-    String pillText = progressLabelFor(currentSnapshot);
-    if (!pillText.isEmpty()) {
-      int textWidth = fm.stringWidth(pillText);
-      int pillX = getWidth() - textWidth - 24;
-      int pillY = y;
-      int pillWidth = textWidth + 16;
-      int pillHeight = 28;
-      int leftEdgeToAvoid = showBlunders ? APPLE_SIDE_X + APPLE_SIDE_WIDTH + 8 : x + segW + 8;
-      if (pillX > leftEdgeToAvoid) {
-        g2.setColor(
-            currentSnapshot.analysisRunning ? new Color(255, 184, 77, 48) : withAlpha(accent, 54));
-        g2.fillRoundRect(pillX, pillY, pillWidth, pillHeight, arc, arc);
-        g2.setColor(
-            currentSnapshot.analysisRunning ? new Color(255, 213, 153, 72) : withAlpha(accent, 92));
-        g2.drawRoundRect(pillX, pillY, pillWidth - 1, pillHeight - 1, arc, arc);
-
-        g2.setColor(TEXT_SELECTED);
-        g2.drawString(pillText, pillX + 8, baseline + 1);
-      }
+    if (!layout.progress.isEmpty()) {
+      g2.setColor(
+          currentSnapshot.analysisRunning ? new Color(255, 184, 77, 48) : withAlpha(accent, 54));
+      g2.fillRoundRect(
+          layout.progress.x,
+          layout.progress.y,
+          layout.progress.width,
+          layout.progress.height,
+          arc,
+          arc);
+      g2.setColor(
+          currentSnapshot.analysisRunning ? new Color(255, 213, 153, 72) : withAlpha(accent, 92));
+      g2.drawRoundRect(
+          layout.progress.x,
+          layout.progress.y,
+          layout.progress.width - 1,
+          layout.progress.height - 1,
+          arc,
+          arc);
+      g2.setColor(TEXT_SELECTED);
+      g2.drawString(pillText, layout.progress.x + 8, layout.primaryBaseline + 1);
     }
 
-    // 3. [ 黑 | 白 ] — the thumb shows the actual side color, so the active side is
-    // readable at a glance without parsing text.
     if (showBlunders) {
-      x = APPLE_SIDE_X;
-      y = APPLE_SIDE_Y;
-      segW = APPLE_SIDE_WIDTH;
-      segH = APPLE_SIDE_HEIGHT;
-      halfW = segW / 2;
+      x = layout.black.x;
+      y = layout.black.y;
+      segW = layout.black.width + layout.white.width;
+      segH = layout.black.height;
+      halfW = layout.black.width;
       arc = 12;
-      baseline = y + segH / 2 + fm.getAscent() / 2 - 1;
 
       g2.setColor(new Color(255, 255, 255, 20));
       g2.fillRoundRect(x, y, segW, segH, arc, arc);
@@ -321,27 +375,24 @@ public class SidebarHeaderPanel extends JPanel {
 
       String b1 = text("SidebarHeader.black", "Black");
       String b2 = text("SidebarHeader.white", "White");
-      int dotSize = 8;
-      int dotGap = 5;
-
-      int seg1Content = dotSize + dotGap + fm.stringWidth(b1);
+      int seg1Content = APPLE_DOT_SIZE + APPLE_DOT_GAP + fm.stringWidth(b1);
       int seg1X = x + (halfW - seg1Content) / 2;
-      int dotY = y + (segH - dotSize) / 2;
+      int dotY = y + (segH - APPLE_DOT_SIZE) / 2;
       g2.setColor(blackSelected ? new Color(20, 22, 26) : new Color(35, 38, 44));
-      g2.fillOval(seg1X, dotY, dotSize, dotSize);
+      g2.fillOval(seg1X, dotY, APPLE_DOT_SIZE, APPLE_DOT_SIZE);
       g2.setColor(new Color(255, 255, 255, blackSelected ? 190 : 90));
-      g2.drawOval(seg1X, dotY, dotSize, dotSize);
+      g2.drawOval(seg1X, dotY, APPLE_DOT_SIZE, APPLE_DOT_SIZE);
       g2.setColor(blackSelected ? TEXT_SELECTED : TEXT_NORMAL);
-      g2.drawString(b1, seg1X + dotSize + dotGap, baseline);
+      g2.drawString(b1, layout.blackTextX, layout.sideBaseline);
 
-      int seg2Content = dotSize + dotGap + fm.stringWidth(b2);
+      int seg2Content = APPLE_DOT_SIZE + APPLE_DOT_GAP + fm.stringWidth(b2);
       int seg2X = x + halfW + (halfW - seg2Content) / 2;
       g2.setColor(new Color(248, 249, 252));
-      g2.fillOval(seg2X, dotY, dotSize, dotSize);
+      g2.fillOval(seg2X, dotY, APPLE_DOT_SIZE, APPLE_DOT_SIZE);
       g2.setColor(new Color(0, 0, 0, blackSelected ? 70 : 160));
-      g2.drawOval(seg2X, dotY, dotSize, dotSize);
+      g2.drawOval(seg2X, dotY, APPLE_DOT_SIZE, APPLE_DOT_SIZE);
       g2.setColor(!blackSelected ? new Color(28, 31, 36) : TEXT_NORMAL);
-      g2.drawString(b2, seg2X + dotSize + dotGap, baseline);
+      g2.drawString(b2, layout.whiteTextX, layout.sideBaseline);
     }
 
     paintKeyboardFocus(g2);
@@ -349,47 +400,269 @@ public class SidebarHeaderPanel extends JPanel {
   }
 
   static int primarySegmentIndexAt(Point point, boolean appleStyle, FontMetrics metrics) {
-    if (appleStyle) {
-      return segmentedIndexAt(
-          point,
-          new Rectangle(CONTROL_X, APPLE_PRIMARY_Y, APPLE_PRIMARY_WIDTH, APPLE_PRIMARY_HEIGHT));
-    }
-    return classicTextIndexAt(
-        point,
-        metrics,
-        CLASSIC_PRIMARY_Y,
-        text("SidebarHeader.comments", "Comments"),
-        text("SidebarHeader.problems", "Problems"));
+    return primarySegmentIndexAt(point, appleStyle, metrics, Integer.MAX_VALUE);
   }
 
-  static int sideSegmentIndexAt(Point point, boolean appleStyle, FontMetrics metrics) {
-    if (appleStyle) {
-      return segmentedIndexAt(
-          point, new Rectangle(APPLE_SIDE_X, APPLE_SIDE_Y, APPLE_SIDE_WIDTH, APPLE_SIDE_HEIGHT));
-    }
-    return classicTextIndexAt(
-        point,
-        metrics,
-        CLASSIC_PRIMARY_Y,
-        text("SidebarHeader.black", "Black"),
-        text("SidebarHeader.white", "White"),
-        CLASSIC_SIDE_X);
+  static int primarySegmentIndexAt(
+      Point point, boolean appleStyle, FontMetrics metrics, int availableWidth) {
+    return primarySegmentIndexAt(point, appleStyle, metrics, availableWidth, "");
   }
 
-  private static int classicTextIndexAt(
-      Point point, FontMetrics metrics, int rowY, String firstText, String secondText) {
-    return classicTextIndexAt(point, metrics, rowY, firstText, secondText, CONTROL_X);
-  }
-
-  private static int classicTextIndexAt(
-      Point point, FontMetrics metrics, int rowY, String firstText, String secondText, int textX) {
-    if (classicTextBounds(metrics, firstText, textX, rowY).contains(point)) {
+  static int primarySegmentIndexAt(
+      Point point,
+      boolean appleStyle,
+      FontMetrics metrics,
+      int availableWidth,
+      String progressText) {
+    HeaderLayout layout = headerLayout(appleStyle, false, metrics, availableWidth, progressText);
+    if (layout.comments.contains(point)) {
       return FIRST_SEGMENT;
     }
-    if (classicSecondTextBounds(metrics, firstText, secondText, rowY, textX).contains(point)) {
+    if (layout.problems.contains(point)) {
       return SECOND_SEGMENT;
     }
     return NO_SEGMENT;
+  }
+
+  static int sideSegmentIndexAt(Point point, boolean appleStyle, FontMetrics metrics) {
+    return sideSegmentIndexAt(point, appleStyle, metrics, Integer.MAX_VALUE);
+  }
+
+  static int sideSegmentIndexAt(
+      Point point, boolean appleStyle, FontMetrics metrics, int availableWidth) {
+    return sideSegmentIndexAt(point, appleStyle, metrics, availableWidth, "");
+  }
+
+  static int sideSegmentIndexAt(
+      Point point,
+      boolean appleStyle,
+      FontMetrics metrics,
+      int availableWidth,
+      String progressText) {
+    HeaderLayout layout = headerLayout(appleStyle, true, metrics, availableWidth, progressText);
+    if (layout.black.contains(point)) {
+      return FIRST_SEGMENT;
+    }
+    if (layout.white.contains(point)) {
+      return SECOND_SEGMENT;
+    }
+    return NO_SEGMENT;
+  }
+
+  static HeaderLayout headerLayout(
+      boolean appleStyle,
+      boolean showingBlunders,
+      FontMetrics metrics,
+      int availableWidth,
+      String progressText) {
+    String progress = progressText == null ? "" : progressText;
+    return appleStyle
+        ? appleLayout(showingBlunders, metrics, availableWidth, progress)
+        : classicLayout(showingBlunders, metrics, availableWidth, progress);
+  }
+
+  static final class HeaderLayout {
+    final Rectangle comments;
+    final Rectangle problems;
+    final Rectangle black;
+    final Rectangle white;
+    final Rectangle progress;
+    final int commentsTextX;
+    final int problemsTextX;
+    final int blackTextX;
+    final int whiteTextX;
+    final int primaryBaseline;
+    final int sideBaseline;
+    final boolean filtersWrapped;
+    final int height;
+
+    HeaderLayout(
+        Rectangle comments,
+        Rectangle problems,
+        Rectangle black,
+        Rectangle white,
+        Rectangle progress,
+        int commentsTextX,
+        int problemsTextX,
+        int blackTextX,
+        int whiteTextX,
+        int primaryBaseline,
+        int sideBaseline,
+        boolean filtersWrapped,
+        int height) {
+      this.comments = comments;
+      this.problems = problems;
+      this.black = black;
+      this.white = white;
+      this.progress = progress;
+      this.commentsTextX = commentsTextX;
+      this.problemsTextX = problemsTextX;
+      this.blackTextX = blackTextX;
+      this.whiteTextX = whiteTextX;
+      this.primaryBaseline = primaryBaseline;
+      this.sideBaseline = sideBaseline;
+      this.filtersWrapped = filtersWrapped;
+      this.height = height;
+    }
+  }
+
+  private static HeaderLayout classicLayout(
+      boolean showingBlunders, FontMetrics metrics, int availableWidth, String progressText) {
+    String commentsText = text("SidebarHeader.comments", "Comments");
+    String problemsText = text("SidebarHeader.problems", "Problems");
+    String blackText = text("SidebarHeader.black", "Black");
+    String whiteText = text("SidebarHeader.white", "White");
+
+    int commentsTextX = CONTROL_X;
+    int problemsTextX = commentsTextX + classicSecondLabelOffset(metrics, commentsText);
+    int blackTextX =
+        Math.max(
+            CLASSIC_SIDE_X,
+            problemsTextX + metrics.stringWidth(problemsText) + CLASSIC_LABEL_GAP);
+    int whiteTextX = blackTextX + classicSecondLabelOffset(metrics, blackText);
+    int whiteRight = whiteTextX + metrics.stringWidth(whiteText);
+    int progressReserve =
+        progressText.isEmpty() ? 0 : metrics.stringWidth(progressText) + 26;
+    boolean wrap = showingBlunders && whiteRight + progressReserve > availableWidth;
+    if (wrap) {
+      blackTextX = CONTROL_X;
+      whiteTextX = blackTextX + classicSecondLabelOffset(metrics, blackText);
+    }
+
+    int primaryY = CLASSIC_PRIMARY_Y;
+    int sideY = wrap ? CLASSIC_PRIMARY_Y + CLASSIC_ROW_HEIGHT : CLASSIC_PRIMARY_Y;
+    int primaryBaseline = CLASSIC_PRIMARY_BASELINE;
+    int sideBaseline = wrap ? CLASSIC_PRIMARY_BASELINE + CLASSIC_ROW_HEIGHT : CLASSIC_PRIMARY_BASELINE;
+
+    Rectangle comments = classicTextBounds(metrics, commentsText, commentsTextX, primaryY);
+    Rectangle problems =
+        classicSecondTextBounds(metrics, commentsText, problemsText, primaryY, commentsTextX);
+    if (showingBlunders && !wrap && problems.x + problems.width > blackTextX) {
+      problems.width = Math.max(1, blackTextX - problems.x);
+    }
+    Rectangle black =
+        showingBlunders
+            ? classicTextBounds(metrics, blackText, blackTextX, sideY)
+            : new Rectangle();
+    Rectangle white =
+        showingBlunders
+            ? classicSecondTextBounds(metrics, blackText, whiteText, sideY, blackTextX)
+            : new Rectangle();
+
+    int occupiedRight =
+        showingBlunders && !wrap ? white.x + white.width : problems.x + problems.width;
+    Rectangle progress =
+        classicProgressBounds(metrics, progressText, availableWidth, occupiedRight, primaryBaseline);
+    int height =
+        wrap ? CLASSIC_WRAPPED_HEIGHT : preferredHeight(showingBlunders, false);
+    return new HeaderLayout(
+        comments,
+        problems,
+        black,
+        white,
+        progress,
+        commentsTextX,
+        problemsTextX,
+        blackTextX,
+        whiteTextX,
+        primaryBaseline,
+        sideBaseline,
+        wrap,
+        height);
+  }
+
+  private static HeaderLayout appleLayout(
+      boolean showingBlunders, FontMetrics metrics, int availableWidth, String progressText) {
+    String commentsText = text("SidebarHeader.comments", "Comments");
+    String problemsText = text("SidebarHeader.problems", "Problems");
+    String blackText = text("SidebarHeader.black", "Black");
+    String whiteText = text("SidebarHeader.white", "White");
+
+    int halfW =
+        Math.max(
+            APPLE_PRIMARY_WIDTH / 2,
+            Math.max(metrics.stringWidth(commentsText), metrics.stringWidth(problemsText))
+                + APPLE_LABEL_INSET);
+    int primaryW = halfW * 2;
+    int primaryX = CONTROL_X;
+    int primaryY = APPLE_PRIMARY_Y;
+    int blackContent = APPLE_DOT_SIZE + APPLE_DOT_GAP + metrics.stringWidth(blackText);
+    int whiteContent = APPLE_DOT_SIZE + APPLE_DOT_GAP + metrics.stringWidth(whiteText);
+    int sideHalf =
+        Math.max(
+            APPLE_SIDE_WIDTH / 2,
+            Math.max(blackContent, whiteContent) + APPLE_LABEL_INSET);
+    int sideW = sideHalf * 2;
+    int sideX = Math.max(APPLE_SIDE_X, primaryX + primaryW + APPLE_CONTROL_GAP);
+    int sideY = APPLE_SIDE_Y;
+    int progressReserve =
+        progressText.isEmpty() ? 0 : metrics.stringWidth(progressText) + 32;
+    boolean wrap = showingBlunders && sideX + sideW + progressReserve > availableWidth;
+    if (wrap) {
+      sideX = CONTROL_X;
+      sideY = APPLE_PRIMARY_Y + APPLE_PRIMARY_HEIGHT + APPLE_WRAP_GAP;
+    }
+
+    Rectangle comments = new Rectangle(primaryX, primaryY, halfW, APPLE_PRIMARY_HEIGHT);
+    Rectangle problems = new Rectangle(primaryX + halfW, primaryY, halfW, APPLE_PRIMARY_HEIGHT);
+    Rectangle black =
+        showingBlunders ? new Rectangle(sideX, sideY, sideHalf, APPLE_SIDE_HEIGHT) : new Rectangle();
+    Rectangle white =
+        showingBlunders
+            ? new Rectangle(sideX + sideHalf, sideY, sideHalf, APPLE_SIDE_HEIGHT)
+            : new Rectangle();
+    int occupiedRight =
+        showingBlunders && !wrap ? sideX + sideW : primaryX + primaryW;
+    Rectangle progress = appleProgressBounds(metrics, progressText, availableWidth, occupiedRight);
+    int primaryBaseline = primaryY + APPLE_PRIMARY_HEIGHT / 2 + metrics.getAscent() / 2 - 1;
+    int sideBaseline = sideY + APPLE_SIDE_HEIGHT / 2 + metrics.getAscent() / 2 - 1;
+    int height = wrap ? APPLE_WRAPPED_HEIGHT : preferredHeight(showingBlunders, true);
+    return new HeaderLayout(
+        comments,
+        problems,
+        black,
+        white,
+        progress,
+        primaryX + (halfW - metrics.stringWidth(commentsText)) / 2,
+        primaryX + halfW + (halfW - metrics.stringWidth(problemsText)) / 2,
+        showingBlunders ? sideX + (sideHalf - blackContent) / 2 + APPLE_DOT_SIZE + APPLE_DOT_GAP : 0,
+        showingBlunders
+            ? sideX + sideHalf + (sideHalf - whiteContent) / 2 + APPLE_DOT_SIZE + APPLE_DOT_GAP
+            : 0,
+        primaryBaseline,
+        sideBaseline,
+        wrap,
+        height);
+  }
+
+  private static Rectangle classicProgressBounds(
+      FontMetrics metrics,
+      String progressText,
+      int availableWidth,
+      int occupiedRight,
+      int baseline) {
+    if (progressText.isEmpty() || availableWidth <= 0) {
+      return new Rectangle();
+    }
+    int textWidth = metrics.stringWidth(progressText);
+    int progressX = availableWidth - textWidth - 10;
+    if (progressX <= occupiedRight + 8) {
+      return new Rectangle();
+    }
+    return new Rectangle(progressX - 8, baseline - metrics.getAscent() - 1, textWidth + 16, 22);
+  }
+
+  private static Rectangle appleProgressBounds(
+      FontMetrics metrics, String progressText, int availableWidth, int occupiedRight) {
+    if (progressText.isEmpty() || availableWidth <= 0) {
+      return new Rectangle();
+    }
+    int textWidth = metrics.stringWidth(progressText);
+    int pillX = availableWidth - textWidth - 24;
+    if (pillX <= occupiedRight + 8) {
+      return new Rectangle();
+    }
+    return new Rectangle(pillX, APPLE_PRIMARY_Y, textWidth + 16, 28);
   }
 
   private static Rectangle classicTextBounds(
@@ -417,14 +690,7 @@ public class SidebarHeaderPanel extends JPanel {
   }
 
   private static int classicSecondLabelOffset(FontMetrics metrics, String firstText) {
-    return Math.max(CLASSIC_SECOND_LABEL_OFFSET, metrics.stringWidth(firstText) + 16);
-  }
-
-  private static int segmentedIndexAt(Point point, Rectangle bounds) {
-    if (!bounds.contains(point)) {
-      return NO_SEGMENT;
-    }
-    return point.x < bounds.x + bounds.width / 2 ? FIRST_SEGMENT : SECOND_SEGMENT;
+    return Math.max(CLASSIC_SECOND_LABEL_OFFSET, metrics.stringWidth(firstText) + CLASSIC_LABEL_GAP);
   }
 
   private Font headerFont() {
