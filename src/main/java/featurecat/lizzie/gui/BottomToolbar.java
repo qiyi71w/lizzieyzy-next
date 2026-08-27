@@ -3,6 +3,7 @@ package featurecat.lizzie.gui;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Movelist;
@@ -4010,49 +4011,12 @@ public class BottomToolbar extends JPanel {
   }
 
   public boolean startEngineGame() {
-    int engineBlack = engineBlackToolbar;
-    int engineWhite = engineWhiteToolbar;
-    int timeBlack = -1,
-        timeWhite = -1,
-        playoutsBlack = -1,
-        playoutsWhite = -1,
-        firstPlayoutsBlack = -1,
-        firstPlayoutsWhite = -1;
-    if (chkenginePkTime.isSelected()) {
-      timeBlack = Utils.parseTextToInt(txtenginePkTime, -1);
-      timeWhite = Utils.parseTextToInt(txtenginePkTimeWhite, -1);
-    }
-    if (chkenginePkPlayouts.isSelected()) {
-      playoutsBlack = Utils.parseTextToInt(txtenginePkPlayputs, -1);
-      playoutsWhite = Utils.parseTextToInt(txtenginePkPlayputsWhite, -1);
-    }
-    if (chkenginePkFirstPlayputs.isSelected()) {
-      firstPlayoutsBlack = Utils.parseTextToInt(txtenginePkFirstPlayputs, -1);
-      firstPlayoutsWhite = Utils.parseTextToInt(txtenginePkFirstPlayputsWhite, -1);
-    }
-    boolean isBatchGame = chkenginePkBatch.isSelected();
-    int batchGameNumber = Utils.parseTextToInt(txtenginePkBatch, 1);
-    String batchGameName = batchPkNameToolbar;
-    boolean isContinueGame = chkenginePkContinue.isSelected();
-    boolean isGenmove = isGenmoveToolbar;
-    boolean isExchange = exChangeToolbar;
-    return Lizzie.engineManager.startEngineGame(
-        engineBlack,
-        engineWhite,
-        timeBlack,
-        timeWhite,
-        playoutsBlack,
-        playoutsWhite,
-        firstPlayoutsBlack,
-        firstPlayoutsWhite,
-        isBatchGame,
-        batchGameNumber,
-        batchGameName,
-        isContinueGame,
-        isGenmove,
-        isExchange,
-        checkGameMaxMove,
-        maxGameMoves);
+    List<EngineData> engines = Utils.getEngineData();
+    return EngineGameLegacyStartArgs.from(
+            EngineGameBatchSpecFactory.from(
+                EngineGameBatchSpecCapture.fromToolbar(this, engines)),
+            engines)
+        .submit(Lizzie.engineManager);
   }
 
   //  public void startEnginePk() {
