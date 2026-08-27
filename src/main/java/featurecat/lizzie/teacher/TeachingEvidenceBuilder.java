@@ -693,7 +693,9 @@ public final class TeachingEvidenceBuilder {
   static List<String> extractCoordinates(String markdown) {
     Set<String> result = new HashSet<>();
     if (markdown == null) return new ArrayList<>(result);
-    Matcher mt = Pattern.compile("\\b([A-HJ-T](?:1?\\d|2[0-5]))\\b").matcher(markdown);
+    Matcher mt =
+        Pattern.compile("(?<![A-Za-z0-9])([A-HJ-T](?:1?\\d|2[0-5]))(?![A-Za-z0-9])")
+            .matcher(markdown);
     while (mt.find()) result.add(mt.group(1).toUpperCase());
     return new ArrayList<>(result);
   }
