@@ -10,6 +10,7 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
+import featurecat.lizzie.enginegame.EngineGameSnapshotFixtures;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
@@ -62,7 +63,6 @@ class SnapshotMoveUiGateTest {
   @Test
   void previousBestFilterIgnoresSnapshotLastMoveMarker() throws Exception {
     TestEnvironment env = TestEnvironment.open();
-    boolean previousEngineGame = EngineManager.isEngineGame;
     try {
       Board board = allocate(Board.class);
       board.startStonelist = new ArrayList<>();
@@ -74,7 +74,7 @@ class SnapshotMoveUiGateTest {
       history.add(snapshotNode(new int[] {1, 1}, Stone.WHITE, true, 1));
       board.setHistory(history);
       Lizzie.board = board;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
 
       BoardRenderer renderer = new BoardRenderer(false);
       invokeDrawBranch(renderer);
@@ -84,7 +84,7 @@ class SnapshotMoveUiGateTest {
           bestMoves(renderer).size(),
           "previous-best filtering should ignore snapshot marker coordinates.");
     } finally {
-      EngineManager.isEngineGame = previousEngineGame;
+      EngineGameSnapshotFixtures.publishIdle();
       env.close();
     }
   }

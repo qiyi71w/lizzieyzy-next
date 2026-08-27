@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.enginegame.EngineGameSnapshotFixtures;
 import java.lang.reflect.Constructor;
 import java.util.ListResourceBundle;
 import java.util.ResourceBundle;
@@ -121,14 +122,13 @@ class MenuEngineSwitchUiStateTest {
   void ordinaryPdaFollowsPrimaryWhileEngineGamePreservesEitherLiveOwner() throws Exception {
     Leelaz previousPrimary = Lizzie.leelaz;
     Leelaz previousSecondary = Lizzie.leelaz2;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     Leelaz secondary = new Leelaz("");
     secondary.started = true;
     secondary.isLoaded = true;
     try {
       Lizzie.setPrimaryEngine(null);
       Lizzie.leelaz2 = secondary;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       assertTrue(
           Menu.shouldApplyEnginePdaUpdate(null),
@@ -137,7 +137,7 @@ class MenuEngineSwitchUiStateTest {
           Menu.shouldApplyEnginePdaUpdate(secondary),
           "ordinary PDA must never be sourced from a secondary-only owner");
 
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
       assertFalse(
           Menu.shouldApplyEnginePdaUpdate(null),
           "engine-game must not accept a stale hide while either participant is live");
@@ -147,7 +147,7 @@ class MenuEngineSwitchUiStateTest {
     } finally {
       Lizzie.setPrimaryEngine(previousPrimary);
       Lizzie.leelaz2 = previousSecondary;
-      EngineManager.isEngineGame = previousEngineGame;
+      EngineGameSnapshotFixtures.publishIdle();
     }
   }
 

@@ -10,6 +10,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.enginegame.EngineGameSnapshotFixtures;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
@@ -44,7 +45,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       Lizzie.leelaz.isKatago = true;
       Lizzie.config.showScoreLeadLine = true;
       Lizzie.config.scoreMeanLineColor = new Color(220, 70, 190);
@@ -77,7 +78,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       assertCurrentMoveUsesPointOnly(fixture, false);
     } finally {
@@ -91,7 +92,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
 
       assertCurrentMoveUsesPointOnly(fixture, false);
     } finally {
@@ -106,7 +107,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeOneFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       assertCurrentMoveUsesPointOnly(fixture, true);
     } finally {
@@ -120,7 +121,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
 
       int[] pixel = renderedModeZeroDotPixel(fixture.graph, fixture.target, fixture.targetWinrate);
       clickAndDragShouldReachTarget(fixture, pixel);
@@ -135,7 +136,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = true;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       int[] pixel = renderedModeZeroDotPixel(fixture.graph, fixture.target, fixture.targetWinrate);
       clickAndDragShouldReachTarget(fixture, pixel);
@@ -150,11 +151,11 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = true;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
 
       int[] clickPixel =
           renderedModeZeroDotPixel(fixture.graph, fixture.target, fixture.targetWinrate);
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       fixture.graph.clearMouseOverNode();
       boolean handled = fixture.frame.processMouseMoveOnWinrateGraph(clickPixel[0], clickPixel[1]);
@@ -171,10 +172,10 @@ class WinrateGraphEnginePkModeHitTest {
           "ended engine game click should navigate before the next graph repaint.");
 
       fixture.board.getHistory().setHead(fixture.current);
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
       int[] dragPixel =
           renderedModeZeroDotPixel(fixture.graph, fixture.target, fixture.targetWinrate);
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       fixture.frame.onMouseDragged(dragPixel[0], dragPixel[1]);
       assertSame(
           fixture.target,
@@ -190,7 +191,7 @@ class WinrateGraphEnginePkModeHitTest {
     TestEnvironment env = TestEnvironment.open();
     try {
       RenderFixture fixture = modeOneFixture();
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       fixture.board.isPkBoard = false;
 
       int[] pixel =
@@ -206,7 +207,7 @@ class WinrateGraphEnginePkModeHitTest {
     TestEnvironment env = TestEnvironment.open();
     try {
       RenderFixture fixture = modeOneFixture();
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       fixture.board.isPkBoard = false;
 
       int[] pixel =
@@ -229,7 +230,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       SnapshotGapFixture fixture = snapshotGapFixture(0);
       fixture.renderFixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
       assertSnapshotGapBoundaryHitConsistency(fixture, "engine game");
     } finally {
       env.close();
@@ -242,7 +243,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       SnapshotGapFixture fixture = snapshotGapFixture(0);
       fixture.renderFixture.board.isPkBoard = true;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       assertSnapshotGapBoundaryHitConsistency(fixture, "pk");
     } finally {
       env.close();
@@ -255,7 +256,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       SnapshotGapFixture fixture = snapshotGapFixture(1);
       fixture.renderFixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       assertSnapshotGapBoundaryHitConsistency(fixture, "mode 1");
     } finally {
       env.close();
@@ -268,7 +269,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       SnapshotGapFixture fixture = snapshotGapFixture(1);
       fixture.renderFixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       WinrateGraph graph = fixture.renderFixture.graph;
       BufferedImage layer = renderGraphLayer(graph);
       int[] anchor =
@@ -292,7 +293,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
       assertBlankGraphBackgroundScrubsToNearestVisibleColumn(fixture, "engine game");
     } finally {
       env.close();
@@ -305,7 +306,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = true;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       assertBlankGraphBackgroundScrubsToNearestVisibleColumn(fixture, "pk");
     } finally {
       env.close();
@@ -318,7 +319,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
       BufferedImage layer = renderGraphLayer(fixture.graph);
       int[] anchorPoint = renderedPrimaryGraphPixel(fixture);
       int[] scrubPixel =
@@ -355,7 +356,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.config.winrateLineColor = CUSTOM_WINRATE_COLOR;
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       RenderLayers layers = renderLayers(fixture.graph);
       int[] dot = renderedModeZeroDotPixel(fixture.graph, fixture.target, fixture.targetWinrate);
@@ -373,7 +374,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.config.winrateLineColor = CUSTOM_WINRATE_COLOR;
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
 
       RenderLayers layers = renderLayers(fixture.graph);
       int[] dot = renderedModeZeroDotPixel(fixture.graph, fixture.target, fixture.targetWinrate);
@@ -391,7 +392,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.config.winrateMissLineColor = CUSTOM_MISS_COLOR;
       RenderFixture fixture = modeOneFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       RenderLayers layers = renderLayers(fixture.graph);
       int[] dot =
@@ -410,7 +411,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.config.showBlunderBar = false;
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       RenderLayers layers = renderLayers(fixture.graph);
 
@@ -429,7 +430,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.config.minimumBlunderBarWidth = 9;
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
 
       RenderLayers layers = renderLayers(fixture.graph);
       int paintedWidth = widestColorRun(layers.blunder, CUSTOM_BLUNDER_COLOR);
@@ -448,7 +449,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.config.blunderBarColor = CUSTOM_BLUNDER_COLOR;
       RenderFixture fixture = modeZeroFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
 
       RenderLayers layers = renderLayers(fixture.graph);
 
@@ -464,7 +465,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeZeroDuplicatedColumnFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = true;
+      EngineGameSnapshotFixtures.publishPlaying();
       assertExactColumnBlankPixelStaysOnTarget(fixture, "engine game duplicated column");
     } finally {
       env.close();
@@ -477,7 +478,7 @@ class WinrateGraphEnginePkModeHitTest {
     try {
       RenderFixture fixture = modeOneFixture();
       fixture.board.isPkBoard = false;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       assertBlankGraphBackgroundScrubsToNearestVisibleColumn(fixture, "mode 1");
     } finally {
       env.close();
@@ -1274,7 +1275,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.board = null;
       Lizzie.frame = null;
       LizzieFrame.winrateGraph = null;
-      EngineManager.isEngineGame = false;
+      EngineGameSnapshotFixtures.publishIdle();
       return env;
     }
 
@@ -1288,7 +1289,7 @@ class WinrateGraphEnginePkModeHitTest {
       Lizzie.frame = previousFrame;
       LizzieFrame.winrateGraph = previousWinrateGraph;
       Lizzie.leelaz = previousLeelaz;
-      EngineManager.isEngineGame = previousEngineGame;
+      EngineGameSnapshotFixtures.publishIdle();
     }
   }
 

@@ -2,7 +2,9 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.logging.ObservationText;
 import featurecat.lizzie.util.DocType;
 import featurecat.lizzie.util.Utils;
@@ -249,16 +251,15 @@ public class GtpConsolePane extends JDialog {
         addDocs(doc);
         checkConsole();
       }
+      EngineGameSnapshot snapshot = EngineGamePresentation.current();
+      Leelaz blackEngine = EngineGamePresentation.blackEngine(snapshot);
+      Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
       if ((Lizzie.leelaz != null && !Lizzie.leelaz.isLoaded())
-          || (EngineManager.isPreEngineGame
-              && (!Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .isLoaded()
-                  || !Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .isLoaded()))) {
+          || (snapshot.starting()
+              && (whiteEngine == null
+                  || !whiteEngine.isLoaded()
+                  || blackEngine == null
+                  || !blackEngine.isLoaded()))) {
         Lizzie.frame.setCommentEditable(false);
         Lizzie.frame.appendComment();
       }
@@ -333,7 +334,7 @@ public class GtpConsolePane extends JDialog {
     String commandToLower = command.toLowerCase();
     txtCommand.setText("");
 
-    if (EngineManager.isEngineGame) {
+    if (EngineGamePresentation.current().playing()) {
       this.setDocs(
           resourceBundle.getString("GtpConsolePane.isEngineGame") + "\r\n",
           new Color(255, 255, 0),

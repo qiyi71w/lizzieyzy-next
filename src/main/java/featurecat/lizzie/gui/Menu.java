@@ -8,6 +8,8 @@ import featurecat.lizzie.analysis.FastLink;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveRankEvaluationMode;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.teacher.TeacherDialog;
 import featurecat.lizzie.theme.MorandiPalette;
 import featurecat.lizzie.theme.Theme;
@@ -5820,15 +5822,12 @@ public class Menu extends JMenuBar {
               double oriKomi = Lizzie.board.getHistory().getGameInfo().getKomi();
               double newKomi = Double.parseDouble(txtKomi.getText());
               if (newKomi == oriKomi) return;
-              if (EngineManager.isEngineGame) {
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.secondEngineIndex)
-                    .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
+              EngineGameSnapshot snapshot = EngineGamePresentation.current();
+              if (snapshot.playing()) {
+                EngineGamePresentation.sendToParticipants(
+                    snapshot,
+                    engine ->
+                        engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
                 if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
                 Lizzie.board.getHistory().getGameInfo().setKomiNoMenu(newKomi);
               } else Lizzie.leelaz.komiNoMenu(newKomi);
@@ -5865,15 +5864,12 @@ public class Menu extends JMenuBar {
               double oriKomi = Lizzie.board.getHistory().getGameInfo().getKomi();
               double newKomi = Double.parseDouble(txtKomi.getText());
               if (newKomi == oriKomi) return;
-              if (EngineManager.isEngineGame) {
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.secondEngineIndex)
-                    .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
+              EngineGameSnapshot snapshot = EngineGamePresentation.current();
+              if (snapshot.playing()) {
+                EngineGamePresentation.sendToParticipants(
+                    snapshot,
+                    engine ->
+                        engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
                 if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
                 Lizzie.board.getHistory().getGameInfo().setKomiNoMenu(newKomi);
               } else Lizzie.leelaz.komiNoMenu(newKomi);
@@ -5938,15 +5934,12 @@ public class Menu extends JMenuBar {
           public void actionPerformed(ActionEvent e) {
             if (txtKomi.getText().trim().equals("")) return;
             double newKomi = Double.parseDouble(txtKomi.getText().trim()) + 0.5;
-            if (EngineManager.isEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            if (snapshot.playing()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot,
+                  engine ->
+                      engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
               if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
               Lizzie.board.getHistory().getGameInfo().setKomi(newKomi);
             } else Lizzie.leelaz.komi(newKomi);
@@ -5966,15 +5959,12 @@ public class Menu extends JMenuBar {
           public void actionPerformed(ActionEvent e) {
             if (txtKomi.getText().trim().equals("")) return;
             double newKomi = Double.parseDouble(txtKomi.getText().trim()) - 0.5;
-            if (EngineManager.isEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi));
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            if (snapshot.playing()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot,
+                  engine ->
+                      engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
               if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
               Lizzie.board.getHistory().getGameInfo().setKomi(newKomi);
             } else Lizzie.leelaz.komi(newKomi);
@@ -6149,15 +6139,14 @@ public class Menu extends JMenuBar {
                 // TODO Auto-generated catch block
               }
               Lizzie.config.txtKataEngineWRN = String.valueOf(wrn);
-              if (EngineManager.isEngineGame) {
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.secondEngineIndex)
-                    .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
+              EngineGameSnapshot snapshot = EngineGamePresentation.current();
+              final double wrnCommand = wrn;
+              if (snapshot.playing()) {
+                EngineGamePresentation.sendToParticipants(
+                    snapshot,
+                    engine ->
+                        engine.sendCommand(
+                            "kata-set-param analysisWideRootNoise " + wrnCommand));
               } else Lizzie.leelaz.sendCommand("kata-set-param analysisWideRootNoise " + wrn);
               if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
             } else {
@@ -6166,15 +6155,12 @@ public class Menu extends JMenuBar {
                 txtWRN.setText("");
                 txtWRN.setBackground(AppleStyleSupport.validFieldBackground());
               }
-              if (EngineManager.isEngineGame) {
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .sendCommand("kata-set-param analysisWideRootNoise 0");
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.secondEngineIndex)
-                    .sendCommand("kata-set-param analysisWideRootNoise 0");
+              EngineGameSnapshot snapshot = EngineGamePresentation.current();
+              if (snapshot.playing()) {
+                EngineGamePresentation.sendToParticipants(
+                    snapshot,
+                    engine ->
+                        engine.sendCommand("kata-set-param analysisWideRootNoise 0"));
               } else Lizzie.leelaz.sendCommand("kata-set-param analysisWideRootNoise 0");
               if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
             }
@@ -6207,15 +6193,14 @@ public class Menu extends JMenuBar {
               txtWRN.setBackground(AppleStyleSupport.errorFieldBackground());
             else txtWRN.setBackground(AppleStyleSupport.validFieldBackground());
             Lizzie.config.txtKataEngineWRN = String.valueOf(wrn);
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            final double wrnCommand = wrn;
+            if (snapshot.startingOrPlaying()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot,
+                  engine ->
+                      engine.sendCommand(
+                          "kata-set-param analysisWideRootNoise " + wrnCommand));
             } else Lizzie.leelaz.sendCommand("kata-set-param analysisWideRootNoise " + wrn);
             Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
             if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
@@ -6236,15 +6221,14 @@ public class Menu extends JMenuBar {
               txtWRN.setBackground(AppleStyleSupport.errorFieldBackground());
             else txtWRN.setBackground(AppleStyleSupport.validFieldBackground());
             Lizzie.config.txtKataEngineWRN = String.valueOf(wrn);
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            final double wrnCommand = wrn;
+            if (snapshot.startingOrPlaying()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot,
+                  engine ->
+                      engine.sendCommand(
+                          "kata-set-param analysisWideRootNoise " + wrnCommand));
             } else Lizzie.leelaz.sendCommand("kata-set-param analysisWideRootNoise " + wrn);
             Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
             if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
@@ -6265,15 +6249,14 @@ public class Menu extends JMenuBar {
               txtWRN.setBackground(AppleStyleSupport.errorFieldBackground());
             else txtWRN.setBackground(AppleStyleSupport.validFieldBackground());
             Lizzie.config.txtKataEngineWRN = String.valueOf(wrn);
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .sendCommand("kata-set-param analysisWideRootNoise " + wrn);
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            final double wrnCommand = wrn;
+            if (snapshot.startingOrPlaying()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot,
+                  engine ->
+                      engine.sendCommand(
+                          "kata-set-param analysisWideRootNoise " + wrnCommand));
             } else Lizzie.leelaz.sendCommand("kata-set-param analysisWideRootNoise " + wrn);
             Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
             if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
@@ -6296,15 +6279,11 @@ public class Menu extends JMenuBar {
                 // TODO Auto-generated catch block
               }
               Lizzie.config.txtKataEnginePDA = String.valueOf(pda);
-              if (EngineManager.isEngineGame) {
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .setPda(String.valueOf(pda));
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.secondEngineIndex)
-                    .setPda(String.valueOf(pda));
+              EngineGameSnapshot snapshot = EngineGamePresentation.current();
+              final double pdaCommand = pda;
+              if (snapshot.playing()) {
+                EngineGamePresentation.sendToParticipants(
+                    snapshot, engine -> engine.setPda(String.valueOf(pdaCommand)));
               } else Lizzie.leelaz.setPda(String.valueOf(pda));
               if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
               Lizzie.config.uiConfig.put("txt-kata-engine-pda", Lizzie.config.txtKataEnginePDA);
@@ -6315,15 +6294,10 @@ public class Menu extends JMenuBar {
                 txtGfPDA.setText("");
                 txtGfPDA.setBackground(AppleStyleSupport.validFieldBackground());
               }
-              if (EngineManager.isEngineGame) {
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .setPda("0");
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.secondEngineIndex)
-                    .setPda("0");
+              EngineGameSnapshot snapshot = EngineGamePresentation.current();
+              if (snapshot.playing()) {
+                EngineGamePresentation.sendToParticipants(
+                    snapshot, engine -> engine.setPda("0"));
               } else Lizzie.leelaz.setPda("0");
               if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
             }
@@ -6354,15 +6328,11 @@ public class Menu extends JMenuBar {
               txtGfPDA.setBackground(AppleStyleSupport.errorFieldBackground());
             } else txtGfPDA.setBackground(AppleStyleSupport.validFieldBackground());
             Lizzie.config.txtKataEnginePDA = String.valueOf(pda);
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .setPda(String.valueOf(pda));
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .setPda(String.valueOf(pda));
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            final double pdaCommand = pda;
+            if (snapshot.startingOrPlaying()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot, engine -> engine.setPda(String.valueOf(pdaCommand)));
             } else Lizzie.leelaz.setPda(String.valueOf(pda));
             //  Lizzie.board.clearbestmovesafter(Lizzie.board.getHistory().getStart());
             if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
@@ -6383,15 +6353,11 @@ public class Menu extends JMenuBar {
               txtGfPDA.setBackground(AppleStyleSupport.errorFieldBackground());
             } else txtGfPDA.setBackground(AppleStyleSupport.validFieldBackground());
             Lizzie.config.txtKataEnginePDA = String.valueOf(pda);
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .setPda(String.valueOf(pda));
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .setPda(String.valueOf(pda));
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            final double pdaCommand = pda;
+            if (snapshot.startingOrPlaying()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot, engine -> engine.setPda(String.valueOf(pdaCommand)));
             } else Lizzie.leelaz.setPda(String.valueOf(pda));
             //   Lizzie.board.clearbestmovesafter(Lizzie.board.getHistory().getStart());
             if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
@@ -6412,15 +6378,11 @@ public class Menu extends JMenuBar {
               txtGfPDA.setBackground(AppleStyleSupport.errorFieldBackground());
             } else txtGfPDA.setBackground(AppleStyleSupport.validFieldBackground());
             Lizzie.config.txtKataEnginePDA = String.valueOf(pda);
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .setPda(String.valueOf(pda));
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.secondEngineIndex)
-                  .setPda(String.valueOf(pda));
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            final double pdaCommand = pda;
+            if (snapshot.startingOrPlaying()) {
+              EngineGamePresentation.sendToParticipants(
+                  snapshot, engine -> engine.setPda(String.valueOf(pdaCommand)));
             } else Lizzie.leelaz.setPda(String.valueOf(pda));
             //  Lizzie.board.clearbestmovesafter(Lizzie.board.getHistory().getStart());
             if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
@@ -6796,13 +6758,10 @@ public class Menu extends JMenuBar {
     saveLoad.setMargin(new Insets(0, 0, 0, 0));
     startPos =
         Lizzie.config.isFrameFontSmall() ? 83 : (Lizzie.config.isFrameFontMiddle() ? 98 : 113);
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
     if (showPDA
-        || (EngineManager.isEngineGame
-            && (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .isKataGoPda
-                || Lizzie.engineManager.engineList.get(
-                        EngineManager.engineGameInfo.secondEngineIndex)
-                    .isKataGoPda))) {
+        || (snapshot.playing()
+            && EngineGamePresentation.participantHasKataGoPda(snapshot))) {
       if (Lizzie.config.isChinese) {
         lblPDASpinner.setBounds(
             startPos,
@@ -8615,7 +8574,7 @@ public class Menu extends JMenuBar {
 
     doubleMenuNewGame =
         new JFontButton(
-            (EngineManager.isEngineGame
+            (EngineGamePresentation.current().playing()
                     || Lizzie.frame.isPlayingAgainstLeelaz
                     || Lizzie.frame.isAnaPlayingAgainstLeelaz)
                 ? resourceBundle.getString("Menu.endGameBtn")
@@ -9478,13 +9437,10 @@ public class Menu extends JMenuBar {
   public void setPdaAndWrnByEngineForDouble() {
     // TODO Auto-generated method stub
     boolean needRemoveS = true;
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
     if (showPDA
-        || (EngineManager.isEngineGame
-            && (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-                    .isKataGoPda
-                || Lizzie.engineManager.engineList.get(
-                        EngineManager.engineGameInfo.secondEngineIndex)
-                    .isKataGoPda))) {
+        || (snapshot.playing()
+            && EngineGamePresentation.participantHasKataGoPda(snapshot))) {
       lblCustomPda.setVisible(true);
       txtPDA.setVisible(true);
       more2.setVisible(true);
@@ -9834,15 +9790,16 @@ public class Menu extends JMenuBar {
     SwingUtilities.invokeLater(
         new Thread() {
           public void run() {
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
             if (!Lizzie.frame.isAnaPlayingAgainstLeelaz
                 && !Lizzie.frame.isPlayingAgainstLeelaz
-                && !EngineManager.isEngineGame) doubleMenuPauseGame.setEnabled(false);
+                && !snapshot.playing()) doubleMenuPauseGame.setEnabled(false);
             else {
               doubleMenuPauseGame.setEnabled(true);
             }
             if ((Lizzie.frame.isAnaPlayingAgainstLeelaz
                     || Lizzie.frame.isPlayingAgainstLeelaz
-                    || EngineManager.isEngineGame)
+                    || snapshot.playing())
                 && Lizzie.leelaz.isLoaded()) {
               if (Lizzie.config.showDoubleMenu) {
                 doubleMenuStopGame.setVisible(true);
@@ -9862,11 +9819,11 @@ public class Menu extends JMenuBar {
                 doubleMenuPauseGame.setText(resourceBundle.getString("Menu.continueGameBtn"));
               else doubleMenuPauseGame.setText(resourceBundle.getString("Menu.pauseGameBtn"));
             } else doubleMenuResign.setVisible(false);
-            if (EngineManager.isEngineGame) {
-              if (LizzieFrame.toolbar.isPkStop)
+            if (snapshot.playing()) {
+              if (snapshot.paused())
                 doubleMenuPauseGame.setText(resourceBundle.getString("Menu.continueGameBtn"));
               else doubleMenuPauseGame.setText(resourceBundle.getString("Menu.pauseGameBtn"));
-              if (LizzieFrame.toolbar.isPkStop) engineMenu.setIcon(ready2);
+              if (snapshot.paused()) engineMenu.setIcon(ready2);
               else engineMenu.setIcon(Playing2);
             }
           }
@@ -10412,7 +10369,7 @@ public class Menu extends JMenuBar {
   }
 
   static boolean shouldApplyEnginePdaUpdate(Leelaz engine) {
-    boolean engineGame = EngineManager.isEngineGame();
+    boolean engineGame = EngineGamePresentation.current().startingOrPlaying();
     Leelaz primary = Lizzie.leelaz;
     Leelaz secondary = Lizzie.leelaz2;
     boolean livePrimary = primary != null && primary.started && primary.isLoaded;
@@ -10447,7 +10404,7 @@ public class Menu extends JMenuBar {
     SwingUtilities.invokeLater(
         new Runnable() {
           public void run() {
-            if (engineMenu == null || EngineManager.isEngineGame) return;
+            if (engineMenu == null || EngineGamePresentation.current().playing()) return;
             if (isThinking) {
               engineMenu.setIcon(Playing2);
               if (Lizzie.config.isDoubleEngineMode()) engineMenu2.setIcon(Playing2);
@@ -10518,7 +10475,7 @@ public class Menu extends JMenuBar {
   }
 
   private boolean isEngineGame() {
-    return Lizzie.engineManager != null && EngineManager.isEngineGame();
+    return Lizzie.engineManager != null && EngineGamePresentation.current().startingOrPlaying();
   }
 
   public void setChkShowBlack(boolean show) {
@@ -10533,7 +10490,7 @@ public class Menu extends JMenuBar {
 
   public void setBtnRankMark() {
     if (btnRankMark != null)
-      if (Lizzie.config.allowMoveNumber == 0 && !EngineManager.isEngineGame)
+      if (Lizzie.config.allowMoveNumber == 0 && !EngineGamePresentation.current().playing())
         btnRankMark.setIcon(Lizzie.config.moveRankMarkLastMove < 0 ? rankMarkOff : rankMarkOn);
       else btnRankMark.setIcon(rankMarkOff);
   }

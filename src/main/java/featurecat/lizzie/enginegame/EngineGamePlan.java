@@ -160,6 +160,17 @@ public final class EngineGamePlan {
   }
 
   EngineGameView view() {
-    return new EngineGameView(black, white, playMode, gameOrdinal);
+    return new EngineGameView(
+        black,
+        white,
+        playMode,
+        gameOrdinal,
+        blackIndex,
+        whiteIndex,
+        firstIndex,
+        secondIndex,
+        batch,
+        openingIndex);
   }
+
 }

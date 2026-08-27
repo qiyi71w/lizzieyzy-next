@@ -1,6 +1,8 @@
 package featurecat.lizzie.enginegame;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -20,41 +22,44 @@ class EngineGameSnapshotTest {
     assertFalse(idle.playing());
     assertFalse(idle.betweenGames());
     assertFalse(idle.startingOrPlaying());
+    assertFalse(idle.paused());
     assertFalse(idle.playingGenmove());
+    assertNull(idle.view());
   }
 
   @Test
-  void startingIsProductVisibleWithoutPlayingGenmove() {
+  void startingIsProductVisibleWithoutPlaying() {
     EngineGameSnapshot starting =
-        new EngineGameSnapshot.BatchActive(summary(), new GameActivity.Starting());
+        new EngineGameSnapshot.BatchActive(
+            summary(), new GameActivity.Starting(view(false, EngineGamePlayMode.ANALYSIS)));
 
     assertTrue(starting.starting());
     assertTrue(starting.startingOrPlaying());
     assertFalse(starting.playing());
     assertFalse(starting.betweenGames());
+    assertFalse(starting.paused());
     assertFalse(starting.playingGenmove());
+    assertEquals(FIRST, starting.view().black());
   }
 
   @Test
-  void playingGenmoveIsOnlyThePlayingGenmoveVariant() {
+  void playingGenmoveAndPauseAreOnlyPlayingVariants() {
     EngineGameSnapshot genmove =
         new EngineGameSnapshot.BatchActive(
             summary(),
-            new GameActivity.Playing(
-                new EngineGameView(FIRST, SECOND, EngineGamePlayMode.GENMOVE, 1),
-                RunState.RUNNING));
-    EngineGameSnapshot analysis =
+            new GameActivity.Playing(view(false, EngineGamePlayMode.GENMOVE), RunState.RUNNING));
+    EngineGameSnapshot pausedAnalysis =
         new EngineGameSnapshot.BatchActive(
             summary(),
-            new GameActivity.Playing(
-                new EngineGameView(FIRST, SECOND, EngineGamePlayMode.ANALYSIS, 1),
-                RunState.PAUSED));
+            new GameActivity.Playing(view(false, EngineGamePlayMode.ANALYSIS), RunState.PAUSED));
 
     assertTrue(genmove.playing());
     assertTrue(genmove.playingGenmove());
     assertTrue(genmove.startingOrPlaying());
-    assertFalse(analysis.playingGenmove());
-    assertTrue(analysis.playing());
+    assertFalse(genmove.paused());
+    assertFalse(pausedAnalysis.playingGenmove());
+    assertTrue(pausedAnalysis.playing());
+    assertTrue(pausedAnalysis.paused());
   }
 
   @Test
@@ -64,11 +69,28 @@ class EngineGameSnapshotTest {
 
     assertTrue(between.betweenGames());
     assertFalse(between.startingOrPlaying());
+    assertFalse(between.playing());
+    assertFalse(between.paused());
     assertFalse(between.playingGenmove());
+    assertNull(between.view());
+  }
+
+  private static EngineGameView view(boolean exchanged, EngineGamePlayMode mode) {
+    return new EngineGameView(
+        exchanged ? SECOND : FIRST,
+        exchanged ? FIRST : SECOND,
+        mode,
+        1,
+        exchanged ? 1 : 0,
+        exchanged ? 0 : 1,
+        0,
+        1,
+        true,
+        -1);
   }
 
   private static BatchSummary summary() {
     return new BatchSummary(
-        FIRST, SECOND, 1, 1, false, 0, 0, 0, 0, 0, 0, 0, 0, 0L, 0L, 0L, 0L, List.of());
+        FIRST, SECOND, 1, 2, true, 0, 0, 0, 0, 0, 0, 0, 0, 0L, 0L, 0L, 0L, List.of());
   }
 }

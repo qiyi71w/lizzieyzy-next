@@ -29,9 +29,26 @@ public sealed interface EngineGameSnapshot {
     return starting() || playing();
   }
 
-  default boolean playingGenmove() {
+  default boolean paused() {
     return this instanceof BatchActive active
         && active.activity() instanceof GameActivity.Playing playing
-        && playing.view().playMode() == EngineGamePlayMode.GENMOVE;
+        && playing.runState() == RunState.PAUSED;
+  }
+
+  default boolean playingGenmove() {
+    EngineGameView view = view();
+    return playing() && view != null && view.genmove();
+  }
+
+  default EngineGameView view() {
+    if (this instanceof BatchActive active) {
+      if (active.activity() instanceof GameActivity.Playing playing) {
+        return playing.view();
+      }
+      if (active.activity() instanceof GameActivity.Starting starting) {
+        return starting.view();
+      }
+    }
+    return null;
   }
 }

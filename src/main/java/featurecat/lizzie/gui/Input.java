@@ -3,7 +3,7 @@ package featurecat.lizzie.gui;
 import static java.awt.event.KeyEvent.*;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
 import featurecat.lizzie.util.Utils;
 import java.awt.event.*;
 import java.util.Optional;
@@ -83,7 +83,7 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
         Lizzie.frame.refresh();
         return;
       }
-      if (EngineManager.isEngineGame) {
+      if (EngineGamePresentation.current().playing()) {
         if (e.getButton() == MouseEvent.BUTTON1) {
           int x = Utils.zoomOut(e.getX());
           int y = Utils.zoomOut(e.getY());

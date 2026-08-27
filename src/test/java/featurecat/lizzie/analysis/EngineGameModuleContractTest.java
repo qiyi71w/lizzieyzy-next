@@ -23,6 +23,7 @@ import featurecat.lizzie.enginegame.EngineGameRecord;
 import featurecat.lizzie.enginegame.EngineGameRecordContext;
 import featurecat.lizzie.enginegame.EngineGameResignPolicy;
 import featurecat.lizzie.enginegame.EngineGameSaveSnapshot;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
 import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.enginegame.EngineGameTransaction;
@@ -698,6 +699,60 @@ class EngineGameModuleContractTest {
     assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
     assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
   }
+
+  @Test
+  void presentationGuardsMapStartingPlayingPauseResumeAndTerminalIdle() {
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertFalse(Lizzie.engineGame.current().startingOrPlaying());
+
+    assertInstanceOf(
+        Acceptance.Accepted.class, Lizzie.engineGame.accept(analysisSpec(), observer));
+    EngineGameSnapshot starting = Lizzie.engineGame.current();
+    assertTrue(starting.starting());
+    assertTrue(starting.startingOrPlaying());
+    assertFalse(starting.playing());
+    assertFalse(starting.paused());
+
+    Lizzie.engineGame.onOwnerPlaying();
+    assertTrue(Lizzie.engineGame.current().playing());
+    Lizzie.engineGame.pause();
+    assertTrue(Lizzie.engineGame.current().paused());
+    Lizzie.engineGame.resume();
+    assertFalse(Lizzie.engineGame.current().paused());
+
+    Lizzie.engineGame.stop();
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertFalse(Lizzie.engineGame.current().startingOrPlaying());
+  }
+
+  @Test
+  void exchangedBatchMapsScoresAndSidesFromSealedSnapshot() {
+    playAccepted(genmoveBatchSpec(2, true));
+    EngineGameSnapshot first = Lizzie.engineGame.current();
+    assertTrue(first.playing());
+    assertTrue(first.view().firstIsBlack());
+
+    completeCurrent(new GameOutcome.DoublePass());
+    EngineGameSnapshot between = Lizzie.engineGame.current();
+    assertTrue(between.betweenGames());
+    assertFalse(between.startingOrPlaying());
+    assertFalse(EngineGamePresentation.showLiveBatchScores(between));
+
+    Lizzie.engineGame.onOwnerRetired();
+    Lizzie.engineGame.onOwnerPlaying();
+    EngineGameSnapshot exchanged = Lizzie.engineGame.current();
+    assertTrue(exchanged.playing());
+    assertFalse(exchanged.view().firstIsBlack());
+    assertEquals(SECOND, exchanged.view().black());
+    assertTrue(EngineGamePresentation.showLiveBatchScores(exchanged));
+    assertEquals(0, EngineGamePresentation.blackWins(exchanged));
+    assertEquals(0, EngineGamePresentation.whiteWins(exchanged));
+
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.WHITE));
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertFalse(Lizzie.engineGame.current().startingOrPlaying());
+  }
+
 
 
   @Test

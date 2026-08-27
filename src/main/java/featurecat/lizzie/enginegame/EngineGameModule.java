@@ -72,7 +72,8 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       this.pendingSuccessor = false;
       this.lastCompletion = null;
       publishLocked(
-          new EngineGameSnapshot.BatchActive(acceptedBatch.summary(), new GameActivity.Starting()));
+          new EngineGameSnapshot.BatchActive(
+              acceptedBatch.summary(), new GameActivity.Starting(acceptedPlan.view())));
     }
     boolean started = manager.startEngineGame(gameInfo);
     if (!started) {
@@ -372,7 +373,8 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         transaction = new EngineGameTransaction(plan);
         nextInfo = EngineGameInfoFactory.from(plan, batch);
         publishLocked(
-            new EngineGameSnapshot.BatchActive(batch.summary(), new GameActivity.Starting()));
+            new EngineGameSnapshot.BatchActive(
+                batch.summary(), new GameActivity.Starting(plan.view())));
       }
     }
     if (chromeKind == EngineGameChromeTransition.Kind.BATCH_ENDED) {
@@ -473,6 +475,12 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   public void replaceChromeForTest(EngineGameChrome chrome) {
     synchronized (lock) {
       this.chrome = chrome == null ? SwingEngineGameChrome.INSTANCE : chrome;
+    }
+  }
+
+  public void publishSnapshotForTest(EngineGameSnapshot snapshot) {
+    synchronized (lock) {
+      this.snapshot = snapshot == null ? new EngineGameSnapshot.Idle() : snapshot;
     }
   }
 

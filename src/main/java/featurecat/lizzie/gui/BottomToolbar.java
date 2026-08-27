@@ -7,6 +7,7 @@ import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.Acceptance;
 import featurecat.lizzie.enginegame.StartFailure;
 import featurecat.lizzie.enginegame.StartObserver;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
 
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
@@ -1268,7 +1269,7 @@ public class BottomToolbar extends JPanel {
     forward10.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             for (int i = 0; i < 10; i++) Lizzie.board.nextMove(false);
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.clearAfterMove();
@@ -1279,7 +1280,7 @@ public class BottomToolbar extends JPanel {
     backward10.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             for (int i = 0; i < 10; i++) Lizzie.board.previousMove(false);
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.clearAfterMove();
@@ -1290,7 +1291,7 @@ public class BottomToolbar extends JPanel {
     forward1.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.nextMove(true);
             setTxtUnfocuse();
@@ -1299,7 +1300,7 @@ public class BottomToolbar extends JPanel {
     backward1.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
               Lizzie.board.previousMove(false);
@@ -1311,7 +1312,7 @@ public class BottomToolbar extends JPanel {
     gotomove.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             checkMove();
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             txtMoveNumber.setBackground(
@@ -1370,7 +1371,7 @@ public class BottomToolbar extends JPanel {
     lastButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.engineManager.isEngineGame()) return;
+            if (EngineGamePresentation.current().startingOrPlaying()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.frame.lastMove();
             setTxtUnfocuse();
@@ -1379,7 +1380,7 @@ public class BottomToolbar extends JPanel {
     firstButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.engineManager.isEngineGame()) return;
+            if (EngineGamePresentation.current().startingOrPlaying()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.frame.firstMove();
             setTxtUnfocuse();

@@ -3,7 +3,11 @@ package featurecat.lizzie.enginegame;
 import java.util.Objects;
 
 public sealed interface GameActivity {
-  record Starting() implements GameActivity {}
+  record Starting(EngineGameView view) implements GameActivity {
+    public Starting {
+      view = Objects.requireNonNull(view, "view");
+    }
+  }
 
   record Playing(EngineGameView view, RunState runState) implements GameActivity {
     public Playing {
