@@ -11,7 +11,7 @@
 
 这份安装指南对应的是当前仍在维护的 `LizzieYzy Next`，也就是很多人还在找的 `lizzieyzy 维护版 / 替代版本`。
 
-- 如果你在找 `KataGo 围棋复盘软件` 的 Windows 免安装包，先下载 `windows64.opencl.portable.zip`
+- 如果你在找 `KataGo 围棋复盘软件` 的 Windows 免安装包，先按显卡选择：RTX 20/30/40/50 用 NVIDIA CUDA，AMD/Intel/较老 NVIDIA 用 OpenCL，没有合适 GPU 再用 CPU 兼容版
 - 如果你想找 `还能继续用的 lizzieyzy 维护版`，这个项目就是现在应该优先看的版本
 - 如果你想 `输入野狐昵称后直接抓谱再复盘`，当前维护版已经支持
 - 如果你担心第一次启动要自己配很多东西，主推荐整合包已经内置 KataGo 和默认权重
@@ -21,12 +21,12 @@
 
 | 你的系统 | 推荐下载 | 内置 Java | 内置 KataGo | 适合谁 |
 | --- | --- | --- | --- | --- |
-| Windows 64 位 | `<date>-windows64.opencl.portable.zip` | 是 | 是 | 普通用户首选，免安装，解压即用 |
-| Windows 64 位 | `<date>-windows64.opencl.installer.exe` | 是 | 是 | 想保留安装流程的 OpenCL 用户 |
-| Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 是 | 是 | OpenCL 不稳定时的 CPU 兜底，免安装 |
-| Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 是 | 是 | 想安装的 CPU 兜底版 |
-| Windows 64 位 | `<date>-windows64.nvidia.portable.zip` | 是 | 是 | RTX 20/30/40/50 NVIDIA 显卡，免安装 |
+| Windows 64 位 | `<date>-windows64.nvidia.portable.zip` | 是 | 是 | RTX 20/30/40/50 NVIDIA 显卡，推荐，免安装 |
 | Windows 64 位 | `<date>-windows64.nvidia.installer.exe` | 是 | 是 | RTX 20/30/40/50 NVIDIA 显卡，想保留安装流程 |
+| Windows 64 位 | `<date>-windows64.opencl.portable.zip` | 是 | 是 | AMD、Intel 或较老 NVIDIA 显卡，免安装 |
+| Windows 64 位 | `<date>-windows64.opencl.installer.exe` | 是 | 是 | 想保留安装流程的 OpenCL 用户 |
+| Windows 64 位 | `<date>-windows64.with-katago.portable.zip` | 是 | 是 | 没有合适 GPU 或 GPU 版本无法启动时的 CPU 兜底 |
+| Windows 64 位 | `<date>-windows64.with-katago.installer.exe` | 是 | 是 | 想安装的 CPU 兜底版 |
 | Windows 64 位 | `<date>-windows64.without.engine.portable.zip` | 是 | 否 | 想自己配引擎，也不想安装 |
 | Windows 64 位 | `<date>-windows64.without.engine.installer.exe` | 是 | 否 | 想保留安装流程，但自己配引擎 |
 | macOS Apple Silicon | `<date>-mac-apple-silicon.with-katago.dmg` | App 自带运行时 | 是 | M 系列 Mac |
@@ -37,9 +37,9 @@
 
 一句话建议：
 
-- 想最省事：选 `windows64.opencl.portable.zip`
-- 如果 OpenCL 在你电脑上不稳定：改用 `windows64.with-katago.portable.zip`
-- RTX 20/30/40/50 NVIDIA 显卡想跑得更快：统一选 `windows64.nvidia.portable.zip`
+- RTX 20/30/40/50 NVIDIA 显卡：统一选 `windows64.nvidia.portable.zip`
+- AMD、Intel 或较老 NVIDIA 显卡：选 `windows64.opencl.portable.zip`
+- 没有合适 GPU，或 CUDA/OpenCL 在你电脑上无法正常启动：改用 `windows64.with-katago.portable.zip`
 - RTX 40/50 默认使用 CUDA；RTX 30 系及以下可在 `KataGo 一键设置` 中按需安装 TensorRT 作为可选方案
 - `KataGo 一键设置` 会检测 NVIDIA GPU / Compute Capability，再给出 TensorRT 推荐状态
 - NVIDIA 驱动 `570.65` 及以上直接加载；`528.33` 至 `570.64` 首次运行会执行一次轻量真实推理探测；更旧驱动会显示明确修复提示
@@ -68,14 +68,14 @@
 
 ## Windows 安装
 
-### Windows 64 位 OpenCL 免安装包（推荐）
+### Windows 64 位 OpenCL 免安装包
 
 1. 下载 `windows64.opencl.portable.zip`。
 2. 解压到普通目录，例如 `D:\LizzieYzy-Next`。
 3. 打开解压后的目录。
 4. 双击 `LizzieYzy Next OpenCL.exe`。
 
-这是当前最推荐给普通用户的 Windows 路径。
+这是 AMD、Intel 和较老 NVIDIA 显卡的兼容路径。
 OpenCL 免安装包也能直接打开 `KataGo 一键设置`，点一次“智能测速优化”，自动写入更合适的线程数。
 
 ### Windows 64 位 OpenCL 安装器
@@ -95,7 +95,7 @@ OpenCL 免安装包也能直接打开 `KataGo 一键设置`，点一次“智能
 2. 解压后运行 `LizzieYzy Next.exe`。
 3. 如果你更喜欢安装流程，再改用 `windows64.with-katago.installer.exe`。
 
-### Windows 64 位 NVIDIA 极速版
+### Windows 64 位 NVIDIA CUDA 推荐版
 
 如果你的电脑有 NVIDIA 显卡，而且你更在意分析速度：
 
@@ -113,7 +113,7 @@ OpenCL 免安装包也能直接打开 `KataGo 一键设置`，点一次“智能
 注意：
 
 - 这个版本只适合 NVIDIA 显卡电脑。
-- 如果你不确定自己是不是 NVIDIA 显卡，直接下载普通的 `windows64.opencl.portable.zip`。
+- 可在 Windows“任务管理器 -> 性能 -> GPU”查看显卡名称；RTX 20/30/40/50 选 NVIDIA 包，AMD、Intel 或较老 NVIDIA 选 OpenCL 包。
 
 ### Windows 64 位统一 NVIDIA CUDA 和 TensorRT 可选方案
 

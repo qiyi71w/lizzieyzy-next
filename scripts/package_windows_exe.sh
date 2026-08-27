@@ -899,27 +899,27 @@ EOF
   if [[ "$has_with_katago" == "true" ]]; then
     cat >>"$note_file" <<EOF
 - ${DATE_TAG}-${ARCH_TAG}.with-katago.installer.exe
-  CPU fallback build. Use this if OpenCL runs poorly on your PC and you need the safer compatibility option.
+  CPU compatibility build. Use this when the PC has no suitable GPU, or when both CUDA and OpenCL are unavailable.
 - ${DATE_TAG}-${ARCH_TAG}.with-katago.portable.zip
-  CPU fallback portable build. Use this if you do not want the installer and prefer the safer compatibility option.
+  CPU compatibility portable build. Unzip it when you need the no-install CPU fallback.
 EOF
   fi
 
   if [[ "$has_opencl_katago" == "true" ]]; then
     cat >>"$note_file" <<EOF
 - ${DATE_TAG}-${OPENCL_ARCH_TAG}.installer.exe
-  Recommended Windows build for most users who want better KataGo speed. Choose this first if your PC can run OpenCL normally.
+  OpenCL compatibility build for AMD, Intel, and older NVIDIA GPUs.
 - ${DATE_TAG}-${OPENCL_ARCH_TAG}.portable.zip
-  Recommended OpenCL portable build. Unzip it and open ${OPENCL_APP_NAME}.exe.
+  OpenCL compatibility portable build. Unzip it and open ${OPENCL_APP_NAME}.exe.
 EOF
   fi
 
   if [[ "$has_nvidia_katago" == "true" ]]; then
     cat >>"$note_file" <<EOF
 - ${DATE_TAG}-${NVIDIA_ARCH_TAG}.installer.exe
-  Unified CUDA 12.8 package for RTX 20/30/40/50 series. This is the default NVIDIA choice.
+  Recommended CUDA 12.8 package for RTX 20/30/40/50 series.
 - ${DATE_TAG}-${NVIDIA_ARCH_TAG}.portable.zip
-  NVIDIA-only portable build. Unzip it and open ${NVIDIA_APP_NAME}.exe.
+  Recommended NVIDIA portable build. Unzip it and open ${NVIDIA_APP_NAME}.exe.
   RTX 40/50 users should stay on CUDA. RTX 30 series and earlier may optionally try TensorRT.
 EOF
   fi
@@ -979,8 +979,8 @@ EOF
   if [[ "$has_opencl_katago" == "true" ]]; then
     cat >>"$note_file" <<'EOF'
 - The OpenCL assets include the official KataGo OpenCL Windows build.
-- The OpenCL package is now the main recommended Windows choice for users who want better analysis speed.
-- If OpenCL behaves badly on your PC, switch to the CPU package instead.
+- Choose OpenCL for AMD, Intel, or older NVIDIA GPUs that are not covered by the RTX CUDA package.
+- If OpenCL behaves badly on your PC, switch to the CPU compatibility package instead.
 EOF
   fi
 
@@ -1004,7 +1004,7 @@ EOF
 
   if [[ "$has_nvidia_katago" == "true" ]]; then
     cat >>"$note_file" <<'EOF'
-- Only choose an NVIDIA package if your PC has an NVIDIA GPU. If you are not sure, use the regular with-katago installer instead.
+- Use the NVIDIA CUDA package for RTX 20/30/40/50. Use OpenCL for AMD, Intel, or older NVIDIA GPUs, and use the CPU package when no suitable GPU backend is available.
 EOF
   fi
 

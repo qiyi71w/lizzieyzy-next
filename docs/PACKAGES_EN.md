@@ -12,7 +12,9 @@ This page describes the public release layout of the maintained `LizzieYzy Next`
 
 - The maintained release page centers on 13 stable first-download assets, plus 6 Windows experimental portable packages
 - On Windows, the default recommendation is now `portable.zip`
-- Most regular users should start with `windows64.opencl.portable.zip`
+- RTX 20/30/40/50 NVIDIA users should start with `windows64.nvidia.portable.zip`
+- AMD, Intel, and older NVIDIA users should choose `windows64.opencl.portable.zip`
+- PCs without a suitable GPU, or where GPU builds cannot start, should use the `windows64.with-katago.portable.zip` CPU compatibility build
 - If OpenCL behaves poorly, switch to `windows64.with-katago.portable.zip`
 - RTX 20/30/40/50 NVIDIA users share the CUDA 12.8 `windows64.nvidia.portable.zip`
 - RTX 40/50 should use CUDA by default; TensorRT is an optional alternative for RTX 30 series and earlier
@@ -23,12 +25,12 @@ This page describes the public release layout of the maintained `LizzieYzy Next`
 
 | Package type | Typical filename | Best for |
 | --- | --- | --- |
-| Windows x64 OpenCL portable | `<date>-windows64.opencl.portable.zip` | Main recommendation for regular users |
-| Windows x64 OpenCL installer | `<date>-windows64.opencl.installer.exe` | OpenCL users who prefer an installer |
-| Windows x64 CPU fallback portable | `<date>-windows64.with-katago.portable.zip` | CPU fallback when OpenCL behaves badly |
-| Windows x64 CPU fallback installer | `<date>-windows64.with-katago.installer.exe` | CPU fallback with installer flow |
-| Windows x64 NVIDIA CUDA portable | `<date>-windows64.nvidia.portable.zip` | RTX 20/30/40/50 NVIDIA users, unzip and run |
+| Windows x64 NVIDIA CUDA portable | `<date>-windows64.nvidia.portable.zip` | Recommended for RTX 20/30/40/50 NVIDIA users |
 | Windows x64 NVIDIA CUDA installer | `<date>-windows64.nvidia.installer.exe` | RTX 20/30/40/50 NVIDIA users who prefer an installer |
+| Windows x64 OpenCL portable | `<date>-windows64.opencl.portable.zip` | AMD, Intel, and older NVIDIA GPUs |
+| Windows x64 OpenCL installer | `<date>-windows64.opencl.installer.exe` | OpenCL users who prefer an installer |
+| Windows x64 CPU fallback portable | `<date>-windows64.with-katago.portable.zip` | PCs without a suitable GPU or when GPU builds cannot start |
+| Windows x64 CPU fallback installer | `<date>-windows64.with-katago.installer.exe` | CPU fallback with installer flow |
 | Windows x64 no-engine portable | `<date>-windows64.without.engine.portable.zip` | Custom KataGo setup |
 | Windows x64 no-engine installer | `<date>-windows64.without.engine.installer.exe` | Users who want installer flow with their own engine |
 | macOS Apple Silicon bundle | `<date>-mac-apple-silicon.with-katago.dmg` | M-series Macs |
@@ -81,8 +83,9 @@ Each experimental package still contains KataGo v1.18.1, the B11 default weight,
 
 If you just want the shortest path:
 
-- Windows: choose `windows64.opencl.portable.zip`
 - Windows with an RTX 20/30/40/50 NVIDIA GPU: choose the unified `windows64.nvidia.portable.zip`
+- Windows with an AMD, Intel, or older NVIDIA GPU: choose `windows64.opencl.portable.zip`
+- Windows without a suitable GPU, or when CUDA/OpenCL cannot start: choose `windows64.with-katago.portable.zip`
 - macOS: choose the correct `with-katago.dmg` for your chip
 - Linux: choose `linux64.with-katago.zip`
 

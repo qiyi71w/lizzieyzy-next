@@ -434,6 +434,168 @@ def add_nvidia50_download_rows(
             before_items.append(note)
 
 
+def apply_current_windows_download_guidance(
+    sections: list[dict[str, object]],
+    assets_cn: dict[str, str],
+    assets: dict[str, str],
+) -> None:
+    """Keep current/future notes hardware-specific without rewriting historical tags."""
+
+    language_keys = {
+        '中文': 'zh',
+        '繁體中文': 'zh_hant',
+        'English': 'en',
+        '日本語': 'ja',
+        '한국어': 'ko',
+        'ภาษาไทย': 'th',
+    }
+    before_templates = {
+        '中文': (
+            'RTX 20/30/40/50 NVIDIA 显卡优先下载 {nvidia}。',
+            'AMD、Intel 或较老 NVIDIA 显卡下载 {opencl}。',
+            '没有合适 GPU，或 CUDA/OpenCL 无法正常启动时，使用 {cpu} CPU 兼容版。',
+        ),
+        '繁體中文': (
+            'RTX 20/30/40/50 NVIDIA 顯示卡優先下載 {nvidia}。',
+            'AMD、Intel 或較舊 NVIDIA 顯示卡下載 {opencl}。',
+            '沒有合適 GPU，或 CUDA/OpenCL 無法正常啟動時，使用 {cpu} CPU 相容版。',
+        ),
+        'English': (
+            'RTX 20/30/40/50 NVIDIA users should choose {nvidia}.',
+            'AMD, Intel, and older NVIDIA users should choose {opencl}.',
+            'Use the {cpu} CPU compatibility build when no suitable GPU backend can start.',
+        ),
+        '日本語': (
+            'RTX 20/30/40/50 NVIDIA GPU では {nvidia} を選んでください。',
+            'AMD、Intel、旧 NVIDIA GPU では {opencl} を選んでください。',
+            '適切な GPU backend を起動できない場合は {cpu} CPU 互換版を使用してください。',
+        ),
+        '한국어': (
+            'RTX 20/30/40/50 NVIDIA GPU 사용자는 {nvidia} 를 선택하세요.',
+            'AMD, Intel, 구형 NVIDIA GPU 사용자는 {opencl} 를 선택하세요.',
+            '적합한 GPU backend 를 시작할 수 없으면 {cpu} CPU 호환판을 사용하세요.',
+        ),
+        'ภาษาไทย': (
+            'ผู้ใช้ NVIDIA RTX 20/30/40/50 ควรเลือก {nvidia}',
+            'ผู้ใช้ AMD, Intel หรือ NVIDIA รุ่นเก่าควรเลือก {opencl}',
+            'หากไม่มี GPU backend ที่เหมาะสมหรือเปิดไม่ได้ ให้ใช้ {cpu} รุ่น CPU compatibility',
+        ),
+    }
+    why_items = {
+        '中文': (
+            'Windows 现在按硬件明确区分 CUDA、OpenCL 和 CPU 兼容版，下载时不再猜。',
+            'RTX 20/30/40/50 统一使用 NVIDIA CUDA；AMD、Intel 和较老 NVIDIA 使用 OpenCL。',
+        ),
+        '繁體中文': (
+            'Windows 現在依硬體清楚區分 CUDA、OpenCL 與 CPU 相容版，下載時不用再猜。',
+            'RTX 20/30/40/50 統一使用 NVIDIA CUDA；AMD、Intel 與較舊 NVIDIA 使用 OpenCL。',
+        ),
+        'English': (
+            'Windows downloads are now clearly separated into CUDA, OpenCL, and CPU compatibility paths by hardware.',
+            'RTX 20/30/40/50 use NVIDIA CUDA; AMD, Intel, and older NVIDIA GPUs use OpenCL.',
+        ),
+        '日本語': (
+            'Windows のダウンロードを、hardware に応じて CUDA、OpenCL、CPU 互換版へ明確に分けました。',
+            'RTX 20/30/40/50 は NVIDIA CUDA、AMD、Intel、旧 NVIDIA は OpenCL を使用します。',
+        ),
+        '한국어': (
+            'Windows 다운로드를 하드웨어에 따라 CUDA, OpenCL, CPU 호환 경로로 명확히 나눴습니다.',
+            'RTX 20/30/40/50은 NVIDIA CUDA, AMD, Intel, 구형 NVIDIA는 OpenCL을 사용합니다.',
+        ),
+        'ภาษาไทย': (
+            'แยกดาวน์โหลด Windows เป็น CUDA, OpenCL และ CPU compatibility ตาม hardware อย่างชัดเจน',
+            'RTX 20/30/40/50 ใช้ NVIDIA CUDA ส่วน AMD, Intel และ NVIDIA รุ่นเก่าใช้ OpenCL',
+        ),
+    }
+    legacy_why_markers = (
+        'OpenCL 版现在放到推荐位',
+        'OpenCL 版放到推薦位',
+        'OpenCL 版現在放到推薦位',
+        'OpenCL Windows bundle is now the main recommended',
+        'OpenCL build is the recommended Windows',
+        'OpenCL 版を推奨',
+        'OpenCL 版は Windows の推奨',
+        'OpenCL 빌드를 추천',
+        'OpenCL 빌드는 더 빠른 분석 속도를 위한 Windows 추천',
+        'แนะนำ OpenCL build เป็นตัวหลัก',
+        'OpenCL build เป็นตัวแนะนำหลัก',
+    )
+
+    for section in sections:
+        language = str(section['language'])
+        label_key = language_keys.get(language, 'en')
+        localized_assets = assets_cn if language in ('中文', '繁體中文') else assets
+        selected_assets = {
+            localized_assets['windows_nvidia_portable'],
+            localized_assets['windows_nvidia_installer'],
+            localized_assets['windows_opencl_portable'],
+            localized_assets['windows_opencl_installer'],
+            localized_assets['windows_portable'],
+            localized_assets['windows_installer'],
+        }
+
+        before = section['before']
+        assert isinstance(before, dict)
+        before_items = before['items']
+        assert isinstance(before_items, list)
+        before['items'] = [
+            item
+            for item in before_items
+            if not any(asset in str(item) for asset in selected_assets)
+            and not any(marker in str(item) for marker in legacy_why_markers)
+        ]
+        guidance = [
+            template.format(
+                nvidia=localized_assets['windows_nvidia_portable'],
+                opencl=localized_assets['windows_opencl_portable'],
+                cpu=localized_assets['windows_portable'],
+            )
+            for template in before_templates.get(language, before_templates['English'])
+        ]
+        before['items'] = guidance + before['items']
+
+        download = section['download']
+        assert isinstance(download, dict)
+        rows = download['rows']
+        assert isinstance(rows, list)
+        table_keys = [asset.key for asset in topology.release_notes_table_assets()]
+        preferred_keys = [
+            'windows_nvidia_portable',
+            'windows_nvidia_installer',
+            'windows_opencl_portable',
+            'windows_opencl_installer',
+            'windows_portable',
+            'windows_installer',
+        ]
+        ordered_keys = preferred_keys + [
+            key for key in table_keys if key not in preferred_keys
+        ]
+        managed_assets = {localized_assets[key] for key in table_keys}
+        remaining_rows = [
+            row
+            for row in rows
+            if not (isinstance(row, tuple) and row[1] in managed_assets)
+        ]
+        labels = STANDARD_DOWNLOAD_LABELS[label_key]
+        download['rows'] = [
+            (labels[key], localized_assets[key])
+            for key in ordered_keys
+        ] + [
+            *remaining_rows,
+        ]
+
+        why = section['why']
+        assert isinstance(why, dict)
+        why_items_existing = why['items']
+        assert isinstance(why_items_existing, list)
+        why['items'] = [
+            item
+            for item in why_items_existing
+            if not any(marker in str(item) for marker in legacy_why_markers)
+        ]
+        why['items'][3:3] = list(why_items.get(language, why_items['English']))
+
+
 def add_tensorrt_split_download_row(
     sections: list[dict[str, object]],
     assets_cn: dict[str, str],
@@ -514,12 +676,12 @@ def standard_download_rows(labels: dict[str, str], localized_assets: dict[str, s
 
 STANDARD_DOWNLOAD_LABELS = {
     'zh': {
-        'windows_opencl_portable': 'Windows 64 位，OpenCL 版，推荐更快，免安装',
-        'windows_opencl_installer': 'Windows 64 位，OpenCL 版，想安装',
+        'windows_opencl_portable': 'Windows 64 位，AMD / Intel / 较老 NVIDIA，OpenCL 兼容版，免安装',
+        'windows_opencl_installer': 'Windows 64 位，AMD / Intel / 较老 NVIDIA，OpenCL 兼容安装版',
         'windows_portable': 'Windows 64 位，CPU 兼容版，免安装',
         'windows_installer': 'Windows 64 位，CPU 兼容版，想安装',
-        'windows_nvidia_portable': 'Windows 64 位，NVIDIA 显卡，免安装',
-        'windows_nvidia_installer': 'Windows 64 位，NVIDIA 显卡，想安装',
+        'windows_nvidia_portable': 'Windows 64 位，RTX 20/30/40/50，NVIDIA CUDA 推荐版，免安装',
+        'windows_nvidia_installer': 'Windows 64 位，RTX 20/30/40/50，NVIDIA CUDA 推荐安装版',
         'windows_directml_experimental': 'Windows 64 位，DirectML 实验版，DirectX 12 GPU',
         'windows_openvino_experimental': 'Windows 64 位，OpenVINO 实验版，Intel GPU/NPU',
         'windows_rocm_gfx103x_experimental': 'Windows 64 位，ROCm 实验版，AMD RX 6000',
@@ -535,12 +697,12 @@ STANDARD_DOWNLOAD_LABELS = {
         'linux64_nvidia': 'Linux 64 位，NVIDIA CUDA 版',
     },
     'zh_hant': {
-        'windows_opencl_portable': 'Windows 64 位，OpenCL 版，推薦更快，免安裝',
-        'windows_opencl_installer': 'Windows 64 位，OpenCL 版，想安裝',
+        'windows_opencl_portable': 'Windows 64 位，AMD / Intel / 較舊 NVIDIA，OpenCL 相容版，免安裝',
+        'windows_opencl_installer': 'Windows 64 位，AMD / Intel / 較舊 NVIDIA，OpenCL 相容安裝版',
         'windows_portable': 'Windows 64 位，CPU 相容版，免安裝',
         'windows_installer': 'Windows 64 位，CPU 相容版，想安裝',
-        'windows_nvidia_portable': 'Windows 64 位，NVIDIA 顯示卡，免安裝',
-        'windows_nvidia_installer': 'Windows 64 位，NVIDIA 顯示卡，想安裝',
+        'windows_nvidia_portable': 'Windows 64 位，RTX 20/30/40/50，NVIDIA CUDA 建議版，免安裝',
+        'windows_nvidia_installer': 'Windows 64 位，RTX 20/30/40/50，NVIDIA CUDA 建議安裝版',
         'windows_directml_experimental': 'Windows 64 位，DirectML 實驗版，DirectX 12 GPU',
         'windows_openvino_experimental': 'Windows 64 位，OpenVINO 實驗版，Intel GPU/NPU',
         'windows_rocm_gfx103x_experimental': 'Windows 64 位，ROCm 實驗版，AMD RX 6000',
@@ -556,12 +718,12 @@ STANDARD_DOWNLOAD_LABELS = {
         'linux64_nvidia': 'Linux 64 位，NVIDIA CUDA 版',
     },
     'en': {
-        'windows_opencl_portable': 'Windows 64-bit, OpenCL, recommended and faster, no install',
-        'windows_opencl_installer': 'Windows 64-bit, OpenCL, installer',
+        'windows_opencl_portable': 'Windows 64-bit, AMD / Intel / older NVIDIA, OpenCL compatibility, no install',
+        'windows_opencl_installer': 'Windows 64-bit, AMD / Intel / older NVIDIA, OpenCL compatibility installer',
         'windows_portable': 'Windows 64-bit, CPU compatible build, no install',
         'windows_installer': 'Windows 64-bit, CPU compatible build, installer',
-        'windows_nvidia_portable': 'Windows 64-bit, NVIDIA GPU, no install',
-        'windows_nvidia_installer': 'Windows 64-bit, NVIDIA GPU, installer',
+        'windows_nvidia_portable': 'Windows 64-bit, RTX 20/30/40/50, recommended NVIDIA CUDA, no install',
+        'windows_nvidia_installer': 'Windows 64-bit, RTX 20/30/40/50, recommended NVIDIA CUDA installer',
         'windows_directml_experimental': 'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
         'windows_openvino_experimental': 'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
         'windows_rocm_gfx103x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 6000',
@@ -577,12 +739,12 @@ STANDARD_DOWNLOAD_LABELS = {
         'linux64_nvidia': 'Linux 64-bit, NVIDIA CUDA',
     },
     'ja': {
-        'windows_opencl_portable': 'Windows 64-bit、OpenCL 推奨高速版、インストール不要',
-        'windows_opencl_installer': 'Windows 64-bit、OpenCL 版、インストーラ',
+        'windows_opencl_portable': 'Windows 64-bit、AMD / Intel / 旧 NVIDIA、OpenCL 互換版、インストール不要',
+        'windows_opencl_installer': 'Windows 64-bit、AMD / Intel / 旧 NVIDIA、OpenCL 互換版、インストーラ',
         'windows_portable': 'Windows 64-bit、CPU 互換版、インストール不要',
         'windows_installer': 'Windows 64-bit、CPU 互換版、インストーラ',
-        'windows_nvidia_portable': 'Windows 64-bit、NVIDIA GPU、インストール不要',
-        'windows_nvidia_installer': 'Windows 64-bit、NVIDIA GPU、インストーラ',
+        'windows_nvidia_portable': 'Windows 64-bit、RTX 20/30/40/50、推奨 NVIDIA CUDA、インストール不要',
+        'windows_nvidia_installer': 'Windows 64-bit、RTX 20/30/40/50、推奨 NVIDIA CUDA、インストーラ',
         'windows_directml_experimental': 'Windows 64-bit、DirectML experimental、DirectX 12 GPU',
         'windows_openvino_experimental': 'Windows 64-bit、OpenVINO experimental、Intel GPU/NPU',
         'windows_rocm_gfx103x_experimental': 'Windows 64-bit、ROCm experimental、AMD RX 6000',
@@ -598,12 +760,12 @@ STANDARD_DOWNLOAD_LABELS = {
         'linux64_nvidia': 'Linux 64-bit、NVIDIA CUDA',
     },
     'ko': {
-        'windows_opencl_portable': 'Windows 64-bit, OpenCL 추천 고속판, 무설치',
-        'windows_opencl_installer': 'Windows 64-bit, OpenCL, 설치형',
+        'windows_opencl_portable': 'Windows 64-bit, AMD / Intel / 구형 NVIDIA, OpenCL 호환판, 무설치',
+        'windows_opencl_installer': 'Windows 64-bit, AMD / Intel / 구형 NVIDIA, OpenCL 호환 설치형',
         'windows_portable': 'Windows 64-bit, CPU 호환 빌드, 무설치',
         'windows_installer': 'Windows 64-bit, CPU 호환 빌드, 설치형',
-        'windows_nvidia_portable': 'Windows 64-bit, NVIDIA GPU, 무설치',
-        'windows_nvidia_installer': 'Windows 64-bit, NVIDIA GPU, 설치형',
+        'windows_nvidia_portable': 'Windows 64-bit, RTX 20/30/40/50, 권장 NVIDIA CUDA, 무설치',
+        'windows_nvidia_installer': 'Windows 64-bit, RTX 20/30/40/50, 권장 NVIDIA CUDA 설치형',
         'windows_directml_experimental': 'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
         'windows_openvino_experimental': 'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
         'windows_rocm_gfx103x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 6000',
@@ -619,12 +781,12 @@ STANDARD_DOWNLOAD_LABELS = {
         'linux64_nvidia': 'Linux 64-bit, NVIDIA CUDA',
     },
     'th': {
-        'windows_opencl_portable': 'Windows 64-bit, OpenCL, แนะนำและเร็วกว่า, ไม่ต้องติดตั้ง',
-        'windows_opencl_installer': 'Windows 64-bit, OpenCL, แบบติดตั้ง',
+        'windows_opencl_portable': 'Windows 64-bit, AMD / Intel / NVIDIA รุ่นเก่า, OpenCL compatibility, ไม่ต้องติดตั้ง',
+        'windows_opencl_installer': 'Windows 64-bit, AMD / Intel / NVIDIA รุ่นเก่า, OpenCL compatibility installer',
         'windows_portable': 'Windows 64-bit, CPU compatible build, ไม่ต้องติดตั้ง',
         'windows_installer': 'Windows 64-bit, CPU compatible build, แบบติดตั้ง',
-        'windows_nvidia_portable': 'Windows 64-bit, การ์ดจอ NVIDIA, ไม่ต้องติดตั้ง',
-        'windows_nvidia_installer': 'Windows 64-bit, การ์ดจอ NVIDIA, แบบติดตั้ง',
+        'windows_nvidia_portable': 'Windows 64-bit, RTX 20/30/40/50, NVIDIA CUDA ที่แนะนำ, ไม่ต้องติดตั้ง',
+        'windows_nvidia_installer': 'Windows 64-bit, RTX 20/30/40/50, NVIDIA CUDA installer ที่แนะนำ',
         'windows_directml_experimental': 'Windows 64-bit, DirectML experimental, DirectX 12 GPU',
         'windows_openvino_experimental': 'Windows 64-bit, OpenVINO experimental, Intel GPU/NPU',
         'windows_rocm_gfx103x_experimental': 'Windows 64-bit, ROCm experimental, AMD RX 6000',
@@ -4254,15 +4416,15 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
             'before': {
                 'heading': '下载前先看这几句',
                 'items': [
-                    f'Windows 普通用户直接下载 {assets_cn["windows_opencl_portable"]}，这是 **OpenCL 版（推荐，免安装）**。',
-                    f'如果 OpenCL 在你的电脑上跑得不好，再改用 {assets_cn["windows_portable"]}。',
-                    f'如果你的电脑是 **英伟达显卡**，优先下载 {assets_cn["windows_nvidia_portable"]}。',
+                    f'RTX 20/30/40/50 NVIDIA 显卡优先下载 {assets_cn["windows_nvidia_portable"]}。',
+                    f'AMD、Intel 或较老 NVIDIA 显卡下载 {assets_cn["windows_opencl_portable"]}。',
+                    f'没有合适 GPU，或 CUDA/OpenCL 无法正常启动时，使用 {assets_cn["windows_portable"]} CPU 兼容版。',
                     '如果你更喜欢安装流程，再选同系列的 `installer.exe`。',
                     '野狐棋谱和腾讯棋谱现在是两个入口：野狐输入野狐昵称，腾讯输入腾讯昵称或数字 UID。',
                     f'主推荐整合包已内置 KataGo `{katago_version}` 和默认权重 `{model_source}`。',
                     'Windows OpenCL 版也支持 **智能优化**，可以自动写入更合适的线程设置。',
-                    'Windows 现在把 OpenCL 版放到推荐位，优先照顾更快的分析速度。',
-                    'CPU 版继续保留，作为 OpenCL 不稳定时的兼容兜底。',
+                    'Windows 按显卡类型推荐 CUDA、OpenCL 或 CPU 兼容版，不再笼统推荐同一个包。',
+                    'CPU 版继续保留，作为没有合适 GPU 或 GPU 后端无法启动时的兼容兜底。',
                     'Windows NVIDIA 整合包已内置官方运行库，首启可离线使用。',
                 ],
             },
@@ -4270,12 +4432,12 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                 'heading': '下载建议',
                 'headers': ('你的电脑', '直接下载这个'),
                 'rows': [
-                    ('Windows 64 位，OpenCL 版，推荐更快，免安装', assets_cn['windows_opencl_portable']),
-                    ('Windows 64 位，OpenCL 版，想安装', assets_cn['windows_opencl_installer']),
-                    ('Windows 64 位，CPU 版，兼容兜底，免安装', assets_cn['windows_portable']),
-                    ('Windows 64 位，CPU 版，兼容兜底，想安装', assets_cn['windows_installer']),
-                    ('Windows 64 位，英伟达显卡，想更快，免安装', assets_cn['windows_nvidia_portable']),
-                    ('Windows 64 位，英伟达显卡，想更快，也想安装', assets_cn['windows_nvidia_installer']),
+                    ('Windows 64 位，RTX 20/30/40/50 NVIDIA CUDA 推荐版，免安装', assets_cn['windows_nvidia_portable']),
+                    ('Windows 64 位，RTX 20/30/40/50 NVIDIA CUDA 推荐安装版', assets_cn['windows_nvidia_installer']),
+                    ('Windows 64 位，AMD / Intel / 较老 NVIDIA OpenCL 兼容版，免安装', assets_cn['windows_opencl_portable']),
+                    ('Windows 64 位，AMD / Intel / 较老 NVIDIA OpenCL 兼容安装版', assets_cn['windows_opencl_installer']),
+                    ('Windows 64 位，CPU 兼容版，免安装', assets_cn['windows_portable']),
+                    ('Windows 64 位，CPU 兼容安装版', assets_cn['windows_installer']),
                     ('Windows 64 位，想自己配引擎', assets_cn['windows_no_engine_portable']),
                     ('Windows 64 位，想自己配引擎，也想安装器', assets_cn['windows_no_engine_installer']),
                     ('macOS Apple Silicon', assets_cn['mac_arm64']),
@@ -4291,11 +4453,9 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
                     '野狐抓谱链路继续可用，并新增腾讯棋谱入口，常见公开棋谱来源更完整。',
                     '腾讯棋谱支持昵称/数字 UID 搜索、列表分页、双击或“打开”直接加载到主棋盘。',
                     'Windows 现在把 `.portable.zip` 放到推荐位，解压后更符合多数用户习惯。',
-                    'Windows 现在同时提供 OpenCL 版和 CPU 版，下载时更容易按“速度优先”还是“兼容优先”来选。',
-                    'Windows OpenCL 版现在放到推荐位，优先照顾更快的分析速度。',
                     'Windows OpenCL 版也支持智能优化，测速后会自动保存推荐线程数。',
                     'Windows CPU 版继续保留，适合 OpenCL 表现不理想的机器。',
-                    '对有 NVIDIA 独显的 Windows 用户，额外提供官方 CUDA 版 KataGo 的极速整合包，并且把官方运行库一起打进包里。',
+                    'NVIDIA CUDA 整合包内置官方运行库，支持 RTX 20/30/40/50 离线启动。',
                     'macOS 继续提供 Apple Silicon / Intel 两种 `.dmg`。',
                     '整合包继续内置 KataGo 与默认权重，打开后更快进入分析。',
                 ],
@@ -4651,6 +4811,7 @@ def build_release_notes(asset_map: dict[str, str | None], bundle: dict[str, str]
 
     add_nvidia50_download_rows(sections, assets_cn, assets)
     add_tensorrt_split_download_row(sections, assets_cn, assets, asset_map)
+    apply_current_windows_download_guidance(sections, assets_cn, assets)
     validate_release_sections(sections)
 
     return release_heading(release_tag) + '\n\n' + '\n\n---\n\n'.join(

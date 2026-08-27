@@ -46,8 +46,9 @@
 
 > [!IMPORTANT]
 > 如果你只想先下对版本，先记住这几句：
-> - Windows 大多数用户：到 [正式版下载页](https://goagent.top/download/) 下载 `*windows64.opencl.portable.zip`
-> - RTX 20/30/40/50 NVIDIA 显卡：统一下载 `*windows64.nvidia.portable.zip`，内置 CUDA 12.8 + cuDNN 9.8
+> - RTX 20/30/40/50 NVIDIA 显卡：到 [正式版下载页](https://goagent.top/download/) 下载 `*windows64.nvidia.portable.zip`，内置 CUDA 12.8 + cuDNN 9.8
+> - AMD、Intel 或较老的 NVIDIA 显卡：下载 `*windows64.opencl.portable.zip`
+> - 没有合适独立显卡，或 GPU 版本无法正常启动：下载 `*windows64.with-katago.portable.zip` CPU 兼容版
 > - 已经有 Windows 免安装版：日常升级优先下载 `*windows64.core-update.zip`，关闭软件后解压到旧目录覆盖，只更新主程序和启动器配置
 > - RTX 40/50 默认使用 CUDA；TensorRT 是 RTX 30 系及以下 NVIDIA 显卡的可选方案，不再作为“高级版”推荐
 > - 完整包的 CPU、OpenCL、CUDA、TensorRT、Metal 和 Linux 后端已统一升级到 KataGo `v1.18.1`；Linux NVIDIA 仍使用 CUDA 12.1 以兼顾系统运行环境
@@ -98,12 +99,12 @@
 
 | 你的情况 | 到 Releases 里找包含这个关键词的文件 |
 | --- | --- |
-| Windows 大多数用户，推荐，免安装 | `*windows64.opencl.portable.zip` |
-| Windows，OpenCL 版，想安装 | `*windows64.opencl.installer.exe` |
-| Windows，OpenCL 不稳定，CPU 兼容兜底，免安装 | `*windows64.with-katago.portable.zip` |
-| Windows，CPU 兼容兜底，想安装 | `*windows64.with-katago.installer.exe` |
-| Windows，RTX 20/30/40/50 NVIDIA 显卡，免安装 | `*windows64.nvidia.portable.zip` |
+| Windows，RTX 20/30/40/50 NVIDIA 显卡，推荐，免安装 | `*windows64.nvidia.portable.zip` |
 | Windows，RTX 20/30/40/50 NVIDIA 显卡，想安装 | `*windows64.nvidia.installer.exe` |
+| Windows，AMD / Intel / 较老 NVIDIA 显卡，免安装 | `*windows64.opencl.portable.zip` |
+| Windows，AMD / Intel / 较老 NVIDIA 显卡，想安装 | `*windows64.opencl.installer.exe` |
+| Windows，没有合适 GPU 或 GPU 版本无法启动，CPU 兼容版 | `*windows64.with-katago.portable.zip` |
+| Windows，CPU 兼容版，想安装 | `*windows64.with-katago.installer.exe` |
 | 已经有 Windows 免安装版，日常升级 | `*windows64.core-update.zip`，解压到旧目录覆盖 |
 | Windows，RTX 30 系及以下，想测试 TensorRT | 先下载统一 NVIDIA 包，再在 `KataGo 一键设置` 里选装 |
 | Windows，RTX 30 系及以下，想离线测试 TensorRT | `*windows64.nvidia.tensorrt.portable.7z.001` 起的全部分卷，先看同名 `README.txt` |
@@ -122,9 +123,10 @@ Windows `portable.zip` 是真正的免安装模式：配置、日志、保存棋
 
 如果你懒得分辨：
 
-- Windows：先下 `*windows64.opencl.portable.zip`
 - 已经有 Windows 免安装版：先下 `*windows64.core-update.zip` 覆盖旧目录，除非更新说明要求下载完整包
 - Windows + RTX 20/30/40/50 NVIDIA 显卡：统一下载 `*windows64.nvidia.portable.zip`
+- Windows + AMD、Intel 或较老 NVIDIA 显卡：下载 `*windows64.opencl.portable.zip`
+- Windows 没有合适 GPU，或 CUDA/OpenCL 无法正常启动：下载 `*windows64.with-katago.portable.zip`
 - Windows + RTX 30 系及以下想试 TensorRT：先打开统一 NVIDIA/CUDA 包，再在软件内“一键设置”按需安装；RTX 40/50 保留 CUDA
 - TensorRT 一键安装完成后会自动删除完整下载包，之前留下的下载缓存也可以在一键设置里点“清理 TensorRT 缓存”
 - Windows + RTX 30 系及以下需要离线 TensorRT：下载 `*windows64.nvidia.tensorrt.portable.7z.001/.002/...` 全部分卷后从 `.001` 解压
