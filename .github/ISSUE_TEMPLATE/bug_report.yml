@@ -73,6 +73,12 @@ body:
     validations:
       required: true
   - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: 可填。帮助 → 诊断与日志 → 导出诊断包，把 zip 附到本 issue；打不开软件时附 logs/app.log。 / Optional. Help → Diagnostics and Logs → Export package, then attach the zip.
+      placeholder: Optional
+  - type: textarea
     id: evidence
     attributes:
       label: Error Message / Screenshot / Extra Context
