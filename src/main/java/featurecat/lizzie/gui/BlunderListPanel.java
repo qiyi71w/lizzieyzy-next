@@ -156,24 +156,11 @@ public class BlunderListPanel extends JPanel implements Scrollable {
         : Font.SANS_SERIF;
   }
 
-  private int emptyStatePreferredHeight(int panelWidth) {
-    Font titleFont = new Font(emptyStateFontName(), Font.PLAIN, 14);
-    Font subtitleFont = new Font(emptyStateFontName(), Font.PLAIN, 12);
-    EmptyStateLayout layout =
-        layoutEmptyState(
-            panelWidth,
-            1,
-            getFontMetrics(titleFont),
-            getFontMetrics(subtitleFont),
-            currentSnapshot != null && currentSnapshot.analysisRunning);
-    return layout.boxH + EMPTY_STATE_MARGIN * 2;
-  }
-
   @Override
   public Dimension getPreferredSize() {
     int width = preferredViewportWidth();
     if (showingEmptyState()) {
-      return new Dimension(width, Math.max(1, emptyStatePreferredHeight(width)));
+      return new Dimension(width, 1);
     }
     int rows = getMergedEntries().size();
     return new Dimension(width, Math.max(1, HEADER_HEIGHT + rows * CARD_HEIGHT + PADDING));
@@ -204,6 +191,9 @@ public class BlunderListPanel extends JPanel implements Scrollable {
 
   @Override
   public boolean getScrollableTracksViewportHeight() {
+    if (showingEmptyState()) {
+      return true;
+    }
     Container parent = getParent();
     return parent instanceof JViewport
         && ((JViewport) parent).getHeight() > getPreferredSize().height;
@@ -239,26 +229,24 @@ public class BlunderListPanel extends JPanel implements Scrollable {
   private void drawEmptyState(Graphics g) {
     Graphics2D g2 = (Graphics2D) g.create();
     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    Font titleFont = new Font(emptyStateFontName(), Font.PLAIN, 14);
-    Font subtitleFont = new Font(emptyStateFontName(), Font.PLAIN, 12);
     EmptyStateLayout layout =
-        layoutEmptyState(
+        fitEmptyState(
             Math.max(1, getWidth()),
             Math.max(1, getHeight()),
-            g2.getFontMetrics(titleFont),
-            g2.getFontMetrics(subtitleFont),
-            currentSnapshot != null && currentSnapshot.analysisRunning);
+            emptyStateFontName(),
+            currentSnapshot != null && currentSnapshot.analysisRunning,
+            g2);
     // Both styles use a dark sidebar surface, so the boxed empty state works for both.
     g2.setColor(new Color(255, 255, 255, 14));
     g2.fillRoundRect(layout.boxX, layout.boxY, layout.boxW, layout.boxH, 18, 18);
     g2.setColor(new Color(255, 255, 255, 24));
     g2.drawRoundRect(layout.boxX, layout.boxY, layout.boxW - 1, layout.boxH - 1, 18, 18);
-    g2.setFont(titleFont);
+    g2.setFont(layout.titleFont);
     g2.setColor(TEXT_PRIMARY);
     for (EmptyStateLine line : layout.titleLines) {
       g2.drawString(line.text, line.x, line.baselineY);
     }
-    g2.setFont(subtitleFont);
+    g2.setFont(layout.subtitleFont);
     g2.setColor(TEXT_SECONDARY);
     for (EmptyStateLine line : layout.subtitleLines) {
       g2.drawString(line.text, line.x, line.baselineY);
@@ -486,23 +474,6 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     return Math.max(metrics.getHeight(), metrics.getAscent() + metrics.getDescent());
   }
 
-  static int emptyStateCardHeight(
-      FontMetrics titleMetrics,
-      FontMetrics subtitleMetrics,
-      int boxW,
-      boolean analysisRunning) {
-    String title = analysisRunning ? EMPTY_STATE_ANALYZING_TITLE : EMPTY_STATE_TITLE;
-    int innerWidth = Math.max(1, boxW - EMPTY_STATE_TEXT_INSET * 2);
-    int titleLines = Math.max(1, wrapToWidth(titleMetrics, title, innerWidth).size());
-    int subtitleLines =
-        Math.max(1, wrapToWidth(subtitleMetrics, EMPTY_STATE_SUBTITLE, innerWidth).size());
-    int contentHeight =
-        titleLines * lineHeight(titleMetrics)
-            + EMPTY_STATE_TITLE_SUBTITLE_GAP
-            + subtitleLines * lineHeight(subtitleMetrics);
-    return Math.max(EMPTY_STATE_MIN_BOX_HEIGHT, contentHeight + EMPTY_STATE_TEXT_INSET * 2);
-  }
-
   static List<String> wrapToWidth(FontMetrics metrics, String text, int maxWidth) {
     List<String> lines = new ArrayList<>();
     if (text == null || text.isEmpty()) {
@@ -527,16 +498,73 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     return lines;
   }
 
+  static EmptyStateLayout fitEmptyState(
+      int panelWidth,
+      int panelHeight,
+      String fontName,
+      boolean analysisRunning,
+      Graphics2D graphics) {
+    String family = fontName != null ? fontName : Font.SANS_SERIF;
+    int[] titleSizes = {14, 13, 12, 11, 10, 9};
+    int[] subtitleSizes = {12, 11, 10, 9, 8, 7};
+    int[] insets = {16, 12, 8, 6, 4};
+    EmptyStateLayout fallback = null;
+    for (int inset : insets) {
+      for (int i = 0; i < titleSizes.length; i++) {
+        Font titleFont = new Font(family, Font.PLAIN, titleSizes[i]);
+        Font subtitleFont = new Font(family, Font.PLAIN, subtitleSizes[i]);
+        EmptyStateLayout layout =
+            layoutEmptyState(
+                panelWidth,
+                panelHeight,
+                graphics.getFontMetrics(titleFont),
+                graphics.getFontMetrics(subtitleFont),
+                analysisRunning,
+                inset,
+                titleFont,
+                subtitleFont);
+        if (layout.fitsInPanel(panelWidth, panelHeight)) {
+          return layout;
+        }
+        fallback = layout;
+      }
+    }
+    return fallback;
+  }
+
   static EmptyStateLayout layoutEmptyState(
       int panelWidth,
       int panelHeight,
       FontMetrics titleMetrics,
       FontMetrics subtitleMetrics,
       boolean analysisRunning) {
+    Font titleFont = new Font(Font.SANS_SERIF, Font.PLAIN, 14);
+    Font subtitleFont = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+    return layoutEmptyState(
+        panelWidth,
+        panelHeight,
+        titleMetrics,
+        subtitleMetrics,
+        analysisRunning,
+        EMPTY_STATE_TEXT_INSET,
+        titleFont,
+        subtitleFont);
+  }
+
+  static EmptyStateLayout layoutEmptyState(
+      int panelWidth,
+      int panelHeight,
+      FontMetrics titleMetrics,
+      FontMetrics subtitleMetrics,
+      boolean analysisRunning,
+      int textInset,
+      Font titleFont,
+      Font subtitleFont) {
     String title = analysisRunning ? EMPTY_STATE_ANALYZING_TITLE : EMPTY_STATE_TITLE;
+    int inset = Math.max(4, textInset);
     int boxW = emptyStateBoxWidth(panelWidth);
-    int boxX = Math.max(EMPTY_STATE_MARGIN, (panelWidth - boxW) / 2);
-    int innerWidth = Math.max(1, boxW - EMPTY_STATE_TEXT_INSET * 2);
+    int boxX = Math.max(Math.min(EMPTY_STATE_MARGIN, panelWidth / 8), (panelWidth - boxW) / 2);
+    int innerWidth = Math.max(1, boxW - inset * 2);
     List<String> wrappedTitle = wrapToWidth(titleMetrics, title, innerWidth);
     List<String> wrappedSubtitle = wrapToWidth(subtitleMetrics, EMPTY_STATE_SUBTITLE, innerWidth);
     int titleLineHeight = lineHeight(titleMetrics);
@@ -545,12 +573,15 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     int subtitleBlockHeight =
         Math.max(subtitleLineHeight, wrappedSubtitle.size() * subtitleLineHeight);
     int contentHeight = titleBlockHeight + EMPTY_STATE_TITLE_SUBTITLE_GAP + subtitleBlockHeight;
-    int boxH = emptyStateCardHeight(titleMetrics, subtitleMetrics, boxW, analysisRunning);
-    int boxY = Math.max(EMPTY_STATE_MARGIN, (panelHeight - boxH) / 2 - EMPTY_STATE_MARGIN);
-    if (boxY + boxH + EMPTY_STATE_MARGIN > panelHeight) {
-      boxY = EMPTY_STATE_MARGIN;
+    int maxBoxH = Math.max(1, panelHeight);
+    int desiredH = contentHeight + inset * 2;
+    int minH = Math.min(EMPTY_STATE_MIN_BOX_HEIGHT, maxBoxH);
+    int boxH = Math.min(maxBoxH, Math.max(minH, desiredH));
+    int boxY = Math.max(0, (panelHeight - boxH) / 2);
+    if (panelHeight >= boxH + EMPTY_STATE_MARGIN * 2) {
+      boxY = Math.max(EMPTY_STATE_MARGIN, (panelHeight - boxH) / 2 - EMPTY_STATE_MARGIN);
     }
-    int contentTop = boxY + Math.max(EMPTY_STATE_TEXT_INSET, (boxH - contentHeight) / 2);
+    int contentTop = boxY + Math.max(inset, (boxH - contentHeight) / 2);
 
     List<EmptyStateLine> titleLines = new ArrayList<>();
     int titleBaseline = contentTop + titleMetrics.getAscent();
@@ -588,9 +619,13 @@ public class BlunderListPanel extends JPanel implements Scrollable {
             ? contentTop + contentHeight
             : subtitleLines.get(subtitleLines.size() - 1).baselineY
                 + subtitleLines.get(subtitleLines.size() - 1).descent;
-    boxH = Math.max(boxH, contentBottom + EMPTY_STATE_TEXT_INSET - boxY);
+    boxH = Math.min(maxBoxH, Math.max(boxH, contentBottom + inset - boxY));
+    if (boxY + boxH > panelHeight) {
+      boxY = Math.max(0, panelHeight - boxH);
+    }
 
-    return new EmptyStateLayout(boxX, boxY, boxW, boxH, titleLines, subtitleLines);
+    return new EmptyStateLayout(
+        boxX, boxY, boxW, boxH, inset, titleFont, subtitleFont, titleLines, subtitleLines);
   }
 
   static final class EmptyStateLine {
@@ -616,6 +651,9 @@ public class BlunderListPanel extends JPanel implements Scrollable {
     final int boxY;
     final int boxW;
     final int boxH;
+    final int textInset;
+    final Font titleFont;
+    final Font subtitleFont;
     final List<EmptyStateLine> titleLines;
     final List<EmptyStateLine> subtitleLines;
 
@@ -624,14 +662,51 @@ public class BlunderListPanel extends JPanel implements Scrollable {
         int boxY,
         int boxW,
         int boxH,
+        int textInset,
+        Font titleFont,
+        Font subtitleFont,
         List<EmptyStateLine> titleLines,
         List<EmptyStateLine> subtitleLines) {
       this.boxX = boxX;
       this.boxY = boxY;
       this.boxW = boxW;
       this.boxH = boxH;
+      this.textInset = textInset;
+      this.titleFont = titleFont;
+      this.subtitleFont = subtitleFont;
       this.titleLines = Collections.unmodifiableList(new ArrayList<>(titleLines));
       this.subtitleLines = Collections.unmodifiableList(new ArrayList<>(subtitleLines));
+    }
+
+    boolean fitsInPanel(int panelWidth, int panelHeight) {
+      if (boxX < 0 || boxY < 0 || boxW < 1 || boxH < 1) {
+        return false;
+      }
+      if (boxX + boxW > panelWidth || boxY + boxH > panelHeight) {
+        return false;
+      }
+      int innerWidth = Math.max(1, boxW - textInset * 2);
+      for (EmptyStateLine line : titleLines) {
+        if (!lineFits(line, innerWidth)) {
+          return false;
+        }
+      }
+      for (EmptyStateLine line : subtitleLines) {
+        if (!lineFits(line, innerWidth)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    private boolean lineFits(EmptyStateLine line, int innerWidth) {
+      if (line.x < boxX || line.x + line.width > boxX + boxW) {
+        return false;
+      }
+      if (line.baselineY - line.ascent < boxY || line.baselineY + line.descent > boxY + boxH) {
+        return false;
+      }
+      return line.text.codePointCount(0, line.text.length()) <= 1 || line.width <= innerWidth;
     }
   }
 }

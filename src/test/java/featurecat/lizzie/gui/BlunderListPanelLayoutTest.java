@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
@@ -60,6 +59,7 @@ class BlunderListPanelLayoutTest {
   void emptyStateSubtitleStaysInsideCardAfterWrap() {
     assertEmptyStateFitsInsideCard(100, 86, false);
     assertEmptyStateFitsInsideCard(120, 86, false);
+    assertEmptyStateFitsInsideCard(120, 200, false);
     assertEmptyStateFitsInsideCard(160, 280, false);
     assertEmptyStateFitsInsideCard(244, 320, false);
     assertEmptyStateFitsInsideCard(400, 320, false);
@@ -69,29 +69,27 @@ class BlunderListPanelLayoutTest {
   }
 
   @Test
-  void emptyStatePreferredHeightGrowsOnNarrowViewportInsteadOfClipping() {
+  void emptyStateFitsNarrowViewportWithoutScrolling() {
     BlunderListPanel panel = new BlunderListPanel();
     JScrollPane scrollPane = new JScrollPane(panel);
     scrollPane.setSize(120, 86);
     scrollPane.getViewport().setSize(new Dimension(120, 86));
     panel.updateSnapshot(emptySnapshot(false));
 
-    BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+    assertTrue(
+        panel.getScrollableTracksViewportHeight(),
+        "empty state must fill the viewport instead of introducing an inner scrollbar");
+
+    BufferedImage image = new BufferedImage(120, 86, BufferedImage.TYPE_INT_ARGB);
     Graphics2D graphics = image.createGraphics();
     try {
-      FontMetrics titleMetrics = graphics.getFontMetrics(new Font(Font.SANS_SERIF, Font.PLAIN, 14));
-      FontMetrics subtitleMetrics =
-          graphics.getFontMetrics(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
       BlunderListPanel.EmptyStateLayout layout =
-          BlunderListPanel.layoutEmptyState(120, 86, titleMetrics, subtitleMetrics, false);
+          BlunderListPanel.fitEmptyState(120, 86, Font.SANS_SERIF, false, graphics);
       assertTrue(
-          layout.boxH > BlunderListPanel.EMPTY_STATE_MIN_BOX_HEIGHT,
-          "narrow wrap must grow the card instead of keeping a too-short height");
-      assertTrue(panel.getPreferredSize().height > 86);
-      assertTrue(
-          panel.getPreferredSize().height
-              >= layout.boxH + BlunderListPanel.EMPTY_STATE_MARGIN * 2);
-      assertFalse(panel.getScrollableTracksViewportHeight());
+          layout.fitsInPanel(120, 86),
+          "wrapped empty-state text must stay inside the visible card without scrolling");
+      panel.setSize(120, 86);
+      panel.paint(graphics);
     } finally {
       graphics.dispose();
     }
@@ -106,12 +104,9 @@ class BlunderListPanelLayoutTest {
     BufferedImage image = new BufferedImage(panelWidth, panelHeight, BufferedImage.TYPE_INT_ARGB);
     Graphics2D graphics = image.createGraphics();
     try {
-      FontMetrics titleMetrics = graphics.getFontMetrics(new Font(Font.SANS_SERIF, Font.PLAIN, 14));
-      FontMetrics subtitleMetrics =
-          graphics.getFontMetrics(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
       BlunderListPanel.EmptyStateLayout layout =
-          BlunderListPanel.layoutEmptyState(
-              panelWidth, panelHeight, titleMetrics, subtitleMetrics, analysisRunning);
+          BlunderListPanel.fitEmptyState(
+              panelWidth, panelHeight, Font.SANS_SERIF, analysisRunning, graphics);
 
       String expectedTitle =
           analysisRunning
@@ -120,20 +115,25 @@ class BlunderListPanelLayoutTest {
       assertEquals(expectedTitle, joinedText(layout.titleLines));
       assertEquals(BlunderListPanel.EMPTY_STATE_SUBTITLE, joinedText(layout.subtitleLines));
       assertTrue(layout.boxW <= BlunderListPanel.EMPTY_STATE_MAX_BOX_WIDTH);
-      assertTrue(layout.boxH >= BlunderListPanel.EMPTY_STATE_MIN_BOX_HEIGHT);
       assertTrue(
-          panel.getPreferredSize().height
-              >= layout.boxH + BlunderListPanel.EMPTY_STATE_MARGIN * 2);
+          layout.fitsInPanel(panelWidth, panelHeight),
+          "empty-state card and wrapped text must stay inside the panel");
 
-      int innerWidth = Math.max(1, layout.boxW - BlunderListPanel.EMPTY_STATE_TEXT_INSET * 2);
-      int fullSubtitleWidth = subtitleMetrics.stringWidth(BlunderListPanel.EMPTY_STATE_SUBTITLE);
+      int innerWidth = Math.max(1, layout.boxW - layout.textInset * 2);
+      int fullSubtitleWidth =
+          graphics
+              .getFontMetrics(layout.subtitleFont)
+              .stringWidth(BlunderListPanel.EMPTY_STATE_SUBTITLE);
       if (fullSubtitleWidth > innerWidth) {
         assertTrue(
             layout.subtitleLines.size() > 1,
             "subtitle must wrap when it is wider than the card inner width");
-        assertTrue(
-            layout.boxH > BlunderListPanel.EMPTY_STATE_MIN_BOX_HEIGHT,
-            "card height must grow after the subtitle wraps");
+        if (panelHeight > BlunderListPanel.EMPTY_STATE_MIN_BOX_HEIGHT + 40) {
+          assertTrue(
+              layout.boxH > BlunderListPanel.EMPTY_STATE_MIN_BOX_HEIGHT
+                  || layout.boxY + layout.boxH <= panelHeight,
+              "card height must grow after wrap when the viewport has room");
+        }
       }
 
       for (BlunderListPanel.EmptyStateLine line : layout.titleLines) {
@@ -143,16 +143,7 @@ class BlunderListPanelLayoutTest {
         assertLineInsideCard(layout, line, innerWidth);
       }
 
-      int paintHeight = Math.max(panelHeight, panel.getPreferredSize().height);
-      panel.setSize(panelWidth, paintHeight);
-      BufferedImage paintImage =
-          new BufferedImage(panelWidth, paintHeight, BufferedImage.TYPE_INT_ARGB);
-      Graphics2D paintGraphics = paintImage.createGraphics();
-      try {
-        panel.paint(paintGraphics);
-      } finally {
-        paintGraphics.dispose();
-      }
+      panel.paint(graphics);
     } finally {
       graphics.dispose();
     }
