@@ -174,7 +174,9 @@ public class BoardHistoryNode {
 
   public BoardHistoryNode addOrGoto(
       BoardData data, boolean newBranch, boolean changeMove, boolean tsumego) {
-    if (!Lizzie.board.isLoadingFile && Lizzie.leelaz != null && !EngineManager.isEngineGame) {
+    if (!Lizzie.board.isLoadingFile
+        && Lizzie.leelaz != null
+        && !Lizzie.engineGame.current().playing()) {
       Lizzie.leelaz.clearBestMoves();
     }
     if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.frame.isAnaPlayingAgainstLeelaz) {

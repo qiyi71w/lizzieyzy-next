@@ -2,7 +2,6 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.gui.LizzieFrame.HtmlKit;
 import featurecat.lizzie.util.Utils;
 import java.awt.Desktop;
@@ -684,8 +683,7 @@ public class SetKataEngines extends JDialog {
     //      chkAutoRPT.setEnabled(true);
     //      chkEditRPT.setSelected(true);
     //    }
-    if (Lizzie.frame.isPlayingAgainstLeelaz
-        || (EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove)) {
+    if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.engineGame.current().playingGenmove()) {
       txtWRN.setEnabled(false);
       chkEditWRN.setEnabled(false);
     }

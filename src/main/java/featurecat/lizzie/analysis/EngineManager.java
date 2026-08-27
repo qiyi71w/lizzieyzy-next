@@ -8886,7 +8886,7 @@ public class EngineManager {
       }
       // Changing routing mode in the middle of a game can leave PRIMARY pointing at the
       // non-moving participant until the next engine response. Apply it to future games only.
-      if (activeEngineGameTransaction != null || isEngineGame || isPreEngineGame) {
+      if (activeEngineGameTransaction != null) {
         return Lizzie.config.enginePkPonder;
       }
       Lizzie.config.enginePkPonder = enabled;
@@ -14687,6 +14687,31 @@ public class EngineManager {
 
   public static boolean isEngineGame() {
     return isPreEngineGame || isEngineGame;
+  }
+
+  public static boolean hasActiveEngineGameTransaction() {
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      return activeEngineGameTransaction != null;
+    }
+  }
+
+  public static boolean occupiesEngineGameAdmission() {
+    return isEngineGame() || hasActiveEngineGameTransaction();
+  }
+
+  public static boolean hasPlayingEngineGameTransaction() {
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      return activeEngineGameTransaction != null
+          && activeEngineGameTransaction.phase == EngineGamePhase.ACTIVE;
+    }
+  }
+
+  public static boolean isActiveBlackParticipant(Leelaz engine) {
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      return engine != null
+          && activeEngineGameTransaction != null
+          && activeEngineGameTransaction.blackEngine == engine;
+    }
   }
 
   //  public void setEngineCountDown(

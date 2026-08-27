@@ -274,6 +274,39 @@ class EngineGameModuleContractTest {
     assertInstanceOf(GameActivity.Starting.class, activity(starting));
   }
 
+  @Test
+  void toggleShowMoveNumberUsesPlayingGenmoveStateNotLegacyFlags() {
+    playAccepted(genmoveSpec());
+    EngineManager.isEngineGame = false;
+    EngineManager.isPreEngineGame = false;
+    EngineManager.engineGameInfo.isGenmove = false;
+    Lizzie.config.onlyLastMoveNumber = 1;
+    Lizzie.config.allowMoveNumber = 1;
+
+    Lizzie.config.toggleShowMoveNumber();
+
+    assertTrue(Lizzie.engineGame.current().playingGenmove());
+    assertEquals(-1, Lizzie.config.allowMoveNumber);
+  }
+
+  @Test
+  void idleSnapshotDoesNotHideActiveOwnerTransaction() {
+    assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(genmoveSpec(), observer));
+    Lizzie.engineGame.stop();
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    EngineManager.resetEngineGameTransactionStateForTest();
+
+    EngineGameInfo info = new EngineGameInfo();
+    info.blackEngineIndex = 0;
+    info.whiteEngineIndex = 1;
+    info.firstEngineIndex = 0;
+    info.secondEngineIndex = 1;
+    info.isGenmove = true;
+    assertNotNull(EngineManager.beginEngineGameTransaction(manager, info, null, true));
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertTrue(EngineManager.hasActiveEngineGameTransaction());
+  }
+
 
 
   @Test
