@@ -29,6 +29,7 @@ def release():
         f"{DATE}-windows64.nvidia.portable.zip",
         f"{DATE}-windows64.without.engine.portable.zip",
         f"{DATE}-windows64.core-update.zip",
+        f"{DATE}-windows64.experimental.rocm.gfx120x.portable.zip",
         f"{DATE}-mac-apple-silicon.with-katago.dmg",
         f"{DATE}-mac-intel.with-katago.dmg",
         f"{DATE}-windows64.nvidia.tensorrt.portable.7z.001",
@@ -40,6 +41,9 @@ def release():
         f"{DATE}-linux64.opencl.zip",
         f"{DATE}-linux64.nvidia.zip",
         f"{DATE}-windows64.opencl.installer.exe",
+        f"{DATE}-windows64.experimental.rocm.gfx103x.portable.zip",
+        f"{DATE}-windows64.experimental.rocm.gfx110x.portable.zip",
+        f"{DATE}-windows64.experimental.rocm.gfx1151.portable.zip",
     ]
     return {
         "tag_name": TAG,
@@ -51,13 +55,24 @@ def release():
 
 
 class R2ReleaseTest(unittest.TestCase):
-    def test_whitelist_is_exact_and_excludes_installers_and_linux(self):
+    def test_whitelist_is_exact_and_excludes_installers_linux_and_older_amd(self):
         selected = r2_release.select_r2_assets(release(), r2_release.DEFAULT_PUBLIC_BASE)
 
-        self.assertEqual(12, len(selected))
-        self.assertEqual(12_000, sum(entry.size for entry in selected))
+        self.assertEqual(13, len(selected))
+        self.assertEqual(13_000, sum(entry.size for entry in selected))
         self.assertFalse(any(entry.name.endswith("installer.exe") for entry in selected))
         self.assertFalse(any("linux64" in entry.name for entry in selected))
+        self.assertEqual(
+            [f"{DATE}-windows64.experimental.rocm.gfx120x.portable.zip"],
+            [entry.name for entry in selected if entry.category == "amd-rocm-experimental"],
+        )
+        self.assertFalse(
+            any(
+                family in entry.name
+                for entry in selected
+                for family in ("gfx103x", "gfx110x", "gfx1151")
+            )
+        )
 
     def test_missing_asset_and_size_limit_fail_closed(self):
         missing = release()
@@ -66,6 +81,13 @@ class R2ReleaseTest(unittest.TestCase):
         ]
         with self.assertRaises(r2_release.ReleaseError):
             r2_release.select_r2_assets(missing, r2_release.DEFAULT_PUBLIC_BASE)
+
+        missing_amd = release()
+        missing_amd["assets"] = [
+            entry for entry in missing_amd["assets"] if "rocm.gfx120x" not in entry["name"]
+        ]
+        with self.assertRaises(r2_release.ReleaseError):
+            r2_release.select_r2_assets(missing_amd, r2_release.DEFAULT_PUBLIC_BASE)
 
         oversized = release()
         oversized["assets"][0]["size"] = r2_release.R2_SIZE_LIMIT
@@ -110,6 +132,9 @@ class R2ReleaseTest(unittest.TestCase):
         linux = next(package for package in manifest["packages"] if package["platform"] == "linux")
         self.assertTrue(linux["downloadUrl"].startswith("https://github.com/"))
         self.assertEqual([], linux["mirrorUrls"])
+        self.assertFalse(
+            any(package["flavor"] == "rocm-gfx120x" for package in manifest["packages"])
+        )
 
     def test_legacy_manifest_stays_github_only(self):
         source = release()
@@ -165,6 +190,13 @@ class R2ReleaseTest(unittest.TestCase):
             )
         )
         self.assertTrue(all(entry["mirrorUrls"] for entry in stable["assets"]))
+        amd = next(
+            entry for entry in stable["assets"] if entry["flavor"] == "rocm-gfx120x"
+        )
+        self.assertEqual("amd-rocm-experimental", amd["category"])
+        self.assertEqual("x64", amd["arch"])
+        self.assertTrue(amd["advanced"])
+        self.assertEqual("AMD RX 9000 ROCm 实验版", amd["labelZh"])
         self.assertTrue(
             all(entry["mirrorUrls"] == [] for entry in maintenance["assets"])
         )

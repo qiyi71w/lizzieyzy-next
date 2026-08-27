@@ -227,7 +227,7 @@ OUT_DIR=dist/perf SCENARIO=startup DURATION_SECONDS=45 \
 - Windows 64 位无引擎包同时提供安装器和 `.portable.zip`
 - 当前公开 release 主列表固定为 13 个首次下载稳定资产；另有 6 个 DirectML/OpenVINO/ROCm 实验便携包；`windows64.core-update.zip` 是已有 Windows 免安装用户的小更新资产；TensorRT 分卷不替代软件内断点续传安装
 - 旧的兼容 zip 只作为历史 tag 说明保留，不再放进主推荐区
-- R2 只镜像当前正式版的 Windows 免安装包、小更新包、两款 macOS DMG 和 TensorRT 分卷；完整策略与维护流程见 [Cloudflare R2 正式版下载与升级](R2_RELEASES.md)
+- R2 只镜像当前正式版的 Windows 常用免安装包、RX 9000 ROCm 实验包、小更新包、两款 macOS DMG 和 TensorRT 分卷；其他 AMD ROCm 架构继续从 GitHub 下载。完整策略与维护流程见 [Cloudflare R2 正式版下载与升级](R2_RELEASES.md)
 
 ## 相关文档
 
