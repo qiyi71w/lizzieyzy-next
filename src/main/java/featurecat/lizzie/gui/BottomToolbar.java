@@ -207,9 +207,6 @@ public class BottomToolbar extends JPanel {
   public int anaPanelOrder = 0;
   public int enginePkOrder = 1;
   public int autoPlayOrder = 2;
-  public boolean isPkStop = false;
-  public boolean isPkGenmoveStop = false;
-  public boolean isPkStopGenmoveB;
   // JButton cancelAutoAna;
 
   JLabel lblchkShowBlack;

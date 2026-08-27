@@ -79,9 +79,7 @@ class BoardNodeKindHistoryPipelineTest {
   @Test
   void analysisCacheUsesExplicitEngineOwnersAndCorrectSecondaryEstimateSlot() throws Exception {
     TestEnvironment env = TestEnvironment.open();
-    boolean previousEngineGame = EngineManager.isEngineGame;
     try {
-      EngineManager.isEngineGame = false;
       Lizzie.config.enableLizzieCache = true;
       Lizzie.config.isAutoAna = false;
       Lizzie.leelaz.pda = 0;
@@ -136,7 +134,6 @@ class BoardNodeKindHistoryPipelineTest {
       assertEquals(List.of(9.0), estimateRefresh.estimateArray);
       assertEquals(List.of(1.0, 2.0), estimateRefresh.estimateArray2);
     } finally {
-      EngineManager.isEngineGame = previousEngineGame;
       env.close();
     }
   }
@@ -144,9 +141,7 @@ class BoardNodeKindHistoryPipelineTest {
   @Test
   void lowerVisitOwnershipBackfillPreservesStrongerCachedAnalysis() throws Exception {
     TestEnvironment env = TestEnvironment.open();
-    boolean previousEngineGame = EngineManager.isEngineGame;
     try {
-      EngineManager.isEngineGame = false;
       Lizzie.config.enableLizzieCache = true;
       Lizzie.config.isAutoAna = false;
       Leelaz source = allocate(TrackingLeelaz.class);
@@ -196,7 +191,6 @@ class BoardNodeKindHistoryPipelineTest {
       assertEquals(44.0, secondary.winrate2, 0.0001);
       assertEquals(ownership, secondary.estimateArray2);
     } finally {
-      EngineManager.isEngineGame = previousEngineGame;
       env.close();
     }
   }
@@ -823,7 +817,6 @@ class BoardNodeKindHistoryPipelineTest {
   @Test
   void issue223ReporterGameRoundTripPreservesMovesAndAnalysisOwnership() throws Exception {
     TestEnvironment env = TestEnvironment.open();
-    boolean previousEngineGame = EngineManager.isEngineGame;
     try {
       java.net.URL fixtureResource =
           BoardNodeKindHistoryPipelineTest.class.getResource(
@@ -847,7 +840,6 @@ class BoardNodeKindHistoryPipelineTest {
       analyzed.winrate = 61.5;
       analyzed.setPlayouts(12_000);
       Lizzie.board.setHistory(imported);
-      EngineManager.isEngineGame = false;
 
       String exported = SGFParser.saveToString(false);
       BoardHistoryList roundTrip = SGFParser.parseSgf(exported, false);
@@ -866,7 +858,6 @@ class BoardNodeKindHistoryPipelineTest {
       assertEquals(12_000, roundTripAnalysis.getPlayouts());
       assertEquals(61.5, roundTripAnalysis.winrate, 0.0001);
     } finally {
-      EngineManager.isEngineGame = previousEngineGame;
       env.close();
     }
   }
@@ -4093,16 +4084,12 @@ class BoardNodeKindHistoryPipelineTest {
       throws Exception {
     TestEnvironment env = TestEnvironment.open();
     BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
     TrackingFrame frame = (TrackingFrame) Lizzie.frame;
     CountDownLatch boardMonitorAcquired = new CountDownLatch(1);
     Thread boardMonitorProbe = null;
     try {
       activatePrimaryEngine(leelaz);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       BoardHistoryList history =
           SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
       while (history.previous().isPresent()) {}
@@ -4198,8 +4185,6 @@ class BoardNodeKindHistoryPipelineTest {
         boardMonitorProbe.join(2_000);
       }
       SwingUtilities.invokeAndWait(() -> {});
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       LizzieFrame.boardRenderer = previousRenderer;
       env.close();
     }
@@ -4210,13 +4195,9 @@ class BoardNodeKindHistoryPipelineTest {
       throws Exception {
     TestEnvironment env = TestEnvironment.open();
     BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
     TrackingFrame frame = (TrackingFrame) Lizzie.frame;
     try {
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       activatePrimaryEngine(leelaz);
       BoardHistoryList history =
           SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
@@ -4285,8 +4266,6 @@ class BoardNodeKindHistoryPipelineTest {
     } finally {
       leelaz.releaseBlockedLoadSgf();
       awaitHistoryNavigationIdle(Lizzie.board);
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       LizzieFrame.boardRenderer = previousRenderer;
       env.close();
     }
@@ -4661,14 +4640,10 @@ class BoardNodeKindHistoryPipelineTest {
       boolean failOldHistoryRestore) throws Exception {
     TestEnvironment env = TestEnvironment.open();
     BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
     TrackingFrame frame = (TrackingFrame) Lizzie.frame;
     try {
       activatePrimaryEngine(leelaz);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       BoardHistoryList original =
           SGFParser.parseSgf("(;SZ[3];B[aa];W[ba]AE[aa]AB[cc];B[bb])", false);
       while (original.previous().isPresent()) {}
@@ -4727,8 +4702,6 @@ class BoardNodeKindHistoryPipelineTest {
     } finally {
       leelaz.releaseBlockedLoadSgf();
       awaitHistoryNavigationIdle(Lizzie.board);
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       LizzieFrame.boardRenderer = previousRenderer;
       env.close();
     }
@@ -4978,15 +4951,11 @@ class BoardNodeKindHistoryPipelineTest {
     TestEnvironment env = TestEnvironment.open();
     BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
     ResourceBundle previousResourceBundle = Lizzie.resourceBundle;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     TrackingLeelaz leelaz = (TrackingLeelaz) Lizzie.leelaz;
     TrackingFrame frame = (TrackingFrame) Lizzie.frame;
     boolean lifecycleTransitionStarted = false;
     try {
       activatePrimaryEngine(leelaz);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       Lizzie.resourceBundle =
           new ResourceBundle() {
             @Override
@@ -5054,8 +5023,6 @@ class BoardNodeKindHistoryPipelineTest {
       leelaz.releaseBlockedLoadSgf();
       awaitHistoryNavigationIdle(Lizzie.board);
       SwingUtilities.invokeAndWait(() -> {});
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       Lizzie.resourceBundle = previousResourceBundle;
       LizzieFrame.boardRenderer = previousRenderer;
       env.close();

@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.enginegame.EngineGameSnapshotFixtures;
 import featurecat.lizzie.rules.Board;
@@ -1224,7 +1223,6 @@ class WinrateGraphEnginePkModeHitTest {
     private final LizzieFrame previousFrame;
     private final WinrateGraph previousWinrateGraph;
     private final Leelaz previousLeelaz;
-    private final boolean previousEngineGame;
 
     private TestEnvironment(
         int previousBoardWidth,
@@ -1233,8 +1231,7 @@ class WinrateGraphEnginePkModeHitTest {
         Board previousBoard,
         LizzieFrame previousFrame,
         WinrateGraph previousWinrateGraph,
-        Leelaz previousLeelaz,
-        boolean previousEngineGame) {
+        Leelaz previousLeelaz) {
       this.previousBoardWidth = previousBoardWidth;
       this.previousBoardHeight = previousBoardHeight;
       this.previousConfig = previousConfig;
@@ -1242,7 +1239,6 @@ class WinrateGraphEnginePkModeHitTest {
       this.previousFrame = previousFrame;
       this.previousWinrateGraph = previousWinrateGraph;
       this.previousLeelaz = previousLeelaz;
-      this.previousEngineGame = previousEngineGame;
     }
 
     private static TestEnvironment open() throws Exception {
@@ -1254,8 +1250,7 @@ class WinrateGraphEnginePkModeHitTest {
               Lizzie.board,
               Lizzie.frame,
               LizzieFrame.winrateGraph,
-              Lizzie.leelaz,
-              EngineManager.isEngineGame);
+              Lizzie.leelaz);
       Board.boardWidth = BOARD_SIZE;
       Board.boardHeight = BOARD_SIZE;
       Zobrist.init();

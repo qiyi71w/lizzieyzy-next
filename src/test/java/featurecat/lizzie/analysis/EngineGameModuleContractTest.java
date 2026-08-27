@@ -18,6 +18,8 @@ import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.EngineGameChrome;
 import featurecat.lizzie.enginegame.EngineGameChromeTransition;
 import featurecat.lizzie.enginegame.EngineGameParsedStart;
+import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.enginegame.EngineGamePlayMode;
 import featurecat.lizzie.enginegame.EngineGameRecord;
 import featurecat.lizzie.enginegame.EngineGameRecordContext;
@@ -74,8 +76,6 @@ class EngineGameModuleContractTest {
   private Board previousBoard;
   private WinrateGraph previousWinrateGraph;
   private GtpConsolePane previousGtpConsole;
-  private boolean previousEngineGame;
-  private boolean previousPreEngineGame;
   private boolean previousEmpty;
   private int previousEngineNo;
 
@@ -97,8 +97,6 @@ class EngineGameModuleContractTest {
     previousBoard = Lizzie.board;
     previousWinrateGraph = LizzieFrame.winrateGraph;
     previousGtpConsole = Lizzie.gtpConsole;
-    previousEngineGame = EngineManager.isEngineGame;
-    previousPreEngineGame = EngineManager.isPreEngineGame;
     previousEmpty = EngineManager.isEmpty;
     previousEngineNo = EngineManager.currentEngineNo;
 
@@ -133,8 +131,6 @@ class EngineGameModuleContractTest {
 
     EngineManager.isEmpty = false;
     EngineManager.currentEngineNo = 0;
-    EngineManager.isEngineGame = false;
-    EngineManager.isPreEngineGame = false;
     observer = new RecordingObserver();
     Lizzie.engineGame.replaceChromeForTest(transition -> {});
   }
@@ -144,8 +140,6 @@ class EngineGameModuleContractTest {
     Lizzie.engineGame.replaceChromeForTest(null);
     EngineManager.resetEngineGameTransactionStateForTest();
     Lizzie.engineManager = previousManager;
-    EngineManager.isEngineGame = previousEngineGame;
-    EngineManager.isPreEngineGame = previousPreEngineGame;
     EngineManager.isEmpty = previousEmpty;
     EngineManager.currentEngineNo = previousEngineNo;
     Lizzie.setPrimaryEngine(previousPrimary);
@@ -273,22 +267,15 @@ class EngineGameModuleContractTest {
     assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
     EngineManager.resetEngineGameTransactionStateForTest();
 
-    EngineGameInfo info = new EngineGameInfo();
-    info.blackEngineIndex = 0;
-    info.whiteEngineIndex = 1;
-    info.firstEngineIndex = 0;
-    info.secondEngineIndex = 1;
-    info.isGenmove = true;
-    assertNotNull(EngineManager.beginEngineGameTransaction(manager, info, null, true));
+    assertNotNull(
+        EngineManager.beginEngineGameTransaction(
+            manager, EngineGamePlans.harness(0, 1, true), null, true));
     assertInstanceOf(GameActivity.Starting.class, activity(starting));
   }
 
   @Test
   void toggleShowMoveNumberUsesPlayingGenmoveStateNotLegacyFlags() {
     playAccepted(genmoveSpec());
-    EngineManager.isEngineGame = false;
-    EngineManager.isPreEngineGame = false;
-    EngineManager.engineGameInfo.isGenmove = false;
     Lizzie.config.onlyLastMoveNumber = 1;
     Lizzie.config.allowMoveNumber = 1;
 
@@ -305,13 +292,9 @@ class EngineGameModuleContractTest {
     assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
     EngineManager.resetEngineGameTransactionStateForTest();
 
-    EngineGameInfo info = new EngineGameInfo();
-    info.blackEngineIndex = 0;
-    info.whiteEngineIndex = 1;
-    info.firstEngineIndex = 0;
-    info.secondEngineIndex = 1;
-    info.isGenmove = true;
-    assertNotNull(EngineManager.beginEngineGameTransaction(manager, info, null, true));
+    assertNotNull(
+        EngineManager.beginEngineGameTransaction(
+            manager, EngineGamePlans.harness(0, 1, true), null, true));
     assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
     assertTrue(EngineManager.hasActiveEngineGameTransaction());
   }
@@ -337,7 +320,6 @@ class EngineGameModuleContractTest {
     EngineGameSnapshot.BatchActive active =
         (EngineGameSnapshot.BatchActive) Lizzie.engineGame.current();
     assertEquals(8, active.batch().batchLimit());
-    assertEquals(8, EngineManager.engineGameInfo.batchNumber);
   }
 
   @Test
@@ -377,9 +359,6 @@ class EngineGameModuleContractTest {
     assertEquals(0, black.catalogIndex());
     assertEquals(1, white.catalogIndex());
 
-    EngineManager.engineGameInfo.playoutsBlack = 1;
-    EngineManager.engineGameInfo.playoutsWhite = 1;
-    EngineManager.engineGameInfo.setMaxGameMoves(3);
     assertEquals(100, txn.blackBinding().limits().visits());
     assertEquals(200, txn.whiteBinding().limits().visits());
     assertEquals(50, txn.blackBinding().maxGameMoves(19, 19));
@@ -480,12 +459,10 @@ class EngineGameModuleContractTest {
     playAccepted(genmoveBatchSpec(2, false));
     completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
     Lizzie.engineGame.onOwnerRetired();
-    EngineGameInfo successor = manager.lastSuccessorInfo;
+    EngineGamePlan successor = manager.lastSuccessorPlan;
     assertNotNull(successor);
-    assertEquals(0, successor.getFirstEngineWins());
-    assertEquals(1, successor.getSecondEngineWins());
-    assertEquals(1, successor.secondEngineWinAsWhite);
-    assertEquals(0, successor.doublePassGame);
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(1, Lizzie.engineGame.lastSummary().secondWins());
   }
 
   @Test
@@ -956,23 +933,23 @@ class EngineGameModuleContractTest {
     private int leaseConflictCount;
     private boolean runWorkersInline;
     private boolean failNextNonFirstStart;
-    private EngineGameInfo lastSuccessorInfo;
+    private EngineGamePlan lastSuccessorPlan;
 
     private CountingLeaseEngineManager(List<Leelaz> engines) {
       super(engines);
     }
 
     @Override
-    public boolean startEngineGame(EngineGameInfo engineGameInfo, boolean firstGame) {
+    public boolean startEngineGame(EngineGamePlan plan, boolean firstGame) {
       if (!firstGame) {
-        lastSuccessorInfo = engineGameInfo;
+        lastSuccessorPlan = plan;
         if (failNextNonFirstStart) {
           failNextNonFirstStart = false;
           return false;
         }
         return true;
       }
-      return super.startEngineGame(engineGameInfo, firstGame);
+      return super.startEngineGame(plan, firstGame);
     }
 
     @Override

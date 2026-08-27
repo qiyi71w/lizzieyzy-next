@@ -465,15 +465,11 @@ class LeelazExclusiveRemoteGtpSessionTest {
   void foregroundLeaseAndEngineModeReservationExposeDistinctPermitTypes() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     LizzieFrame previousFrame = Lizzie.frame;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     installOutput(engine);
     try {
       Lizzie.leelaz = engine;
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
 
       Leelaz.ForegroundAnalysisLeaseAcquisition acquisition =
           engine.acquireForegroundAnalysisLease(line -> {}, lease -> {}, lease -> {});
@@ -493,8 +489,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       engine.endExclusiveGtpSession();
       Lizzie.leelaz = previousEngine;
       Lizzie.frame = previousFrame;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -538,8 +532,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     LizzieFrame previousFrame = Lizzie.frame;
     Config previousConfig = Lizzie.config;
     GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     ByteArrayOutputStream output = installOutput(engine);
     Object queue = commandQueue(engine);
@@ -556,8 +548,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = allocate(LizzieFrame.class);
       Lizzie.config = allocate(Config.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
 
       Thread commandThread =
           daemonThread(
@@ -622,8 +612,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -633,8 +621,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     LizzieFrame previousFrame = Lizzie.frame;
     Config previousConfig = Lizzie.config;
     GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     ByteArrayOutputStream output = installOutput(engine);
     try {
@@ -642,8 +628,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = allocate(LizzieFrame.class);
       Lizzie.config = allocate(Config.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       Leelaz.ForegroundAnalysisLeaseAcquisition acquisition =
           engine.acquireForegroundAnalysisLease(line -> {}, lease -> {}, lease -> {});
       Leelaz.ForegroundAnalysisLease lease = acquisition.lease();
@@ -669,8 +653,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -680,8 +662,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     LizzieFrame previousFrame = Lizzie.frame;
     Config previousConfig = Lizzie.config;
     GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     BlockingFailOnceOutput failingOutput = new BlockingFailOnceOutput();
     installOutput(engine, Leelaz.createCommandOutputStream(failingOutput));
@@ -695,8 +675,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = allocate(LizzieFrame.class);
       Lizzie.config = allocate(Config.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
 
       Thread commandThread =
           daemonThread(
@@ -746,8 +724,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -758,8 +734,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     LizzieFrame previousFrame = Lizzie.frame;
     Config previousConfig = Lizzie.config;
     GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     BlockingFailOnceOutput failingOutput = new BlockingFailOnceOutput();
     installOutput(engine, Leelaz.createCommandOutputStream(failingOutput));
@@ -772,8 +746,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = allocate(LizzieFrame.class);
       Lizzie.config = allocate(Config.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
 
       Thread commandThread =
           daemonThread(
@@ -811,8 +783,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -872,8 +842,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
   void cancelledLeaseDropsInitialStopWaitingForTransport() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     LizzieFrame previousFrame = Lizzie.frame;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     ByteArrayOutputStream output = installOutput(engine);
     BufferedOutputStream transport = commandOutputStream(engine);
@@ -885,8 +853,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     try {
       Lizzie.leelaz = engine;
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
 
       Thread outputHolder =
           daemonThread(
@@ -922,8 +888,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       engine.endExclusiveGtpSession();
       Lizzie.leelaz = previousEngine;
       Lizzie.frame = previousFrame;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -931,8 +895,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
   void closedLeaseDropsFinalStopWaitingForTransport() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     LizzieFrame previousFrame = Lizzie.frame;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     ByteArrayOutputStream output = installOutput(engine);
     BufferedOutputStream transport = commandOutputStream(engine);
@@ -942,8 +904,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     try {
       Lizzie.leelaz = engine;
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
           engine.beginForegroundAnalysisLease(owner, line -> {}, () -> {}, () -> {}));
@@ -980,8 +940,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       engine.endExclusiveGtpSession();
       Lizzie.leelaz = previousEngine;
       Lizzie.frame = previousFrame;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -989,8 +947,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
   void timedOutLeaseDropsFinalStopWaitingForTransport() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     LizzieFrame previousFrame = Lizzie.frame;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     RecordingRestoreLeelaz engine = recordingRestoreEngine();
     engine.releaseStopTimeoutMillis = 25L;
     ByteArrayOutputStream output = installOutput(engine);
@@ -1001,8 +957,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     try {
       Lizzie.leelaz = engine;
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
           engine.beginForegroundAnalysisLease(owner, line -> {}, () -> {}, () -> {}));
@@ -1038,8 +992,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       engine.endExclusiveGtpSession();
       Lizzie.leelaz = previousEngine;
       Lizzie.frame = previousFrame;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -1047,8 +999,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
   void foregroundLeaseCanOnlyBeReleasedByItsAcquisitionOwner() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     LizzieFrame previousFrame = Lizzie.frame;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     Leelaz engine = reusableKatagoEngine(false, false);
     installOutput(engine);
     Object owner = new Object();
@@ -1056,8 +1006,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     try {
       Lizzie.leelaz = engine;
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
           engine.beginForegroundAnalysisLease(owner, line -> {}, () -> {}, () -> {}));
@@ -1078,8 +1026,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     } finally {
       Lizzie.leelaz = previousEngine;
       Lizzie.frame = previousFrame;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -1091,8 +1037,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     LizzieFrame previousFrame = Lizzie.frame;
     Config previousConfig = Lizzie.config;
     GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     RecordingRestoreLeelaz engine = recordingRestoreEngine();
     installOutput(engine);
     RecordingRestoreBoard board = allocate(RecordingRestoreBoard.class);
@@ -1104,8 +1048,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = allocate(LizzieFrame.class);
       Lizzie.config = allocate(Config.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       board.currentMarker = 1;
       engine.Pondering();
       assertEquals(
@@ -1136,8 +1078,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -2373,24 +2313,18 @@ class LeelazExclusiveRemoteGtpSessionTest {
     private final LizzieFrame previousFrame;
     private final Config previousConfig;
     private final GtpConsolePane previousGtpConsole;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
 
     private ForegroundLeaseGlobalState(
         Leelaz previousEngine,
         Board previousBoard,
         LizzieFrame previousFrame,
         Config previousConfig,
-        GtpConsolePane previousGtpConsole,
-        boolean previousEngineGame,
-        boolean previousPreEngineGame) {
+        GtpConsolePane previousGtpConsole) {
       this.previousEngine = previousEngine;
       this.previousBoard = previousBoard;
       this.previousFrame = previousFrame;
       this.previousConfig = previousConfig;
       this.previousGtpConsole = previousGtpConsole;
-      this.previousEngineGame = previousEngineGame;
-      this.previousPreEngineGame = previousPreEngineGame;
     }
 
     private static ForegroundLeaseGlobalState install(Leelaz engine) {
@@ -2400,14 +2334,10 @@ class LeelazExclusiveRemoteGtpSessionTest {
               Lizzie.board,
               Lizzie.frame,
               Lizzie.config,
-              Lizzie.gtpConsole,
-              EngineManager.isEngineGame,
-              EngineManager.isPreEngineGame);
+              Lizzie.gtpConsole);
       Lizzie.leelaz = engine;
       Lizzie.board = null;
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       return state;
     }
 
@@ -2427,8 +2357,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -2537,8 +2465,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
     private final LizzieFrame previousFrame;
     private final Config previousConfig;
     private final GtpConsolePane previousGtpConsole;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
     private final RecordingRestoreLeelaz engine;
     private final RecordingRestoreBoard board;
     private final ByteArrayOutputStream output;
@@ -2551,8 +2477,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
         LizzieFrame previousFrame,
         Config previousConfig,
         GtpConsolePane previousGtpConsole,
-        boolean previousEngineGame,
-        boolean previousPreEngineGame,
         RecordingRestoreLeelaz engine,
         RecordingRestoreBoard board,
         ByteArrayOutputStream output,
@@ -2562,8 +2486,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       this.previousFrame = previousFrame;
       this.previousConfig = previousConfig;
       this.previousGtpConsole = previousGtpConsole;
-      this.previousEngineGame = previousEngineGame;
-      this.previousPreEngineGame = previousPreEngineGame;
       this.engine = engine;
       this.board = board;
       this.output = output;
@@ -2577,8 +2499,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       LizzieFrame previousFrame = Lizzie.frame;
       Config previousConfig = Lizzie.config;
       GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
-      boolean previousEngineGame = EngineManager.isEngineGame;
-      boolean previousPreEngineGame = EngineManager.isPreEngineGame;
       RecordingRestoreLeelaz engine = recordingRestoreEngine();
       installInput(engine, "");
       RecordingRestoreBoard board = allocate(RecordingRestoreBoard.class);
@@ -2591,8 +2511,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = allocate(LizzieFrame.class);
       Lizzie.config = allocate(Config.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       if (wasPondering) {
         engine.Pondering();
       }
@@ -2612,8 +2530,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
           previousFrame,
           previousConfig,
           previousGtpConsole,
-          previousEngineGame,
-          previousPreEngineGame,
           engine,
           board,
           output,
@@ -2636,8 +2552,6 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 

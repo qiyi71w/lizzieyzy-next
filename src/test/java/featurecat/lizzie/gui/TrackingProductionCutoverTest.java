@@ -672,7 +672,6 @@ class TrackingProductionCutoverTest {
     private final Menu previousMenu;
     private final BottomToolbar previousToolbar;
     private final boolean previousEmpty;
-    private final boolean previousEngineGame;
     private final int previousWidth;
     private final int previousHeight;
     private final Leelaz engine;
@@ -687,7 +686,6 @@ class TrackingProductionCutoverTest {
         Menu previousMenu,
         BottomToolbar previousToolbar,
         boolean previousEmpty,
-        boolean previousEngineGame,
         int previousWidth,
         int previousHeight,
         Leelaz engine,
@@ -700,7 +698,6 @@ class TrackingProductionCutoverTest {
       this.previousMenu = previousMenu;
       this.previousToolbar = previousToolbar;
       this.previousEmpty = previousEmpty;
-      this.previousEngineGame = previousEngineGame;
       this.previousWidth = previousWidth;
       this.previousHeight = previousHeight;
       this.engine = engine;
@@ -716,7 +713,6 @@ class TrackingProductionCutoverTest {
       Menu previousMenu = LizzieFrame.menu;
       BottomToolbar previousToolbar = LizzieFrame.toolbar;
       boolean previousEmpty = EngineManager.isEmpty;
-      boolean previousEngineGame = EngineManager.isEngineGame;
       int previousWidth = Board.boardWidth;
       int previousHeight = Board.boardHeight;
 
@@ -775,7 +771,6 @@ class TrackingProductionCutoverTest {
       frame.mouseOverCoordinate = LizzieFrame.outOfBoundCoordinate;
 
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       Lizzie.board = board;
       Lizzie.config = config;
       Lizzie.leelaz = engine;
@@ -790,7 +785,6 @@ class TrackingProductionCutoverTest {
           previousMenu,
           previousToolbar,
           previousEmpty,
-          previousEngineGame,
           previousWidth,
           previousHeight,
           engine,
@@ -899,7 +893,6 @@ class TrackingProductionCutoverTest {
       LizzieFrame.menu = previousMenu;
       LizzieFrame.toolbar = previousToolbar;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       Board.boardWidth = previousWidth;
       Board.boardHeight = previousHeight;
     }

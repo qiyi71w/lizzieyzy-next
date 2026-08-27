@@ -2,10 +2,10 @@ package featurecat.lizzie.enginegame;
 
 import featurecat.lizzie.gui.DesktopTimeControl;
 
-final class EngineGameTimeModes {
+public final class EngineGameTimeModes {
   private EngineGameTimeModes() {}
 
-  static DesktopTimeControl.SideMode sideMode(EngineGameTimeMode mode) {
+  public static DesktopTimeControl.SideMode sideMode(EngineGameTimeMode mode) {
     if (mode == null) {
       return DesktopTimeControl.SideMode.FIXED;
     }

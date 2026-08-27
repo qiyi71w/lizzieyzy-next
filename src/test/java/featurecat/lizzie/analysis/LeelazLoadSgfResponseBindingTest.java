@@ -940,21 +940,18 @@ class LeelazLoadSgfResponseBindingTest {
     private final GtpConsolePane previousGtpConsole;
     private final Leelaz previousLeelaz;
     private final Leelaz previousLeelaz2;
-    private final boolean previousEngineGameFlag;
 
     private TestHarness(
         Config previousConfig,
         LizzieFrame previousFrame,
         GtpConsolePane previousGtpConsole,
         Leelaz previousLeelaz,
-        Leelaz previousLeelaz2,
-        boolean previousEngineGameFlag) {
+        Leelaz previousLeelaz2) {
       this.previousConfig = previousConfig;
       this.previousFrame = previousFrame;
       this.previousGtpConsole = previousGtpConsole;
       this.previousLeelaz = previousLeelaz;
       this.previousLeelaz2 = previousLeelaz2;
-      this.previousEngineGameFlag = previousEngineGameFlag;
     }
 
     private static TestHarness open() throws Exception {
@@ -964,14 +961,12 @@ class LeelazLoadSgfResponseBindingTest {
               Lizzie.frame,
               Lizzie.gtpConsole,
               Lizzie.leelaz,
-              Lizzie.leelaz2,
-              EngineManager.isEngineGame);
+              Lizzie.leelaz2);
       Lizzie.config = minimalConfig();
       Lizzie.frame = allocate(SilentFrame.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
       Lizzie.leelaz = null;
       Lizzie.leelaz2 = null;
-      EngineManager.isEngineGame = false;
       return harness;
     }
 
@@ -982,7 +977,6 @@ class LeelazLoadSgfResponseBindingTest {
       Lizzie.gtpConsole = previousGtpConsole;
       Lizzie.leelaz = previousLeelaz;
       Lizzie.leelaz2 = previousLeelaz2;
-      EngineManager.isEngineGame = previousEngineGameFlag;
     }
   }
 

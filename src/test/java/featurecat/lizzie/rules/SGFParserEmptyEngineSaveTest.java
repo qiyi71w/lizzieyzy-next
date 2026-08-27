@@ -54,7 +54,5 @@ class SGFParserEmptyEngineSaveTest {
   private static void clearForegroundEngine() {
     Lizzie.leelaz = null;
     EngineManager.isEmpty = true;
-    EngineManager.isEngineGame = false;
-    EngineManager.isPreEngineGame = false;
   }
 }

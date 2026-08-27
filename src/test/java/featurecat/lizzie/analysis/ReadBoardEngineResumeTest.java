@@ -90,14 +90,10 @@ class ReadBoardEngineResumeTest {
   @Test
   void ordinaryReadBoardSyncStartsAnalysisWithoutInstallingGameMoveTime() throws Exception {
     Menu previousMenu = LizzieFrame.menu;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     try (EngineResumeHarness harness =
         EngineResumeHarness.create(rootHistory(emptyStones(), true))) {
       LizzieFrame.menu = allocate(SilentMenu.class);
       LizzieFrame.toolbar = allocate(SilentBottomToolbar.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       harness.frame.isPlayingAgainstLeelaz = false;
       harness.frame.isAnaPlayingAgainstLeelaz = false;
       harness.leelaz.isKatago = true;
@@ -126,8 +122,6 @@ class ReadBoardEngineResumeTest {
           "ordinary ReadBoard analysis must not inherit per-move game time commands.");
     } finally {
       LizzieFrame.menu = previousMenu;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -2377,8 +2371,6 @@ class ReadBoardEngineResumeTest {
     private final int previousCurrentEngineNo;
     private final int previousCurrentEngineNo2;
     private final boolean previousEngineEmpty;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
     private final LizzieFrame previousFrame;
     private final BoardRenderer previousBoardRenderer;
     private final BottomToolbar previousToolbar;
@@ -2397,8 +2389,6 @@ class ReadBoardEngineResumeTest {
         int previousCurrentEngineNo,
         int previousCurrentEngineNo2,
         boolean previousEngineEmpty,
-        boolean previousEngineGame,
-        boolean previousPreEngineGame,
         LizzieFrame previousFrame,
         BoardRenderer previousBoardRenderer,
         BottomToolbar previousToolbar,
@@ -2415,8 +2405,6 @@ class ReadBoardEngineResumeTest {
       this.previousCurrentEngineNo = previousCurrentEngineNo;
       this.previousCurrentEngineNo2 = previousCurrentEngineNo2;
       this.previousEngineEmpty = previousEngineEmpty;
-      this.previousEngineGame = previousEngineGame;
-      this.previousPreEngineGame = previousPreEngineGame;
       this.previousFrame = previousFrame;
       this.previousBoardRenderer = previousBoardRenderer;
       this.previousToolbar = previousToolbar;
@@ -2436,8 +2424,6 @@ class ReadBoardEngineResumeTest {
       int previousCurrentEngineNo = EngineManager.currentEngineNo;
       int previousCurrentEngineNo2 = EngineManager.currentEngineNo2;
       boolean previousEngineEmpty = EngineManager.isEmpty;
-      boolean previousEngineGame = EngineManager.isEngineGame;
-      boolean previousPreEngineGame = EngineManager.isPreEngineGame;
       LizzieFrame previousFrame = Lizzie.frame;
       BoardRenderer previousBoardRenderer = LizzieFrame.boardRenderer;
       BottomToolbar previousToolbar = LizzieFrame.toolbar;
@@ -2461,8 +2447,6 @@ class ReadBoardEngineResumeTest {
       EngineManager.currentEngineNo = 0;
       EngineManager.currentEngineNo2 = -1;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       Lizzie.setPrimaryEngine(leelaz);
       Lizzie.setEngineManager(fixtureEngineManager);
       Lizzie.leelaz2 = null;
@@ -2497,8 +2481,6 @@ class ReadBoardEngineResumeTest {
           previousCurrentEngineNo,
           previousCurrentEngineNo2,
           previousEngineEmpty,
-          previousEngineGame,
-          previousPreEngineGame,
           previousFrame,
           previousBoardRenderer,
           previousToolbar,
@@ -2533,8 +2515,6 @@ class ReadBoardEngineResumeTest {
       EngineManager.currentEngineNo = previousCurrentEngineNo;
       EngineManager.currentEngineNo2 = previousCurrentEngineNo2;
       EngineManager.isEmpty = previousEngineEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       Lizzie.frame = previousFrame;
       LizzieFrame.boardRenderer = previousBoardRenderer;
       LizzieFrame.toolbar = previousToolbar;

@@ -375,7 +375,6 @@ class TrackingWindowsIntegrationHarnessTest {
     private final Config previousConfig;
     private final GtpConsolePane previousGtpConsole;
     private final boolean previousEmpty;
-    private final boolean previousEngineGame;
     private final Leelaz engine;
     private final Process process;
     private final BufferedOutputStream output;
@@ -388,7 +387,6 @@ class TrackingWindowsIntegrationHarnessTest {
         Config previousConfig,
         GtpConsolePane previousGtpConsole,
         boolean previousEmpty,
-        boolean previousEngineGame,
         Leelaz engine,
         Process process,
         BufferedOutputStream output,
@@ -399,7 +397,6 @@ class TrackingWindowsIntegrationHarnessTest {
       this.previousConfig = previousConfig;
       this.previousGtpConsole = previousGtpConsole;
       this.previousEmpty = previousEmpty;
-      this.previousEngineGame = previousEngineGame;
       this.engine = engine;
       this.process = process;
       this.output = output;
@@ -414,14 +411,12 @@ class TrackingWindowsIntegrationHarnessTest {
       Config previousConfig = Lizzie.config;
       GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
       boolean previousEmpty = EngineManager.isEmpty;
-      boolean previousEngineGame = EngineManager.isEngineGame;
       Config config = allocate(Config.class);
       config.extraMode = ExtraMode.Normal;
       config.autoCheckEngineAlive = false;
       Lizzie.config = config;
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
 
       Process process = new ProcessBuilder(Utils.splitCommand(command)).start();
       BufferedReader stdout =
@@ -464,7 +459,6 @@ class TrackingWindowsIntegrationHarnessTest {
           previousConfig,
           previousGtpConsole,
           previousEmpty,
-          previousEngineGame,
           engine,
           process,
           output,
@@ -564,7 +558,6 @@ class TrackingWindowsIntegrationHarnessTest {
         Lizzie.config = previousConfig;
         Lizzie.gtpConsole = previousGtpConsole;
         EngineManager.isEmpty = previousEmpty;
-        EngineManager.isEngineGame = previousEngineGame;
       }
     }
 

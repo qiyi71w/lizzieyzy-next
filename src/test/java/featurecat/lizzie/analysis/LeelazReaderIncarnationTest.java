@@ -2,11 +2,13 @@ package featurecat.lizzie.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.GtpConsolePane;
@@ -521,15 +523,18 @@ class LeelazReaderIncarnationTest {
   void genmovePkPassingContinuationDoesNotReadInsideParser() throws Exception {
     try (GlobalState ignored = GlobalState.install()) {
       Leelaz engine = new Leelaz("");
+      Leelaz dummy = new Leelaz("");
+      EngineManager manager = new EngineManager(List.of(engine, dummy));
       BufferedReader reboundReader =
           new BufferedReader(new InputStreamReader(bytes("D4\n"), StandardCharsets.UTF_8));
       setField(engine, "inputStream", reboundReader);
       setField(engine, "currentEngineN", 0);
       Lizzie.leelaz = engine;
-      EngineManager.engineGameInfo = new EngineGameInfo();
-      EngineManager.engineGameInfo.blackEngineIndex = 0;
-      EngineManager.engineGameInfo.whiteEngineIndex = 1;
-      EngineManager.isEngineGame = true;
+      Lizzie.engineManager = manager;
+      EngineManager.resetEngineGameTransactionStateForTest();
+      assertNotNull(
+          EngineManager.beginEngineGameTransaction(
+              manager, EngineGamePlans.harness(0, 1, true), null, true));
       Lizzie.board = new Board();
       BufferedReader capturedReader =
           new BufferedReader(
@@ -695,8 +700,6 @@ class LeelazReaderIncarnationTest {
     private final Board previousBoard;
     private final LizzieFrame previousFrame;
     private final EngineManager previousEngineManager;
-    private final boolean previousEngineGame;
-    private final EngineGameInfo previousEngineGameInfo;
 
     private GlobalState(
         Config previousConfig,
@@ -704,17 +707,13 @@ class LeelazReaderIncarnationTest {
         GtpConsolePane previousGtpConsole,
         Board previousBoard,
         LizzieFrame previousFrame,
-        EngineManager previousEngineManager,
-        boolean previousEngineGame,
-        EngineGameInfo previousEngineGameInfo) {
+        EngineManager previousEngineManager) {
       this.previousConfig = previousConfig;
       this.previousLeelaz = previousLeelaz;
       this.previousGtpConsole = previousGtpConsole;
       this.previousBoard = previousBoard;
       this.previousFrame = previousFrame;
       this.previousEngineManager = previousEngineManager;
-      this.previousEngineGame = previousEngineGame;
-      this.previousEngineGameInfo = previousEngineGameInfo;
     }
 
     private static GlobalState install() throws Exception {
@@ -725,27 +724,24 @@ class LeelazReaderIncarnationTest {
               Lizzie.gtpConsole,
               Lizzie.board,
               Lizzie.frame,
-              Lizzie.engineManager,
-              EngineManager.isEngineGame,
-              EngineManager.engineGameInfo);
+              Lizzie.engineManager);
       Lizzie.config =
           ConfigTestHelper.createForTests(Files.createTempDirectory("leelaz-reader-incarnation"));
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
+      EngineManager.resetEngineGameTransactionStateForTest();
       return state;
     }
 
     @Override
     public void close() {
+      EngineManager.resetEngineGameTransactionStateForTest();
       Lizzie.config = previousConfig;
       Lizzie.leelaz = previousLeelaz;
       Lizzie.gtpConsole = previousGtpConsole;
       Lizzie.board = previousBoard;
       Lizzie.frame = previousFrame;
       Lizzie.engineManager = previousEngineManager;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.engineGameInfo = previousEngineGameInfo;
     }
   }
 

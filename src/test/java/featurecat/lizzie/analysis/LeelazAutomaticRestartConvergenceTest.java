@@ -268,11 +268,9 @@ class LeelazAutomaticRestartConvergenceTest {
   }
   @Test
   void automaticRestartPublishesReadyWithoutResumingPonder() throws Exception {
-    boolean previousEngineGame = EngineManager.isEngineGame;
     Menu previousMenu = LizzieFrame.menu;
     BottomToolbar previousToolbar = LizzieFrame.toolbar;
     try (RestartTestEnvironment env = RestartTestEnvironment.open()) {
-      EngineManager.isEngineGame = false;
       LizzieFrame.menu = allocate(SilentPonderMenu.class);
       LizzieFrame.toolbar = allocate(SilentPonderToolbar.class);
       ConvergingRestartLeelaz engine = new ConvergingRestartLeelaz();
@@ -310,7 +308,6 @@ class LeelazAutomaticRestartConvergenceTest {
       afterFence.close();
     } finally {
       SwingUtilities.invokeAndWait(() -> {});
-      EngineManager.isEngineGame = previousEngineGame;
       LizzieFrame.menu = previousMenu;
       LizzieFrame.toolbar = previousToolbar;
       Lizzie.engineStartupStatus.ready();

@@ -7333,8 +7333,6 @@ class EngineManagerInitialStartupSynchronizationTest {
     private final EngineStartupStatus.Snapshot previousStartupStatus =
         Lizzie.engineStartupStatus.snapshot();
     private final boolean previousEmpty = EngineManager.isEmpty;
-    private final boolean previousEngineGame = EngineManager.isEngineGame;
-    private final boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     private final int previousEngineNo = EngineManager.currentEngineNo;
     private final int previousEngineNo2 = EngineManager.currentEngineNo2;
     private final int previousBoardWidth = Board.boardWidth;
@@ -7359,8 +7357,6 @@ class EngineManagerInitialStartupSynchronizationTest {
       LizzieFrame.winrateGraph = allocate(WinrateGraph.class);
       Lizzie.leelaz2 = null;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       EngineManager.currentEngineNo = 0;
       EngineManager.currentEngineNo2 = -1;
       Board.boardWidth = 19;
@@ -7415,8 +7411,6 @@ class EngineManagerInitialStartupSynchronizationTest {
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
       EngineManager.currentEngineNo2 = previousEngineNo2;
       Board.boardWidth = previousBoardWidth;

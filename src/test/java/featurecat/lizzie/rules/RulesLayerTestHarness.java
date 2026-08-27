@@ -29,8 +29,6 @@ final class RulesLayerTestHarness implements AutoCloseable {
   private final Leelaz previousLeelaz;
   private final Config previousConfig;
   private final boolean previousEngineEmpty;
-  private final boolean previousEngineGame;
-  private final boolean previousPreEngineGame;
   private final boolean previousSavingRaw;
   private final boolean previousUrlSgf;
   private final featurecat.lizzie.analysis.EngineFollowController previousEngineFollowController;
@@ -46,8 +44,6 @@ final class RulesLayerTestHarness implements AutoCloseable {
       Leelaz previousLeelaz,
       Config previousConfig,
       boolean previousEngineEmpty,
-      boolean previousEngineGame,
-      boolean previousPreEngineGame,
       boolean previousSavingRaw,
       boolean previousUrlSgf,
       featurecat.lizzie.analysis.EngineFollowController previousEngineFollowController) {
@@ -61,8 +57,6 @@ final class RulesLayerTestHarness implements AutoCloseable {
     this.previousLeelaz = previousLeelaz;
     this.previousConfig = previousConfig;
     this.previousEngineEmpty = previousEngineEmpty;
-    this.previousEngineGame = previousEngineGame;
-    this.previousPreEngineGame = previousPreEngineGame;
     this.previousSavingRaw = previousSavingRaw;
     this.previousUrlSgf = previousUrlSgf;
     this.previousEngineFollowController = previousEngineFollowController;
@@ -83,8 +77,6 @@ final class RulesLayerTestHarness implements AutoCloseable {
     Leelaz previousLeelaz = Lizzie.leelaz;
     Config previousConfig = Lizzie.config;
     boolean previousEngineEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     boolean previousSavingRaw = LizzieFrame.isSavingRaw;
     boolean previousUrlSgf = LizzieFrame.urlSgf;
     featurecat.lizzie.analysis.EngineFollowController previousEngineFollowController =
@@ -113,8 +105,6 @@ final class RulesLayerTestHarness implements AutoCloseable {
     TrackingLeelaz leelaz = new TrackingLeelaz();
     Lizzie.setPrimaryEngine(leelaz);
     EngineManager.isEmpty = true;
-    EngineManager.isEngineGame = false;
-    EngineManager.isPreEngineGame = false;
     Lizzie.engineFollowController = null;
 
     Config config = allocate(Config.class);
@@ -139,8 +129,6 @@ final class RulesLayerTestHarness implements AutoCloseable {
         previousLeelaz,
         previousConfig,
         previousEngineEmpty,
-        previousEngineGame,
-        previousPreEngineGame,
         previousSavingRaw,
         previousUrlSgf,
         previousEngineFollowController);
@@ -171,8 +159,6 @@ final class RulesLayerTestHarness implements AutoCloseable {
     Lizzie.setPrimaryEngine(previousLeelaz);
     Lizzie.config = previousConfig;
     EngineManager.isEmpty = previousEngineEmpty;
-    EngineManager.isEngineGame = previousEngineGame;
-    EngineManager.isPreEngineGame = previousPreEngineGame;
     LizzieFrame.isSavingRaw = previousSavingRaw;
     LizzieFrame.urlSgf = previousUrlSgf;
     Lizzie.engineFollowController = previousEngineFollowController;

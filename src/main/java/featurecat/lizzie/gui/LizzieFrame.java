@@ -7788,7 +7788,6 @@ public class LizzieFrame extends JFrame {
           EngineGamePresentation.sideToMoveEngine(
               snapshot, Lizzie.board.getHistory().isBlacksTurn());
     else leela = Lizzie.leelaz;
-    // ||(Lizzie.engineManager.isEngineGame&&Lizzie.engineManager.engineGameInfo.isGenmove)
     if (leela != null && leela.isKatago && !EngineManager.isEmpty) {
       switch (leela.usingSpecificRules) {
         case 1:
@@ -12214,7 +12213,6 @@ public class LizzieFrame extends JFrame {
       deferUntilHumanSlExit(this::stopAiPlayingAndPolicy);
       return true;
     }
-    toolbar.isPkStop = false;
     Lizzie.leelaz.isGamePaused = false;
     boolean isGaming =
         wasHumanSlGame

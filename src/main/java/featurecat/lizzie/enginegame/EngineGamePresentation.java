@@ -7,7 +7,7 @@ import featurecat.lizzie.analysis.Leelaz;
 
 /**
  * Single presentation mapping from sealed State or exact history record. Readers do not copy
- * boolean compatibility logic or read {@code EngineGameInfo}.
+ * boolean compatibility logic or read a second current-state bag.
  */
 public final class EngineGamePresentation {
   private EngineGamePresentation() {}

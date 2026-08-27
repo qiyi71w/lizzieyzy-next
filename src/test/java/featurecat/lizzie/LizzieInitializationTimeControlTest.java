@@ -2,7 +2,6 @@ package featurecat.lizzie;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.ReadBoard;
 import featurecat.lizzie.gui.LizzieFrame;
@@ -74,8 +73,6 @@ class LizzieInitializationTimeControlTest {
     private final LizzieFrame previousFrame;
     private final Leelaz previousPrimaryEngine;
     private final Menu previousMenu;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
     private final TestFrame frame;
     private final RecordingLeelaz engine;
 
@@ -84,16 +81,12 @@ class LizzieInitializationTimeControlTest {
         LizzieFrame previousFrame,
         Leelaz previousPrimaryEngine,
         Menu previousMenu,
-        boolean previousEngineGame,
-        boolean previousPreEngineGame,
         TestFrame frame,
         RecordingLeelaz engine) {
       this.previousConfig = previousConfig;
       this.previousFrame = previousFrame;
       this.previousPrimaryEngine = previousPrimaryEngine;
       this.previousMenu = previousMenu;
-      this.previousEngineGame = previousEngineGame;
-      this.previousPreEngineGame = previousPreEngineGame;
       this.frame = frame;
       this.engine = engine;
     }
@@ -112,16 +105,12 @@ class LizzieInitializationTimeControlTest {
               Lizzie.frame,
               Lizzie.leelaz,
               LizzieFrame.menu,
-              EngineManager.isEngineGame,
-              EngineManager.isPreEngineGame,
               frame,
               engine);
       Lizzie.config = config;
       Lizzie.frame = frame;
       Lizzie.leelaz = new Leelaz("");
       LizzieFrame.menu = allocate(SilentMenu.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       return harness;
     }
 
@@ -135,8 +124,6 @@ class LizzieInitializationTimeControlTest {
       Lizzie.frame = previousFrame;
       Lizzie.leelaz = previousPrimaryEngine;
       LizzieFrame.menu = previousMenu;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 

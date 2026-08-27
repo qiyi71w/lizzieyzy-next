@@ -13,6 +13,8 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.enginegame.EngineGameSide;
+import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.GtpConsolePane;
@@ -46,7 +48,6 @@ import org.junit.jupiter.api.Test;
 
 class EngineManagerEngineGameStateMachineTest {
   private EngineManager previousManager;
-  private EngineGameInfo previousGameInfo;
   private Leelaz previousPrimary;
   private Leelaz previousSecondary;
   private Config previousConfig;
@@ -56,8 +57,6 @@ class EngineManagerEngineGameStateMachineTest {
   private JFontMenu previousEngineMenu;
   private Board previousBoard;
   private GtpConsolePane previousGtpConsole;
-  private boolean previousEngineGame;
-  private boolean previousPreEngineGame;
   private boolean previousEmpty;
   private int previousEngineNo;
 
@@ -71,7 +70,6 @@ class EngineManagerEngineGameStateMachineTest {
   void installStateMachineFixture() throws Exception {
     SwingUtilities.invokeAndWait(() -> {});
     previousManager = Lizzie.engineManager;
-    previousGameInfo = EngineManager.engineGameInfo;
     previousPrimary = Lizzie.leelaz;
     previousSecondary = Lizzie.leelaz2;
     previousConfig = Lizzie.config;
@@ -81,8 +79,6 @@ class EngineManagerEngineGameStateMachineTest {
     previousEngineMenu = Menu.engineMenu;
     previousBoard = Lizzie.board;
     previousGtpConsole = Lizzie.gtpConsole;
-    previousEngineGame = EngineManager.isEngineGame;
-    previousPreEngineGame = EngineManager.isPreEngineGame;
     previousEmpty = EngineManager.isEmpty;
     previousEngineNo = EngineManager.currentEngineNo;
 
@@ -127,9 +123,6 @@ class EngineManagerEngineGameStateMachineTest {
     preload.started = false;
     preload.isLoaded = false;
     Lizzie.engineManager = previousManager;
-    EngineManager.engineGameInfo = previousGameInfo;
-    EngineManager.isEngineGame = previousEngineGame;
-    EngineManager.isPreEngineGame = previousPreEngineGame;
     EngineManager.isEmpty = previousEmpty;
     EngineManager.currentEngineNo = previousEngineNo;
     Lizzie.setPrimaryEngine(previousPrimary);
@@ -147,22 +140,22 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void admissionPublishesInfoAndEpochAtomicallyAndRejectsStalePredecessor() {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo first = gameInfo();
-    EngineGameInfo replacement = gameInfo();
+    EngineGamePlan first = gameInfo();
+    EngineGamePlan replacement = gameInfo();
 
     EngineManager.EngineGameTransaction transaction =
         EngineManager.beginEngineGameTransaction(manager, first, null, true);
 
     assertNotNull(transaction);
-    assertSame(first, EngineManager.engineGameInfo);
+    assertSame(first, EngineManager.activeEngineGameTransactionForTest().plan);
     assertEquals(EngineManager.EngineGamePhase.PREPARING, transaction.phase());
     assertNull(EngineManager.beginEngineGameTransaction(manager, replacement, null, true));
-    assertSame(first, EngineManager.engineGameInfo);
+    assertSame(first, EngineManager.activeEngineGameTransactionForTest().plan);
 
     long staleEpoch = transaction.epoch();
     EngineManager.resetEngineGameTransactionStateForTest();
     assertNull(EngineManager.beginEngineGameTransaction(manager, replacement, staleEpoch, true));
-    assertSame(first, EngineManager.engineGameInfo);
+    assertNull(EngineManager.activeEngineGameTransactionForTest());
   }
 
   @Test
@@ -425,21 +418,21 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void retirementBlocksReplacementUntilRollbackPresentationCompletes() {
     DeferredUiEngineManager manager = installManager(new DeferredUiEngineManager(allEngines()));
-    EngineGameInfo first = gameInfo();
+    EngineGamePlan first = gameInfo();
     EngineManager.EngineGameTransaction transaction = beginPreparing(manager, first);
 
     manager.clearEngineGame();
     assertEquals(EngineManager.EngineGamePhase.CANCELLED, transaction.phase());
     assertNotNull(manager.pendingUi.get());
-    EngineGameInfo replacement = gameInfo();
+    EngineGamePlan replacement = gameInfo();
     assertNull(EngineManager.beginEngineGameTransaction(manager, replacement, null, true));
-    assertSame(first, EngineManager.engineGameInfo);
+    assertNull(EngineManager.activeEngineGameTransactionForTest());
 
     manager.runPendingUi();
     EngineManager.EngineGameTransaction replacementTransaction =
         EngineManager.beginEngineGameTransaction(manager, replacement, null, true);
     assertNotNull(replacementTransaction);
-    assertSame(replacement, EngineManager.engineGameInfo);
+    assertSame(replacement, EngineManager.activeEngineGameTransactionForTest().plan);
   }
 
   @Test
@@ -456,7 +449,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void deferredPrimaryPublishesOnlyExactParticipantAndUpdatesSelectionAtomically() {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo gameInfo = gameInfo();
+    EngineGamePlan gameInfo = gameInfo();
     activeTransaction(manager, gameInfo, black, 0);
     long generation = Lizzie.capturePrimaryEngineGeneration(black);
 
@@ -478,7 +471,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void deferredPrimaryRejectsRebindBoardAdvanceAndPriorEpoch() {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo gameInfo = gameInfo();
+    EngineGamePlan gameInfo = gameInfo();
     activeTransaction(manager, gameInfo, black, 0);
     long generation = Lizzie.capturePrimaryEngineGeneration(black);
 
@@ -505,7 +498,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void deferredPrimaryRejectsLineContextCapturedBeforeNextEpoch() {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo reusedBatchInfo = gameInfo();
+    EngineGamePlan reusedBatchInfo = gameInfo();
     activeTransaction(manager, reusedBatchInfo, black, 0);
     EngineManager.EngineGamePrimaryContext staleLineContext =
         EngineManager.captureEngineGamePrimaryContext();
@@ -531,7 +524,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void ponderPublicationRequiresParticipantForCapturedTurn() {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo gameInfo = gameInfo();
+    EngineGamePlan gameInfo = gameInfo();
     activeTransaction(manager, gameInfo, black, 0);
     Lizzie.config.enginePkPonder = true;
     long generation = Lizzie.capturePrimaryEngineGeneration(black);
@@ -554,7 +547,7 @@ class EngineManagerEngineGameStateMachineTest {
   void participantStartupBudgetCannotBeCutOffByLegacyThirtySecondDefault() {
     BudgetAwareEngineManager manager =
         installManager(new BudgetAwareEngineManager(allEngines()));
-    EngineGameInfo gameInfo = gameInfo();
+    EngineGamePlan gameInfo = gameInfo();
 
     assertEquals(
         TimeUnit.SECONDS.toMillis(125L), manager.configuredStartupBudget(gameInfo));
@@ -831,8 +824,7 @@ class EngineManagerEngineGameStateMachineTest {
   void resetExplicitlySettlesReservedGenmoveAndRetiresItsTransaction() throws Exception {
     BlockingFirstWriteOutput output = new BlockingFirstWriteOutput();
     black.bindLiveRuntime(output);
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     AtomicReference<Throwable> senderFailure = new AtomicReference<>();
@@ -864,8 +856,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void exactNumberedGenmoveErrorSettlesCarrierAndFailsCurrentTransaction() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
@@ -880,28 +871,21 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void pausedGenmoveRecordsExactPendingSideWithoutToolbarFlags() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
-    LizzieFrame.toolbar.isPkStop = false;
-    LizzieFrame.toolbar.isPkGenmoveStop = false;
-    LizzieFrame.toolbar.isPkStopGenmoveB = false;
 
     EngineManager.pauseEngineGame(transaction);
 
     assertTrue(transaction.pausedForTest());
     assertFalse(black.genmoveForPk("B", transaction));
     assertEquals(EngineGameSide.BLACK, transaction.pendingGenmoveSideForTest());
-    assertFalse(LizzieFrame.toolbar.isPkStop);
-    assertFalse(LizzieFrame.toolbar.isPkGenmoveStop);
     assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
   }
 
   @Test
   void unnumberedGenmoveTerminalFramesDoNotCommitOrSettleExactTurn() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
@@ -997,8 +981,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void malformedUnnumberedPdaDiagnosticDoesNotFailExactGenmoveCarrier() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
@@ -1018,8 +1001,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void emptyAndMalformedPassingResponsesFailClosedWithoutBoardMutation() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo emptyGame = gameInfo();
-    emptyGame.isGenmove = true;
+    EngineGamePlan emptyGame = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction empty =
         activeTransaction(manager, emptyGame, black, 0);
     assertTrue(black.genmoveForPk("B", empty));
@@ -1034,8 +1016,7 @@ class EngineManagerEngineGameStateMachineTest {
     white.bindLiveRuntime();
     Lizzie.setPrimaryEngine(black);
     Lizzie.board = preparedBoard();
-    EngineGameInfo passingGame = gameInfo();
-    passingGame.isGenmove = true;
+    EngineGamePlan passingGame = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction passing =
         activeTransaction(manager, passingGame, black, 0);
     assertTrue(black.genmoveForPk("B", passing));
@@ -1051,8 +1032,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void kataGenmoveAnalyzeEmptyEqualsThenPlayCommitsMove() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
@@ -1080,8 +1060,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.board = board;
     Lizzie.config.enginePkPonder = true;
     white.requireResponseBeforeSend = true;
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
 
@@ -1125,8 +1104,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.config.enginePkPonder = true;
     black.requireResponseBeforeSend = true;
     white.requireResponseBeforeSend = true;
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown blackClock = engineClock("kata-time_settings fischer 10 2", black, true);
@@ -1175,8 +1153,7 @@ class EngineManagerEngineGameStateMachineTest {
     RecordingBoard board = recordingBoard();
     Lizzie.board = board;
     Lizzie.config.enginePkPonder = true;
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown whiteClock = engineClock("kata-time_settings byoyomi 0 5 3", white, false);
@@ -1203,8 +1180,7 @@ class EngineManagerEngineGameStateMachineTest {
     RecordingBoard board = recordingBoard();
     Lizzie.board = board;
     Lizzie.config.enginePkPonder = true;
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown whiteClock = engineClock("kata-time_settings byoyomi 0 5 3", white, false);
@@ -1228,8 +1204,7 @@ class EngineManagerEngineGameStateMachineTest {
 
   @Test
   void countdownTickCrossingByoyomiAndTerminalPerformsNoLateEngineWrite() {
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown blackClock = engineClock("kata-time_settings byoyomi 0 0.01 2", black, true);
@@ -1253,8 +1228,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.board = board;
     Lizzie.config.enginePkPonder = true;
     white.requireResponseBeforeSend = true;
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
 
@@ -1305,8 +1279,7 @@ class EngineManagerEngineGameStateMachineTest {
     RecordingBoard board = recordingBoard();
     Lizzie.board = board;
     Lizzie.config.enginePkPonder = true;
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
 
@@ -1326,8 +1299,7 @@ class EngineManagerEngineGameStateMachineTest {
       throws Exception {
     RecordingBoard board = recordingBoard();
     Lizzie.board = board;
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     black.blockAfterEngineGameResponseSettlement();
@@ -1362,8 +1334,7 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(blackCommandsAfterTerminal, black.commandText());
     assertEquals(whiteCommandsAfterTerminal, white.commandText());
 
-    EngineGameInfo successorInfo = gameInfo();
-    successorInfo.isGenmove = true;
+    EngineGamePlan successorInfo = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction successor =
         activeTransaction(manager, successorInfo, black, 0);
     assertTrue(EngineManager.isCurrentEngineGameTransaction(successor));
@@ -1374,8 +1345,7 @@ class EngineManagerEngineGameStateMachineTest {
       throws Exception {
     BlockingFirstWriteOutput output = new BlockingFirstWriteOutput();
     black.bindLiveRuntime(output);
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     AtomicReference<Throwable> senderFailure = new AtomicReference<>();
@@ -1769,8 +1739,7 @@ class EngineManagerEngineGameStateMachineTest {
     ArmableBlockingWriteOutput output = new ArmableBlockingWriteOutput();
     black.bindLiveRuntime(output);
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     black.isKatago = true;
     output.arm();
@@ -2050,8 +2019,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.started = false;
     black.isLoaded = false;
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     EngineManager.EngineGameTransaction transaction = beginPreparing(manager, game);
 
     black.sendEngineGameStartupCommandForTest("name", transaction);
@@ -3522,8 +3490,7 @@ class EngineManagerEngineGameStateMachineTest {
   void numberedGenmoveCarrierRoutesInfoWithoutInstallingUnnumberedAnalysisOwner()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
     white.scoreMean = 91.0;
@@ -3564,8 +3531,7 @@ class EngineManagerEngineGameStateMachineTest {
   void numberedGenmoveResignKeepsKataScoreOnPublishingParticipant() throws Exception {
     StopCommentEngineManager manager =
         installManager(new StopCommentEngineManager(allEngines()));
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
     white.scoreMean = 91.0;
@@ -3617,8 +3583,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void numberedGenmoveInfoCapturedBeforeClearCannotReviveClearedPayload() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
@@ -3657,8 +3622,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void malformedNumberedGenmoveInfoDoesNotFailItsResponseCarrier() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
@@ -3678,8 +3642,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void terminalAfterGenmoveRouteCaptureDropsLateInfo() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
@@ -3717,8 +3680,7 @@ class EngineManagerEngineGameStateMachineTest {
   void leela0110GenmoveClockUpdateDoesNotClaimUnnumberedAnalysisOwnership()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo game = gameInfo();
-    game.isGenmove = true;
+    EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isLeela0110 = true;
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
 
@@ -3893,15 +3855,14 @@ class EngineManagerEngineGameStateMachineTest {
     black.parseAnalysisLineForTest(kataAnalysisInfo(), oldBinding);
     assertEquals(0, black.ordinaryAnalysisActions.get());
 
-    EngineGameInfo invalid = gameInfo();
-    invalid.whiteEngineIndex = invalid.blackEngineIndex;
+    EngineGamePlan invalid = EngineGamePlans.harness(0, 0, false);
     assertNull(EngineManager.beginEngineGameTransaction(manager, invalid, null, true));
   }
 
   @Test
   void staleAnalysisContextCannotMoveOrStopSuccessorGame() {
     ImmediateUiEngineManager manager = installManager();
-    EngineGameInfo first = gameInfo();
+    EngineGamePlan first = gameInfo();
     EngineManager.EngineGameTransaction old = activeTransaction(manager, first, black, 0);
     EngineManager.EngineGamePrimaryContext stale =
         EngineManager.captureEngineGamePrimaryContext(
@@ -3909,7 +3870,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.setBestMovesForEngineGameTest(List.of(move("D4", 10_000, 60.0)));
 
     manager.clearEngineGame();
-    EngineGameInfo successorInfo = gameInfo();
+    EngineGamePlan successorInfo = gameInfo();
     EngineManager.EngineGameTransaction successor =
         activeTransaction(manager, successorInfo, black, 0);
     int beforeMove = Lizzie.board.getHistory().getMoveNumber();
@@ -3933,7 +3894,7 @@ class EngineManagerEngineGameStateMachineTest {
             board.getHistory(), root, true, Stone.BLACK, false));
     StopCommentEngineManager manager =
         installManager(new StopCommentEngineManager(allEngines()));
-    EngineGameInfo game = gameInfo();
+    EngineGamePlan game = gameInfo();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
     EngineManager.EngineGamePrimaryContext context =
         EngineManager.captureEngineGamePrimaryContext(
@@ -3963,7 +3924,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.config.noCapture = true;
     StopCommentEngineManager manager =
         installManager(new StopCommentEngineManager(allEngines()));
-    EngineGameInfo game = gameInfo();
+    EngineGamePlan game = gameInfo();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineManager.EngineGamePrimaryContext context =
         EngineManager.captureEngineGamePrimaryContext(
@@ -3988,29 +3949,19 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void queuedLegacyRollbackCannotClobberSuccessorGameUi() {
     DeferredUiEngineManager manager = installManager(new DeferredUiEngineManager(allEngines()));
-    EngineGameInfo legacy = gameInfo();
-    EngineManager.engineGameInfo = legacy;
-    EngineManager.isPreEngineGame = true;
-    Lizzie.board.isPkBoard = true;
-    toolbar.controlsEnabled = false;
-    Menu.engineMenu.setEnabled(false);
+    EngineGamePlan legacy = gameInfo();
+    assertNotNull(EngineManager.beginEngineGameTransaction(manager, legacy, null, true));
 
     manager.clearEngineGame();
     assertNotNull(manager.pendingUi.get());
-    EngineGameInfo successorInfo = gameInfo();
-    EngineManager.EngineGameTransaction successor =
-        beginPreparing(manager, successorInfo);
-    Lizzie.board.isPkBoard = true;
-    int inputBefore = frame.inputAttempts.get();
-    int toolbarBefore = toolbar.enableAttempts.get();
+    EngineGamePlan successorInfo = gameInfo();
+    assertNull(EngineManager.beginEngineGameTransaction(manager, successorInfo, null, true));
 
     manager.runPendingUi();
 
+    EngineManager.EngineGameTransaction successor = beginPreparing(manager, successorInfo);
     assertTrue(EngineManager.isCurrentEngineGameTransaction(successor));
-    assertTrue(Lizzie.board.isPkBoard);
-    assertEquals(inputBefore, frame.inputAttempts.get());
-    assertEquals(toolbarBefore, toolbar.enableAttempts.get());
-    assertFalse(Menu.engineMenu.isEnabled());
+    assertNull(manager.pendingUi.get());
   }
 
   @Test
@@ -4433,9 +4384,7 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   private EngineManager.EngineGameTransaction startExactAnalysisGame() {
-    EngineGameInfo game = gameInfo();
-    game.firstPlayoutsBlack = 1;
-    game.firstPlayoutsWhite = 1;
+    EngineGamePlan game = gameInfo();
     ImmediateUiEngineManager manager = installManager();
     EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
     black.isKatago = true;
@@ -4472,6 +4421,10 @@ class EngineManagerEngineGameStateMachineTest {
     int refreshBefore = frame.analysisRefreshRequests.get();
     int titleBefore = frame.analysisTitleUpdateRequests.get();
     engine.parseAnalysisLineForTest(kataAnalysisInfo(coordinate));
+    EngineManager.EngineGamePrimaryContext context =
+        EngineManager.captureEngineGamePrimaryContext(
+            engine, engine.currentEngineIncarnation());
+    engine.notifyAutoPkForEngineGameTest(true, context);
     assertEquals(expectedMoveNumber, Lizzie.board.getHistory().getMoveNumber());
     assertEquals(coordinate, lastMoveCoordinate());
     assertTrue(frame.analysisRefreshRequests.get() > refreshBefore);
@@ -4588,21 +4541,12 @@ class EngineManagerEngineGameStateMachineTest {
     return board;
   }
 
-  private static EngineGameInfo gameInfo() {
-    EngineGameInfo gameInfo = new EngineGameInfo();
-    gameInfo.blackEngineIndex = 0;
-    gameInfo.whiteEngineIndex = 1;
-    gameInfo.firstEngineIndex = 0;
-    gameInfo.secondEngineIndex = 1;
-    gameInfo.blackResignWinrate = 0.0;
-    gameInfo.whiteResignWinrate = 0.0;
-    gameInfo.blackResignMoveCounts = 2;
-    gameInfo.whiteResignMoveCounts = 2;
-    return gameInfo;
+  private static EngineGamePlan gameInfo() {
+    return EngineGamePlans.harness(0, 1, false);
   }
 
   private static EngineManager.EngineGameTransaction beginPreparing(
-      EngineManager manager, EngineGameInfo gameInfo) {
+      EngineManager manager, EngineGamePlan gameInfo) {
     EngineManager.EngineGameTransaction transaction =
         EngineManager.beginEngineGameTransaction(manager, gameInfo, null, true);
     assertNotNull(transaction);
@@ -4610,7 +4554,7 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   private static EngineManager.EngineGameTransaction activeTransaction(
-      EngineManager manager, EngineGameInfo gameInfo, Leelaz selected, int selectedIndex) {
+      EngineManager manager, EngineGamePlan gameInfo, Leelaz selected, int selectedIndex) {
     EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo);
     assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
     assertTrue(
@@ -4618,14 +4562,14 @@ class EngineManagerEngineGameStateMachineTest {
             transaction,
             selected,
             selectedIndex,
-            manager.engineList.get(gameInfo.blackEngineIndex).currentEngineIncarnation(),
-            manager.engineList.get(gameInfo.whiteEngineIndex).currentEngineIncarnation()));
+            manager.engineList.get(gameInfo.blackIndex()).currentEngineIncarnation(),
+            manager.engineList.get(gameInfo.whiteIndex()).currentEngineIncarnation()));
     return transaction;
   }
 
   private static EngineManager.DeferredEngineGamePrimaryPublication publication(
       EngineManager manager,
-      EngineGameInfo gameInfo,
+      EngineGamePlan gameInfo,
       int index,
       Leelaz candidate,
       Leelaz previousPrimary,
@@ -4795,7 +4739,7 @@ class EngineManagerEngineGameStateMachineTest {
     }
 
     @Override
-    protected long engineGameStartupTimeoutMillis(EngineGameInfo gameInfo) {
+    protected long engineGameStartupTimeoutMillis(EngineGamePlan gameInfo) {
       return timeoutMillis;
     }
 
@@ -4849,7 +4793,7 @@ class EngineManagerEngineGameStateMachineTest {
       return TimeUnit.SECONDS.toMillis(125L);
     }
 
-    private long configuredStartupBudget(EngineGameInfo gameInfo) {
+    private long configuredStartupBudget(EngineGamePlan gameInfo) {
       return super.engineGameStartupTimeoutMillis(gameInfo);
     }
   }
@@ -4867,7 +4811,7 @@ class EngineManagerEngineGameStateMachineTest {
     @Override
     protected void appendEngineGameStopComment(boolean forceEngineGame) {
       sawForcedEngineGame = forceEngineGame;
-      sawActiveFlag = EngineManager.isEngineGame;
+      sawActiveFlag = EngineManager.hasPlayingEngineGameTransaction();
       throw stopAfterComment;
     }
   }

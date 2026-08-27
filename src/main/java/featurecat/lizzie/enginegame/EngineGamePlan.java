@@ -1,5 +1,7 @@
 package featurecat.lizzie.enginegame;
 
+import featurecat.lizzie.rules.Movelist;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -157,6 +159,43 @@ public final class EngineGamePlan {
 
   public EngineGameOutputChoices output() {
     return output;
+  }
+
+  public boolean genmove() {
+    return playMode == EngineGamePlayMode.GENMOVE;
+  }
+
+  public boolean firstIsBlack() {
+    return firstIndex == blackIndex;
+  }
+
+  public int resolvedMaxMoves() {
+    if (maxMoveLimitEnabled && maxMoves > 0) {
+      return maxMoves;
+    }
+    return featurecat.lizzie.rules.Board.boardWidth
+        * featurecat.lizzie.rules.Board.boardHeight
+        * 2;
+  }
+
+  public ArrayList<Movelist> openingMovelist() {
+    if (openingMoves == null || openingMoves.isEmpty()) {
+      return null;
+    }
+    ArrayList<Movelist> copied = new ArrayList<>(openingMoves.size());
+    for (EngineGameMove move : openingMoves) {
+      if (move == null) {
+        continue;
+      }
+      Movelist listed = new Movelist();
+      listed.x = move.x();
+      listed.y = move.y();
+      listed.movenum = move.moveNumber();
+      listed.isblack = move.black();
+      listed.ispass = move.pass();
+      copied.add(listed);
+    }
+    return copied.isEmpty() ? null : copied;
   }
 
   EngineGameView view() {

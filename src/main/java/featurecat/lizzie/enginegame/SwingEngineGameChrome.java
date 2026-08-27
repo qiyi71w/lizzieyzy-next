@@ -50,7 +50,6 @@ public class SwingEngineGameChrome implements EngineGameChrome {
   private static void applyStarting(BottomToolbar toolbar, Menu menu) {
     if (toolbar != null) {
       toolbar.enableDisabelForEngineGame(false);
-      toolbar.isPkStop = false;
       setPauseButtonText(toolbar, false);
       if (toolbar.lblenginePkResult != null) {
         toolbar.lblenginePkResult.setText("0:0");
@@ -66,7 +65,6 @@ public class SwingEngineGameChrome implements EngineGameChrome {
 
   private static void applyRunning(BottomToolbar toolbar, Menu menu) {
     if (toolbar != null) {
-      toolbar.isPkStop = false;
       setPauseButtonText(toolbar, false);
     }
     if (menu != null) {
@@ -76,7 +74,6 @@ public class SwingEngineGameChrome implements EngineGameChrome {
 
   private static void applyPaused(BottomToolbar toolbar, Menu menu) {
     if (toolbar != null) {
-      toolbar.isPkStop = true;
       setPauseButtonText(toolbar, true);
     }
     if (menu != null) {
@@ -87,7 +84,6 @@ public class SwingEngineGameChrome implements EngineGameChrome {
   private static void applyIdle(BottomToolbar toolbar, Menu menu) {
     if (toolbar != null) {
       toolbar.enableDisabelForEngineGame(true);
-      toolbar.isPkStop = false;
       setPauseButtonText(toolbar, false);
     }
     if (Menu.engineMenu != null) {
@@ -99,7 +95,7 @@ public class SwingEngineGameChrome implements EngineGameChrome {
   }
 
   private static void setPauseButtonText(BottomToolbar toolbar, boolean paused) {
-    if (toolbar.btnEnginePkStop == null) {
+    if (toolbar == null || toolbar.btnEnginePkStop == null) {
       return;
     }
     toolbar.btnEnginePkStop.setText(

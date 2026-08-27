@@ -851,8 +851,6 @@ class BoardRootSetupSeamTest {
     private final int previousCurrentEngineNo2;
     private final boolean previousEngineEmpty;
     private final Config previousConfig;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
     private final EngineFollowController previousEngineFollowController;
 
     private TestEnvironment(
@@ -869,8 +867,6 @@ class BoardRootSetupSeamTest {
         int previousCurrentEngineNo2,
         boolean previousEngineEmpty,
         Config previousConfig,
-        boolean previousEngineGame,
-        boolean previousPreEngineGame,
         EngineFollowController previousEngineFollowController) {
       this.previousBoardWidth = previousBoardWidth;
       this.previousBoardHeight = previousBoardHeight;
@@ -885,8 +881,6 @@ class BoardRootSetupSeamTest {
       this.previousCurrentEngineNo2 = previousCurrentEngineNo2;
       this.previousEngineEmpty = previousEngineEmpty;
       this.previousConfig = previousConfig;
-      this.previousEngineGame = previousEngineGame;
-      this.previousPreEngineGame = previousPreEngineGame;
       this.previousEngineFollowController = previousEngineFollowController;
     }
 
@@ -904,8 +898,6 @@ class BoardRootSetupSeamTest {
       int previousCurrentEngineNo2 = EngineManager.currentEngineNo2;
       boolean previousEngineEmpty = EngineManager.isEmpty;
       Config previousConfig = Lizzie.config;
-      boolean previousEngineGame = EngineManager.isEngineGame;
-      boolean previousPreEngineGame = EngineManager.isPreEngineGame;
       EngineFollowController previousEngineFollowController = Lizzie.engineFollowController;
 
       Board.boardWidth = BOARD_SIZE;
@@ -927,8 +919,6 @@ class BoardRootSetupSeamTest {
       EngineManager.currentEngineNo = 0;
       EngineManager.currentEngineNo2 = -1;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       Lizzie.setPrimaryEngine(leelaz);
       Lizzie.setEngineManager(fixtureEngineManager);
       Lizzie.leelaz2 = null;
@@ -953,8 +943,6 @@ class BoardRootSetupSeamTest {
           previousCurrentEngineNo2,
           previousEngineEmpty,
           previousConfig,
-          previousEngineGame,
-          previousPreEngineGame,
           previousEngineFollowController);
     }
 
@@ -974,8 +962,6 @@ class BoardRootSetupSeamTest {
       EngineManager.currentEngineNo2 = previousCurrentEngineNo2;
       EngineManager.isEmpty = previousEngineEmpty;
       Lizzie.config = previousConfig;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       Lizzie.engineFollowController = previousEngineFollowController;
     }
   }

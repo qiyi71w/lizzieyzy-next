@@ -4881,7 +4881,7 @@ public class Leelaz {
         int maxGameMoves =
             binding != null
                 ? binding.maxGameMoves(Board.boardWidth, Board.boardHeight)
-                : moveResponseContext.gameInfo.getMaxGameMoves();
+                : moveResponseContext.plan.resolvedMaxMoves();
         if (parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID
             && !params[1].startsWith("Passing")) {
           processCommandResponseLine(line, sourceEngineIncarnation);
@@ -5982,7 +5982,7 @@ public class Leelaz {
             ? EngineManager.captureEngineGamePrimaryContext(this, binding)
             : null;
     return !((transaction != null && transaction.isGenmove())
-        || (currentGame != null && currentGame.gameInfo.isGenmove));
+        || (currentGame != null && currentGame.plan.genmove()));
   }
 
   private AnalysisOutputOwnershipPublication publishAnalysisOutputOwnershipAtPhysicalWrite(
@@ -6086,7 +6086,7 @@ public class Leelaz {
     if (isAnalysisOutputSignalLine(line)) {
       EngineManager.EngineGameMoveResponseContext moveResponse =
           pendingEngineGameMoveResponseContext(line, binding);
-      if (moveResponse != null && moveResponse.gameInfo.isGenmove) {
+      if (moveResponse != null && moveResponse.plan.genmove()) {
         return new AnalysisOutputRoute(
             EngineManager.isCurrentEngineGameMoveResponse(moveResponse)
                 ? AnalysisOutputRouteKind.GENMOVE_CURRENT
@@ -8353,7 +8353,7 @@ public class Leelaz {
         }
         return;
       }
-      if (engineGameResponseLease != null && engineGameResponse.gameInfo.isGenmove) {
+      if (engineGameResponseLease != null && engineGameResponse.plan.genmove()) {
         if (line.contains("->")) {
           MoveData parsedMove = null;
           try {

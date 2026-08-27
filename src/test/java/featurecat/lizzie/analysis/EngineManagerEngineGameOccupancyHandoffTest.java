@@ -12,6 +12,7 @@ import featurecat.lizzie.enginegame.Acceptance;
 import featurecat.lizzie.enginegame.EngineGameBatchSpec;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.EngineGameParsedStart;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.enginegame.EngineParticipantIdentity;
 import featurecat.lizzie.enginegame.StartFailure;
 import featurecat.lizzie.enginegame.StartObserver;
@@ -37,7 +38,6 @@ import org.junit.jupiter.api.Test;
 
 class EngineManagerEngineGameOccupancyHandoffTest {
   private EngineManager previousManager;
-  private EngineGameInfo previousGameInfo;
   private Leelaz previousPrimary;
   private Config previousConfig;
   private LizzieFrame previousFrame;
@@ -47,8 +47,6 @@ class EngineManagerEngineGameOccupancyHandoffTest {
   private Board previousBoard;
   private WinrateGraph previousWinrateGraph;
   private GtpConsolePane previousGtpConsole;
-  private boolean previousEngineGame;
-  private boolean previousPreEngineGame;
   private boolean previousEmpty;
   private int previousEngineNo;
 
@@ -62,7 +60,6 @@ class EngineManagerEngineGameOccupancyHandoffTest {
   void installOccupancyFixture() throws Exception {
     SwingUtilities.invokeAndWait(() -> {});
     previousManager = Lizzie.engineManager;
-    previousGameInfo = EngineManager.engineGameInfo;
     previousPrimary = Lizzie.leelaz;
     previousConfig = Lizzie.config;
     previousFrame = Lizzie.frame;
@@ -72,8 +69,6 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     previousBoard = Lizzie.board;
     previousWinrateGraph = LizzieFrame.winrateGraph;
     previousGtpConsole = Lizzie.gtpConsole;
-    previousEngineGame = EngineManager.isEngineGame;
-    previousPreEngineGame = EngineManager.isPreEngineGame;
     previousEmpty = EngineManager.isEmpty;
     previousEngineNo = EngineManager.currentEngineNo;
 
@@ -109,8 +104,6 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     Lizzie.engineManager = manager;
     EngineManager.isEmpty = false;
     EngineManager.currentEngineNo = 0;
-    EngineManager.isEngineGame = false;
-    EngineManager.isPreEngineGame = false;
   }
 
   @AfterEach
@@ -125,9 +118,6 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     }
     EngineManager.resetEngineGameTransactionStateForTest();
     Lizzie.engineManager = previousManager;
-    EngineManager.engineGameInfo = previousGameInfo;
-    EngineManager.isEngineGame = previousEngineGame;
-    EngineManager.isPreEngineGame = previousPreEngineGame;
     EngineManager.isEmpty = previousEmpty;
     EngineManager.currentEngineNo = previousEngineNo;
     Lizzie.setPrimaryEngine(previousPrimary);
@@ -145,7 +135,8 @@ class EngineManagerEngineGameOccupancyHandoffTest {
   @Test
   void endThenUnfinishedRestoreThenImmediateRestartDropsDelayedExclusivePrompt() throws Exception {
     EngineManager.EngineGameTransaction transaction =
-        EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true);
+        EngineManager.beginEngineGameTransaction(
+            manager, EngineGamePlans.harness(0, 1, true), null, true);
     assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
     assertTrue(
         EngineManager.activateEngineGameTransaction(
@@ -156,8 +147,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
             white.currentEngineIncarnation()));
 
     manager.stopEngineGame(0, true);
-    assertFalse(EngineManager.isEngineGame);
-    assertFalse(EngineManager.isPreEngineGame);
+    assertFalse(EngineManager.hasActiveEngineGameTransaction());
     assertSame(black, Lizzie.leelaz);
     assertTrue(black.isUnfinishedForegroundRestoreOccupancyHeldForTest());
 
@@ -165,14 +155,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     SwingUtilities.invokeAndWait(
         () -> {
           black.showExclusiveGtpConflictMessage();
-          // Reject transaction publication after occupancy so this stays a headless handoff test,
-          // matching startNewEngineGame's first occupancy admission.
-          EngineManager.isPreEngineGame = true;
-          try {
-            manager.startNewEngineGame(true);
-          } finally {
-            EngineManager.isPreEngineGame = false;
-          }
+          manager.startNewEngineGame(true);
         });
 
     assertEquals(0, manager.leaseConflictCount);
@@ -180,7 +163,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
         black.exclusiveOccupancyPromptGeneration() > generationBefore,
         "immediate restart must hand off unfinished end-game restore occupancy");
     assertFalse(black.isUnfinishedForegroundRestoreOccupancyHeldForTest());
-    assertFalse(EngineManager.isEngineGame);
+    assertFalse(EngineManager.hasPlayingEngineGameTransaction());
     SwingUtilities.invokeAndWait(() -> {});
     assertEquals(
         List.of(),
@@ -206,7 +189,8 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     EngineManager.currentEngineNo = 0;
     try {
       EngineManager.EngineGameTransaction firstGame =
-          EngineManager.beginEngineGameTransaction(restartManager, gameInfo(), null, true);
+          EngineManager.beginEngineGameTransaction(
+              restartManager, EngineGamePlans.harness(0, 1, true), null, true);
       assertTrue(EngineManager.transitionEngineGameToDispatched(firstGame));
       assertTrue(
           EngineManager.activateEngineGameTransaction(
@@ -217,8 +201,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
               whiteEngine.currentEngineIncarnation()));
 
       restartManager.stopEngineGame(0, true);
-      assertFalse(EngineManager.isEngineGame);
-      assertFalse(EngineManager.isPreEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
       assertSame(blackEngine, Lizzie.leelaz);
       assertTrue(blackEngine.isUnfinishedForegroundRestoreOccupancyHeldForTest());
 
@@ -233,7 +216,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
             try {
               secondGame[0] =
                   EngineManager.beginEngineGameTransaction(
-                      restartManager, gameInfo(), null, true);
+                      restartManager, EngineGamePlans.harness(0, 1, true), null, true);
             } finally {
               blackEngine.endExclusiveGtpLifecycleTransition();
             }
@@ -270,8 +253,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
           blackEngine.exclusiveOccupancyPromptGeneration() > generationBefore,
           "immediate restart must hand off unfinished end-game restore occupancy");
       assertFalse(blackEngine.isUnfinishedForegroundRestoreOccupancyHeldForTest());
-      assertTrue(EngineManager.isEngineGame);
-      assertFalse(EngineManager.isPreEngineGame);
+      assertTrue(EngineManager.hasPlayingEngineGameTransaction());
       assertEquals(EngineManager.EngineGamePhase.ACTIVE, secondGame[0].phase());
       SwingUtilities.invokeAndWait(() -> {});
       assertEquals(
@@ -326,9 +308,9 @@ class EngineManagerEngineGameOccupancyHandoffTest {
           });
 
       assertTrue(started[0], "the same dialog action must start the next engine game");
-      assertTrue(EngineManager.isEngineGame);
-      assertFalse(EngineManager.isPreEngineGame);
-      EngineManager.EngineGameTransaction transaction = activeEngineGameTransaction();
+      assertTrue(EngineManager.hasPlayingEngineGameTransaction());
+      EngineManager.EngineGameTransaction transaction =
+          EngineManager.activeEngineGameTransactionForTest();
       assertTrue(transaction != null, "activated engine-game transaction must remain current");
       assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
       assertEquals(0, restartManager.leaseConflictCount);
@@ -356,8 +338,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
 
       assertFalse(started);
-      assertFalse(EngineManager.isEngineGame);
-      assertFalse(EngineManager.isPreEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
       assertEquals(1, manager.leaseConflictCount);
       assertFalse(Lizzie.board.isPkBoard);
     } finally {
@@ -378,14 +359,14 @@ class EngineManagerEngineGameOccupancyHandoffTest {
           "a live exclusive occupant must still show the exclusive-task dialog");
 
       EngineManager.EngineGameTransaction transaction =
-          EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true);
+          EngineManager.beginEngineGameTransaction(
+              manager, EngineGamePlans.harness(0, 1, true), null, true);
       assertTrue(transaction != null);
       Lizzie.board.isPkBoard = true;
 
       assertTrue(manager.abortStartIfPkOccupancyRejected(transaction, whiteSync, whiteSync));
 
-      assertFalse(EngineManager.isEngineGame);
-      assertFalse(EngineManager.isPreEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
       SwingUtilities.invokeAndWait(() -> {});
       assertFalse(
           Lizzie.board.isPkBoard,
@@ -421,16 +402,6 @@ class EngineManagerEngineGameOccupancyHandoffTest {
             .build());
   }
 
-  private static EngineGameInfo gameInfo() {
-    EngineGameInfo gameInfo = new EngineGameInfo();
-    gameInfo.blackEngineIndex = 0;
-    gameInfo.whiteEngineIndex = 1;
-    gameInfo.firstEngineIndex = 0;
-    gameInfo.secondEngineIndex = 1;
-    gameInfo.isGenmove = true;
-    return gameInfo;
-  }
-
   private static boolean hasRouteOwnedRestoreCommand(
       ExactSnapshotRestoreProtocolFixture.Transport transport) {
     for (String command : transport.commands()) {
@@ -448,13 +419,6 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     Field field = Leelaz.class.getDeclaredField(name);
     field.setAccessible(true);
     field.set(engine, value);
-  }
-
-  private static EngineManager.EngineGameTransaction activeEngineGameTransaction()
-      throws Exception {
-    Field field = EngineManager.class.getDeclaredField("activeEngineGameTransaction");
-    field.setAccessible(true);
-    return (EngineManager.EngineGameTransaction) field.get(null);
   }
 
   @SuppressWarnings("unchecked")

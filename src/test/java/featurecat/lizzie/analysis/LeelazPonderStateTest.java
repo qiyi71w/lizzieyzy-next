@@ -195,7 +195,6 @@ class LeelazPonderStateTest {
     private final EngineManager previousEngineManager;
     private final int previousCurrentEngineNo;
     private final Menu previousMenu;
-    private final boolean previousEngineGame;
 
     private TestHarness() {
       previousConfig = Lizzie.config;
@@ -205,7 +204,6 @@ class LeelazPonderStateTest {
       previousEngineManager = Lizzie.engineManager;
       previousCurrentEngineNo = EngineManager.currentEngineNo;
       previousMenu = LizzieFrame.menu;
-      previousEngineGame = EngineManager.isEngineGame;
     }
 
     private static TestHarness open() throws Exception {
@@ -216,7 +214,6 @@ class LeelazPonderStateTest {
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
       Lizzie.leelaz = null;
       LizzieFrame.menu = allocate(SilentMenu.class);
-      EngineManager.isEngineGame = false;
       return harness;
     }
 
@@ -229,7 +226,6 @@ class LeelazPonderStateTest {
       Lizzie.engineManager = previousEngineManager;
       EngineManager.currentEngineNo = previousCurrentEngineNo;
       LizzieFrame.menu = previousMenu;
-      EngineManager.isEngineGame = previousEngineGame;
     }
   }
 

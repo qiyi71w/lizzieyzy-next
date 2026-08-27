@@ -1,16 +1,16 @@
 package featurecat.lizzie.enginegame;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineGameInfo;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
-import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.DesktopTimeControl;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.util.Utils;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.Random;
@@ -59,7 +59,6 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
     EngineGameBatchState acceptedBatch = new EngineGameBatchState(spec, firstIndex, secondIndex);
     EngineGamePlan acceptedPlan = createPlan(acceptedBatch);
     EngineGameTransaction acceptedTransaction = new EngineGameTransaction(acceptedPlan);
-    EngineGameInfo gameInfo = EngineGameInfoFactory.from(acceptedPlan, acceptedBatch);
     synchronized (lock) {
       if (!(snapshot instanceof EngineGameSnapshot.Idle)) {
         return new Acceptance.Rejected(new Rejection.OccupiedLifecycle());
@@ -75,7 +74,8 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
           new EngineGameSnapshot.BatchActive(
               acceptedBatch.summary(), new GameActivity.Starting(acceptedPlan.view())));
     }
-    boolean started = manager.startEngineGame(gameInfo);
+    ensureOutputIdentity(manager, acceptedPlan);
+    boolean started = manager.startEngineGame(acceptedPlan);
     if (!started) {
       synchronized (lock) {
         this.observer = null;
@@ -83,12 +83,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         clearAcceptedLocked();
         publishLocked(new EngineGameSnapshot.Idle());
       }
-      return new Acceptance.Rejected(ownerRejection(manager, gameInfo));
-    }
-    synchronized (lock) {
-      if (batch == acceptedBatch) {
-        batch.rememberOutputIdentity(gameInfo.batchGameName, gameInfo.SF);
-      }
+      return new Acceptance.Rejected(ownerRejection(manager, acceptedPlan));
     }
     publishChrome(EngineGameChromeTransition.Kind.STARTING);
     return new Acceptance.Accepted();
@@ -211,9 +206,6 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         publishLocked(new EngineGameSnapshot.BatchActive(batch.summary(), active.activity()));
       }
     }
-    if (EngineManager.engineGameInfo != null) {
-      EngineManager.engineGameInfo.batchNumber = gameCount;
-    }
     if (chromeKind != null) {
       publishChrome(chromeKind);
     }
@@ -326,10 +318,12 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         }
       }
     }
+    if (product != null) {
+      EngineManager.syncProductBatchSummaryReaders();
+    }
     if (chromeKind != null) {
       publishChrome(chromeKind);
     }
-    EngineManager.syncProductBatchSummaryReaders();
     int index = participantIndex;
     if (index < 0 && outcome instanceof GameOutcome.Resign resign && product != null) {
       ParticipantBinding binding =
@@ -350,7 +344,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
    * @return false when a pending successor failed to start
    */
   public boolean onOwnerRetired() {
-    EngineGameInfo nextInfo = null;
+    EngineGamePlan nextPlan = null;
     EngineGameChromeTransition.Kind chromeKind = null;
     synchronized (lock) {
       boolean betweenGames =
@@ -371,7 +365,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         batch.beginSuccessor();
         plan = createPlan(batch);
         transaction = new EngineGameTransaction(plan);
-        nextInfo = EngineGameInfoFactory.from(plan, batch);
+        nextPlan = plan;
         publishLocked(
             new EngineGameSnapshot.BatchActive(
                 batch.summary(), new GameActivity.Starting(plan.view())));
@@ -382,7 +376,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       return true;
     }
     EngineManager manager = Lizzie.engineManager;
-    boolean started = manager != null && manager.startEngineGame(nextInfo, false);
+    boolean started = manager != null && manager.startEngineGame(nextPlan, false);
     if (!started) {
       synchronized (lock) {
         plan = null;
@@ -391,11 +385,6 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       }
       publishChrome(EngineGameChromeTransition.Kind.LATER_GAME_FAILED);
       return false;
-    }
-    synchronized (lock) {
-      if (batch != null) {
-        batch.rememberOutputIdentity(nextInfo.batchGameName, nextInfo.SF);
-      }
     }
     publishChrome(EngineGameChromeTransition.Kind.STARTING);
     return true;
@@ -550,16 +539,55 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
     return limits.timeSeconds() <= 0 && limits.visits() <= 0 && limits.firstMoveVisits() <= 0;
   }
 
-  private static Rejection ownerRejection(EngineManager manager, EngineGameInfo gameInfo) {
+  private static Rejection ownerRejection(EngineManager manager, EngineGamePlan plan) {
     if (DesktopTimeControl.rejectsEngineGame(
         manager.engineList,
-        gameInfo.blackEngineIndex,
-        gameInfo.whiteEngineIndex,
-        gameInfo.blackTimeMode,
-        gameInfo.whiteTimeMode)) {
+        plan.blackIndex(),
+        plan.whiteIndex(),
+        EngineGameTimeModes.sideMode(plan.blackLimits().timeMode()),
+        EngineGameTimeModes.sideMode(plan.whiteLimits().timeMode()))) {
       return new Rejection.UnsupportedMode();
     }
     return new Rejection.OccupiedLifecycle();
+  }
+
+  private void ensureOutputIdentity(EngineManager manager, EngineGamePlan currentPlan) {
+    synchronized (lock) {
+      if (batch == null || currentPlan == null) {
+        return;
+      }
+      String timestamp = batch.timestamp();
+      if (timestamp.isEmpty()) {
+        timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
+      }
+      String name = batch.batchGameName();
+      if (name.isEmpty()) {
+        name = currentPlan.output().batchName();
+      }
+      if (name.isEmpty() && currentPlan.batch()) {
+        name =
+            manager.getEngineName(currentPlan.firstIndex())
+                + "_VS_"
+                + manager.getEngineName(currentPlan.secondIndex())
+                + "_"
+                + timestamp;
+        name = name.replaceAll("[/\\\\:*?|]", ".");
+        name = name.replaceAll("[\"<>]", "'");
+      }
+      batch.rememberOutputIdentity(name, timestamp);
+    }
+  }
+
+  public String outputBatchName() {
+    synchronized (lock) {
+      return batch == null ? "" : batch.batchGameName();
+    }
+  }
+
+  public String outputTimestamp() {
+    synchronized (lock) {
+      return batch == null ? "" : batch.timestamp();
+    }
   }
 
   private static void presentRejection(Rejection rejection) {
@@ -571,10 +599,14 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   }
 
   private static void showEngineMessage(String key) {
-    if (Lizzie.resourceBundle == null) {
+    if (Lizzie.resourceBundle == null || Lizzie.frame == null) {
       return;
     }
-    Utils.showMsg(Lizzie.resourceBundle.getString(key));
+    try {
+      Utils.showMsg(Lizzie.resourceBundle.getString(key));
+    } catch (RuntimeException ignored) {
+      // Test doubles and incomplete Swing peers cannot host HtmlMessage.
+    }
   }
 
   private static EngineGamePlan createPlan(EngineGameBatchState batch) {

@@ -1453,7 +1453,6 @@ class HumanSlGameControllerIntegrationTest {
       frame.expectedCoach = controller;
       frame.humanSlGame = controller;
       Lizzie.frame = frame;
-      EngineManager.isEngineGame = false;
 
       SwingUtilities.invokeAndWait(frame::startEngineGameDialogReserved);
 
@@ -1990,8 +1989,6 @@ class HumanSlGameControllerIntegrationTest {
     private final Board previousBoard;
     private final LizzieFrame previousFrame;
     private final Leelaz previousEngine;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
     private final boolean previousEngineEmpty;
     private final BottomToolbar previousToolbar;
     private final Menu previousMenu;
@@ -2010,8 +2007,6 @@ class HumanSlGameControllerIntegrationTest {
         Board previousBoard,
         LizzieFrame previousFrame,
         Leelaz previousEngine,
-        boolean previousEngineGame,
-        boolean previousPreEngineGame,
         boolean previousEngineEmpty,
         BottomToolbar previousToolbar,
         Menu previousMenu,
@@ -2028,8 +2023,6 @@ class HumanSlGameControllerIntegrationTest {
       this.previousBoard = previousBoard;
       this.previousFrame = previousFrame;
       this.previousEngine = previousEngine;
-      this.previousEngineGame = previousEngineGame;
-      this.previousPreEngineGame = previousPreEngineGame;
       this.previousEngineEmpty = previousEngineEmpty;
       this.previousToolbar = previousToolbar;
       this.previousMenu = previousMenu;
@@ -2051,8 +2044,6 @@ class HumanSlGameControllerIntegrationTest {
               Lizzie.board,
               Lizzie.frame,
               Lizzie.leelaz,
-              EngineManager.isEngineGame,
-              EngineManager.isPreEngineGame,
               EngineManager.isEmpty,
               LizzieFrame.toolbar,
               LizzieFrame.menu,
@@ -2086,8 +2077,6 @@ class HumanSlGameControllerIntegrationTest {
       board.tempmovelist2 = new ArrayList<>();
       board.setHistory(new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE)));
       Lizzie.board = board;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       EngineManager.isEmpty = false;
       return environment;
     }
@@ -2125,8 +2114,6 @@ class HumanSlGameControllerIntegrationTest {
         Lizzie.board = previousBoard;
         Lizzie.frame = previousFrame;
         Lizzie.leelaz = previousEngine;
-        EngineManager.isEngineGame = previousEngineGame;
-        EngineManager.isPreEngineGame = previousPreEngineGame;
         EngineManager.isEmpty = previousEngineEmpty;
         LizzieFrame.toolbar = previousToolbar;
         LizzieFrame.menu = previousMenu;

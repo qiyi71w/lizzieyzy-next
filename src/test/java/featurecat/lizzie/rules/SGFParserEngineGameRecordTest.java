@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.enginegame.EngineGameCompletionFacts;
 import featurecat.lizzie.enginegame.EngineGameParticipantDescriptor;
@@ -24,8 +23,6 @@ class SGFParserEngineGameRecordTest {
       if (LizzieFrame.toolbar != null) {
         LizzieFrame.toolbar.currentEnginePkSgfNum = 99;
       }
-      EngineManager.engineGameInfo.blackEngineIndex = 50;
-      EngineManager.engineGameInfo.whiteEngineIndex = 51;
 
       GameInfo info = Lizzie.board.getHistory().getGameInfo();
       EngineGameRecordContext context = EngineGameRecordContext.saveFormattingMarker();
@@ -55,8 +52,6 @@ class SGFParserEngineGameRecordTest {
   @Test
   void saveUsesHistoryAttachmentWithoutCurrentEngineIndexes() throws Exception {
     try (RulesLayerTestHarness env = RulesLayerTestHarness.open()) {
-      EngineManager.engineGameInfo.blackEngineIndex = 50;
-      EngineManager.engineGameInfo.whiteEngineIndex = 51;
       GameInfo info = Lizzie.board.getHistory().getGameInfo();
       EngineParticipantIdentity black = new EngineParticipantIdentity("b", "BlackEngine");
       EngineParticipantIdentity white = new EngineParticipantIdentity("w", "WhiteEngine");

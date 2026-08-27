@@ -15,6 +15,8 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
 import featurecat.lizzie.gui.BoardRenderer;
@@ -1856,14 +1858,11 @@ class EngineManagerLifecycleReservationTest {
     EngineManager previousManager = Lizzie.engineManager;
     Leelaz previousPrimary = Lizzie.leelaz;
     Board previousBoard = Lizzie.board;
-    EngineGameInfo previousGameInfo = EngineManager.engineGameInfo;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     QuietExitLeelaz current = new QuietExitLeelaz();
     QuietExitLeelaz candidate = new QuietExitLeelaz();
     QuietExitLeelaz intervening = new QuietExitLeelaz();
     EngineManager manager = new EngineManager(List.of(current, candidate));
-    EngineGameInfo gameInfo = new EngineGameInfo();
+    EngineGamePlan plan = EngineGamePlans.harness(0, 1, false);
     CountDownLatch publicationReady = new CountDownLatch(1);
     CountDownLatch allowPublication = new CountDownLatch(1);
     AtomicReference<Boolean> published = new AtomicReference<>();
@@ -1871,8 +1870,6 @@ class EngineManagerLifecycleReservationTest {
     try {
       Lizzie.engineManager = manager;
       Lizzie.board = preparedRestoreBoard();
-      gameInfo.blackEngineIndex = 0;
-      gameInfo.whiteEngineIndex = 1;
       current.installFreshCommandOutputForTest(new ByteArrayOutputStream());
       candidate.installFreshCommandOutputForTest(new ByteArrayOutputStream());
       current.started = true;
@@ -1882,7 +1879,7 @@ class EngineManagerLifecycleReservationTest {
       EngineManager.resetEngineGameTransactionStateForTest();
       Lizzie.setPrimaryEngine(current);
       EngineManager.EngineGameTransaction transaction =
-          EngineManager.beginEngineGameTransaction(manager, gameInfo, null, true);
+          EngineManager.beginEngineGameTransaction(manager, plan, null, true);
       assertNotNull(transaction);
       assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
       assertTrue(
@@ -1896,7 +1893,7 @@ class EngineManagerLifecycleReservationTest {
       EngineManager.DeferredEngineGamePrimaryPublication publication =
           EngineManager.prepareEngineGamePrimaryPublication(
               manager,
-              gameInfo,
+              plan,
               1,
               candidate,
               current,
@@ -1938,9 +1935,6 @@ class EngineManagerLifecycleReservationTest {
       Lizzie.leelaz = previousPrimary;
       Lizzie.board = previousBoard;
       EngineManager.resetEngineGameTransactionStateForTest();
-      EngineManager.engineGameInfo = previousGameInfo;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -3776,7 +3770,6 @@ class EngineManagerLifecycleReservationTest {
     Board previousBoard = Lizzie.board;
     LizzieFrame previousFrame = Lizzie.frame;
     Config previousConfig = Lizzie.config;
-    EngineGameInfo previousEngineGameInfo = EngineManager.engineGameInfo;
     boolean previousEmpty = EngineManager.isEmpty;
     int previousEngineNo = EngineManager.currentEngineNo;
     PkRestoreLeelaz engine = new PkRestoreLeelaz();
@@ -3790,8 +3783,6 @@ class EngineManagerLifecycleReservationTest {
       Lizzie.board = board;
       EngineManager.isEmpty = false;
       EngineManager.currentEngineNo = 0;
-      EngineManager.engineGameInfo = new EngineGameInfo();
-      EngineManager.engineGameInfo.isGenmove = false;
       engine.isLoaded = true;
       engine.blockRestore = true;
       engine.deferBoardSynchronizationCompletion = true;
@@ -3823,7 +3814,6 @@ class EngineManagerLifecycleReservationTest {
       Lizzie.config = previousConfig;
       EngineManager.isEmpty = previousEmpty;
       EngineManager.currentEngineNo = previousEngineNo;
-      EngineManager.engineGameInfo = previousEngineGameInfo;
     }
   }
 
@@ -3901,12 +3891,8 @@ class EngineManagerLifecycleReservationTest {
   @Test
   void pkStartFailureLeavesPreGameOnlyAfterBothOwnersSettle() throws Exception {
     LizzieFrame previousFrame = Lizzie.frame;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     try {
       Lizzie.frame = allocate(SilentSwitchFrame.class);
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = true;
       EngineManager manager = new EngineManager(List.of());
       EngineManager.PkEngineSynchronization black =
           manager.startEngineForPkSynchronization(-1);
@@ -3915,14 +3901,11 @@ class EngineManagerLifecycleReservationTest {
 
       assertFalse(manager.finishPkEngineSynchronizations(black, white));
 
-      assertFalse(EngineManager.isPreEngineGame);
-      assertFalse(EngineManager.isEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
       assertTrue(black.isComplete());
       assertTrue(white.isComplete());
     } finally {
       Lizzie.frame = previousFrame;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -3934,8 +3917,6 @@ class EngineManagerLifecycleReservationTest {
     LizzieFrame previousFrame = Lizzie.frame;
     GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
     Config previousConfig = Lizzie.config;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     PkRestoreLeelaz failing = new PkRestoreLeelaz();
     PkRestoreLeelaz healthy = new PkRestoreLeelaz();
     PreparedRestoreBoard board = preparedRestoreBoard();
@@ -3947,8 +3928,6 @@ class EngineManagerLifecycleReservationTest {
       Lizzie.frame = allocate(SilentSwitchFrame.class);
       Lizzie.leelaz = failing;
       Lizzie.board = board;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = true;
       failing.started = true;
       failing.isLoaded = true;
       failing.width = 19;
@@ -3971,16 +3950,13 @@ class EngineManagerLifecycleReservationTest {
       assertFalse(manager.finishPkEngineSynchronizations(black, white));
       assertTrue(black.isComplete());
       assertTrue(white.isComplete());
-      assertFalse(EngineManager.isPreEngineGame);
-      assertFalse(EngineManager.isEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
     } finally {
       Lizzie.leelaz = previousEngine;
       Lizzie.gtpConsole = previousGtpConsole;
       Lizzie.board = previousBoard;
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -4934,7 +4910,6 @@ class EngineManagerLifecycleReservationTest {
   void automaticJavaSshRestartDoesNotClearQuarantinedGmaState() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     TrackingRestartLeelaz engine = new TrackingRestartLeelaz();
     engine.useJavaSSH = true;
@@ -4946,7 +4921,6 @@ class EngineManagerLifecycleReservationTest {
     try {
       Lizzie.leelaz = engine;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       EngineManager.currentEngineNo = 0;
 
       invokeCheckEngineAlive(manager);
@@ -4956,7 +4930,6 @@ class EngineManagerLifecycleReservationTest {
     } finally {
       Lizzie.leelaz = previousEngine;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
     }
   }
@@ -4965,7 +4938,6 @@ class EngineManagerLifecycleReservationTest {
   void automaticProcessRestartDoesNotRaceAnActiveGmaReservation() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     TrackingRestartLeelaz engine = new TrackingRestartLeelaz();
     engine.started = true;
@@ -4977,7 +4949,6 @@ class EngineManagerLifecycleReservationTest {
     try {
       Lizzie.leelaz = engine;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       EngineManager.currentEngineNo = 0;
 
       invokeCheckEngineAlive(manager);
@@ -4988,7 +4959,6 @@ class EngineManagerLifecycleReservationTest {
       reservation.close();
       Lizzie.leelaz = previousEngine;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
     }
   }
@@ -4997,7 +4967,6 @@ class EngineManagerLifecycleReservationTest {
   void automaticProcessRestartLosesTheRaceWhenGmaReservesBeforeRestartDispatch() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     TrackingRestartLeelaz engine = new TrackingRestartLeelaz();
     engine.started = true;
@@ -5019,7 +4988,6 @@ class EngineManagerLifecycleReservationTest {
     try {
       Lizzie.leelaz = engine;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       EngineManager.currentEngineNo = 0;
       checkThread.start();
       assertTrue(engine.processDeadCheckEntered.await(1, TimeUnit.SECONDS));
@@ -5042,7 +5010,6 @@ class EngineManagerLifecycleReservationTest {
       }
       Lizzie.leelaz = previousEngine;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
     }
   }
@@ -5051,7 +5018,6 @@ class EngineManagerLifecycleReservationTest {
   void remoteAutomaticRestartHandsItsReservationToTheBoardRestore() throws Exception {
     Leelaz previousEngine = Lizzie.leelaz;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     TrackingRestartLeelaz engine = new TrackingRestartLeelaz();
     engine.started = true;
@@ -5064,7 +5030,6 @@ class EngineManagerLifecycleReservationTest {
     try {
       Lizzie.leelaz = engine;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       EngineManager.currentEngineNo = 0;
 
       invokeCheckEngineAlive(manager);
@@ -5091,7 +5056,6 @@ class EngineManagerLifecycleReservationTest {
       }
       Lizzie.leelaz = previousEngine;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
     }
   }
@@ -6117,8 +6081,6 @@ class EngineManagerLifecycleReservationTest {
     LizzieFrame previousFrame = Lizzie.frame;
     Config previousConfig = Lizzie.config;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     int previousEngineNo2 = EngineManager.currentEngineNo2;
     TrackingRestartActionLeelaz primary = new TrackingRestartActionLeelaz();
@@ -6147,8 +6109,6 @@ class EngineManagerLifecycleReservationTest {
       Lizzie.leelaz = primary;
       Lizzie.leelaz2 = secondary;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       EngineManager.currentEngineNo = 0;
       EngineManager.currentEngineNo2 = 1;
       Lizzie.engineStartupStatus.ready();
@@ -6228,8 +6188,6 @@ class EngineManagerLifecycleReservationTest {
       Lizzie.frame = previousFrame;
       Lizzie.config = previousConfig;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
       EngineManager.currentEngineNo2 = previousEngineNo2;
       Lizzie.engineStartupStatus.ready();
@@ -6244,8 +6202,6 @@ class EngineManagerLifecycleReservationTest {
     Menu previousMenu = LizzieFrame.menu;
     BottomToolbar previousToolbar = LizzieFrame.toolbar;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     TrackingRestartActionLeelaz engine = new TrackingRestartActionLeelaz();
     CountingRestartGateFrame frame = allocate(CountingRestartGateFrame.class);
     CountingRestartMenu menu = allocate(CountingRestartMenu.class);
@@ -6271,8 +6227,6 @@ class EngineManagerLifecycleReservationTest {
       LizzieFrame.menu = menu;
       LizzieFrame.toolbar = toolbar;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       Lizzie.engineStartupStatus.checking("engine.starting", "using existing cache");
       engine.invokeRealInitialization = true;
 
@@ -6315,8 +6269,6 @@ class EngineManagerLifecycleReservationTest {
       LizzieFrame.menu = previousMenu;
       LizzieFrame.toolbar = previousToolbar;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       Lizzie.engineStartupStatus.ready();
     }
   }
