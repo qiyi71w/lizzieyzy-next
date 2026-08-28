@@ -1481,19 +1481,6 @@ public class SGFParser {
       moveTimeMs =
           node.getData().blackToPlay ? snapshot.blackMoveTimeMs() : snapshot.whiteMoveTimeMs();
     }
-    EngineGameRecordContext context = engineGameContext(info);
-    if (moveTimeMs <= 0
-        && context != null
-        && Lizzie.engineManager != null
-        && Lizzie.engineManager.engineList != null) {
-      int index = node.getData().blackToPlay ? context.blackIndex() : context.whiteIndex();
-      if (index >= 0 && index < Lizzie.engineManager.engineList.size()) {
-        featurecat.lizzie.analysis.Leelaz engine = Lizzie.engineManager.engineList.get(index);
-        if (engine != null) {
-          moveTimeMs = engine.pkMoveTime;
-        }
-      }
-    }
     if (moveTimeMs <= 0) {
       return;
     }

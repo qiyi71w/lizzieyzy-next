@@ -626,6 +626,26 @@ class EngineGameModuleContractTest {
     assertEquals(444, snapshot.whiteMoveTimeMs());
   }
 
+  @Test
+  void completedHistoryDoesNotReadLiveMoveClockDuringSgfFormatting() {
+    playAccepted(genmoveSpec());
+    GameInfo info = Lizzie.board.getHistory().getGameInfo();
+    completeCurrent(new GameOutcome.Resign(EngineGameSide.BLACK));
+    assertNotNull(info.engineGameRecord());
+    assertNull(info.engineGameSaveSnapshot());
+
+    BoardData current = Lizzie.board.getHistory().getCurrentHistoryNode().getData();
+    current.moveNumber = 3;
+    current.setPlayouts(1);
+    current.comment = "frozen";
+    black.pkMoveTime = 9_000;
+    white.pkMoveTime = 8_000;
+
+    SGFParser.appendTime();
+
+    assertEquals("frozen", current.comment);
+  }
+
 
   @Test
   void previousHistoryKeepsPreviousRecordAfterNextGameStarts() {
