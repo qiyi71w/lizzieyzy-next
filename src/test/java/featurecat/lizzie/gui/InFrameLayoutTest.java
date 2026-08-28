@@ -236,6 +236,37 @@ class InFrameLayoutTest {
     assertEquals(baseline.comment, listMin.comment);
   }
 
+  @Test
+  void restoringClearsOverridesAndUsesFirstRunBoardProportion() {
+    InFrameLayout restored =
+        InFrameLayout.layout(allVisible(1600, 900, 7, 0.8, 0.5, 0.6).restored());
+
+    assertEquals(new Rectangle(348, 0, 900, 900), restored.board);
+    assertEquals(new Rectangle(0, 0, 330, 900), restored.leftColumn);
+    assertEquals(new Rectangle(1266, 0, 334, 900), restored.rightColumn);
+    assertEquals(new Rectangle(0, 502, 330, 314), restored.comment);
+    assertEquals(new Rectangle(1266, 0, 334, 283), restored.variationGraph);
+    assertEquals(new Rectangle(1266, 283, 334, 283), restored.candidateTable);
+    assertEquals(Optional.of(new Rectangle(348, 0, 1, 900)), restored.boardLeftDivider);
+    assertEquals(Optional.of(new Rectangle(1247, 0, 1, 900)), restored.boardRightDivider);
+    assertEquals(Optional.of(new Rectangle(0, 502, 330, 1)), restored.commentTopDivider);
+    assertEquals(Optional.of(new Rectangle(1266, 283, 334, 1)), restored.variationListDivider);
+  }
+
+  @Test
+  void restoringKeepsPanelVisibility() {
+    InFrameLayout restored =
+        InFrameLayout.layout(
+            visible(1600, 900, 7, 0.8, 0.5, 0.6, false, true, true, true).restored());
+
+    assertEquals(new Rectangle(348, 0, 900, 900), restored.board);
+    assertEquals(new Rectangle(0, 0, 330, 900), restored.leftColumn);
+    assertEquals(new Rectangle(), restored.comment);
+    assertEquals(Optional.empty(), restored.commentTopDivider);
+    assertEquals(new Rectangle(1266, 0, 334, 450), restored.variationGraph);
+    assertEquals(new Rectangle(1266, 450, 334, 450), restored.candidateTable);
+  }
+
   private static InFrameLayout.Request allVisible(int width, int height, int proportion) {
     return allVisible(width, height, proportion, null);
   }

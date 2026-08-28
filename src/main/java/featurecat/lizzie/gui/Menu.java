@@ -1358,6 +1358,18 @@ public class Menu extends JMenuBar {
         });
     panel.add(SuggestionList);
 
+    final JFontMenuItem restoreDefaultPanelSizes =
+        new JFontMenuItem(resourceBundle.getString("Menu.restoreDefaultPanelSizes"));
+    restoreDefaultPanelSizes.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.restoreDefaultPanelSizes();
+          }
+        });
+    panel.add(restoreDefaultPanelSizes);
+
+
     final JFontCheckBoxMenuItem winrateMode0 =
         new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.winrateMode0")); // ("黑方视角");
     winrateMode0.addActionListener(

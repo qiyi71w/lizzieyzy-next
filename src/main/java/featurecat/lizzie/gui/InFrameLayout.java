@@ -10,6 +10,7 @@ import java.util.Optional;
  * comment / sub-board swap.
  */
 final class InFrameLayout {
+  static final int DEFAULT_BOARD_POSITION_PROPORTION = 4;
   private static final int MIN_COMMENT_HEIGHT = 68;
   private static final int MIN_CANDIDATE_TABLE_HEIGHT = 36;
 
@@ -178,6 +179,30 @@ final class InFrameLayout {
       this.userKnownX = userKnownX;
       this.showCaptured = showCaptured;
       this.showWinrateGraph = showWinrateGraph;
+    }
+
+    Request restored() {
+      return new Request(
+          width,
+          height,
+          leftInset,
+          topInset,
+          rightInset,
+          bottomInset,
+          boardWidth,
+          boardHeight,
+          DEFAULT_BOARD_POSITION_PROPORTION,
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          showComment,
+          showSubBoard,
+          showVariationGraph,
+          showListPane,
+          showStatus,
+          userKnownX,
+          showCaptured,
+          showWinrateGraph);
     }
   }
 

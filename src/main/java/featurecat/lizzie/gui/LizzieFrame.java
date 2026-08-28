@@ -6770,6 +6770,21 @@ public class LizzieFrame extends JFrame {
     Lizzie.config.persistedUi.put("variation-graph-share", variationGraphShare.doubleValue());
   }
 
+  public void restoreDefaultPanelSizes() {
+    leftoverLeftShare = null;
+    commentHeightShare = null;
+    variationGraphShare = null;
+    BoardPositionProportion = InFrameLayout.DEFAULT_BOARD_POSITION_PROPORTION;
+    if (Lizzie.config.persistedUi != null) {
+      Lizzie.config.persistedUi.remove("leftover-left-share");
+      Lizzie.config.persistedUi.remove("comment-height-share");
+      Lizzie.config.persistedUi.remove("variation-graph-share");
+      Lizzie.config.persistedUi.put("board-postion-propotion", BoardPositionProportion);
+    }
+    refreshContainer();
+    repaint();
+  }
+
   public void nudgeBoardPositionProportion(int delta) {
     if (leftoverLeftShare != null) {
       leftoverLeftShare =
