@@ -1878,7 +1878,7 @@ class EngineManagerLifecycleReservationTest {
       candidate.isLoaded = true;
       EngineManager.resetEngineGameTransactionStateForTest();
       Lizzie.setPrimaryEngine(current);
-      EngineManager.EngineGameTransaction transaction =
+      EngineManager.EngineGameOwnerTransaction transaction =
           EngineManager.beginEngineGameTransaction(manager, plan, null, true);
       assertNotNull(transaction);
       assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));

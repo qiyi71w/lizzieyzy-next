@@ -143,7 +143,7 @@ class EngineManagerEngineGameStateMachineTest {
     EngineGamePlan first = gameInfo();
     EngineGamePlan replacement = gameInfo();
 
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         EngineManager.beginEngineGameTransaction(manager, first, null, true);
 
     assertNotNull(transaction);
@@ -161,7 +161,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void terminalCancellationSerializesWithInFlightStageAndRejectsLateCallback() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     CountDownLatch stageEntered = new CountDownLatch(1);
     CountDownLatch releaseStage = new CountDownLatch(1);
     CountDownLatch stageDone = new CountDownLatch(1);
@@ -210,7 +210,7 @@ class EngineManagerEngineGameStateMachineTest {
   void schedulerFailureBeforeStartFailsOnceAndRejectsWorkerEffects() {
     WorkerSeamEngineManager manager = installManager(new WorkerSeamEngineManager(allEngines()));
     manager.workerMode = WorkerMode.THROW_BEFORE_START;
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     AtomicInteger effects = new AtomicInteger();
 
     AssertionError failure =
@@ -230,7 +230,7 @@ class EngineManagerEngineGameStateMachineTest {
   void schedulerStartThenThrowLeavesTheStartedWorkerAsSoleOwner() throws Exception {
     WorkerSeamEngineManager manager = installManager(new WorkerSeamEngineManager(allEngines()));
     manager.workerMode = WorkerMode.START_THEN_THROW;
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     AtomicInteger effects = new AtomicInteger();
     CountDownLatch taskEntered = new CountDownLatch(1);
     CountDownLatch taskDone = new CountDownLatch(1);
@@ -257,7 +257,7 @@ class EngineManagerEngineGameStateMachineTest {
       throws Exception {
     ReadinessGateEngineManager manager =
         installManager(new ReadinessGateEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     Object oldIncarnation = black.currentEngineIncarnation();
     assertTrue(
         EngineManager.bindEngineGameStartupIncarnation(
@@ -296,7 +296,7 @@ class EngineManagerEngineGameStateMachineTest {
   void freshEngineGameBootstrapKeepsBoardDefaultsAndOrdinaryPresentationUntouched()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     double previousDefaultKomi = GameInfo.DEFAULT_KOMI;
     double boardKomi = Lizzie.board.getHistory().getGameInfo().getKomi();
     black.firstLoad = true;
@@ -330,7 +330,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void cancelledFreshBootstrapCannotSendOrPublishAfterItsWorkerGate() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     double previousDefaultKomi = GameInfo.DEFAULT_KOMI;
     double boardKomi = Lizzie.board.getHistory().getGameInfo().getKomi();
     black.firstLoad = true;
@@ -367,7 +367,7 @@ class EngineManagerEngineGameStateMachineTest {
   void participantSynchronizationTimeoutFailsClosedAndRestoresEveryUiStep() {
     ImmediateUiEngineManager manager = installManager();
     manager.timeoutMillis = 10L;
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
     frame.throwOnInputRestore = true;
     toolbar.controlsEnabled = false;
@@ -392,7 +392,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void failedStageHasOneTerminalOwnerAndLateSiblingIsFenced() {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     AssertionError primary = new AssertionError("controlled engine command failure");
     AtomicInteger lateEffects = new AtomicInteger();
 
@@ -419,7 +419,7 @@ class EngineManagerEngineGameStateMachineTest {
   void retirementBlocksReplacementUntilRollbackPresentationCompletes() {
     DeferredUiEngineManager manager = installManager(new DeferredUiEngineManager(allEngines()));
     EngineGamePlan first = gameInfo();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, first);
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, first);
 
     manager.clearEngineGame();
     assertEquals(EngineManager.EngineGamePhase.CANCELLED, transaction.phase());
@@ -429,7 +429,7 @@ class EngineManagerEngineGameStateMachineTest {
     assertNull(EngineManager.activeEngineGameTransactionForTest());
 
     manager.runPendingUi();
-    EngineManager.EngineGameTransaction replacementTransaction =
+    EngineManager.EngineGameOwnerTransaction replacementTransaction =
         EngineManager.beginEngineGameTransaction(manager, replacement, null, true);
     assertNotNull(replacementTransaction);
     assertSame(replacement, EngineManager.activeEngineGameTransactionForTest().plan);
@@ -557,7 +557,7 @@ class EngineManagerEngineGameStateMachineTest {
   void eachParticipantCanExtendTheTransactionForObservedOpenClTuning() {
     ImmediateUiEngineManager manager = installManager();
     manager.timeoutMillis = 10L;
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     long initialDeadline = EngineManager.engineGameDeadlineNanos(transaction);
 
     black.isTuning = true;
@@ -737,7 +737,7 @@ class EngineManagerEngineGameStateMachineTest {
     BlockingCommitBoard board = blockingCommitBoard();
     Lizzie.board = board;
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     EngineManager.EngineGamePrimaryContext primary =
         EngineManager.captureEngineGamePrimaryContext(
@@ -786,7 +786,7 @@ class EngineManagerEngineGameStateMachineTest {
     BlockingCommitBoard board = blockingCommitBoard(history);
     Lizzie.board = board;
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     EngineManager.EngineGamePrimaryContext primary =
         EngineManager.captureEngineGamePrimaryContext(
@@ -826,7 +826,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.bindLiveRuntime(output);
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     AtomicReference<Throwable> senderFailure = new AtomicReference<>();
     Thread sender =
         new Thread(
@@ -857,7 +857,7 @@ class EngineManagerEngineGameStateMachineTest {
   void exactNumberedGenmoveErrorSettlesCarrierAndFailsCurrentTransaction() throws Exception {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
     int commandId = firstCommandId(black.commandText());
@@ -872,7 +872,7 @@ class EngineManagerEngineGameStateMachineTest {
   void pausedGenmoveRecordsExactPendingSideWithoutToolbarFlags() throws Exception {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     EngineManager.pauseEngineGame(transaction);
 
@@ -886,7 +886,7 @@ class EngineManagerEngineGameStateMachineTest {
   void unnumberedGenmoveTerminalFramesDoNotCommitOrSettleExactTurn() throws Exception {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
     int commandId = commandIdFor(black.commandText(), "genmove B");
@@ -908,7 +908,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void unmatchedStrictStartupTerminalFramesCannotEnterOrdinaryNameParser() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.isLoaded = false;
     black.isCheckingName = true;
 
@@ -982,7 +982,7 @@ class EngineManagerEngineGameStateMachineTest {
   void malformedUnnumberedPdaDiagnosticDoesNotFailExactGenmoveCarrier() throws Exception {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
     int commandId = commandIdFor(black.commandText(), "genmove B");
@@ -1002,7 +1002,7 @@ class EngineManagerEngineGameStateMachineTest {
   void emptyAndMalformedPassingResponsesFailClosedWithoutBoardMutation() throws Exception {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan emptyGame = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction empty =
+    EngineManager.EngineGameOwnerTransaction empty =
         activeTransaction(manager, emptyGame, black, 0);
     assertTrue(black.genmoveForPk("B", empty));
     int emptyId = firstCommandId(black.commandText());
@@ -1017,7 +1017,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.setPrimaryEngine(black);
     Lizzie.board = preparedBoard();
     EngineGamePlan passingGame = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction passing =
+    EngineManager.EngineGameOwnerTransaction passing =
         activeTransaction(manager, passingGame, black, 0);
     assertTrue(black.genmoveForPk("B", passing));
     int passingId = firstCommandId(black.commandText());
@@ -1034,7 +1034,7 @@ class EngineManagerEngineGameStateMachineTest {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
     int commandId = firstCommandId(black.commandText());
 
@@ -1062,7 +1062,7 @@ class EngineManagerEngineGameStateMachineTest {
     white.requireResponseBeforeSend = true;
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
     int blackGenmoveId = commandIdFor(black.commandText(), "genmove B");
@@ -1106,7 +1106,7 @@ class EngineManagerEngineGameStateMachineTest {
     white.requireResponseBeforeSend = true;
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown blackClock = engineClock("kata-time_settings fischer 10 2", black, true);
     EngineCountDown whiteClock = engineClock("kata-time_settings fischer 10 2", white, false);
     assertTrue(
@@ -1155,7 +1155,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.config.enginePkPonder = true;
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown whiteClock = engineClock("kata-time_settings byoyomi 0 5 3", white, false);
     assertTrue(EngineManager.installEngineGameCountDownsForTest(transaction, null, whiteClock));
 
@@ -1182,7 +1182,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.config.enginePkPonder = true;
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown whiteClock = engineClock("kata-time_settings byoyomi 0 5 3", white, false);
     assertTrue(EngineManager.installEngineGameCountDownsForTest(transaction, null, whiteClock));
     // Corrupt the frozen color after installation to model a stale/reused clock object. The
@@ -1206,7 +1206,7 @@ class EngineManagerEngineGameStateMachineTest {
   void countdownTickCrossingByoyomiAndTerminalPerformsNoLateEngineWrite() {
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineCountDown blackClock = engineClock("kata-time_settings byoyomi 0 0.01 2", black, true);
     assertTrue(EngineManager.installEngineGameCountDownsForTest(transaction, blackClock, null));
 
@@ -1230,7 +1230,7 @@ class EngineManagerEngineGameStateMachineTest {
     white.requireResponseBeforeSend = true;
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
     int genmoveId = commandIdFor(black.commandText(), "genmove B");
@@ -1251,7 +1251,7 @@ class EngineManagerEngineGameStateMachineTest {
     RecordingBoard board = recordingBoard();
     Lizzie.board = board;
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, gameInfo(), black, 0);
     EngineManager.EngineGamePrimaryContext primary =
         EngineManager.captureEngineGamePrimaryContext(
             black, black.currentEngineIncarnation());
@@ -1281,7 +1281,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.config.enginePkPonder = true;
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     assertTrue(black.genmoveForPk("B", transaction));
 
@@ -1301,7 +1301,7 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.board = board;
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     black.blockAfterEngineGameResponseSettlement();
     assertTrue(black.genmoveForPk("B", transaction));
     int genmoveId = commandIdFor(black.commandText(), "genmove B");
@@ -1335,7 +1335,7 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(whiteCommandsAfterTerminal, white.commandText());
 
     EngineGamePlan successorInfo = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction successor =
+    EngineManager.EngineGameOwnerTransaction successor =
         activeTransaction(manager, successorInfo, black, 0);
     assertTrue(EngineManager.isCurrentEngineGameTransaction(successor));
   }
@@ -1347,7 +1347,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.bindLiveRuntime(output);
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     AtomicReference<Throwable> senderFailure = new AtomicReference<>();
     Thread sender =
         new Thread(
@@ -1380,7 +1380,7 @@ class EngineManagerEngineGameStateMachineTest {
     BlockingFirstWriteOutput output = new BlockingFirstWriteOutput();
     black.bindLiveRuntime(output);
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     AtomicReference<Throwable> senderFailure = new AtomicReference<>();
     Thread sender =
         new Thread(
@@ -1414,7 +1414,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void genericInFlightOperationNeverSchedulesPhysicalForce() throws Exception {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     CountDownLatch operationEntered = new CountDownLatch(1);
     CountDownLatch releaseOperation = new CountDownLatch(1);
     AtomicReference<Throwable> operationFailure = new AtomicReference<>();
@@ -1456,7 +1456,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void physicalRequestWithoutResponseForcesOnceAndCompletesRetirement() throws Exception {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
 
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
     assertEquals(1, transaction.operationsInFlightForTest());
@@ -1477,7 +1477,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void naturalResponseBeforeGracePreventsPhysicalForce() throws Exception {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
 
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
     int commandId = commandIdFor(black.commandText(), "clear_cache");
@@ -1496,7 +1496,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void responseRacingClaimedForceClosesPhysicalLeaseExactlyOnce() throws Exception {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.blockForceQuit();
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
     int commandId = commandIdFor(black.commandText(), "clear_cache");
@@ -1533,7 +1533,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void watchdogCannotForceReplacementAfterOldBindingWasRebound() {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     Object oldBinding = black.currentEngineIncarnation();
     EngineManager.EngineGamePhysicalRequestLease request =
         EngineManager.claimEngineGameStartupOutput(transaction, black, oldBinding);
@@ -1556,7 +1556,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void sameBindingWithMultiplePhysicalRequestsPerformsOneAbort() {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
 
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
     black.sendEngineGameStartupCommandForTest("name", transaction);
@@ -1574,7 +1574,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void forceFailureIsDiagnosedButStillReleasesEveryClaimedLease() {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     RuntimeException forceFailure = new IllegalStateException("controlled exact force failure");
     black.forceQuitFailure = forceFailure;
 
@@ -1594,7 +1594,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void blackAndWhitePhysicalStreamsAreForcedIndependently() {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
 
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
     white.sendEngineGameStartupCommandForTest("clear_cache", transaction);
@@ -1614,7 +1614,7 @@ class EngineManagerEngineGameStateMachineTest {
   void schedulerFailureUsesIndependentFallbackAndCannotStrandRetirement() throws Exception {
     FailingWatchdogSchedulerManager manager =
         installManager(new FailingWatchdogSchedulerManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.blockForceQuit();
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
 
@@ -1634,7 +1634,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void graceConfigurationFailureFallsBackToDefaultBound() {
     WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     RuntimeException graceFailure =
         new IllegalStateException("controlled physical-watchdog grace failure");
     manager.graceFailure = graceFailure;
@@ -1654,7 +1654,7 @@ class EngineManagerEngineGameStateMachineTest {
     ArmableBlockingWriteOutput output = new ArmableBlockingWriteOutput();
     black.bindLiveRuntime(output);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.sendEngineGameStartupCommandForTest("kata-analyze B 30", transaction);
@@ -1740,7 +1740,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.bindLiveRuntime(output);
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     black.isKatago = true;
     output.arm();
     AtomicBoolean genmoveAccepted = new AtomicBoolean();
@@ -1821,7 +1821,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void coldStartBootstrapNameErrorDoesNotFailEngineGameTransaction() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.isLoaded = false;
     black.isCheckingName = true;
     black.trackEngineGameBootstrapCompletion();
@@ -1842,7 +1842,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void coldStartBootstrapSetupErrorStillFailsEngineGameTransaction() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.isLoaded = false;
     black.isCheckingName = true;
     black.trackEngineGameBootstrapCompletion();
@@ -1867,7 +1867,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void engineGameCommandsUseDedicatedIdsOnlyAfterNameRecognition() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.isLoaded = false;
     black.isCheckingName = true;
     black.trackEngineGameBootstrapCompletion();
@@ -1891,7 +1891,7 @@ class EngineManagerEngineGameStateMachineTest {
   void nameRecognitionTimeoutCancelsEngineGameTransaction() throws Exception {
     ShortNameTimeoutEngineManager manager =
         installManager(new ShortNameTimeoutEngineManager(allEngines()));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.started = true;
     black.isLoaded = false;
     black.isCheckingName = true;
@@ -1909,7 +1909,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void alreadyRecognizedParticipantDoesNotWaitForNameRecognition() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.started = true;
     black.isLoaded = true;
     black.isCheckingName = false;
@@ -1927,7 +1927,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void closingEngineGameDialogCancelsPendingStart() {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
 
     manager.clearEngineGame();
 
@@ -1937,7 +1937,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void startupCommandErrorFailsPreparingTransactionAndReleasesPhysicalLease() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
 
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
     int commandId = commandIdFor(black.commandText(), "clear_cache");
@@ -1951,7 +1951,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void exactStartupCommandRequiresItsMatchingProtocolId() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
 
     black.sendEngineGameStartupCommandForTest("clear_cache", transaction);
     int commandId = commandIdFor(black.commandText(), "clear_cache");
@@ -1969,7 +1969,7 @@ class EngineManagerEngineGameStateMachineTest {
   void strictStartupResponseTimeoutSettlesPhysicalPermitAndQuarantinesLateResponse()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     AtomicInteger responses = new AtomicInteger();
     Runnable response = responses::incrementAndGet;
 
@@ -1995,7 +1995,7 @@ class EngineManagerEngineGameStateMachineTest {
     BlockingFirstWriteOutput output = new BlockingFirstWriteOutput();
     black.bindLiveRuntime(output);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     Runnable response = () -> {};
     Thread blocker = new Thread(() -> black.sendCommand("protocol_version"));
 
@@ -2020,7 +2020,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.isLoaded = false;
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, game);
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, game);
 
     black.sendEngineGameStartupCommandForTest("name", transaction);
     int nameId = commandIdFor(black.commandText(), "name");
@@ -2052,7 +2052,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void stoppedGameRejectsDeferredNamePostActionBeforeAnyDerivedCommand() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     Lizzie.config.chkLzsaiEngineMem = true;
     Lizzie.config.autoLoadLzsaiEngineMem = true;
     Lizzie.config.txtLzsaiEngineMem = "256";
@@ -2080,7 +2080,7 @@ class EngineManagerEngineGameStateMachineTest {
   void stoppedGameCannotPublishLoadedAfterLastPostCommandWasPhysicallyWritten()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     Lizzie.config.chkLzsaiEngineMem = true;
     Lizzie.config.autoLoadLzsaiEngineMem = true;
     Lizzie.config.txtLzsaiEngineMem = "256";
@@ -2115,7 +2115,7 @@ class EngineManagerEngineGameStateMachineTest {
   void retiredNameResponseSettlesWithoutEnteringClassifierOrMutatingReusedEndpoint()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.isLoaded = false;
     black.isCheckingName = true;
     black.blockAfterStartupResponseOwnerCapture();
@@ -2155,7 +2155,7 @@ class EngineManagerEngineGameStateMachineTest {
   void analysisOwnerInstalledAtPhysicalWriteSuppressesEarlyOutputUntilActivation()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
     assertTrue(
         EngineManager.bindEngineGameStartupIncarnation(
@@ -2192,7 +2192,7 @@ class EngineManagerEngineGameStateMachineTest {
 
   @Test
   void exactAnalysisParticipantsAlternateFourMovesAndRefreshCurrentOutput() {
-    EngineManager.EngineGameTransaction transaction = startExactAnalysisGame();
+    EngineManager.EngineGameOwnerTransaction transaction = startExactAnalysisGame();
     startExactAnalyze(black, transaction, "B");
 
     playExactAnalysisMove(black, "D4", 1);
@@ -2206,7 +2206,7 @@ class EngineManagerEngineGameStateMachineTest {
 
   @Test
   void exactAnalysisDuplicateOutputAndStaleContextDoNotCommitAgain() {
-    EngineManager.EngineGameTransaction transaction = startExactAnalysisGame();
+    EngineManager.EngineGameOwnerTransaction transaction = startExactAnalysisGame();
     startExactAnalyze(black, transaction, "B");
     EngineManager.EngineGamePrimaryContext firstContext =
         EngineManager.captureEngineGamePrimaryContext(
@@ -2232,7 +2232,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void displayPublicationFailureDoesNotSplitPayloadOrFailExactGame() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.sendEngineGameStartupCommandForTest("kata-analyze B 3", transaction);
@@ -2256,7 +2256,7 @@ class EngineManagerEngineGameStateMachineTest {
   void terminalAfterExactOutputRouteCaptureDropsLateMainInfoWithoutOrdinaryFallback()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.sendEngineGameStartupCommandForTest("kata-analyze B 2", transaction);
@@ -2293,7 +2293,7 @@ class EngineManagerEngineGameStateMachineTest {
   void stdoutColorStatusUsesCapturedOwnerAndRejectsSameBindingSuccessor()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     black.sendEngineGameStartupCommandForTest("lz-analyze 17", transaction);
     int firstCommandId = commandIdFor(black.commandText(), "lz-analyze 17");
@@ -2339,7 +2339,7 @@ class EngineManagerEngineGameStateMachineTest {
   void stderrMalkovichPdaUsesCapturedOwnerAndRejectsSameBindingSuccessor()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.sendEngineGameStartupCommandForTest("kata-analyze B 18", transaction);
@@ -2415,7 +2415,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void sameBindingExactSuccessorCancelsOldDeferredPrimaryPublication() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), white, 1);
     assertSame(white, Lizzie.leelaz);
     black.isKatago = true;
@@ -2473,7 +2473,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     parser.start();
     assertTrue(black.ordinaryAnalysisAdmissionEntered.await(2, TimeUnit.SECONDS));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.releaseOrdinaryAnalysisAdmission.countDown();
     parser.join(2_000L);
 
@@ -3145,7 +3145,7 @@ class EngineManagerEngineGameStateMachineTest {
   void retirementAndRecoverySuppressionBlockOrdinaryOwnershipUntilPhysicalReplacement()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.sendEngineGameStartupCommandForTest("kata-analyze B 4", transaction);
@@ -3257,7 +3257,7 @@ class EngineManagerEngineGameStateMachineTest {
   void sameBindingBatchSuccessorReplacesRetiredExactOwnerOnlyAtPhysicalWrite()
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction first = activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.EngineGameOwnerTransaction first = activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.sendEngineGameStartupCommandForTest("kata-analyze B 6", first);
     int firstCommandId = commandIdFor(black.commandText(), "kata-analyze B 6");
@@ -3265,7 +3265,7 @@ class EngineManagerEngineGameStateMachineTest {
     manager.clearEngineGame();
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
 
-    EngineManager.EngineGameTransaction successor =
+    EngineManager.EngineGameOwnerTransaction successor =
         activeTransaction(manager, gameInfo(), black, 0);
     assertEquals(
         "EXACT_RETIRED",
@@ -3307,7 +3307,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.bindLiveRuntime(output);
     black.isKatago = true;
     AtomicReference<Throwable> writerFailure = new AtomicReference<>();
-    AtomicReference<EngineManager.EngineGameTransaction> admitted = new AtomicReference<>();
+    AtomicReference<EngineManager.EngineGameOwnerTransaction> admitted = new AtomicReference<>();
     CountDownLatch admissionStarted = new CountDownLatch(1);
     CountDownLatch admissionFinished = new CountDownLatch(1);
     Thread writer =
@@ -3358,7 +3358,7 @@ class EngineManagerEngineGameStateMachineTest {
     BlockingFirstWriteOutput output = new BlockingFirstWriteOutput();
     black.bindLiveRuntime(output);
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.setBestMovesForEngineGameTest(List.of(move("Q16", 20, 55.0)));
@@ -3422,7 +3422,7 @@ class EngineManagerEngineGameStateMachineTest {
   @Test
   void zenAndLeela0110RetiredOutputsNeverFallThroughToOrdinaryAutoplay() throws Exception {
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction zen = activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.EngineGameOwnerTransaction zen = activeTransaction(manager, gameInfo(), black, 0);
     black.isZen = true;
     black.sendEngineGameStartupCommandForTest("lz-analyze 7", zen);
     int zenCommandId = commandIdFor(black.commandText(), "lz-analyze 7");
@@ -3438,7 +3438,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     black.isZen = false;
     black.isLeela0110 = true;
-    EngineManager.EngineGameTransaction leela0110 =
+    EngineManager.EngineGameOwnerTransaction leela0110 =
         activeTransaction(manager, gameInfo(), black, 0);
     black.sendEngineGameStartupCommandForTest("time_left b 0 0", leela0110);
     int timeCommandId = commandIdFor(black.commandText(), "time_left b 0 0");
@@ -3475,7 +3475,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     parser.start();
     assertTrue(black.ordinaryAnalysisAdmissionEntered.await(2, TimeUnit.SECONDS));
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo());
     black.releaseOrdinaryAnalysisAdmission.countDown();
     parser.join(2_000L);
 
@@ -3492,7 +3492,7 @@ class EngineManagerEngineGameStateMachineTest {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, white, 1);
     white.scoreMean = 91.0;
     white.scoreStdev = 92.0;
     black.scoreMean = -11.0;
@@ -3533,7 +3533,7 @@ class EngineManagerEngineGameStateMachineTest {
         installManager(new StopCommentEngineManager(allEngines()));
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, white, 1);
     white.scoreMean = 91.0;
     white.scoreStdev = 92.0;
     assertTrue(black.genmoveForPk("B", transaction));
@@ -3585,7 +3585,7 @@ class EngineManagerEngineGameStateMachineTest {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
     int commandId = firstCommandId(black.commandText());
     black.setBestMovesForEngineGameTest(List.of(move("Q16", 20, 55.0)));
@@ -3624,7 +3624,7 @@ class EngineManagerEngineGameStateMachineTest {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
     int commandId = firstCommandId(black.commandText());
 
@@ -3644,7 +3644,7 @@ class EngineManagerEngineGameStateMachineTest {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isKatago = true;
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, white, 1);
     assertTrue(black.genmoveForPk("B", transaction));
     int commandId = firstCommandId(black.commandText());
     black.blockAfterAnalysisOutputRouteCapture();
@@ -3682,7 +3682,7 @@ class EngineManagerEngineGameStateMachineTest {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan game = EngineGamePlans.harness(0, 1, true);
     black.isLeela0110 = true;
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
 
     black.timeLeft("b", 10, 1, true);
 
@@ -3704,7 +3704,7 @@ class EngineManagerEngineGameStateMachineTest {
     black.isLeela0110 = true;
     assertTrue(black.installLeela0110PonderStateForTest(null));
     assertTrue(black.hasLeela0110PonderStateForTest(null));
-    EngineManager.EngineGameTransaction first =
+    EngineManager.EngineGameOwnerTransaction first =
         activeTransaction(manager, gameInfo(), black, 0);
     Leelaz.runWithEngineGameStartupCommandContext(first, black::ponder);
     assertTrue(black.hasLeela0110PonderStateForTest(first));
@@ -3715,7 +3715,7 @@ class EngineManagerEngineGameStateMachineTest {
     assertFalse(black.hasLeela0110PonderStateForTest(first));
     black.processCommandResponseLineForTest("=" + firstTimeLeft);
     awaitOperationsReleased(first);
-    EngineManager.EngineGameTransaction successor =
+    EngineManager.EngineGameOwnerTransaction successor =
         activeTransaction(manager, gameInfo(), black, 0);
     assertTrue(black.installLeela0110PonderStateForTest(successor));
     assertTrue(black.hasLeela0110PonderStateForTest(successor));
@@ -3793,7 +3793,7 @@ class EngineManagerEngineGameStateMachineTest {
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
     black.isLeela0110 = true;
-    EngineManager.EngineGameTransaction first =
+    EngineManager.EngineGameOwnerTransaction first =
         activeTransaction(manager, gameInfo(), black, 0);
     CountDownLatch operationEntered = new CountDownLatch(1);
     CountDownLatch releaseOperation = new CountDownLatch(1);
@@ -3826,7 +3826,7 @@ class EngineManagerEngineGameStateMachineTest {
     assertFalse(operation.isAlive());
     assertNull(operationFailure.get());
     assertFalse(black.hasLeela0110PonderStateForTest(first));
-    EngineManager.EngineGameTransaction successor =
+    EngineManager.EngineGameOwnerTransaction successor =
         activeTransaction(manager, gameInfo(), black, 0);
     assertTrue(black.installLeela0110PonderStateForTest(successor));
   }
@@ -3863,7 +3863,7 @@ class EngineManagerEngineGameStateMachineTest {
   void staleAnalysisContextCannotMoveOrStopSuccessorGame() {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan first = gameInfo();
-    EngineManager.EngineGameTransaction old = activeTransaction(manager, first, black, 0);
+    EngineManager.EngineGameOwnerTransaction old = activeTransaction(manager, first, black, 0);
     EngineManager.EngineGamePrimaryContext stale =
         EngineManager.captureEngineGamePrimaryContext(
             black, black.currentEngineIncarnation());
@@ -3871,7 +3871,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     manager.clearEngineGame();
     EngineGamePlan successorInfo = gameInfo();
-    EngineManager.EngineGameTransaction successor =
+    EngineManager.EngineGameOwnerTransaction successor =
         activeTransaction(manager, successorInfo, black, 0);
     int beforeMove = Lizzie.board.getHistory().getMoveNumber();
     black.notifyAutoPkForEngineGameTest(true, stale);
@@ -3895,7 +3895,7 @@ class EngineManagerEngineGameStateMachineTest {
     StopCommentEngineManager manager =
         installManager(new StopCommentEngineManager(allEngines()));
     EngineGamePlan game = gameInfo();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, white, 1);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, white, 1);
     EngineManager.EngineGamePrimaryContext context =
         EngineManager.captureEngineGamePrimaryContext(
             white, white.currentEngineIncarnation());
@@ -3925,7 +3925,7 @@ class EngineManagerEngineGameStateMachineTest {
     StopCommentEngineManager manager =
         installManager(new StopCommentEngineManager(allEngines()));
     EngineGamePlan game = gameInfo();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     EngineManager.EngineGamePrimaryContext context =
         EngineManager.captureEngineGamePrimaryContext(
             black, black.currentEngineIncarnation());
@@ -3959,7 +3959,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     manager.runPendingUi();
 
-    EngineManager.EngineGameTransaction successor = beginPreparing(manager, successorInfo);
+    EngineManager.EngineGameOwnerTransaction successor = beginPreparing(manager, successorInfo);
     assertTrue(EngineManager.isCurrentEngineGameTransaction(successor));
     assertNull(manager.pendingUi.get());
   }
@@ -3968,7 +3968,7 @@ class EngineManagerEngineGameStateMachineTest {
   void remoteParticipantRecoveryGatesStartReadinessAndFinalConfirmation() throws Exception {
     RecoveryGateEngineManager manager =
         installManager(new RecoveryGateEngineManager(allEngines(), false));
-    EngineManager.EngineGameTransaction failed =
+    EngineManager.EngineGameOwnerTransaction failed =
         activeTransaction(manager, gameInfo(), black, 0);
     Object failedIncarnation = black.currentEngineIncarnation();
     black.enableDeferredRecoveryStart = true;
@@ -4024,7 +4024,7 @@ class EngineManagerEngineGameStateMachineTest {
         EngineManager.runIfNoEngineGameAnalysisOutputBarrier(
             () -> ordinaryOutputAdmitted.set(true)));
     assertTrue(ordinaryOutputAdmitted.get());
-    EngineManager.EngineGameTransaction successor =
+    EngineManager.EngineGameOwnerTransaction successor =
         activeTransaction(manager, gameInfo(), black, 0);
     black.isKatago = true;
     black.sendEngineGameStartupCommandForTest("kata-analyze B 20", successor);
@@ -4040,7 +4040,7 @@ class EngineManagerEngineGameStateMachineTest {
   void pkRestartEntryDefersExactParticipantUntilRetirement() throws Exception {
     RecoveryGateEngineManager manager =
         installManager(new RecoveryGateEngineManager(allEngines(), false));
-    EngineManager.EngineGameTransaction failed =
+    EngineManager.EngineGameOwnerTransaction failed =
         activeTransaction(manager, gameInfo(), black, 0);
     Object failedIncarnation = black.currentEngineIncarnation();
     black.enableDeferredRecoveryStart = true;
@@ -4097,7 +4097,7 @@ class EngineManagerEngineGameStateMachineTest {
   void oldFailedBindingCannotRebindOrFailSuccessor() throws Exception {
     RecoveryGateEngineManager manager =
         installManager(new RecoveryGateEngineManager(allEngines(), true));
-    EngineManager.EngineGameTransaction failed =
+    EngineManager.EngineGameOwnerTransaction failed =
         activeTransaction(manager, gameInfo(), black, 0);
     Object failedIncarnation = black.currentEngineIncarnation();
     black.enableDeferredRecoveryStart = true;
@@ -4125,7 +4125,7 @@ class EngineManagerEngineGameStateMachineTest {
     assertTrue(manager.recoveryFinished.await(2, TimeUnit.SECONDS));
     assertEquals(0, black.deferredRecoveryStartCount.get());
     assertSame(successorIncarnation, black.currentEngineIncarnation());
-    EngineManager.EngineGameTransaction successor =
+    EngineManager.EngineGameOwnerTransaction successor =
         activeTransaction(manager, gameInfo(), black, 0);
 
     assertEquals(
@@ -4149,7 +4149,7 @@ class EngineManagerEngineGameStateMachineTest {
     Object failedIncarnation = black.currentEngineIncarnation();
     RecoveryGateEngineManager manager =
         installManager(new RecoveryGateEngineManager(allEngines(), false));
-    EngineManager.EngineGameTransaction failed =
+    EngineManager.EngineGameOwnerTransaction failed =
         activeTransaction(manager, gameInfo(), black, 0);
     black.enableDeferredRecoveryStart = true;
     AtomicReference<Throwable> senderFailure = new AtomicReference<>();
@@ -4212,7 +4212,7 @@ class EngineManagerEngineGameStateMachineTest {
   void preparingParticipantFailureUsesFrozenStartupIncarnation() throws Exception {
     RecoveryGateEngineManager manager =
         installManager(new RecoveryGateEngineManager(allEngines(), false));
-    EngineManager.EngineGameTransaction failed = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction failed = beginPreparing(manager, gameInfo());
     Object startupIncarnation = black.currentEngineIncarnation();
     assertTrue(
         EngineManager.recordEngineGameStartupIncarnation(
@@ -4242,7 +4242,7 @@ class EngineManagerEngineGameStateMachineTest {
   void preparingParticipantWithoutPublishedStartupBindingSuppressesPredecessorRestart() {
     RecoveryGateEngineManager manager =
         installManager(new RecoveryGateEngineManager(allEngines(), false));
-    EngineManager.EngineGameTransaction preparing = beginPreparing(manager, gameInfo());
+    EngineManager.EngineGameOwnerTransaction preparing = beginPreparing(manager, gameInfo());
     Object predecessorIncarnation = black.currentEngineIncarnation();
 
     assertEquals(
@@ -4383,10 +4383,10 @@ class EngineManagerEngineGameStateMachineTest {
     return move;
   }
 
-  private EngineManager.EngineGameTransaction startExactAnalysisGame() {
+  private EngineManager.EngineGameOwnerTransaction startExactAnalysisGame() {
     EngineGamePlan game = gameInfo();
     ImmediateUiEngineManager manager = installManager();
-    EngineManager.EngineGameTransaction transaction = activeTransaction(manager, game, black, 0);
+    EngineManager.EngineGameOwnerTransaction transaction = activeTransaction(manager, game, black, 0);
     black.isKatago = true;
     white.isKatago = true;
     return transaction;
@@ -4394,7 +4394,7 @@ class EngineManagerEngineGameStateMachineTest {
 
   private void startExactAnalyze(
       StateMachineLeelaz engine,
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       String color) {
     String command = "kata-analyze " + color + " 1";
     engine.sendEngineGameStartupCommandForTest(command, transaction);
@@ -4545,17 +4545,17 @@ class EngineManagerEngineGameStateMachineTest {
     return EngineGamePlans.harness(0, 1, false);
   }
 
-  private static EngineManager.EngineGameTransaction beginPreparing(
+  private static EngineManager.EngineGameOwnerTransaction beginPreparing(
       EngineManager manager, EngineGamePlan gameInfo) {
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         EngineManager.beginEngineGameTransaction(manager, gameInfo, null, true);
     assertNotNull(transaction);
     return transaction;
   }
 
-  private static EngineManager.EngineGameTransaction activeTransaction(
+  private static EngineManager.EngineGameOwnerTransaction activeTransaction(
       EngineManager manager, EngineGamePlan gameInfo, Leelaz selected, int selectedIndex) {
-    EngineManager.EngineGameTransaction transaction = beginPreparing(manager, gameInfo);
+    EngineManager.EngineGameOwnerTransaction transaction = beginPreparing(manager, gameInfo);
     assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
     assertTrue(
         EngineManager.activateEngineGameTransaction(
@@ -4635,7 +4635,7 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   private static void awaitOperationsReleased(
-      EngineManager.EngineGameTransaction transaction) throws InterruptedException {
+      EngineManager.EngineGameOwnerTransaction transaction) throws InterruptedException {
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
     while (transaction.operationsInFlightForTest() != 0 && System.nanoTime() < deadline) {
       Thread.sleep(5L);
@@ -4644,7 +4644,7 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   private static void settleAllCommandResponses(
-      StateMachineLeelaz engine, EngineManager.EngineGameTransaction transaction)
+      StateMachineLeelaz engine, EngineManager.EngineGameOwnerTransaction transaction)
       throws InterruptedException {
     java.util.HashSet<Integer> settled = new java.util.HashSet<>();
     int unnumberedSettled = 0;
@@ -4677,7 +4677,7 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   private static void awaitNoEngineGameOperations(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2L);
     while (System.nanoTime() < deadline
         && (transaction.operationsInFlightForTest() != 0
@@ -4764,7 +4764,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     @Override
     void afterPkEngineReadinessProbeForTest(
-        EngineManager.EngineGameTransaction transaction,
+        EngineManager.EngineGameOwnerTransaction transaction,
         Leelaz engine,
         Object expectedIncarnation) {
       readinessProbeEntered.countDown();
@@ -5211,7 +5211,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     @Override
     void beforeEngineGameBootstrapCommandsForTest(
-        EngineManager.EngineGameTransaction transaction) {
+        EngineManager.EngineGameOwnerTransaction transaction) {
       CountDownLatch entered = engineGameBootstrapEntered;
       CountDownLatch release = releaseEngineGameBootstrap;
       if (entered == null || release == null) {
@@ -5234,7 +5234,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     @Override
     void afterEngineGameBootstrapCommandsForTest(
-        EngineManager.EngineGameTransaction transaction) {
+        EngineManager.EngineGameOwnerTransaction transaction) {
       if (engineGameBootstrapCompleted != null) {
         engineGameBootstrapCompleted.countDown();
       }
@@ -5271,7 +5271,7 @@ class EngineManagerEngineGameStateMachineTest {
 
     @Override
     void afterEngineGameStartupResponseOwnershipCapturedForTest(
-        EngineManager.EngineGameTransaction transaction) {
+        EngineManager.EngineGameOwnerTransaction transaction) {
       if (startupResponseOwnerCaptured == null) {
         return;
       }

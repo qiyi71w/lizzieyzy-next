@@ -134,7 +134,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
   @Test
   void endThenUnfinishedRestoreThenImmediateRestartDropsDelayedExclusivePrompt() throws Exception {
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         EngineManager.beginEngineGameTransaction(
             manager, EngineGamePlans.harness(0, 1, true), null, true);
     assertTrue(EngineManager.transitionEngineGameToDispatched(transaction));
@@ -188,7 +188,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
     Lizzie.engineManager = restartManager;
     EngineManager.currentEngineNo = 0;
     try {
-      EngineManager.EngineGameTransaction firstGame =
+      EngineManager.EngineGameOwnerTransaction firstGame =
           EngineManager.beginEngineGameTransaction(
               restartManager, EngineGamePlans.harness(0, 1, true), null, true);
       assertTrue(EngineManager.transitionEngineGameToDispatched(firstGame));
@@ -206,7 +206,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
       assertTrue(blackEngine.isUnfinishedForegroundRestoreOccupancyHeldForTest());
 
       long generationBefore = blackEngine.exclusiveOccupancyPromptGeneration();
-      EngineManager.EngineGameTransaction[] secondGame = new EngineManager.EngineGameTransaction[1];
+      EngineManager.EngineGameOwnerTransaction[] secondGame = new EngineManager.EngineGameOwnerTransaction[1];
       SwingUtilities.invokeAndWait(
           () -> {
             blackEngine.showExclusiveGtpConflictMessage();
@@ -309,7 +309,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
 
       assertTrue(started[0], "the same dialog action must start the next engine game");
       assertTrue(EngineManager.hasPlayingEngineGameTransaction());
-      EngineManager.EngineGameTransaction transaction =
+      EngineManager.EngineGameOwnerTransaction transaction =
           EngineManager.activeEngineGameTransactionForTest();
       assertTrue(transaction != null, "activated engine-game transaction must remain current");
       assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
@@ -358,7 +358,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
           manager.leaseConflictCount >= 1,
           "a live exclusive occupant must still show the exclusive-task dialog");
 
-      EngineManager.EngineGameTransaction transaction =
+      EngineManager.EngineGameOwnerTransaction transaction =
           EngineManager.beginEngineGameTransaction(
               manager, EngineGamePlans.harness(0, 1, true), null, true);
       assertTrue(transaction != null);

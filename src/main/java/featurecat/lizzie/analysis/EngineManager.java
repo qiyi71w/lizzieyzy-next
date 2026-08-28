@@ -147,8 +147,8 @@ public class EngineManager {
   private static final AtomicLong INITIAL_MANAGER_STARTUP_SEQUENCE = new AtomicLong();
   private static volatile InitialManagerStartupAuthority activeInitialManagerStartup;
   private static long engineGameTransactionSequence;
-  private static EngineGameTransaction activeEngineGameTransaction;
-  private static EngineGameTransaction retiringEngineGameTransaction;
+  private static EngineGameOwnerTransaction activeEngineGameTransaction;
+  private static EngineGameOwnerTransaction retiringEngineGameTransaction;
   /**
    * A failed participant is recovered only after its game transaction has fully retired. While
    * this gate is installed no successor game may be admitted: the recovery worker owns the exact
@@ -195,7 +195,7 @@ public class EngineManager {
     HANDLED
   }
 
-  static final class EngineGameTransaction {
+  static final class EngineGameOwnerTransaction {
     private final EngineManager manager;
     final EngineGamePlan plan;
     private final long epoch;
@@ -255,7 +255,7 @@ public class EngineManager {
     private String resultOther = "";
     private ArrayList<SgfWinLossList> engineGameSgfWinLoss;
 
-    private EngineGameTransaction(
+    private EngineGameOwnerTransaction(
         EngineManager manager,
         EngineGamePlan plan,
         long epoch,
@@ -374,7 +374,7 @@ public class EngineManager {
 
   /** One exact failed participant generation captured before terminal cleanup mutates the runtime. */
   static final class EngineGameDeferredRecovery {
-    private final EngineGameTransaction transaction;
+    private final EngineGameOwnerTransaction transaction;
     private final long transactionEpoch;
     private final int engineIndex;
     private final Leelaz engine;
@@ -390,7 +390,7 @@ public class EngineManager {
     private volatile boolean recoveredSuccessfully;
 
     private EngineGameDeferredRecovery(
-        EngineGameTransaction transaction,
+        EngineGameOwnerTransaction transaction,
         int engineIndex,
         Leelaz engine,
         Object failedIncarnation,
@@ -421,13 +421,13 @@ public class EngineManager {
   }
 
   private static final class EngineGameRecoveryBatch {
-    private final EngineGameTransaction transaction;
+    private final EngineGameOwnerTransaction transaction;
     private final List<EngineGameDeferredRecovery> recoveries;
     private int nextIndex;
     private EngineGameDeferredRecovery current;
 
     private EngineGameRecoveryBatch(
-        EngineGameTransaction transaction, List<EngineGameDeferredRecovery> recoveries) {
+        EngineGameOwnerTransaction transaction, List<EngineGameDeferredRecovery> recoveries) {
       this.transaction = transaction;
       this.recoveries = recoveries;
     }
@@ -452,10 +452,10 @@ public class EngineManager {
    * issuing another command or publishing global state.
    */
   static final class EngineGameOperationLease implements AutoCloseable {
-    private final EngineGameTransaction transaction;
+    private final EngineGameOwnerTransaction transaction;
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    private EngineGameOperationLease(EngineGameTransaction transaction) {
+    private EngineGameOperationLease(EngineGameOwnerTransaction transaction) {
       this.transaction = transaction;
     }
 
@@ -491,13 +491,13 @@ public class EngineManager {
     private final EngineManager manager;
     private final EngineGamePlan plan;
     private final long inactiveEpoch;
-    private final EngineGameTransaction expectedRetiring;
+    private final EngineGameOwnerTransaction expectedRetiring;
 
     private EngineGameInactiveUiToken(
         EngineManager manager,
         EngineGamePlan plan,
         long inactiveEpoch,
-        EngineGameTransaction expectedRetiring) {
+        EngineGameOwnerTransaction expectedRetiring) {
       this.manager = manager;
       this.plan = plan;
       this.inactiveEpoch = inactiveEpoch;
@@ -506,14 +506,14 @@ public class EngineManager {
   }
 
   private static final class EngineGameStopClaim {
-    private final EngineGameTransaction transaction;
+    private final EngineGameOwnerTransaction transaction;
     private final EngineGamePlan plan;
     private final boolean wasActive;
     private final boolean wasStarting;
     private final long invalidationEpoch;
 
     private EngineGameStopClaim(
-        EngineGameTransaction transaction,
+        EngineGameOwnerTransaction transaction,
         EngineGamePlan plan,
         boolean wasActive,
         boolean wasStarting,
@@ -1319,7 +1319,7 @@ public class EngineManager {
     if (engineBlack == engineWhite) {
       return false;
     }
-    EngineGameTransaction gameTransaction =
+    EngineGameOwnerTransaction gameTransaction =
         startNewEngineGame(firstGame, plan, null, true);
     if (gameTransaction == null || !isCurrentEngineGameTransaction(gameTransaction)) {
       return false;
@@ -1330,7 +1330,7 @@ public class EngineManager {
     return true;
   }
 
-  private void captureEngineGameOutputIdentity(EngineGameTransaction transaction) {
+  private void captureEngineGameOutputIdentity(EngineGameOwnerTransaction transaction) {
     if (transaction == null) {
       return;
     }
@@ -1343,7 +1343,7 @@ public class EngineManager {
     }
   }
 
-  private void fillEngineGameSettingStrings(EngineGameTransaction transaction) {
+  private void fillEngineGameSettingStrings(EngineGameOwnerTransaction transaction) {
     if (transaction == null
         || transaction.plan == null
         || resourceBundle == null
@@ -1487,7 +1487,7 @@ public class EngineManager {
   }
 
   public ArrayList<Movelist> getStartListForEnginePk() {
-    EngineGameTransaction transaction;
+    EngineGameOwnerTransaction transaction;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       transaction = activeEngineGameTransaction;
     }
@@ -1552,7 +1552,7 @@ public class EngineManager {
   }
 
   private void saveEngineGameFile(int resignIndex) {
-    EngineGameTransaction saveTxn;
+    EngineGameOwnerTransaction saveTxn;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       saveTxn =
           activeEngineGameTransaction != null
@@ -1746,7 +1746,7 @@ public class EngineManager {
     BatchSummary summary = Lizzie.engineGame == null ? null : Lizzie.engineGame.lastSummary();
     EngineGamePlan plan;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
-      EngineGameTransaction txn =
+      EngineGameOwnerTransaction txn =
           activeEngineGameTransaction != null
               ? activeEngineGameTransaction
               : retiringEngineGameTransaction;
@@ -1917,7 +1917,7 @@ public class EngineManager {
       String resultB,
       String resultW,
       String resultOther) {
-    EngineGameTransaction saveTxn;
+    EngineGameOwnerTransaction saveTxn;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       saveTxn =
           activeEngineGameTransaction != null
@@ -1992,14 +1992,14 @@ public class EngineManager {
    */
   public static boolean stopEngineGameIfCurrent(
       Object ownerToken, int resignEngineIndex, boolean manual) {
-    if (!(ownerToken instanceof EngineGameTransaction transaction)) {
+    if (!(ownerToken instanceof EngineGameOwnerTransaction transaction)) {
       return false;
     }
     return stopEngineGameIfCurrent(transaction, resignEngineIndex, manual);
   }
 
   static boolean stopEngineGameIfCurrent(
-      EngineGameTransaction transaction, int resignEngineIndex, boolean manual) {
+      EngineGameOwnerTransaction transaction, int resignEngineIndex, boolean manual) {
     if (transaction == null || transaction.manager == null) {
       return false;
     }
@@ -2025,7 +2025,7 @@ public class EngineManager {
   private void finishClaimedEngineGameStop(
       EngineGameStopClaim stopClaim, int resgnEngineIndex, boolean mannul) {
     EngineGamePlan plan = stopClaim.plan;
-    EngineGameTransaction stoppedTransaction = stopClaim.transaction;
+    EngineGameOwnerTransaction stoppedTransaction = stopClaim.transaction;
     BatchSummary summary =
         Lizzie.engineGame == null ? null : Lizzie.engineGame.lastSummary();
     int firstWins = summary == null ? 0 : summary.firstWins();
@@ -2277,7 +2277,7 @@ public class EngineManager {
   }
 
   private void markEngineGameParticipantsStopped(
-      EngineGameTransaction transaction, EngineGamePlan plan) {
+      EngineGameOwnerTransaction transaction, EngineGamePlan plan) {
     Leelaz blackEngine =
         transaction != null
             ? transaction.blackEngine
@@ -2312,13 +2312,13 @@ public class EngineManager {
     startNewEngineGame(firstTime, plan, expectedInactiveEpoch, false);
   }
 
-  private EngineGameTransaction startNewEngineGame(
+  private EngineGameOwnerTransaction startNewEngineGame(
       boolean firstTime,
       EngineGamePlan gameAtStart,
       Long expectedInactiveEpoch,
       boolean publishGameInfo) {
     if (rejectForegroundEngineStartDuringSetup(true)) return null;
-    EngineGameTransaction gameTransaction;
+    EngineGameOwnerTransaction gameTransaction;
     Leelaz currentForegroundEngine = Lizzie.leelaz;
     long currentForegroundGeneration =
         Lizzie.capturePrimaryEngineGeneration(currentForegroundEngine);
@@ -2677,7 +2677,7 @@ public class EngineManager {
   }
 
   private void scheduleProductSuccessorAfterRetirement(
-      EngineGameTransaction stoppedTransaction, EngineGameStopClaim stopClaim) {
+      EngineGameOwnerTransaction stoppedTransaction, EngineGameStopClaim stopClaim) {
     EngineGameInactiveUiToken failedNextGameUi =
         new EngineGameInactiveUiToken(
             this, stopClaim.plan, stopClaim.invalidationEpoch, null);
@@ -2733,14 +2733,14 @@ public class EngineManager {
     }
   }
 
-  private EngineGameTransaction beginEngineGameTransactionUnderForegroundLease(
+  private EngineGameOwnerTransaction beginEngineGameTransactionUnderForegroundLease(
       Leelaz foregroundEngine,
       long foregroundGeneration,
       Object retainedForegroundLifecycleOwner,
       EngineGamePlan plan,
       Long expectedInactiveEpoch,
       boolean publishGameInfo) {
-    EngineGameTransaction transaction = null;
+    EngineGameOwnerTransaction transaction = null;
     Throwable primaryFailure = null;
     try {
       transaction =
@@ -2780,7 +2780,7 @@ public class EngineManager {
     }
   }
 
-  private void prepareAcceptedEngineGameStart(EngineGameTransaction transaction) {
+  private void prepareAcceptedEngineGameStart(EngineGameOwnerTransaction transaction) {
     EngineGamePlan plan = transaction.plan;
     if (Lizzie.frame.isTrying) {
       Lizzie.frame.tryPlay(false);
@@ -2804,7 +2804,7 @@ public class EngineManager {
     }
   }
 
-  private void prepareEngineGameCountDowns(EngineGameTransaction transaction) {
+  private void prepareEngineGameCountDowns(EngineGameOwnerTransaction transaction) {
     EngineGamePlan plan = transaction.plan;
     clearFirstSecondEngineCountDown();
     if (plan == null) {
@@ -2843,7 +2843,7 @@ public class EngineManager {
     }
   }
 
-  private void initializeEngineGameCountDowns(EngineGameTransaction transaction) {
+  private void initializeEngineGameCountDowns(EngineGameOwnerTransaction transaction) {
     EngineGamePlan plan = transaction.plan;
     boolean firstPlaysBlack = plan != null && plan.firstIsBlack();
     EngineCountDown first = firstEngineCountDown;
@@ -2863,7 +2863,7 @@ public class EngineManager {
   }
 
   private static boolean installEngineGameCountDowns(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       EngineCountDown blackClock,
       EngineCountDown whiteClock) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
@@ -2879,13 +2879,13 @@ public class EngineManager {
   }
 
   static boolean installEngineGameCountDownsForTest(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       EngineCountDown blackClock,
       EngineCountDown whiteClock) {
     return installEngineGameCountDowns(transaction, blackClock, whiteClock);
   }
 
-  private void appendEngineGameRules(EngineGameTransaction transaction) {
+  private void appendEngineGameRules(EngineGameOwnerTransaction transaction) {
     EngineGamePlan plan = transaction.plan;
     Leelaz firstEngine = exactEngineGameParticipant(transaction, plan.firstIndex());
     if (firstEngine == null) {
@@ -2924,7 +2924,7 @@ public class EngineManager {
   }
 
   private void startEngineGameAnalysisCompletionWorkers(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Leelaz selectedEngine,
       int selectedIndex,
       int commandNumber,
@@ -2982,7 +2982,7 @@ public class EngineManager {
     }
 
   private boolean waitForEngineGameCondition(
-      EngineGameTransaction transaction, BooleanSupplier condition, String timeoutDetail) {
+      EngineGameOwnerTransaction transaction, BooleanSupplier condition, String timeoutDetail) {
     while (isCurrentEngineGameTransaction(transaction)) {
       if (condition.getAsBoolean()) {
         return true;
@@ -3004,7 +3004,7 @@ public class EngineManager {
     return false;
   }
 
-  private void startEngineGameDeadlineWatcher(EngineGameTransaction transaction) {
+  private void startEngineGameDeadlineWatcher(EngineGameOwnerTransaction transaction) {
     dispatchEngineGameWorker(
         transaction,
         "engine-game-deadline-" + transaction.epoch,
@@ -3039,12 +3039,12 @@ public class EngineManager {
     return new Thread(task, name);
   }
 
-  boolean dispatchEngineGameWorker(EngineGameTransaction transaction, String name, Runnable task) {
+  boolean dispatchEngineGameWorker(EngineGameOwnerTransaction transaction, String name, Runnable task) {
     return dispatchEngineGameWorker(transaction, name, task, false);
   }
 
   private boolean dispatchEngineGameWorker(
-      EngineGameTransaction transaction, String name, Runnable task, boolean runWhenRetired) {
+      EngineGameOwnerTransaction transaction, String name, Runnable task, boolean runWhenRetired) {
     EngineGameOperationLease workerLease = claimEngineGameOperation(transaction);
     if (workerLease == null) {
       return false;
@@ -3089,7 +3089,7 @@ public class EngineManager {
   }
 
   static boolean dispatchEngineGameStartupWorker(
-      EngineGameTransaction transaction, String name, Runnable task) {
+      EngineGameOwnerTransaction transaction, String name, Runnable task) {
     if (transaction == null || transaction.manager == null || task == null) {
       return false;
     }
@@ -3097,7 +3097,7 @@ public class EngineManager {
   }
 
   private void publishEngineGameStartedUi(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       boolean genmove,
       boolean firstTime) {
     Runnable presentation =
@@ -3159,7 +3159,7 @@ public class EngineManager {
     }
   }
 
-  private void publishEngineGamePreparingUi(EngineGameTransaction transaction) {
+  private void publishEngineGamePreparingUi(EngineGameOwnerTransaction transaction) {
     Runnable presentation =
         () ->
             runIfCurrentEngineGameTransaction(
@@ -3312,7 +3312,7 @@ public class EngineManager {
   private void checkEnginePK() {
     EngineGameParticipantProbe[] probes;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
-      EngineGameTransaction transaction = activeEngineGameTransaction;
+      EngineGameOwnerTransaction transaction = activeEngineGameTransaction;
       if (!hasPlayingEngineGameTransaction()
           || transaction == null
           || transaction.manager != this
@@ -3829,7 +3829,7 @@ public class EngineManager {
   }
 
   public void refreshEngineCatalog() throws JSONException, IOException {
-    EngineGameTransaction catalogGame;
+    EngineGameOwnerTransaction catalogGame;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       catalogGame =
           activeEngineGameTransaction != null && activeEngineGameTransaction.manager == this
@@ -4335,7 +4335,7 @@ public class EngineManager {
     }
   }
 
-  private boolean killOtherEnginesForTransaction(EngineGameTransaction transaction) {
+  private boolean killOtherEnginesForTransaction(EngineGameOwnerTransaction transaction) {
     List<Leelaz> catalog = new ArrayList<>(transaction.manager.engineList);
     for (Leelaz engine : catalog) {
       if (engine == null
@@ -4401,7 +4401,7 @@ public class EngineManager {
   }
 
   boolean abortStartIfPkOccupancyRejected(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       PkEngineSynchronization blackSynchronization,
       PkEngineSynchronization whiteSynchronization) {
     if (!blackSynchronization.hasFailed() && !whiteSynchronization.hasFailed()) {
@@ -4432,7 +4432,7 @@ public class EngineManager {
   }
 
   private PkEngineSynchronization startEngineForPkSynchronization(
-      EngineGameTransaction transaction, int index, Leelaz expectedEngine) {
+      EngineGameOwnerTransaction transaction, int index, Leelaz expectedEngine) {
     PkEngineSynchronization completion = new PkEngineSynchronization();
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameTransactionLocked(transaction)
@@ -4446,7 +4446,7 @@ public class EngineManager {
   }
 
   private PkEngineSynchronization startEngineForPkSynchronization(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       int index,
       Leelaz newEng,
       PkEngineSynchronization completion) {
@@ -4619,7 +4619,7 @@ public class EngineManager {
   }
 
   private static boolean runEngineGameStartupCommandStep(
-      EngineGameTransaction transaction, Runnable command) {
+      EngineGameOwnerTransaction transaction, Runnable command) {
     if (transaction == null) {
       command.run();
       return true;
@@ -4628,7 +4628,7 @@ public class EngineManager {
   }
 
   private static void startEngineForPkWithTransactionContext(
-      EngineGameTransaction transaction, Leelaz engine, int index) throws IOException {
+      EngineGameOwnerTransaction transaction, Leelaz engine, int index) throws IOException {
     if (transaction == null) {
       engine.startEngine(index);
       return;
@@ -4657,7 +4657,7 @@ public class EngineManager {
    * the canonical selection -> endpoint lock order used by activation.
    */
   static boolean recordEngineGameStartupIncarnation(
-      EngineGameTransaction transaction, Leelaz engine, Object startupIncarnation) {
+      EngineGameOwnerTransaction transaction, Leelaz engine, Object startupIncarnation) {
     if (transaction == null || engine == null || startupIncarnation == null) {
       return false;
     }
@@ -4701,7 +4701,7 @@ public class EngineManager {
   }
 
   boolean finishPkEngineSynchronizations(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       PkEngineSynchronization blackSynchronization,
       PkEngineSynchronization whiteSynchronization) {
     boolean blackReady =
@@ -4927,7 +4927,7 @@ public class EngineManager {
     if (manager == null || engine == null || failedIncarnation == null) {
       return EngineGameRecoveryDisposition.NOT_ENGINE_GAME_PARTICIPANT;
     }
-    EngineGameTransaction transaction;
+    EngineGameOwnerTransaction transaction;
     EngineGameDeferredRecovery recovery;
     EngineGameOperationLease preparationLease;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
@@ -5025,8 +5025,8 @@ public class EngineManager {
     return EngineGameRecoveryDisposition.HANDLED;
   }
 
-  private static EngineGameTransaction participantTransaction(
-      EngineGameTransaction transaction, EngineManager manager, Leelaz engine) {
+  private static EngineGameOwnerTransaction participantTransaction(
+      EngineGameOwnerTransaction transaction, EngineManager manager, Leelaz engine) {
     return transaction != null
             && transaction.manager == manager
             && (transaction.blackEngine == engine || transaction.whiteEngine == engine)
@@ -6881,12 +6881,12 @@ public class EngineManager {
     Lizzie.engineGame.resetForTest();
 
   }
-  static EngineGameTransaction activeEngineGameTransactionForTest() {
+  static EngineGameOwnerTransaction activeEngineGameTransactionForTest() {
     return activeEngineGameTransaction;
   }
 
 
-  static EngineGameTransaction beginEngineGameTransaction(
+  static EngineGameOwnerTransaction beginEngineGameTransaction(
       EngineManager manager,
       EngineGamePlan plan,
       Long expectedInactiveEpoch,
@@ -6903,7 +6903,7 @@ public class EngineManager {
         null);
   }
 
-  private static EngineGameTransaction beginEngineGameTransaction(
+  private static EngineGameOwnerTransaction beginEngineGameTransaction(
       EngineManager manager,
       EngineGamePlan plan,
       Long expectedInactiveEpoch,
@@ -6957,8 +6957,8 @@ public class EngineManager {
           if (blackEngine == null || whiteEngine == null || blackEngine == whiteEngine) {
             return null;
           }
-          EngineGameTransaction transaction =
-              new EngineGameTransaction(
+          EngineGameOwnerTransaction transaction =
+              new EngineGameOwnerTransaction(
                   manager,
                   plan,
                   ++engineGameTransactionSequence,
@@ -6983,7 +6983,7 @@ public class EngineManager {
     }
   }
 
-  private static void attachEngineGameBindings(EngineGameTransaction owner) {
+  private static void attachEngineGameBindings(EngineGameOwnerTransaction owner) {
     EngineGamePlan plan = owner.plan;
     featurecat.lizzie.enginegame.EngineGameTransaction product =
         Lizzie.engineGame == null ? null : Lizzie.engineGame.transaction();
@@ -7026,12 +7026,12 @@ public class EngineManager {
   }
 
   public static void pauseEngineGame(Object ownerToken) {
-    if (ownerToken instanceof EngineGameTransaction owner) {
+    if (ownerToken instanceof EngineGameOwnerTransaction owner) {
       pauseEngineGame(owner);
     }
   }
 
-  public static void pauseEngineGame(EngineGameTransaction owner) {
+  public static void pauseEngineGame(EngineGameOwnerTransaction owner) {
     if (owner == null) {
       return;
     }
@@ -7051,12 +7051,12 @@ public class EngineManager {
   }
 
   public static void resumeEngineGame(Object ownerToken) {
-    if (ownerToken instanceof EngineGameTransaction owner) {
+    if (ownerToken instanceof EngineGameOwnerTransaction owner) {
       resumeEngineGame(owner);
     }
   }
 
-  public static void resumeEngineGame(EngineGameTransaction owner) {
+  public static void resumeEngineGame(EngineGameOwnerTransaction owner) {
     if (owner == null) {
       return;
     }
@@ -7098,7 +7098,7 @@ public class EngineManager {
 
   public void playEngineGameManualMove(
       boolean blacksTurn, Stone color, String move, boolean ponderAsWhite) {
-    EngineGameTransaction txn;
+    EngineGameOwnerTransaction txn;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       txn = activeEngineGameTransaction;
       if (txn == null
@@ -7201,11 +7201,11 @@ public class EngineManager {
    */
   static final class EngineGameAnalysisWriteLease implements AutoCloseable {
     final EngineGamePrimaryContext context;
-    private final EngineGameTransaction transaction;
+    private final EngineGameOwnerTransaction transaction;
     private boolean closed;
 
     private EngineGameAnalysisWriteLease(
-        EngineGameTransaction transaction, EngineGamePrimaryContext context) {
+        EngineGameOwnerTransaction transaction, EngineGamePrimaryContext context) {
       this.transaction = transaction;
       this.context = context;
     }
@@ -7222,10 +7222,10 @@ public class EngineManager {
 
   /** Holds an exact transaction mutation fence across one position-changing physical write. */
   static final class EngineGameStateWriteLease implements AutoCloseable {
-    private final EngineGameTransaction transaction;
+    private final EngineGameOwnerTransaction transaction;
     private boolean closed;
 
-    private EngineGameStateWriteLease(EngineGameTransaction transaction) {
+    private EngineGameStateWriteLease(EngineGameOwnerTransaction transaction) {
       this.transaction = transaction;
     }
 
@@ -7240,7 +7240,7 @@ public class EngineManager {
   }
 
   static EngineGameAnalysisWriteLease claimEngineGameAnalysisWrite(
-      EngineGameTransaction transaction, Leelaz participant, Object participantIncarnation) {
+      EngineGameOwnerTransaction transaction, Leelaz participant, Object participantIncarnation) {
     if (transaction == null || participant == null || participantIncarnation == null) {
       return null;
     }
@@ -7263,7 +7263,7 @@ public class EngineManager {
   }
 
   static EngineGameStateWriteLease claimEngineGameStateWrite(
-      EngineGameTransaction transaction, Leelaz participant, Object participantIncarnation) {
+      EngineGameOwnerTransaction transaction, Leelaz participant, Object participantIncarnation) {
     if (transaction == null || participant == null || participantIncarnation == null) {
       return null;
     }
@@ -7387,7 +7387,7 @@ public class EngineManager {
         && engine.analysisOutputRecoveryToken(expectedIncarnation) == recoveryToken;
   }
 
-  private static boolean isCurrentEngineGameTransactionLocked(EngineGameTransaction transaction) {
+  private static boolean isCurrentEngineGameTransactionLocked(EngineGameOwnerTransaction transaction) {
     return transaction != null
         && activeEngineGameTransaction == transaction
         && engineGameTransactionSequence == transaction.epoch
@@ -7402,7 +7402,7 @@ public class EngineManager {
         && transaction.phase != EngineGamePhase.CANCELLED;
   }
 
-  static boolean isCurrentEngineGameTransaction(EngineGameTransaction transaction) {
+  static boolean isCurrentEngineGameTransaction(EngineGameOwnerTransaction transaction) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       return isCurrentEngineGameTransactionLocked(transaction);
     }
@@ -7447,7 +7447,7 @@ public class EngineManager {
         || activeEngineGameRecoveryBatch != null
         || (manager != null && manager.failedRollbackRecovery.get() != null);
   }
-  static boolean isEngineGameOutputAdmissionOpen(EngineGameTransaction transaction) {
+  static boolean isEngineGameOutputAdmissionOpen(EngineGameOwnerTransaction transaction) {
     if (transaction == null) {
       return false;
     }
@@ -7458,7 +7458,7 @@ public class EngineManager {
   }
 
   private static EngineGameOperationLease claimEngineGameOperation(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameTransactionLocked(transaction)) {
         return null;
@@ -7469,7 +7469,7 @@ public class EngineManager {
   }
 
   private static boolean runEngineGameIoStep(
-      EngineGameTransaction transaction, Runnable operation) {
+      EngineGameOwnerTransaction transaction, Runnable operation) {
     EngineGameOperationLease lease = claimEngineGameOperation(transaction);
     if (lease == null) {
       return false;
@@ -7490,11 +7490,11 @@ public class EngineManager {
   }
 
   static boolean runEngineGameIoStepForTest(
-      EngineGameTransaction transaction, Runnable operation) {
+      EngineGameOwnerTransaction transaction, Runnable operation) {
     return runEngineGameIoStep(transaction, operation);
   }
 
-  static boolean transitionEngineGameToDispatched(EngineGameTransaction transaction) {
+  static boolean transitionEngineGameToDispatched(EngineGameOwnerTransaction transaction) {
     if (transaction == null) {
       return false;
     }
@@ -7509,7 +7509,7 @@ public class EngineManager {
   }
 
   static boolean runIfCurrentEngineGameTransaction(
-      EngineGameTransaction transaction, Runnable action) {
+      EngineGameOwnerTransaction transaction, Runnable action) {
     if (action == null) {
       return false;
     }
@@ -7547,7 +7547,7 @@ public class EngineManager {
     if (context == null || context.transaction == null || action == null) {
       return false;
     }
-    EngineGameTransaction transaction = context.transaction;
+    EngineGameOwnerTransaction transaction = context.transaction;
     Throwable failure = null;
     boolean executed = false;
     transaction.mutationLock.lock();
@@ -7584,7 +7584,7 @@ public class EngineManager {
     if (token == null || token.transaction == null || action == null) {
       return false;
     }
-    EngineGameTransaction transaction = token.transaction;
+    EngineGameOwnerTransaction transaction = token.transaction;
     Throwable failure = null;
     boolean executed = false;
     transaction.mutationLock.lock();
@@ -7617,7 +7617,7 @@ public class EngineManager {
 
   /** Runs potentially blocking work without making cancellation wait for it. */
   static boolean runIfCurrentEngineGameOperation(
-      EngineGameTransaction transaction, Runnable action) {
+      EngineGameOwnerTransaction transaction, Runnable action) {
     if (transaction == null || action == null) {
       return false;
     }
@@ -7650,13 +7650,13 @@ public class EngineManager {
     return executed;
   }
 
-  static void failEngineGameTransaction(EngineGameTransaction transaction, Throwable failure) {
+  static void failEngineGameTransaction(EngineGameOwnerTransaction transaction, Throwable failure) {
     claimTerminalEngineGameTransaction(transaction, EngineGamePhase.FAILED, failure, false);
     finishAutomaticEngineGameRetirementIfQuiescent(transaction);
   }
 
   private static boolean claimTerminalEngineGameTransaction(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       EngineGamePhase terminalPhase,
       Throwable failure,
       boolean externalTerminalOwner) {
@@ -7712,7 +7712,7 @@ public class EngineManager {
    * neither can cause an engine process to be force-closed.
    */
   private static void scheduleEngineGamePhysicalRequestWatchdog(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     if (transaction == null
         || !hasOpenEngineGamePhysicalRequest(transaction)
         || !transaction.physicalRequestWatchdogScheduled.compareAndSet(false, true)) {
@@ -7744,7 +7744,7 @@ public class EngineManager {
   }
 
   private static boolean hasOpenEngineGamePhysicalRequest(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     for (EngineGamePhysicalRequestLease request : transaction.physicalRequests) {
       if (request.isOpen()) {
         return true;
@@ -7755,7 +7755,7 @@ public class EngineManager {
 
   /** Claims every lease for one exact stream before issuing its single physical abort. */
   private static void forceOpenEngineGamePhysicalRequests(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     List<EngineGamePhysicalRequestLease> snapshot =
         new ArrayList<>(transaction.physicalRequests);
     boolean[] grouped = new boolean[snapshot.size()];
@@ -7802,7 +7802,7 @@ public class EngineManager {
   }
 
   private static void scheduleEngineGamePhysicalRequestWatchdogFallback(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Runnable task,
       long graceMillis,
       Throwable schedulingFailure) {
@@ -7833,7 +7833,7 @@ public class EngineManager {
   }
 
   private static void releaseOpenEngineGamePhysicalRequestsWithoutForce(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     Throwable releaseFailure = null;
     for (EngineGamePhysicalRequestLease request :
         new ArrayList<>(transaction.physicalRequests)) {
@@ -7898,7 +7898,7 @@ public class EngineManager {
   }
 
   private static void appendEngineGameTerminalFailure(
-      EngineGameTransaction transaction, Throwable failure) {
+      EngineGameOwnerTransaction transaction, Throwable failure) {
     if (transaction == null || failure == null) {
       return;
     }
@@ -7909,7 +7909,7 @@ public class EngineManager {
   }
 
   private static void finishAutomaticEngineGameRetirementIfQuiescent(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     if (transaction == null || transaction.retirementFinished.get()) {
       return;
     }
@@ -7933,7 +7933,7 @@ public class EngineManager {
   }
 
   private static void finishEngineGameTransactionRetirement(
-      EngineGameTransaction transaction, boolean restoreUi) {
+      EngineGameOwnerTransaction transaction, boolean restoreUi) {
     if (transaction == null) {
       return;
     }
@@ -7945,7 +7945,7 @@ public class EngineManager {
     }
   }
 
-  private static void beginEngineGameRollback(EngineGameTransaction transaction) {
+  private static void beginEngineGameRollback(EngineGameOwnerTransaction transaction) {
     if (transaction == null || !transaction.rollbackStarted.compareAndSet(false, true)) {
       completeEngineGameTransactionRetirementIfQuiescent(transaction);
       return;
@@ -7960,7 +7960,7 @@ public class EngineManager {
   }
 
   private static void completeEngineGameTransactionRetirementIfQuiescent(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     if (transaction == null
         || !transaction.rollbackFinished.get()
         || transaction.operationsInFlight.get() != 0
@@ -7989,7 +7989,7 @@ public class EngineManager {
     completeEngineGameTransactionRetirement(transaction);
   }
 
-  private static void completeEngineGameTransactionRetirement(EngineGameTransaction transaction) {
+  private static void completeEngineGameTransactionRetirement(EngineGameOwnerTransaction transaction) {
     EngineGameRecoveryBatch recoveryBatch = null;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (retiringEngineGameTransaction == transaction) {
@@ -8476,7 +8476,7 @@ public class EngineManager {
   }
 
   private static void runAfterEngineGameTransactionRetirement(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Runnable continuation,
       Runnable schedulingFailure) {
     if (transaction == null || continuation == null) {
@@ -8494,7 +8494,7 @@ public class EngineManager {
 
 
   private static void dispatchEngineGameRetirementContinuation(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (activeEngineGameRecoveryBatch != null
           && activeEngineGameRecoveryBatch.transaction == transaction) {
@@ -8561,7 +8561,7 @@ public class EngineManager {
     return primary;
   }
 
-  private static void interruptEngineGameWorkers(EngineGameTransaction transaction) {
+  private static void interruptEngineGameWorkers(EngineGameOwnerTransaction transaction) {
     Thread current = Thread.currentThread();
     for (Thread worker : transaction.workers) {
       if (worker != null && worker != current) {
@@ -8571,7 +8571,7 @@ public class EngineManager {
   }
 
   private static void restoreFailedEngineGameTransaction(
-      EngineGameTransaction transaction, Throwable failure, Runnable afterRestore) {
+      EngineGameOwnerTransaction transaction, Throwable failure, Runnable afterRestore) {
     if (transaction.manager != null) {
       try {
         transaction.manager.restoreUiAfterEngineGameStartAbort(
@@ -8597,7 +8597,7 @@ public class EngineManager {
   }
 
   static boolean activateEngineGameTransaction(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Leelaz selectedEngine,
       int selectedIndex,
       Object blackIncarnation,
@@ -8653,7 +8653,7 @@ public class EngineManager {
 
   private static EngineGameStopClaim invalidateEngineGameTransaction() {
     while (true) {
-      EngineGameTransaction transaction;
+      EngineGameOwnerTransaction transaction;
       EngineGamePlan stoppedGame;
       synchronized (ENGINE_SELECTION_STATE_LOCK) {
         transaction = activeEngineGameTransaction;
@@ -8676,7 +8676,7 @@ public class EngineManager {
     }
   }
 
-  private static void invalidateEngineGameTransactionIfCurrent(EngineGameTransaction transaction) {
+  private static void invalidateEngineGameTransactionIfCurrent(EngineGameOwnerTransaction transaction) {
     claimTerminalEngineGameTransaction(transaction, EngineGamePhase.FAILED, null, false);
     finishAutomaticEngineGameRetirementIfQuiescent(transaction);
   }
@@ -8735,7 +8735,7 @@ public class EngineManager {
     return timeoutMillis;
   }
 
-  static long engineGameDeadlineNanos(EngineGameTransaction transaction) {
+  static long engineGameDeadlineNanos(EngineGameOwnerTransaction transaction) {
     if (transaction == null) {
       return Long.MIN_VALUE;
     }
@@ -8759,7 +8759,7 @@ public class EngineManager {
   }
 
   private static boolean claimEngineGameTuningBudget(
-      EngineGameTransaction transaction, int participantBit) {
+      EngineGameOwnerTransaction transaction, int participantBit) {
     while (true) {
       int claimed = transaction.tuningBudgetParticipants.get();
       if ((claimed & participantBit) != 0) {
@@ -8782,7 +8782,7 @@ public class EngineManager {
   }
 
   private static Leelaz exactEngineGameParticipant(
-      EngineGameTransaction transaction, int participantIndex) {
+      EngineGameOwnerTransaction transaction, int participantIndex) {
     if (transaction == null) {
       return null;
     }
@@ -8814,7 +8814,7 @@ public class EngineManager {
   static final class DeferredEngineGamePrimaryPublication {
     private final EngineManager expectedManager;
     private final EngineGamePlan expectedPlan;
-    private final EngineGameTransaction expectedTransaction;
+    private final EngineGameOwnerTransaction expectedTransaction;
     private final long expectedEpoch;
     private final int expectedIndex;
     private final Leelaz engine;
@@ -8832,7 +8832,7 @@ public class EngineManager {
     private DeferredEngineGamePrimaryPublication(
         EngineManager expectedManager,
         EngineGamePlan expectedPlan,
-        EngineGameTransaction expectedTransaction,
+        EngineGameOwnerTransaction expectedTransaction,
         int expectedIndex,
         Leelaz engine,
         Leelaz expectedPreviousPrimary,
@@ -8874,7 +8874,7 @@ public class EngineManager {
   static final class EngineGamePrimaryContext {
     final EngineManager manager;
     final EngineGamePlan plan;
-    final EngineGameTransaction transaction;
+    final EngineGameOwnerTransaction transaction;
     final long epoch;
     final int blackIndex;
     final int whiteIndex;
@@ -8894,7 +8894,7 @@ public class EngineManager {
     private EngineGamePrimaryContext(
         EngineManager manager,
         EngineGamePlan plan,
-        EngineGameTransaction transaction,
+        EngineGameOwnerTransaction transaction,
         boolean ponderRouting,
         Leelaz participant,
         int participantIndex,
@@ -8931,7 +8931,7 @@ public class EngineManager {
   static final class EngineGameMoveResponseContext {
     final EngineManager manager;
     final EngineGamePlan plan;
-    final EngineGameTransaction transaction;
+    final EngineGameOwnerTransaction transaction;
     final long epoch;
     final Leelaz participant;
     final int participantIndex;
@@ -8949,7 +8949,7 @@ public class EngineManager {
     private EngineGameMoveResponseContext(
         EngineManager manager,
         EngineGamePlan plan,
-        EngineGameTransaction transaction,
+        EngineGameOwnerTransaction transaction,
         Leelaz participant,
         int participantIndex,
         Object participantIncarnation,
@@ -8977,7 +8977,7 @@ public class EngineManager {
 
   /** Exact board/turn ownership produced by committing one engine-game move. */
   static final class EngineGamePostMoveToken {
-    final EngineGameTransaction transaction;
+    final EngineGameOwnerTransaction transaction;
     final long epoch;
     final Board board;
     final BoardHistoryList boardHistory;
@@ -8988,7 +8988,7 @@ public class EngineManager {
     private final AtomicBoolean clockSyncClaimed = new AtomicBoolean();
 
     private EngineGamePostMoveToken(
-        EngineGameTransaction transaction,
+        EngineGameOwnerTransaction transaction,
         Board board,
         BoardHistoryNode boardNode,
         long boardRevision,
@@ -9064,14 +9064,14 @@ public class EngineManager {
     private static final int FORCE_CLAIMED = 1;
     private static final int CLOSED = 2;
 
-    private final EngineGameTransaction transaction;
+    private final EngineGameOwnerTransaction transaction;
     private final Leelaz endpoint;
     private final Object endpointIncarnation;
     private final EngineGameOperationLease operation;
     private final AtomicInteger state = new AtomicInteger(OPEN);
 
     private EngineGamePhysicalRequestLease(
-        EngineGameTransaction transaction,
+        EngineGameOwnerTransaction transaction,
         Leelaz endpoint,
         Object endpointIncarnation,
         EngineGameOperationLease operation) {
@@ -9116,7 +9116,7 @@ public class EngineManager {
   }
 
   static EngineGameMoveResponseContext captureEngineGameMoveResponseContext(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Leelaz participant,
       Object participantIncarnation,
       String color) {
@@ -9177,7 +9177,7 @@ public class EngineManager {
       if (!isCurrentEngineGamePostMoveTokenLocked(turn)) {
         return null;
       }
-      EngineGameTransaction transaction = turn.transaction;
+      EngineGameOwnerTransaction transaction = turn.transaction;
       boolean requestsBlack = color.equalsIgnoreCase("b");
       int participantIndex = requestsBlack ? transaction.blackIndex : transaction.whiteIndex;
       Leelaz expectedParticipant =
@@ -9239,7 +9239,7 @@ public class EngineManager {
           || endpointIncarnation == null) {
         return null;
       }
-      EngineGameTransaction transaction = token.transaction;
+      EngineGameOwnerTransaction transaction = token.transaction;
       Object expectedIncarnation =
           endpoint == transaction.blackEngine
               ? transaction.blackIncarnation
@@ -9258,7 +9258,7 @@ public class EngineManager {
   }
 
   static EngineGamePhysicalRequestLease claimEngineGameStartupOutput(
-      EngineGameTransaction transaction, Leelaz endpoint, Object endpointIncarnation) {
+      EngineGameOwnerTransaction transaction, Leelaz endpoint, Object endpointIncarnation) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameTransactionLocked(transaction)
           || endpoint == null
@@ -9303,7 +9303,7 @@ public class EngineManager {
   }
 
   static boolean bindEngineGameStartupIncarnation(
-      EngineGameTransaction transaction, Leelaz endpoint, Object endpointIncarnation) {
+      EngineGameOwnerTransaction transaction, Leelaz endpoint, Object endpointIncarnation) {
     if (transaction == null || endpoint == null || endpointIncarnation == null) {
       return false;
     }
@@ -9339,7 +9339,7 @@ public class EngineManager {
     if (context == null || context.transaction == null) {
       return null;
     }
-    EngineGameTransaction transaction = context.transaction;
+    EngineGameOwnerTransaction transaction = context.transaction;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameMoveResponseLocked(context)) {
         return null;
@@ -9361,7 +9361,7 @@ public class EngineManager {
 
   private static boolean isCurrentEngineGameMoveResponseLocked(
       EngineGameMoveResponseContext context) {
-    EngineGameTransaction transaction = context.transaction;
+    EngineGameOwnerTransaction transaction = context.transaction;
     Object expectedParticipantIncarnation =
         context.participantIndex == context.plan.blackIndex()
             ? transaction.blackIncarnation
@@ -9447,7 +9447,7 @@ public class EngineManager {
     if (response == null || selectedEngine == null || (moveX == null) != (moveY == null)) {
       return null;
     }
-    EngineGameTransaction transaction = response.transaction;
+    EngineGameOwnerTransaction transaction = response.transaction;
     EngineGamePostMoveToken[] committed = new EngineGamePostMoveToken[1];
     Throwable[] failure = new Throwable[1];
     Board.EngineGameMoveCommit[] boardCommit = new Board.EngineGameMoveCommit[1];
@@ -9590,7 +9590,7 @@ public class EngineManager {
           || !token.clockSyncClaimed.compareAndSet(false, true)) {
         return null;
       }
-      EngineGameTransaction transaction = token.transaction;
+      EngineGameOwnerTransaction transaction = token.transaction;
       EngineCountDown clock =
           token.blackToPlay ? transaction.blackCountDown : transaction.whiteCountDown;
       if (clock == null) {
@@ -9627,7 +9627,7 @@ public class EngineManager {
           || endpointIncarnation == null) {
         return false;
       }
-      EngineGameTransaction transaction = token.transaction;
+      EngineGameOwnerTransaction transaction = token.transaction;
       Object expectedIncarnation =
           endpoint == transaction.blackEngine
               ? transaction.blackIncarnation
@@ -9662,7 +9662,7 @@ public class EngineManager {
     Leelaz expectedPrimary = Lizzie.leelaz;
     long expectedPrimaryGeneration = Lizzie.capturePrimaryEngineGeneration(expectedPrimary);
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
-      EngineGameTransaction transaction = response.transaction;
+      EngineGameOwnerTransaction transaction = response.transaction;
       if (!isCurrentEngineGameTransactionLocked(transaction)
           || transaction.phase != EngineGamePhase.ACTIVE
           || transaction.manager != response.manager
@@ -9715,7 +9715,7 @@ public class EngineManager {
    * owner become actionable once activation reaches the identical frame.
    */
   static EngineGamePrimaryContext captureEngineGameAnalysisOutputContext(
-      EngineGameTransaction transaction, Leelaz participant, Object participantIncarnation) {
+      EngineGameOwnerTransaction transaction, Leelaz participant, Object participantIncarnation) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameTransactionLocked(transaction)
           || transaction.isGenmove()
@@ -9767,7 +9767,7 @@ public class EngineManager {
     if (context == null || context.transaction == null || action == null) {
       return false;
     }
-    EngineGameTransaction transaction = context.transaction;
+    EngineGameOwnerTransaction transaction = context.transaction;
     Throwable failure = null;
     boolean executed = false;
     transaction.mutationLock.lock();
@@ -9854,7 +9854,7 @@ public class EngineManager {
   static EngineGamePrimaryContext captureEngineGamePrimaryContext(
       Leelaz participant, Object participantIncarnation) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
-      EngineGameTransaction transaction = activeEngineGameTransaction;
+      EngineGameOwnerTransaction transaction = activeEngineGameTransaction;
       EngineManager manager = Lizzie.engineManager;
       EngineGamePlan plan = transaction == null ? null : transaction.plan;
       if (!hasPlayingEngineGameTransaction()
@@ -13056,7 +13056,7 @@ public class EngineManager {
   }
 
   private void synchronizePkEngineWhenReady(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Leelaz engine,
       Object expectedIncarnation,
       Runnable synchronization,
@@ -13072,7 +13072,7 @@ public class EngineManager {
   }
 
   private void synchronizePkEngineWhenReady(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Leelaz engine,
       Object expectedIncarnation,
       Runnable synchronization,
@@ -13143,7 +13143,7 @@ public class EngineManager {
 
   private void failPkEngineSynchronization(
       Leelaz engine,
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Object expectedIncarnation) {
     if (engine == null) {
       return;
@@ -13168,7 +13168,7 @@ public class EngineManager {
 
   private void settleFailedPkEngineSynchronization(
       Leelaz engine,
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Object expectedIncarnation,
       Runnable lifecycleClose,
       PkEngineSynchronization completion,
@@ -13198,7 +13198,7 @@ public class EngineManager {
 
   private boolean waitForEngineSynchronizationReadiness(
       Leelaz engine,
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Object expectedIncarnation) {
     if (engine == null) {
       return false;
@@ -13261,10 +13261,10 @@ public class EngineManager {
   }
 
   void afterPkEngineReadinessProbeForTest(
-      EngineGameTransaction transaction, Leelaz engine, Object expectedIncarnation) {}
+      EngineGameOwnerTransaction transaction, Leelaz engine, Object expectedIncarnation) {}
 
   PkEngineSynchronization synchronizePkEngineWhenReadyForTest(
-      EngineGameTransaction transaction,
+      EngineGameOwnerTransaction transaction,
       Leelaz engine,
       Object expectedIncarnation,
       Runnable synchronization,
@@ -13281,7 +13281,7 @@ public class EngineManager {
   }
 
   PkEngineSynchronization startEngineForPkSynchronizationForTest(
-      EngineGameTransaction transaction, int index, Leelaz expectedEngine) {
+      EngineGameOwnerTransaction transaction, int index, Leelaz expectedEngine) {
     return startEngineForPkSynchronization(transaction, index, expectedEngine);
   }
 
@@ -13862,7 +13862,7 @@ public class EngineManager {
     private BoardFrame capturedFrame;
     private boolean stable;
     private boolean engineGameInitialization;
-    private EngineGameTransaction engineGameTransaction;
+    private EngineGameOwnerTransaction engineGameTransaction;
     private boolean trackingFirstWinner;
     private final AtomicBoolean barriersEnded = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -14062,7 +14062,7 @@ public class EngineManager {
       }
     }
 
-    private synchronized void bindEngineGameTransaction(EngineGameTransaction transaction) {
+    private synchronized void bindEngineGameTransaction(EngineGameOwnerTransaction transaction) {
       if (transaction == null) {
         return;
       }
@@ -14074,7 +14074,7 @@ public class EngineManager {
     }
 
     private boolean runUntilStableForBoundEngineGame() {
-      EngineGameTransaction transaction = engineGameTransaction;
+      EngineGameOwnerTransaction transaction = engineGameTransaction;
       if (transaction == null) {
         runUntilStable(true);
         return true;
@@ -14381,7 +14381,7 @@ public class EngineManager {
           return;
         }
         acquireReservation();
-        EngineGameTransaction transaction = engineGameTransaction;
+        EngineGameOwnerTransaction transaction = engineGameTransaction;
         if (transaction == null) {
           runUntilStable(engineGameInitialization);
         } else if (!runEngineGameIoStep(
@@ -14553,7 +14553,7 @@ public class EngineManager {
   public void changeEngIcoForEndPk() {
     clearFirstSecondEngineCountDown();
     Menu.engineMenu.setEnabled(true);
-    EngineGameTransaction transaction;
+    EngineGameOwnerTransaction transaction;
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       transaction =
           activeEngineGameTransaction != null
@@ -14653,11 +14653,11 @@ public class EngineManager {
     startCountDown(null);
   }
 
-  private void StartCountDown(EngineGameTransaction transaction) {
+  private void StartCountDown(EngineGameOwnerTransaction transaction) {
     startCountDown(transaction);
   }
 
-  private void startCountDown(EngineGameTransaction transaction) {
+  private void startCountDown(EngineGameOwnerTransaction transaction) {
     stopCountDown();
     timeScheduledTimes = 0;
     timeScheduled = new ScheduledThreadPoolExecutor(1);
@@ -14688,7 +14688,7 @@ public class EngineManager {
   }
 
   private static EngineCountDown exactEngineGameCountDownForTick(
-      EngineGameTransaction transaction) {
+      EngineGameOwnerTransaction transaction) {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameTransactionLocked(transaction)
           || transaction.phase != EngineGamePhase.ACTIVE
@@ -14709,7 +14709,7 @@ public class EngineManager {
     }
   }
 
-  static void tickEngineGameCountDownForTest(EngineGameTransaction transaction) {
+  static void tickEngineGameCountDownForTest(EngineGameOwnerTransaction transaction) {
     EngineCountDown clock = exactEngineGameCountDownForTick(transaction);
     if (clock != null) {
       clock.countDownCentiseconds();
