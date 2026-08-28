@@ -1,6 +1,7 @@
 package featurecat.lizzie.enginegame;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
@@ -88,10 +89,27 @@ public class SwingEngineGameChrome implements EngineGameChrome {
     }
     if (Menu.engineMenu != null) {
       Menu.engineMenu.setEnabled(true);
+      restoreEngineMenuTitle();
     }
     if (menu != null) {
       menu.toggleDoubleMenuGameStatus();
     }
+  }
+
+  private static void restoreEngineMenuTitle() {
+    if (EngineManager.isEmpty || Lizzie.leelaz == null) {
+      Menu.engineMenu.setText(text("Menu.noEngine", "无引擎"));
+      return;
+    }
+    int number = Lizzie.leelaz.currentEngineN() + 1;
+    String name = Lizzie.leelaz.oriEnginename;
+    if (name == null || name.isEmpty()) {
+      name = Lizzie.leelaz.currentEnginename;
+    }
+    if (name == null) {
+      name = "";
+    }
+    Menu.engineMenu.setText(text("EngineManager.engine", "引擎") + number + ": " + name);
   }
 
   private static void setPauseButtonText(BottomToolbar toolbar, boolean paused) {
