@@ -10,10 +10,12 @@ import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.enginegame.EngineGameSnapshotFixtures;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.util.ListResourceBundle;
 import java.util.ResourceBundle;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class MenuEngineSwitchUiStateTest {
@@ -119,6 +121,129 @@ class MenuEngineSwitchUiStateTest {
   }
 
   @Test
+  void failedSwitchThenSuccessfulRollbackShowsRecoveredEngineNotFailedTarget()
+      throws Exception {
+    Icon playing = new ImageIcon(new byte[] {1});
+    Icon stopped = new ImageIcon(new byte[] {2});
+    JFontMenu menu = new JFontMenu("no engine");
+    JFontMenuItem[] items = {
+      new JFontMenuItem("Engine A"), new JFontMenuItem("Engine B")
+    };
+    EngineManager.EngineSwitchUiSnapshot activeA =
+        snapshot(
+            EngineManager.EngineSwitchUiPhase.ACTIVE, 0, "Engine A", 0, "Engine A", 0, "Engine A", "");
+    EngineManager.EngineSwitchUiSnapshot switchingB =
+        snapshot(
+            EngineManager.EngineSwitchUiPhase.SWITCHING,
+            0,
+            "Engine A",
+            1,
+            "Engine B",
+            0,
+            "Engine A",
+            "");
+    EngineManager.EngineSwitchUiSnapshot failedB =
+        snapshot(
+            EngineManager.EngineSwitchUiPhase.FAILED,
+            0,
+            "Engine A",
+            1,
+            "Engine B",
+            0,
+            "Engine A",
+            "engine failed");
+
+    Menu.applyEngineSwitchPresentation(menu, items, activeA, playing, stopped, true, "");
+    Menu.applyEngineSwitchPresentation(
+        menu, items, switchingB, playing, stopped, true, "switching...");
+    Menu.applyEngineSwitchPresentation(
+        menu,
+        items,
+        failedB,
+        playing,
+        stopped,
+        true,
+        "",
+        "Switch failed, rolled back");
+
+    assertEquals("[1]: Engine A  ·  Switch failed, rolled back", menu.getText());
+    assertFalse(menu.getText().startsWith("[2]:"));
+    assertFalse(menu.getText().contains("engine failed"));
+    assertTrue(
+        menu.getAccessibleContext()
+            .getAccessibleDescription()
+            .contains("Switch failed, rolled back"));
+    assertSame(playing, items[0].getIcon());
+    assertSame(stopped, items[1].getIcon());
+  }
+
+  @Test
+  void idleAfterAbandonedSwitchClearsSwitchingTextAndShowsCurrentEngine() throws Exception {
+    Icon playing = new ImageIcon(new byte[] {1});
+    Icon stopped = new ImageIcon(new byte[] {2});
+    JFontMenu menu = new JFontMenu("no engine");
+    JFontMenuItem[] items = {
+      new JFontMenuItem("Engine A"), new JFontMenuItem("Engine B")
+    };
+    EngineManager.EngineSwitchUiSnapshot switchingB =
+        snapshot(
+            EngineManager.EngineSwitchUiPhase.SWITCHING,
+            0,
+            "Engine A",
+            1,
+            "Engine B",
+            0,
+            "Engine A",
+            "");
+    EngineManager.EngineSwitchUiSnapshot idle =
+        snapshot(
+            EngineManager.EngineSwitchUiPhase.IDLE, -1, "", -1, "", -1, "", "");
+
+    Menu.applyEngineSwitchPresentation(
+        menu, items, switchingB, playing, stopped, true, "switching...");
+    assertEquals("[2]: Engine B  ·  switching...", menu.getText());
+
+    JFontMenu previousMenu = Menu.engineMenu;
+    JFontMenuItem[] previousItems = Menu.engine;
+    ImageIcon previousPlaying = Menu.playing;
+    ImageIcon previousStop = Menu.stop;
+    EngineManager previousManager = Lizzie.engineManager;
+    Leelaz previousPrimary = Lizzie.leelaz;
+    int previousEngineNo = EngineManager.currentEngineNo;
+    boolean previousEmpty = EngineManager.isEmpty;
+    Leelaz recovered = new Leelaz("");
+    recovered.started = true;
+    recovered.isLoaded = true;
+    recovered.oriEnginename = "Engine A";
+    recovered.currentEnginename = "Engine A";
+    Menu host = allocate(Menu.class);
+    try {
+      Menu.engineMenu = menu;
+      Menu.engine = items;
+      Menu.playing = (ImageIcon) playing;
+      Menu.stop = (ImageIcon) stopped;
+      Lizzie.engineManager = null;
+      Lizzie.setPrimaryEngine(recovered);
+      EngineManager.currentEngineNo = 0;
+      EngineManager.isEmpty = false;
+      SwingUtilities.invokeAndWait(() -> host.applyEngineSwitchUiState(idle));
+      assertEquals("[1]: Engine A", menu.getText());
+      assertFalse(menu.getText().contains("switching"));
+      assertFalse(menu.getText().contains("Engine B"));
+      assertSame(playing, items[0].getIcon());
+    } finally {
+      Menu.engineMenu = previousMenu;
+      Menu.engine = previousItems;
+      Menu.playing = previousPlaying;
+      Menu.stop = previousStop;
+      Lizzie.engineManager = previousManager;
+      Lizzie.setPrimaryEngine(previousPrimary);
+      EngineManager.currentEngineNo = previousEngineNo;
+      EngineManager.isEmpty = previousEmpty;
+    }
+  }
+
+  @Test
   void ordinaryPdaFollowsPrimaryWhileEngineGamePreservesEitherLiveOwner() throws Exception {
     Leelaz previousPrimary = Lizzie.leelaz;
     Leelaz previousSecondary = Lizzie.leelaz2;
@@ -213,6 +338,13 @@ class MenuEngineSwitchUiStateTest {
           new JFontMenuItem(index == 20 ? "More engines" : "Engine " + (index + 1));
     }
     return items;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> T allocate(Class<T> type) throws Exception {
+    Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+    field.setAccessible(true);
+    return (T) ((sun.misc.Unsafe) field.get(null)).allocateInstance(type);
   }
 
   private static ResourceBundle bundle(String value) {

@@ -70,6 +70,40 @@ class EngineSwitchUiTrackerTest {
   }
 
   @Test
+  void failedPrimarySwitchKeepsRecoveredIdentityAndRejectedTarget() {
+    EngineManager.EngineSwitchUiTracker tracker = new EngineManager.EngineSwitchUiTracker();
+    EngineManager.EngineSwitchUiSnapshot pending =
+        tracker.begin(true, 0, "Engine A", 1, "Engine B");
+
+    EngineManager.EngineSwitchUiSnapshot failed =
+        tracker.fail(pending.token(), true, "engine failed").orElseThrow();
+
+    assertEquals(EngineManager.EngineSwitchUiPhase.FAILED, failed.phase());
+    assertEquals(pending.token(), failed.token());
+    assertEquals(0, failed.activeIndex());
+    assertEquals("Engine A", failed.activeName());
+    assertEquals(1, failed.targetIndex());
+    assertEquals("Engine B", failed.targetName());
+    assertEquals("engine failed", failed.failureDetail());
+    assertSame(failed, tracker.current(true));
+  }
+
+  @Test
+  void abandonPendingTurnsSwitchingIntoIdleAndRejectsStaleCompletion() {
+    EngineManager.EngineSwitchUiTracker tracker = new EngineManager.EngineSwitchUiTracker();
+    EngineManager.EngineSwitchUiSnapshot pending =
+        tracker.begin(true, 0, "Engine A", 1, "Engine B");
+
+    EngineManager.EngineSwitchUiSnapshot abandoned =
+        tracker.abandonPending(pending.token(), true).orElseThrow();
+
+    assertEquals(EngineManager.EngineSwitchUiPhase.IDLE, abandoned.phase());
+    assertEquals(EngineManager.EngineSwitchUiPhase.IDLE, tracker.current(true).phase());
+    assertFalse(tracker.succeed(pending.token(), true, 1, "Engine B").isPresent());
+    assertFalse(tracker.fail(pending.token(), true, "late failure").isPresent());
+  }
+
+  @Test
   void finalLifecycleFailureRollsBackAReadyTargetForTheSameSwitchToken() {
     EngineManager.EngineSwitchUiTracker tracker = new EngineManager.EngineSwitchUiTracker();
     EngineManager.EngineSwitchUiSnapshot pending =
