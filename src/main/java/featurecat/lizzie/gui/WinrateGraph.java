@@ -2,7 +2,8 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
@@ -454,7 +455,7 @@ public class WinrateGraph {
     double drawmSoreMean = 0;
     int currentScoreMarkerMoveIndex = -1;
     double currentScoreMarkerMean = 0;
-    if (EngineManager.isEngineGame || Lizzie.board.isPkBoard) {
+    if (engineGamePlaying() || Lizzie.board.isPkBoard) {
       int saveCurMovenum = 0;
       double saveCurWr = 0;
       if (numMoves < 2) return;
@@ -1051,16 +1052,9 @@ public class WinrateGraph {
       //    if (Lizzie.config.dynamicWinrateGraphWidth && this.numMovesOfPlayed > 0) {
       //      numMoves = this.numMovesOfPlayed;
       //    }
-      if (EngineManager.isEngineGame || Lizzie.board.isPkBoard) {
+      if (engineGamePlaying() || Lizzie.board.isPkBoard) {
         setMaxScoreLead(node);
-        if (EngineManager.isEngineGame
-                && (Lizzie.engineManager.engineList.get(
-                            EngineManager.engineGameInfo.whiteEngineIndex)
-                        .isKatago
-                    || Lizzie.engineManager.engineList.get(
-                            EngineManager.engineGameInfo.whiteEngineIndex)
-                        .isSai)
-            || Lizzie.board.isPkBoardKataW) {
+        if (whiteKataScoreMode()) {
           double lastscoreMean = -500;
           int curmovenum = -1;
           double drawcurscoreMean = 0;
@@ -1073,7 +1067,7 @@ public class WinrateGraph {
               curscoreMean = node.previous().get().getData().scoreMean;
             } catch (Exception ex) {
             }
-            if (EngineManager.isEngineGame) {
+            if (engineGamePlaying()) {
               curmovenum = movenum;
               drawcurscoreMean = curscoreMean;
               lastscoreMean = curscoreMean;
@@ -1114,7 +1108,7 @@ public class WinrateGraph {
               lastscoreMean = curscoreMean;
               lastOkMove = movenum;
             } else {
-              if (EngineManager.isEngineGame
+              if (engineGamePlaying()
                   && (!node.next().isPresent() || !node.next().get().next().isPresent())) {
                 curmovenum = movenum;
                 drawcurscoreMean = node.previous().get().previous().get().getData().scoreMean;
@@ -1164,14 +1158,7 @@ public class WinrateGraph {
             x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
             g.drawString(scoreString, x, mScoreHeight);
           }
-        } else if (EngineManager.isEngineGame
-                && (Lizzie.engineManager.engineList.get(
-                            EngineManager.engineGameInfo.blackEngineIndex)
-                        .isKatago
-                    || Lizzie.engineManager.engineList.get(
-                            EngineManager.engineGameInfo.blackEngineIndex)
-                        .isSai)
-            || Lizzie.board.isPkBoardKataB) {
+        } else if (blackKataScoreMode()) {
           double lastscoreMean = -500;
           int curmovenum = -1;
           double drawcurscoreMean = 0;
@@ -1182,7 +1169,7 @@ public class WinrateGraph {
               curscoreMean = node.previous().get().getData().scoreMean;
             } catch (Exception ex) {
             }
-            if (EngineManager.isEngineGame) {
+            if (engineGamePlaying()) {
               curmovenum = movenum;
               drawcurscoreMean = curscoreMean;
               lastscoreMean = curscoreMean;
@@ -1226,7 +1213,7 @@ public class WinrateGraph {
               lastscoreMean = curscoreMean;
               lastOkMove = movenum;
             } else {
-              if (EngineManager.isEngineGame
+              if (engineGamePlaying()
                   && (!node.next().isPresent() || !node.next().get().next().isPresent())) {
                 curmovenum = movenum;
                 drawcurscoreMean = node.previous().get().previous().get().getData().scoreMean;
@@ -2183,7 +2170,31 @@ public class WinrateGraph {
   }
 
   private boolean isEngineOrPkGraphMode() {
-    return EngineManager.isEngineGame || (Lizzie.board != null && Lizzie.board.isPkBoard);
+    return engineGamePlaying() || (Lizzie.board != null && Lizzie.board.isPkBoard);
+  }
+
+  private static boolean engineGamePlaying() {
+    return EngineGamePresentation.current().playing();
+  }
+
+  private static boolean whiteKataScoreMode() {
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    return (snapshot.playing()
+            && (EngineGamePresentation.whiteKatago(
+                    EngineGamePresentation.currentHistoryInfo(), snapshot)
+                || EngineGamePresentation.whiteSai(
+                    EngineGamePresentation.currentHistoryInfo(), snapshot)))
+        || (Lizzie.board != null && Lizzie.board.isPkBoardKataW);
+  }
+
+  private static boolean blackKataScoreMode() {
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    return (snapshot.playing()
+            && (EngineGamePresentation.blackKatago(
+                    EngineGamePresentation.currentHistoryInfo(), snapshot)
+                || EngineGamePresentation.blackSai(
+                    EngineGamePresentation.currentHistoryInfo(), snapshot)))
+        || (Lizzie.board != null && Lizzie.board.isPkBoardKataB);
   }
 
   private BoardHistoryNode graphTraversalEnd(BoardHistoryNode node) {

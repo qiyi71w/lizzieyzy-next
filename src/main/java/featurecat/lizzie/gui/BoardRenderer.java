@@ -15,6 +15,8 @@ import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
 import featurecat.lizzie.analysis.MoveRankDefinition;
 import featurecat.lizzie.analysis.TrackingAnalysisController;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
@@ -339,7 +341,7 @@ public class BoardRenderer {
       switch (moveOverlayOrder(
           Lizzie.config.allowMoveNumber,
           Lizzie.frame.isInPlayMode(),
-          EngineManager.isEngineGame,
+          EngineGamePresentation.current().playing(),
           effectiveMoveRankLimit,
           isShowingBranch,
           forceWholeGameMoveEvaluation)) {
@@ -657,7 +659,8 @@ public class BoardRenderer {
   }
 
   private boolean shouldShowPreviousBestMoves() {
-    return (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame);
+    return EngineGamePresentation.current().playing()
+        && Lizzie.config.showPreviousBestmovesInEngineGame;
   }
 
   private Optional<int[]> getHistoryMoveCoords(BoardData data) {
@@ -844,15 +847,10 @@ public class BoardRenderer {
       lengthB = g0.getFontMetrics().stringWidth(black);
       lengthW = g0.getFontMetrics().stringWidth(white);
     }
-    if (EngineManager.isEngineGame && EngineManager.engineGameInfo.isBatchGame) {
-      if (EngineManager.engineGameInfo.firstEngineIndex
-          == EngineManager.engineGameInfo.blackEngineIndex) {
-        black = black + "  " + EngineManager.engineGameInfo.getFirstEngineWins();
-        white = EngineManager.engineGameInfo.getSecondEngineWins() + "  " + white;
-      } else {
-        black = black + "  " + EngineManager.engineGameInfo.getSecondEngineWins();
-        white = EngineManager.engineGameInfo.getFirstEngineWins() + "  " + white;
-      }
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    if (EngineGamePresentation.showLiveBatchScores(snapshot)) {
+      black = black + "  " + EngineGamePresentation.blackWins(snapshot);
+      white = EngineGamePresentation.whiteWins(snapshot) + "  " + white;
     }
     lengthB = g0.getFontMetrics().stringWidth(black);
     lengthW = g0.getFontMetrics().stringWidth(white);
@@ -2104,13 +2102,13 @@ public class BoardRenderer {
         // Allow to display only last move number
 
         if (!showAllinBranch && !branchOpt.isPresent()) {
-          if (!Lizzie.frame.isTrying && !EngineManager.isEngineGame) {
+          if (!Lizzie.frame.isTrying && !EngineGamePresentation.current().playing()) {
             if ((Lizzie.config.allowMoveNumber > -1
                 && lastMoveNumber - moveNumberList[here] >= Lizzie.config.allowMoveNumber)) {
               continue;
             }
           }
-          if (EngineManager.isEngineGame) {
+          if (EngineGamePresentation.current().playing()) {
             if ((Lizzie.config.allowMoveNumber > -1
                 && lastMoveNumber - moveNumberList[here]
                     >= max(Lizzie.config.allowMoveNumber, 1))) {

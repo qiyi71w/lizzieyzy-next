@@ -3,6 +3,12 @@ package featurecat.lizzie.gui;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
+import featurecat.lizzie.enginegame.Acceptance;
+import featurecat.lizzie.enginegame.StartFailure;
+import featurecat.lizzie.enginegame.StartObserver;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
+
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Movelist;
@@ -201,9 +207,6 @@ public class BottomToolbar extends JPanel {
   public int anaPanelOrder = 0;
   public int enginePkOrder = 1;
   public int autoPlayOrder = 2;
-  public boolean isPkStop = false;
-  public boolean isPkGenmoveStop = false;
-  public boolean isPkStopGenmoveB;
   // JButton cancelAutoAna;
 
   JLabel lblchkShowBlack;
@@ -1263,7 +1266,7 @@ public class BottomToolbar extends JPanel {
     forward10.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             for (int i = 0; i < 10; i++) Lizzie.board.nextMove(false);
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.clearAfterMove();
@@ -1274,7 +1277,7 @@ public class BottomToolbar extends JPanel {
     backward10.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             for (int i = 0; i < 10; i++) Lizzie.board.previousMove(false);
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.clearAfterMove();
@@ -1285,7 +1288,7 @@ public class BottomToolbar extends JPanel {
     forward1.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.nextMove(true);
             setTxtUnfocuse();
@@ -1294,7 +1297,7 @@ public class BottomToolbar extends JPanel {
     backward1.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
               Lizzie.board.previousMove(false);
@@ -1306,7 +1309,7 @@ public class BottomToolbar extends JPanel {
     gotomove.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
+            if (EngineGamePresentation.current().playing()) return;
             checkMove();
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             txtMoveNumber.setBackground(
@@ -1365,7 +1368,7 @@ public class BottomToolbar extends JPanel {
     lastButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.engineManager.isEngineGame()) return;
+            if (EngineGamePresentation.current().startingOrPlaying()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.frame.lastMove();
             setTxtUnfocuse();
@@ -1374,7 +1377,7 @@ public class BottomToolbar extends JPanel {
     firstButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.engineManager.isEngineGame()) return;
+            if (EngineGamePresentation.current().startingOrPlaying()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.frame.firstMove();
             setTxtUnfocuse();
@@ -1935,101 +1938,9 @@ public class BottomToolbar extends JPanel {
     btnEnginePkStop.setMargin(new Insets(0, 0, 0, 0));
     btnEnginePkStop.addActionListener(
         new ActionListener() {
-          @Override
           public void actionPerformed(ActionEvent e) {
-            // TBD未完成
             setTxtUnfocuse();
-            if (isGenmoveToolbar) {
-              if (isPkStop) {
-                if (!isPkGenmoveStop) {
-                  Utils.showMsg(
-                      Lizzie.resourceBundle.getString(
-                          "BottomToolbar.genmoveStopHint")); // (BottomToolbar.genmoveStopHint);
-                  //                  Message msg = new Message();
-                  //                  msg.setMessage("Genmove模式下暂停后须等待最后一步落子完成");
-                  //                  msg.setVisible(true);
-                  return;
-                }
-                btnEnginePkStop.setText(text("BottomToolbar.detail.pause", "暂停"));
-                isPkStop = false;
-                if (isPkStopGenmoveB) {
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .nameCmd();
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .genmoveForPk("B");
-                  if (Lizzie.config.enginePkPonder)
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                        .ponder();
-                } else {
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .nameCmd();
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .genmoveForPk("W");
-                  if (Lizzie.config.enginePkPonder)
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.blackEngineIndex)
-                        .ponder();
-                }
-
-              } else {
-                btnEnginePkStop.setText(text("BottomToolbar.detail.continue", "继续"));
-                isPkStop = true;
-                isPkGenmoveStop = false;
-              }
-
-            } else {
-              if (isPkStop) {
-                btnEnginePkStop.setText(text("BottomToolbar.detail.pause", "暂停"));
-                isPkStop = false;
-                if (Lizzie.config.enginePkPonder) {
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .ponder();
-                  Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .ponder();
-                } else {
-                  if (Lizzie.board.getData().blackToPlay) {
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.blackEngineIndex)
-                        .ponder();
-                  } else {
-                    Lizzie.engineManager
-                        .engineList
-                        .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                        .ponder();
-                  }
-                }
-              } else {
-                btnEnginePkStop.setText(text("BottomToolbar.detail.continue", "继续"));
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.blackEngineIndex)
-                    .nameCmd();
-                Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                    .nameCmd();
-                isPkStop = true;
-              }
-              //  Lizzie.engineManager.startInfoTime = System.currentTimeMillis();
-              //  Lizzie.engineManager.gameTime = System.currentTimeMillis();
-            }
-            LizzieFrame.menu.toggleDoubleMenuGameStatus();
+            EngineGameDesktop.togglePause();
           }
         });
 
@@ -2092,10 +2003,10 @@ public class BottomToolbar extends JPanel {
             //              return;
             //            }
 
-            if (!EngineManager.isEngineGame) {
+            if (!EngineGameDesktop.batchActive()) {
               startEngineGame();
             } else {
-              Lizzie.engineManager.stopEngineGame(-1, true);
+              EngineGameDesktop.stop();
             }
             setTxtUnfocuse();
           }
@@ -2186,24 +2097,15 @@ public class BottomToolbar extends JPanel {
     dt.addDocumentListener(
         new DocumentListener() {
           public void insertUpdate(DocumentEvent e) {
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              EngineManager.engineGameInfo.batchNumber =
-                  Utils.parseTextToInt(txtenginePkBatch, EngineManager.engineGameInfo.batchNumber);
-            }
+            applyLiveBatchLimit();
           }
 
           public void removeUpdate(DocumentEvent e) {
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              EngineManager.engineGameInfo.batchNumber =
-                  Utils.parseTextToInt(txtenginePkBatch, EngineManager.engineGameInfo.batchNumber);
-            }
+            applyLiveBatchLimit();
           }
 
           public void changedUpdate(DocumentEvent e) {
-            if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) {
-              EngineManager.engineGameInfo.batchNumber =
-                  Utils.parseTextToInt(txtenginePkBatch, EngineManager.engineGameInfo.batchNumber);
-            }
+            applyLiveBatchLimit();
           }
         });
 
@@ -4010,50 +3912,26 @@ public class BottomToolbar extends JPanel {
   }
 
   public boolean startEngineGame() {
-    int engineBlack = engineBlackToolbar;
-    int engineWhite = engineWhiteToolbar;
-    int timeBlack = -1,
-        timeWhite = -1,
-        playoutsBlack = -1,
-        playoutsWhite = -1,
-        firstPlayoutsBlack = -1,
-        firstPlayoutsWhite = -1;
-    if (chkenginePkTime.isSelected()) {
-      timeBlack = Utils.parseTextToInt(txtenginePkTime, -1);
-      timeWhite = Utils.parseTextToInt(txtenginePkTimeWhite, -1);
-    }
-    if (chkenginePkPlayouts.isSelected()) {
-      playoutsBlack = Utils.parseTextToInt(txtenginePkPlayputs, -1);
-      playoutsWhite = Utils.parseTextToInt(txtenginePkPlayputsWhite, -1);
-    }
-    if (chkenginePkFirstPlayputs.isSelected()) {
-      firstPlayoutsBlack = Utils.parseTextToInt(txtenginePkFirstPlayputs, -1);
-      firstPlayoutsWhite = Utils.parseTextToInt(txtenginePkFirstPlayputsWhite, -1);
-    }
-    boolean isBatchGame = chkenginePkBatch.isSelected();
-    int batchGameNumber = Utils.parseTextToInt(txtenginePkBatch, 1);
-    String batchGameName = batchPkNameToolbar;
-    boolean isContinueGame = chkenginePkContinue.isSelected();
-    boolean isGenmove = isGenmoveToolbar;
-    boolean isExchange = exChangeToolbar;
-    return Lizzie.engineManager.startEngineGame(
-        engineBlack,
-        engineWhite,
-        timeBlack,
-        timeWhite,
-        playoutsBlack,
-        playoutsWhite,
-        firstPlayoutsBlack,
-        firstPlayoutsWhite,
-        isBatchGame,
-        batchGameNumber,
-        batchGameName,
-        isContinueGame,
-        isGenmove,
-        isExchange,
-        checkGameMaxMove,
-        maxGameMoves);
+    List<EngineData> engines = Utils.getEngineData();
+    Acceptance acceptance =
+        Lizzie.engineGame.accept(
+            EngineGameBatchSpecFactory.from(EngineGameBatchSpecCapture.fromToolbar(this, engines)),
+            new StartObserver() {
+              @Override
+              public void playing() {}
+
+              @Override
+              public void startFailed(StartFailure failure) {}
+            });
+    return acceptance instanceof Acceptance.Accepted;
   }
+
+  private void applyLiveBatchLimit() {
+    if (EngineGameDesktop.batchActive()) {
+      EngineGameDesktop.reviseLiveBatchLimit(txtenginePkBatch.getText());
+    }
+  }
+
 
   //  public void startEnginePk() {
   //    if (!Lizzie.engineManager.isEmpty && Lizzie.leelaz != null) {

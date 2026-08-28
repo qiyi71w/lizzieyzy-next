@@ -4657,7 +4657,6 @@ class LeelazReadBoardGmaTest {
     private final Leelaz previousLeelaz2;
     private final Board previousBoard;
     private final Menu previousMenu;
-    private final boolean previousEngineGameFlag;
 
     private Harness(
         Config previousConfig,
@@ -4666,8 +4665,7 @@ class LeelazReadBoardGmaTest {
         Leelaz previousLeelaz,
         Leelaz previousLeelaz2,
         Board previousBoard,
-        Menu previousMenu,
-        boolean previousEngineGameFlag) {
+        Menu previousMenu) {
       this.previousConfig = previousConfig;
       this.previousFrame = previousFrame;
       this.previousGtpConsole = previousGtpConsole;
@@ -4675,7 +4673,6 @@ class LeelazReadBoardGmaTest {
       this.previousLeelaz2 = previousLeelaz2;
       this.previousBoard = previousBoard;
       this.previousMenu = previousMenu;
-      this.previousEngineGameFlag = previousEngineGameFlag;
     }
 
     private static Harness open() throws Exception {
@@ -4688,8 +4685,7 @@ class LeelazReadBoardGmaTest {
               Lizzie.leelaz,
               Lizzie.leelaz2,
               Lizzie.board,
-              LizzieFrame.menu,
-              EngineManager.isEngineGame);
+              LizzieFrame.menu);
       Lizzie.config = minimalConfig();
       Lizzie.frame = allocate(SilentFrame.class);
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
@@ -4698,7 +4694,6 @@ class LeelazReadBoardGmaTest {
       Lizzie.board = new Board();
       Lizzie.leelaz = null;
       LizzieFrame.menu = allocate(SilentMenu.class);
-      EngineManager.isEngineGame = false;
       return harness;
     }
 
@@ -4712,7 +4707,6 @@ class LeelazReadBoardGmaTest {
       Lizzie.leelaz2 = previousLeelaz2;
       Lizzie.board = previousBoard;
       LizzieFrame.menu = previousMenu;
-      EngineManager.isEngineGame = previousEngineGameFlag;
     }
 
     private static void drainEventQueue() throws InvocationTargetException, InterruptedException {

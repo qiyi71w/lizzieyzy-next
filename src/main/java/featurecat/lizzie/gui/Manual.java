@@ -1,7 +1,9 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -32,14 +34,13 @@ public class Manual extends JDialog {
     playNow.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.board.getHistory().isBlacksTurn())
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .playNow =
-                  true;
-            else
-              Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .playNow =
-                  true;
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            Leelaz engine =
+                EngineGamePresentation.sideToMoveEngine(
+                    snapshot, Lizzie.board.getHistory().isBlacksTurn());
+            if (engine != null) {
+              engine.playNow = true;
+            }
           }
         });
 
@@ -68,14 +69,14 @@ public class Manual extends JDialog {
     blackResign.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                    .resigned =
-                true;
-            if (EngineManager.engineGameInfo.isGenmove)
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.blackEngineIndex)
-                  .genmoveResign(false);
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            Leelaz engine = EngineGamePresentation.blackEngine(snapshot);
+            if (engine != null) {
+              engine.resigned = true;
+              if (snapshot.playingGenmove()) {
+                engine.genmoveResign(false);
+              }
+            }
           }
         });
     buttonPane.add(blackResign);
@@ -85,14 +86,14 @@ public class Manual extends JDialog {
     whiteResign.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                    .resigned =
-                true;
-            if (EngineManager.engineGameInfo.isGenmove)
-              Lizzie.engineManager
-                  .engineList
-                  .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                  .genmoveResign(false);
+            EngineGameSnapshot snapshot = EngineGamePresentation.current();
+            Leelaz engine = EngineGamePresentation.whiteEngine(snapshot);
+            if (engine != null) {
+              engine.resigned = true;
+              if (snapshot.playingGenmove()) {
+                engine.genmoveResign(false);
+              }
+            }
           }
         });
     buttonPane.add(whiteResign);
@@ -102,7 +103,7 @@ public class Manual extends JDialog {
     } catch (IOException e) {
       e.printStackTrace();
     }
-    if (EngineManager.engineGameInfo.isGenmove) {
+    if (EngineGamePresentation.current().playingGenmove()) {
       manualOne.setEnabled(false);
       playNow.setEnabled(false);
     }

@@ -2,9 +2,9 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.theme.MorandiPalette;
@@ -776,7 +776,8 @@ public class AnalysisFrame extends JFrame {
       public int getRowCount() {
         data2 = new ArrayList<MoveData>();
         if (index == 1) {
-          if (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame) {
+          if (EngineGamePresentation.current().playing()
+              && Lizzie.config.showPreviousBestmovesInEngineGame) {
             if (Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent())
               if ((bestMoves = Lizzie.leelaz.getBestMoves()).isEmpty())
                 bestMoves =
@@ -1027,7 +1028,7 @@ public class AnalysisFrame extends JFrame {
             return String.format(Locale.ENGLISH, "%.2f", data.policy);
           case 7:
             double score = data.scoreMean;
-            if (EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove) {
+            if (EngineGamePresentation.current().playingGenmove()) {
               if (!Lizzie.board.getHistory().isBlacksTurn()) {
                 if (Lizzie.config.showKataGoScoreLeadWithKomi) {
                   score = score + Lizzie.board.getData().getKomi();

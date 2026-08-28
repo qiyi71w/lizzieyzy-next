@@ -281,8 +281,9 @@ public class EnginePkConfig extends JDialog {
 
     chkSatartNum.setSelected(Lizzie.config.chkPkStartNum);
     txtStartNum.setText(String.valueOf(Lizzie.config.pkStartNum));
-    if (EngineManager.engineGameInfo != null && EngineManager.engineGameInfo.batchGameName != null)
+    if (LizzieFrame.toolbar.batchPkNameToolbar != null) {
       txtnameSetting.setText(LizzieFrame.toolbar.batchPkNameToolbar);
+    }
     chkAutosave.setSelected(LizzieFrame.toolbar.AutosavePk);
     chkExchange.setSelected(LizzieFrame.toolbar.exChangeToolbar);
     chkGameMAX.setSelected(LizzieFrame.toolbar.checkGameMaxMove);

@@ -9,6 +9,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.rules.Board;
 import java.awt.GraphicsEnvironment;
@@ -43,8 +44,6 @@ class EngineStartupDialogPolicyTest {
     EngineManager previousManager = Lizzie.engineManager;
     Board previousBoard = Lizzie.board;
     LizzieFrame previousFrame = Lizzie.frame;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     boolean previousFirstLaunch = forceFirstLaunchSession(false);
     try {
       Lizzie.config =
@@ -57,23 +56,22 @@ class EngineStartupDialogPolicyTest {
       Lizzie.board = new Board();
       Lizzie.board.isPkBoard = true;
       Lizzie.frame = null;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = true;
+      EngineManager.beginEngineGameTransaction(
+          Lizzie.engineManager, EngineGamePlans.harness(0, 1, false), null, true);
       Lizzie.engineStartupStatus.ready();
 
       secondary.tryToDignostic("controlled headless secondary failure", false);
 
       assertEquals(EngineStartupStatus.State.READY, Lizzie.engineStartupStatus.snapshot().state);
-      assertFalse(EngineManager.isPreEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
       assertFalse(Lizzie.board.isPkBoard);
     } finally {
+      EngineManager.resetEngineGameTransactionStateForTest();
       Lizzie.config = previousConfig;
       Lizzie.setPrimaryEngine(previousPrimary);
       Lizzie.engineManager = previousManager;
       Lizzie.board = previousBoard;
       Lizzie.frame = previousFrame;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
       forceFirstLaunchSession(previousFirstLaunch);
       Lizzie.engineStartupStatus.ready();
     }

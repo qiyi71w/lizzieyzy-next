@@ -3,6 +3,11 @@ package featurecat.lizzie.analysis;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlayMode;
+import featurecat.lizzie.enginegame.EngineGameSide;
+import featurecat.lizzie.enginegame.EngineGameSideLimits;
+import featurecat.lizzie.enginegame.GameOutcome;
+import featurecat.lizzie.enginegame.ParticipantBinding;
 import featurecat.lizzie.analysis.gtpconfig.GtpConfigurationProbe;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
@@ -170,7 +175,7 @@ public class Leelaz {
     private final StartupCommandKind kind;
     private final long expectedPrimaryGeneration;
     private final Object expectedEngineIncarnation;
-    private final EngineManager.EngineGameTransaction engineGameTransaction;
+    private final EngineManager.EngineGameOwnerTransaction engineGameTransaction;
     private final boolean publishReadyIcon;
     private final boolean suppressGlobalEnginePresentation;
 
@@ -178,7 +183,7 @@ public class Leelaz {
         StartupCommandKind kind,
         long expectedPrimaryGeneration,
         Object expectedEngineIncarnation,
-        EngineManager.EngineGameTransaction engineGameTransaction,
+        EngineManager.EngineGameOwnerTransaction engineGameTransaction,
         boolean publishReadyIcon,
         boolean suppressGlobalEnginePresentation) {
       this.kind = kind;
@@ -193,7 +198,7 @@ public class Leelaz {
         StartupCommandKind kind,
         long expectedPrimaryGeneration,
         Object expectedEngineIncarnation,
-        EngineManager.EngineGameTransaction engineGameTransaction,
+        EngineManager.EngineGameOwnerTransaction engineGameTransaction,
         boolean publishReadyIcon,
         boolean suppressGlobalEnginePresentation) {
       return kind == StartupCommandKind.NONE
@@ -332,7 +337,7 @@ public class Leelaz {
       new ThreadLocal<>();
   private static final ThreadLocal<OrdinaryLiveBoardForwardingExecution>
       ordinaryLiveBoardForwardingContext = new ThreadLocal<>();
-  private static final ThreadLocal<EngineManager.EngineGameTransaction>
+  private static final ThreadLocal<EngineManager.EngineGameOwnerTransaction>
       engineGameStartupCommandContext = new ThreadLocal<>();
   /**
    * Cold-start PK bootstrap stays unnumbered until 引擎对局参与者名称识别完成. Only name/version/list_commands
@@ -576,7 +581,7 @@ public class Leelaz {
   private long leela0110BestMovesEpoch = -1L;
   private Timer leela0110PonderingTimer;
   private BoardData leela0110PonderingBoardData;
-  private EngineManager.EngineGameTransaction leela0110PonderingTransaction;
+  private EngineManager.EngineGameOwnerTransaction leela0110PonderingTransaction;
   private ReaderStreamBinding leela0110PonderingBinding;
   private Object leela0110PonderingStateToken;
   private final Object leela0110PonderStateLock = new Object();
@@ -789,7 +794,7 @@ public class Leelaz {
   }
 
   public void startEngine(int index) throws IOException {
-    EngineManager.EngineGameTransaction engineGameStartupTransaction =
+    EngineManager.EngineGameOwnerTransaction engineGameStartupTransaction =
         engineGameStartupCommandContext.get();
     boolean deferredEngineGameRecovery = isDeferredEngineGameRecoveryStartup();
     requireCurrentEngineGameStartupTransaction(engineGameStartupTransaction);
@@ -1032,7 +1037,7 @@ public class Leelaz {
   }
 
   private void dispatchStartupBootstrapCommands(
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       RestartBootstrapReceipt startupReceipt,
       boolean sshBootstrap) {
     Runnable bootstrap =
@@ -1062,7 +1067,7 @@ public class Leelaz {
   }
 
   private void runStartupBootstrapCommands(
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       RestartBootstrapReceipt startupReceipt,
       boolean sshBootstrap) {
     runWithEngineGameStartupCommandContext(
@@ -1123,7 +1128,7 @@ public class Leelaz {
   }
 
   private boolean sleepForEngineBootstrap(
-      EngineManager.EngineGameTransaction transaction, long millis) {
+      EngineManager.EngineGameOwnerTransaction transaction, long millis) {
     requireCurrentEngineGameStartupTransaction(transaction);
     try {
       Thread.sleep(millis);
@@ -1156,7 +1161,7 @@ public class Leelaz {
   }
 
   private void sendEngineBootstrapCommand(
-      EngineManager.EngineGameTransaction transaction, String command) {
+      EngineManager.EngineGameOwnerTransaction transaction, String command) {
     requireCurrentEngineGameStartupTransaction(transaction);
     Boolean previous = ordinaryEngineGameBootstrapCommands.get();
     ordinaryEngineGameBootstrapCommands.set(Boolean.TRUE);
@@ -1172,14 +1177,14 @@ public class Leelaz {
   }
 
   private static void requireCurrentEngineGameStartupTransaction(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     if (transaction != null && !EngineManager.isCurrentEngineGameTransaction(transaction)) {
       throw new IllegalStateException("engine-game startup transaction is no longer current");
     }
   }
 
   private void bindCurrentEngineGameStartupIncarnation(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     if (transaction == null) {
       return;
     }
@@ -1196,7 +1201,7 @@ public class Leelaz {
   }
 
   private void prepareEngineBootstrapState(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     Runnable mutation =
         () -> {
           isCheckingVersion = true;
@@ -1220,21 +1225,21 @@ public class Leelaz {
   }
 
   void beforeEngineGameBootstrapCommandsForTest(
-      EngineManager.EngineGameTransaction transaction) {}
+      EngineManager.EngineGameOwnerTransaction transaction) {}
 
   void afterEngineGameBootstrapCommandsForTest(
-      EngineManager.EngineGameTransaction transaction) {}
+      EngineManager.EngineGameOwnerTransaction transaction) {}
 
   void afterEngineGameBootstrapWorkerForTest(
-      EngineManager.EngineGameTransaction transaction) {}
+      EngineManager.EngineGameOwnerTransaction transaction) {}
 
   void dispatchEngineGameBootstrapCommandsForTest(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     dispatchStartupBootstrapCommands(transaction, null, false);
   }
 
   private void publishEngineStartupPresentation(
-      EngineManager.EngineGameTransaction transaction, Object startedReaderStreamBinding) {
+      EngineManager.EngineGameOwnerTransaction transaction, Object startedReaderStreamBinding) {
     beforeEngineGameBootstrapPresentationForTest(transaction);
     if (transaction != null
         || suppressesGlobalEnginePresentation(startedReaderStreamBinding)) {
@@ -1274,10 +1279,10 @@ public class Leelaz {
   }
 
   void beforeEngineGameBootstrapPresentationForTest(
-      EngineManager.EngineGameTransaction transaction) {}
+      EngineManager.EngineGameOwnerTransaction transaction) {}
 
   void publishEngineGameBootstrapPresentationForTest(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     publishEngineStartupPresentation(transaction, currentEngineIncarnation());
   }
 
@@ -1528,7 +1533,7 @@ public class Leelaz {
         && started
         && isLoaded
         && trackingStaticAvailability() == ExclusiveGtpLeaseAvailability.AVAILABLE
-        && !EngineManager.isEngineGame();
+        && !EngineManager.occupiesEngineGameAdmission();
   }
 
   private AutomaticRestartRound captureAutomaticRestartRound(boolean allowUnrestoredState) {
@@ -4585,16 +4590,15 @@ public class Leelaz {
     boolean secondaryDisplay =
         Lizzie.config.isDoubleEngineMode() && Lizzie.leelaz2 != null && this == Lizzie.leelaz2;
     boolean engineGameParticipantToMove = true;
-    if (!secondaryDisplay && EngineManager.isEngineGame && Lizzie.config.enginePkPonder) {
+    if (!secondaryDisplay
+        && EngineManager.hasPlayingEngineGameTransaction()
+        && Lizzie.config.enginePkPonder) {
+      EngineManager.EngineGamePrimaryContext game =
+          EngineManager.captureEngineGamePrimaryContext();
       engineGameParticipantToMove =
-          (Lizzie.board.getHistory().isBlacksTurn()
-                  && this
-                      == Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.blackEngineIndex))
-              || (!Lizzie.board.getHistory().isBlacksTurn()
-                  && this
-                      == Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.whiteEngineIndex));
+          game != null
+              && ((Lizzie.board.getHistory().isBlacksTurn() && this == game.blackEngine)
+                  || (!Lizzie.board.getHistory().isBlacksTurn() && this == game.whiteEngine));
     }
     if (!secondaryDisplay && !engineGameParticipantToMove) {
       return;
@@ -4869,9 +4873,15 @@ public class Leelaz {
         return;
       }
       if (params.length >= 2) {
-        EngineGameInfo responseGame = moveResponseContext.gameInfo;
-        boolean moverIsBlack =
-            moveResponseContext.participantIndex == responseGame.blackEngineIndex;
+        ParticipantBinding binding =
+            moveResponseContext.transaction.bindingFor(moveResponseContext.participant);
+        boolean moverIsBlack = binding != null && binding.isBlack();
+        int selectedIndex =
+            binding != null ? binding.catalogIndex() : moveResponseContext.participantIndex;
+        int maxGameMoves =
+            binding != null
+                ? binding.maxGameMoves(Board.boardWidth, Board.boardHeight)
+                : moveResponseContext.plan.resolvedMaxMoves();
         if (parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID
             && !params[1].startsWith("Passing")) {
           processCommandResponseLine(line, sourceEngineIncarnation);
@@ -4900,7 +4910,7 @@ public class Leelaz {
           finishExactEngineGameAnalysis(moveResponseContext, AnalysisGameTerminal.RESIGN);
           return;
         }
-        if (moveResponseContext.moveNumber > responseGame.getMaxGameMoves()) {
+        if (moveResponseContext.moveNumber > maxGameMoves) {
           if (!recordExactEngineGameMoveTime(moveResponseContext, false)) return;
           finishExactEngineGameAnalysis(moveResponseContext, AnalysisGameTerminal.MAX_MOVES);
           return;
@@ -4921,8 +4931,6 @@ public class Leelaz {
           boolean doublePassNow = moveResponseContext.boardNode.getData().isPassNode();
           Leelaz selectedEngine =
               moverIsBlack ? moveResponseContext.blackEngine : moveResponseContext.whiteEngine;
-          int selectedIndex =
-              moverIsBlack ? responseGame.blackEngineIndex : responseGame.whiteEngineIndex;
           EngineManager.EngineGamePostMoveToken postMove =
               EngineManager.commitEngineGameMove(
                   moveResponseContext, null, null, selectedEngine, selectedIndex);
@@ -4955,8 +4963,6 @@ public class Leelaz {
           if (!recordExactEngineGameMoveTime(moveResponseContext, true)) return;
           Leelaz selectedEngine =
               moverIsBlack ? moveResponseContext.blackEngine : moveResponseContext.whiteEngine;
-          int selectedIndex =
-              moverIsBlack ? responseGame.blackEngineIndex : responseGame.whiteEngineIndex;
           int moveX = coords.get()[0];
           int moveY = coords.get()[1];
           EngineManager.EngineGamePostMoveToken postMove =
@@ -5167,7 +5173,7 @@ public class Leelaz {
       String[] params,
       long expectedPrimaryGeneration,
       Object expectedEngineIncarnation,
-      EngineManager.EngineGameTransaction engineGameTransaction) {
+      EngineManager.EngineGameOwnerTransaction engineGameTransaction) {
     if (!(expectedEngineIncarnation instanceof ReaderStreamBinding)) {
       return StartupCommandAction.NONE;
     }
@@ -5232,7 +5238,7 @@ public class Leelaz {
       String[] params,
       long expectedPrimaryGeneration,
       Object expectedEngineIncarnation,
-      EngineManager.EngineGameTransaction engineGameTransaction) {
+      EngineManager.EngineGameOwnerTransaction engineGameTransaction) {
     // TODO Auto-generated method stub
     boolean suppressGlobalPresentation =
         suppressesGlobalEnginePresentation(expectedEngineIncarnation);
@@ -5960,7 +5966,7 @@ public class Leelaz {
     if (command == null || binding == null || !isAnalysisOutputOwnershipCommand(command.command)) {
       return false;
     }
-    EngineManager.EngineGameTransaction transaction = command.engineGameTransaction();
+    EngineManager.EngineGameOwnerTransaction transaction = command.engineGameTransaction();
     if (transaction != null && transaction.isGenmove()) {
       // Numbered engine-game genmove has its own exact response carrier. Installing an
       // unnumbered owner here would both misclassify its info and make context capture reject the
@@ -5976,7 +5982,7 @@ public class Leelaz {
             ? EngineManager.captureEngineGamePrimaryContext(this, binding)
             : null;
     return !((transaction != null && transaction.isGenmove())
-        || (currentGame != null && currentGame.gameInfo.isGenmove));
+        || (currentGame != null && currentGame.plan.genmove()));
   }
 
   private AnalysisOutputOwnershipPublication publishAnalysisOutputOwnershipAtPhysicalWrite(
@@ -5984,7 +5990,7 @@ public class Leelaz {
       ReaderStreamBinding binding,
       EngineManager.TransactionlessAnalysisWriteLease transactionlessLease,
       EngineManager.EngineGamePrimaryContext exactContext) {
-    EngineManager.EngineGameTransaction transaction = command.engineGameTransaction();
+    EngineManager.EngineGameOwnerTransaction transaction = command.engineGameTransaction();
     if (readerStreamBinding != binding || binding.terminated) {
       throw new AnalysisOutputAdmissionFailure(
           "analysis output lost its reader before physical command output");
@@ -6080,7 +6086,7 @@ public class Leelaz {
     if (isAnalysisOutputSignalLine(line)) {
       EngineManager.EngineGameMoveResponseContext moveResponse =
           pendingEngineGameMoveResponseContext(line, binding);
-      if (moveResponse != null && moveResponse.gameInfo.isGenmove) {
+      if (moveResponse != null && moveResponse.plan.genmove()) {
         return new AnalysisOutputRoute(
             EngineManager.isCurrentEngineGameMoveResponse(moveResponse)
                 ? AnalysisOutputRouteKind.GENMOVE_CURRENT
@@ -6441,14 +6447,14 @@ public class Leelaz {
                   }
                 }
                 outcome.requestAnalysisRefresh =
-                    !EngineManager.isEngineGame
+                    !EngineManager.hasPlayingEngineGameTransaction()
                         || route.acceptsExactEngineGameOutput()
                         || (!played && treatCurrentInfoAsPrimary);
                 outcome.requestAnalysisTitleUpdate = !outcome.requestAnalysisRefresh;
                 // don't follow the maxAnalyzeTime rule if we are in game
                 if (!Lizzie.frame.isPlayingAgainstLeelaz
                     && !Lizzie.frame.isAnaPlayingAgainstLeelaz
-                    && !EngineManager.isEngineGame
+                    && !EngineManager.hasPlayingEngineGameTransaction()
                     && !Lizzie.config.isAutoAna) {
                   boolean emptyBoard = Lizzie.board.getHistory().noStoneBoard();
                   if (!outOfPlayoutsLimit
@@ -6531,7 +6537,7 @@ public class Leelaz {
         || (!line.contains(" -> ") && !line.startsWith("====="))) {
       return false;
     }
-    EngineManager.EngineGameTransaction routeTransaction =
+    EngineManager.EngineGameOwnerTransaction routeTransaction =
         route.activeExactContext == null ? null : route.activeExactContext.transaction;
     AtomicBoolean refreshLoadedEngine = new AtomicBoolean();
     AtomicBoolean terminalBatch = new AtomicBoolean();
@@ -6675,7 +6681,7 @@ public class Leelaz {
   }
 
   private void parseLine(String line, Object sourceEngineIncarnation) {
-    EngineManager.EngineGameTransaction engineGameStartupTransactionAtParse =
+    EngineManager.EngineGameOwnerTransaction engineGameStartupTransactionAtParse =
         engineGameStartupTransactionForLine(line, sourceEngineIncarnation);
     if (engineGameStartupTransactionAtParse != null
         && !EngineManager.isCurrentEngineGameTransaction(
@@ -6767,8 +6773,6 @@ public class Leelaz {
             : analysisOutputRouteAtParse.activeExactContext;
     EngineManager engineManagerAtParse =
         engineGameContextAtParse == null ? null : engineGameContextAtParse.manager;
-    EngineGameInfo engineGameInfoAtParse =
-        engineGameContextAtParse == null ? null : engineGameContextAtParse.gameInfo;
     Board engineGameBoardAtParse = Lizzie.board;
     long engineGameBoardRevisionAtParse =
         engineGameBoardAtParse == null ? -1L : engineGameBoardAtParse.getContextRevision();
@@ -6800,28 +6804,21 @@ public class Leelaz {
         if ((upToDate)) {
           if (engineGameContextAtParse != null
               && engineManagerAtParse != null
-              && engineGameInfoAtParse != null
               && Lizzie.engineManager == engineManagerAtParse
-              && EngineManager.engineGameInfo == engineGameInfoAtParse
-              && engineGameInfoAtParse.blackEngineIndex >= 0
-              && engineGameInfoAtParse.blackEngineIndex < engineManagerAtParse.engineList.size()
-              && engineGameInfoAtParse.whiteEngineIndex >= 0
-              && engineGameInfoAtParse.whiteEngineIndex < engineManagerAtParse.engineList.size()) {
-            // Lizzie.frame.subBoardRenderer.reverseBestmoves = false;
-            // Lizzie.frame.boardRenderer.reverseBestmoves = false;
+              && EngineManager.isCurrentEngineGameTransaction(
+                  engineGameContextAtParse.transaction)
+              && engineGameContextAtParse.blackEngine != null
+              && engineGameContextAtParse.whiteEngine != null) {
             if (engineGamePonderRoutingAtParse) {
-              if ((engineGameBlackToPlayAtParse
-                      && this
-                          == engineManagerAtParse.engineList.get(
-                              engineGameInfoAtParse.blackEngineIndex))
-                  || !engineGameBlackToPlayAtParse
-                      && this
-                          == engineManagerAtParse.engineList.get(
-                              engineGameInfoAtParse.whiteEngineIndex)) {
+              Leelaz toMove =
+                  engineGameBlackToPlayAtParse
+                      ? engineGameContextAtParse.blackEngine
+                      : engineGameContextAtParse.whiteEngine;
+              if (this == toMove) {
                 int expectedIndex =
                     engineGameBlackToPlayAtParse
-                        ? engineGameInfoAtParse.blackEngineIndex
-                        : engineGameInfoAtParse.whiteEngineIndex;
+                        ? engineGameContextAtParse.blackIndex
+                        : engineGameContextAtParse.whiteIndex;
                 primaryPublicationAfterInfo =
                     EngineManager.prepareEngineGamePrimaryPublication(
                         engineGameContextAtParse,
@@ -6905,7 +6902,7 @@ public class Leelaz {
               }
             }
           }
-          if (!EngineManager.isEngineGame && this == Lizzie.leelaz) ponder();
+          if (!EngineManager.hasPlayingEngineGameTransaction() && this == Lizzie.leelaz) ponder();
         }
         if (line.startsWith("PDACap:")) {
           String[] params = line.trim().split(" ");
@@ -6969,7 +6966,7 @@ public class Leelaz {
                 + " autoPlaying="
                 + (Lizzie.frame != null && Lizzie.frame.isAnaPlayingAgainstLeelaz)
                 + " engineGame="
-                + EngineManager.isEngineGame());
+                + EngineManager.occupiesEngineGameAdmission());
         ReadBoardGmaResponseBinding readBoardGmaBinding = currentReadBoardGmaResponseBinding();
         ReadBoard readBoardGmaOwner =
             readBoardGmaBinding == null ? null : readBoardGmaBinding.owner;
@@ -7194,7 +7191,7 @@ public class Leelaz {
   }
 
   void afterEngineGameStartupResponseOwnershipCapturedForTest(
-      EngineManager.EngineGameTransaction transaction) {}
+      EngineManager.EngineGameOwnerTransaction transaction) {}
 
   void afterAnalysisOutputRouteCapturedForTest(String route) {}
 
@@ -7724,7 +7721,20 @@ public class Leelaz {
           oriEnginename + " " + Lizzie.resourceBundle.getString("Leelaz.resign") + "\n");
     Lizzie.board.updateComment();
     if (needPass) Lizzie.board.pass();
-    Lizzie.engineManager.stopEngineGame(currentEngineN, false);
+    EngineManager.EngineGamePrimaryContext game =
+        EngineManager.captureEngineGamePrimaryContext(this, currentEngineIncarnation());
+    if (game == null || game.participantIndex < 0) {
+      return;
+    }
+    ParticipantBinding binding = game.transaction.bindingFor(this);
+    EngineGameSide side =
+        binding != null
+            ? binding.side()
+            : (game.participantIndex == game.blackIndex
+                ? EngineGameSide.BLACK
+                : EngineGameSide.WHITE);
+    Lizzie.engineGame.complete(
+        new GameOutcome.Resign(side), game.transaction, game.participantIndex);
   }
 
   //	public void resignGame() {
@@ -7751,143 +7761,6 @@ public class Leelaz {
       AnalysisInfoSnapshot acceptedInfo) {
     if (exactGame != null) {
       notifyAutoPKExact(playImmediately, exactGame, acceptedInfo);
-      return;
-    }
-    List<MoveData> acceptedMoves =
-        acceptedInfo == null ? List.of() : acceptedInfo.moves;
-    int acceptedPlayouts = acceptedInfo == null ? 0 : acceptedInfo.totalPlayouts;
-    if (!EngineManager.isEngineGame || played || LizzieFrame.toolbar.isPkStop) {
-      return;
-    }
-    if (resigned) {
-      nameCmd();
-      isResigning = true;
-      if (Lizzie.gtpConsole.isVisible() || Lizzie.config.alwaysGtp)
-        Lizzie.gtpConsole.addLine(
-            oriEnginename + " " + Lizzie.resourceBundle.getString("Leelaz.resign") + "\n");
-      Lizzie.engineManager.stopEngineGame(currentEngineN, false);
-      return;
-    }
-    boolean shouldPlay = false;
-    int time = 0;
-    int playouts = 0;
-    int firstPlayouts = 0;
-    int minMove = 0;
-    int resginMoveCounts = 2;
-    double resignWinrate = 10.0;
-    MoveData best;
-    try {
-      best = acceptedMoves.get(0);
-    } catch (Exception e) {
-      e.printStackTrace();
-      return;
-    }
-    double curWR = best.winrate;
-    int thisIdx = currentEngineN;
-    int blackIdx = EngineManager.engineGameInfo.blackEngineIndex;
-    // int whiteIdx=Lizzie.engineManager.engineGameInfo.whiteEngineIndex;
-    boolean isBlackEngine = thisIdx == blackIdx;
-    if (isBlackEngine) {
-      time = EngineManager.engineGameInfo.timeBlack * 1000;
-      playouts = EngineManager.engineGameInfo.playoutsBlack;
-      firstPlayouts = EngineManager.engineGameInfo.firstPlayoutsBlack;
-      minMove = EngineManager.engineGameInfo.blackMinMove;
-      resginMoveCounts = EngineManager.engineGameInfo.blackResignMoveCounts;
-      resignWinrate = EngineManager.engineGameInfo.blackResignWinrate;
-    } else {
-      time = EngineManager.engineGameInfo.timeWhite * 1000;
-      playouts = EngineManager.engineGameInfo.playoutsWhite;
-      firstPlayouts = EngineManager.engineGameInfo.firstPlayoutsWhite;
-      minMove = EngineManager.engineGameInfo.whiteMinMove;
-      resginMoveCounts = EngineManager.engineGameInfo.whiteResignMoveCounts;
-      resignWinrate = EngineManager.engineGameInfo.whiteResignWinrate;
-    }
-    if (Lizzie.board.getHistory().isBlacksTurn() && !isBlackEngine
-        || !Lizzie.board.getHistory().isBlacksTurn() & isBlackEngine) return;
-    if (Lizzie.board.getHistory().getMoveNumber()
-        > EngineManager.engineGameInfo.getMaxGameMoves()) {
-      outOfMoveNum = true;
-      resigned = true;
-    }
-    if (isZen) {
-      if (Lizzie.board.getHistory().getCurrentHistoryNode().getData().moveNumber < 3)
-        shouldPlay = true;
-    }
-    if (playImmediately || playNow) shouldPlay = true;
-    if (firstPlayouts > 0 && best.playouts >= firstPlayouts) shouldPlay = true;
-    if (firstPlayouts > 0 && best.playouts >= firstPlayouts) shouldPlay = true;
-    if (playouts > 0) {
-      if (acceptedPlayouts >= playouts) shouldPlay = true;
-    }
-    if (time > 0) {
-      if (System.currentTimeMillis() - startPonderTime >= time) {
-        shouldPlay = true;
-      }
-    }
-    if (shouldPlay) {
-      played = true;
-      playNow = false;
-      if ((curWR < resignWinrate) && Lizzie.board.getHistory().getMoveNumber() > minMove) {
-        if (isBlackEngine) {
-          blackResignMoveCounts = blackResignMoveCounts + 1;
-          if (blackResignMoveCounts >= resginMoveCounts) resigned = true;
-        } else {
-          whiteResignMoveCounts = whiteResignMoveCounts + 1;
-          if (whiteResignMoveCounts >= resginMoveCounts) resigned = true;
-        }
-      } else {
-        if (isBlackEngine) blackResignMoveCounts = 0;
-        else whiteResignMoveCounts = 0;
-      }
-      if (!resigned) {
-        MoveData playMove = null;
-        if (LizzieFrame.toolbar.isRandomMove
-            && Lizzie.board.getHistory().getMoveNumber() <= LizzieFrame.toolbar.randomMove)
-          playMove =
-              this.randomBestmove(
-                  acceptedMoves, LizzieFrame.toolbar.randomDiffWinrate, false);
-        else playMove = best;
-        int coords[] = Board.convertNameToCoordinates(playMove.coordinate);
-        if (coords[0] >= 0 && coords[1] >= 0) {
-          Lizzie.board.place(coords[0], coords[1]);
-        } else {
-          if (!Lizzie.board.getLastMove().isPresent()) {
-            doublePass = true;
-            resigned = true;
-          }
-          Lizzie.board.pass();
-        }
-        if (!resigned) {
-          if (isBlackEngine) {
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.blackEngineIndex)
-                .playMoveNoPonder("B", playMove.coordinate);
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                .playMovePonder("B", playMove.coordinate);
-          } else {
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                .playMoveNoPonder("W", playMove.coordinate);
-            Lizzie.engineManager
-                .engineList
-                .get(EngineManager.engineGameInfo.blackEngineIndex)
-                .playMovePonder("W", playMove.coordinate);
-          }
-        }
-      }
-      checkForGomokuFullBoard(false);
-    }
-    if (resigned) {
-      nameCmd();
-      isResigning = true;
-      if (Lizzie.gtpConsole.isVisible() || Lizzie.config.alwaysGtp)
-        Lizzie.gtpConsole.addLine(
-            oriEnginename + " " + Lizzie.resourceBundle.getString("Leelaz.resign") + "\n");
-      Lizzie.engineManager.stopEngineGame(currentEngineN, false);
     }
   }
 
@@ -7895,10 +7768,13 @@ public class Leelaz {
       boolean playImmediately,
       EngineManager.EngineGamePrimaryContext game,
       AnalysisInfoSnapshot acceptedInfo) {
+    ParticipantBinding binding =
+        game == null ? null : game.transaction.bindingFor(game.participant);
     if (game == null
-        || game.gameInfo.isGenmove
+        || binding == null
+        || binding.playMode() == EngineGamePlayMode.GENMOVE
         || game.participant != this
-        || LizzieFrame.toolbar.isPkStop) {
+        || game.transaction.paused()) {
       return;
     }
     EngineManager.EngineGameMoveResponseContext moveContext =
@@ -7910,7 +7786,8 @@ public class Leelaz {
       finishExactEngineGameAnalysis(moveContext, AnalysisGameTerminal.RESIGN);
       return;
     }
-    if (game.moveNumber > game.gameInfo.getMaxGameMoves()) {
+    if (game.moveNumber
+        > binding.maxGameMoves(Board.boardWidth, Board.boardHeight)) {
       finishExactEngineGameAnalysis(moveContext, AnalysisGameTerminal.MAX_MOVES);
       return;
     }
@@ -7923,14 +7800,11 @@ public class Leelaz {
     } catch (RuntimeException noMove) {
       return;
     }
-    EngineGameInfo frozenGame = game.gameInfo;
-    boolean blackParticipant = game.participantIndex == game.blackIndex;
-    int timeMillis =
-        (blackParticipant ? frozenGame.timeBlack : frozenGame.timeWhite) * 1000;
-    int playoutLimit =
-        blackParticipant ? frozenGame.playoutsBlack : frozenGame.playoutsWhite;
-    int firstPlayoutLimit =
-        blackParticipant ? frozenGame.firstPlayoutsBlack : frozenGame.firstPlayoutsWhite;
+    boolean blackParticipant = binding.isBlack();
+    EngineGameSideLimits limits = binding.limits();
+    int timeMillis = limits.timeSeconds() * 1000;
+    int playoutLimit = limits.visits();
+    int firstPlayoutLimit = limits.firstMoveVisits();
     boolean shouldPlay =
         playImmediately
             || playNow
@@ -7941,14 +7815,9 @@ public class Leelaz {
     if (!shouldPlay) {
       return;
     }
-    int minMove =
-        blackParticipant ? frozenGame.blackMinMove : frozenGame.whiteMinMove;
-    int requiredResignMoves =
-        blackParticipant
-            ? frozenGame.blackResignMoveCounts
-            : frozenGame.whiteResignMoveCounts;
-    double resignWinrate =
-        blackParticipant ? frozenGame.blackResignWinrate : frozenGame.whiteResignWinrate;
+    int minMove = limits.resign().minMove();
+    int requiredResignMoves = limits.resign().consecutiveMoves();
+    double resignWinrate = limits.resign().winrate();
     AtomicBoolean resignNow = new AtomicBoolean();
     if (!EngineManager.runIfCurrentEngineGameMoveResponse(
         moveContext,
@@ -8056,8 +7925,10 @@ public class Leelaz {
         context, () -> markEngineGameAnalysisTerminal(terminal))) {
       return;
     }
-    EngineManager.stopEngineGameIfCurrent(
-        context.transaction, context.participantIndex, false);
+    Lizzie.engineGame.complete(
+        outcomeFor(terminal, context.transaction, context.participantIndex),
+        context.transaction,
+        context.participantIndex);
   }
 
   private void finishExactEngineGameAnalysis(
@@ -8068,7 +7939,28 @@ public class Leelaz {
         turn, () -> markEngineGameAnalysisTerminal(terminal))) {
       return;
     }
-    EngineManager.stopEngineGameIfCurrent(turn.transaction, participantIndex, false);
+    Lizzie.engineGame.complete(
+        outcomeFor(terminal, turn.transaction, participantIndex),
+        turn.transaction,
+        participantIndex);
+  }
+
+  private static GameOutcome outcomeFor(
+      AnalysisGameTerminal terminal,
+      EngineManager.EngineGameOwnerTransaction owner,
+      int participantIndex) {
+    return switch (terminal) {
+      case RESIGN -> {
+        ParticipantBinding black = owner.bindingForSide(true);
+        EngineGameSide side =
+            black != null && black.catalogIndex() == participantIndex
+                ? EngineGameSide.BLACK
+                : EngineGameSide.WHITE;
+        yield new GameOutcome.Resign(side);
+      }
+      case DOUBLE_PASS -> new GameOutcome.DoublePass();
+      case MAX_MOVES -> new GameOutcome.MaxMoves();
+    };
   }
 
   private void markEngineGameAnalysisTerminal(AnalysisGameTerminal terminal) {
@@ -8112,7 +8004,7 @@ public class Leelaz {
   }
 
   void boardSizeForEngineGame(
-      EngineManager.EngineGameTransaction transaction, int width, int height) {
+      EngineManager.EngineGameOwnerTransaction transaction, int width, int height) {
     if (transaction == null) {
       boardSizeForEngine(width, height);
       return;
@@ -8461,7 +8353,7 @@ public class Leelaz {
         }
         return;
       }
-      if (engineGameResponseLease != null && engineGameResponse.gameInfo.isGenmove) {
+      if (engineGameResponseLease != null && engineGameResponse.plan.genmove()) {
         if (line.contains("->")) {
           MoveData parsedMove = null;
           try {
@@ -8682,7 +8574,7 @@ public class Leelaz {
         }
       }
     } else {
-      if ((Lizzie.frame.isPlayingAgainstLeelaz || EngineManager.isEngineGame)
+      if ((Lizzie.frame.isPlayingAgainstLeelaz || EngineManager.hasPlayingEngineGameTransaction())
           && line.startsWith("MALKOVICH:")) {
         if (line.contains("PDA")) {
           Double parsedPda = null;
@@ -8716,39 +8608,15 @@ public class Leelaz {
     }
   }
 
-  private void playPassInEngineGame() {
-    // TODO Auto-generated method stub
-    played = true;
-    Lizzie.board.pass();
-    boolean isBlackEngine = currentEngineN == EngineManager.engineGameInfo.blackEngineIndex;
-    if (isBlackEngine) {
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.blackEngineIndex)
-          .playMoveNoPonder("B", "pass");
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.whiteEngineIndex)
-          .playMovePonder("B", "pass");
-    } else {
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.whiteEngineIndex)
-          .playMoveNoPonder("W", "pass");
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.blackEngineIndex)
-          .playMovePonder("W", "pass");
-    }
-  }
-
   private void playPassInEngineGame(EngineManager.EngineGamePrimaryContext game) {
     EngineManager.EngineGameMoveResponseContext moveContext =
         EngineManager.captureEngineGameAnalysisMoveContext(game);
     if (moveContext == null) {
       return;
     }
-    boolean blackParticipant = game.participantIndex == game.blackIndex;
+    ParticipantBinding binding = game.transaction.bindingFor(this);
+    boolean blackParticipant =
+        binding != null ? binding.isBlack() : game.participantIndex == game.blackIndex;
     EngineManager.EngineGamePostMoveToken postMove =
         EngineManager.commitEngineGameMove(
             moveContext, null, null, this, game.participantIndex);
@@ -8809,7 +8677,7 @@ public class Leelaz {
     if (capturedCommands.isEmpty()) {
       throw new IllegalArgumentException("commands");
     }
-    EngineManager.EngineGameTransaction startupTransaction =
+    EngineManager.EngineGameOwnerTransaction startupTransaction =
         engineGameStartupCommandContext.get();
     ReaderStreamBinding startupBinding = null;
     if (startupTransaction != null) {
@@ -8912,7 +8780,7 @@ public class Leelaz {
   private long admitStatefulOrdinaryCommandsLocked(
       List<String> commands,
       StatefulOrdinaryMutationKind mutationKind,
-      EngineManager.EngineGameTransaction startupTransaction,
+      EngineManager.EngineGameOwnerTransaction startupTransaction,
       ReaderStreamBinding commandBinding,
       RestartBootstrapReceipt bootstrapReceipt,
       OrdinaryEnqueueEffects effects,
@@ -8974,7 +8842,7 @@ public class Leelaz {
   /** Requires this endpoint/queue and successful preflight for the complete batch. */
   private void enqueueStatefulOrdinaryCommandsLocked(
       List<String> commands,
-      EngineManager.EngineGameTransaction startupTransaction,
+      EngineManager.EngineGameOwnerTransaction startupTransaction,
       ReaderStreamBinding commandBinding,
       RestartBootstrapReceipt bootstrapReceipt,
       OrdinaryEnqueueEffects effects,
@@ -9297,7 +9165,7 @@ public class Leelaz {
           endReaderLine(binding);
           continue;
         }
-        EngineManager.EngineGameTransaction startupResponseTransaction =
+        EngineManager.EngineGameOwnerTransaction startupResponseTransaction =
             engineGameStartupTransactionForLine(line, binding);
         if (startupResponseTransaction != null
             && !EngineManager.isEngineGameOutputAdmissionOpen(startupResponseTransaction)) {
@@ -9825,7 +9693,7 @@ public class Leelaz {
   }
 
   private void sendStartupPostActionCommand(String command, ReaderStreamBinding binding) {
-    EngineManager.EngineGameTransaction transaction = engineGameStartupCommandContext.get();
+    EngineManager.EngineGameOwnerTransaction transaction = engineGameStartupCommandContext.get();
     if (transaction != null && !EngineManager.isCurrentEngineGameTransaction(transaction)) {
       throw new IllegalStateException("engine-game startup transaction is no longer current");
     }
@@ -10125,8 +9993,8 @@ public class Leelaz {
   }
 
   static void runWithEngineGameStartupCommandContext(
-      EngineManager.EngineGameTransaction transaction, Runnable action) {
-    EngineManager.EngineGameTransaction previous = engineGameStartupCommandContext.get();
+      EngineManager.EngineGameOwnerTransaction transaction, Runnable action) {
+    EngineManager.EngineGameOwnerTransaction previous = engineGameStartupCommandContext.get();
     if (transaction == null) {
       engineGameStartupCommandContext.remove();
     } else {
@@ -10144,7 +10012,7 @@ public class Leelaz {
   }
 
   void sendEngineGameStartupCommandForTest(
-      String command, EngineManager.EngineGameTransaction transaction) {
+      String command, EngineManager.EngineGameOwnerTransaction transaction) {
     runWithEngineGameStartupCommandContext(transaction, () -> sendCommand(command));
   }
 
@@ -10153,12 +10021,12 @@ public class Leelaz {
   }
 
   boolean installLeela0110PonderStateForTest(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     return prepareLeela0110PonderState(transaction);
   }
 
   void sendLeela0110PonderCommandForTest(
-      String command, EngineManager.EngineGameTransaction transaction) {
+      String command, EngineManager.EngineGameOwnerTransaction transaction) {
     Leela0110PonderCommandOwner commandOwner = leela0110PonderCommandOwner(transaction);
     if (commandOwner == null) {
       throw new IllegalStateException("Leela0110 ponder state is not current");
@@ -10171,7 +10039,7 @@ public class Leelaz {
   }
 
   boolean hasLeela0110PonderStateForTest(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     synchronized (leela0110PonderStateLock) {
       return leela0110PonderingTimer != null
           && leela0110PonderingBoardData != null
@@ -10247,7 +10115,7 @@ public class Leelaz {
 
   void sendEngineGameStartupCommandWithResponseForTest(
       String command,
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       Runnable onResponse) {
     runWithEngineGameStartupCommandContext(
         transaction, () -> sendCommand(command, onResponse));
@@ -10485,7 +10353,7 @@ public class Leelaz {
       QueuedCommandSettlement settlement,
       boolean rejectForExclusiveWinner,
       ReaderStreamBinding readBoardGmaResponseBinding) {
-    EngineManager.EngineGameTransaction startupTransaction =
+    EngineManager.EngineGameOwnerTransaction startupTransaction =
         engineGameStartupCommandContext.get();
     if (settlement == null
         && startupTransaction != null
@@ -10671,7 +10539,7 @@ public class Leelaz {
     RestartBootstrapReceipt bootstrapReceipt = restartBootstrapReceiptContext.get();
     RestartBootstrapReceipt mirroredBootstrapReceipt =
         mirroredEngine.restartBootstrapReceiptContext.get();
-    EngineManager.EngineGameTransaction startupTransactionAtAdmission =
+    EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission =
         engineGameStartupCommandContext.get();
     OrdinaryEnqueueEffects effects = new OrdinaryEnqueueEffects();
     OrdinaryEnqueueEffects mirroredEffects = mirroredEngine.new OrdinaryEnqueueEffects();
@@ -10762,7 +10630,7 @@ public class Leelaz {
       Object expectedLeela0110StateToken) {
     ArrayDeque<QueuedCommand> currentQueue = commandQueue();
     RestartBootstrapReceipt bootstrapReceipt = restartBootstrapReceiptContext.get();
-    EngineManager.EngineGameTransaction startupTransactionAtAdmission =
+    EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission =
         engineGameStartupCommandContext.get();
     if (Thread.holdsLock(currentQueue)
         && exclusiveGtpSession == null
@@ -10852,7 +10720,7 @@ public class Leelaz {
       ReaderStreamBinding readBoardGmaResponseBinding,
       Object expectedLeela0110StateToken,
       RestartBootstrapReceipt bootstrapReceipt,
-      EngineManager.EngineGameTransaction startupTransactionAtAdmission) {
+      EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission) {
     if (shouldDropStaleForegroundRestoreCommand()
         || shouldSuppressNormalCommandForForegroundAnalysis()
         || shouldDropCommandDuringInitialBoardSynchronizationAtAdmission(command)
@@ -11497,7 +11365,7 @@ public class Leelaz {
         }
       }
     }
-    EngineManager.EngineGameTransaction startupTransaction =
+    EngineManager.EngineGameOwnerTransaction startupTransaction =
         engineGameStartupCommandContext.get();
     ReaderStreamBinding startupBinding =
         startupTransaction == null ? null : currentReaderStreamBinding();
@@ -11794,7 +11662,7 @@ public class Leelaz {
       boolean publishesAnalysisOutputOwnership =
           shouldPublishAnalysisOutputOwnership(queuedCommand, outputBinding);
       boolean startsAnalysisInfoPayload = startsNewAnalysisInfoPayload(command);
-      EngineManager.EngineGameTransaction analysisOutputTransaction =
+      EngineManager.EngineGameOwnerTransaction analysisOutputTransaction =
           queuedCommand.engineGameTransaction();
       try {
         // Canonical physical-write order is transaction/global admission -> short selection
@@ -12018,13 +11886,13 @@ public class Leelaz {
         }
         queuedCommand.publishWriteCompleted();
       }
-      if (EngineManager.isEngineGame()) {
+      if (EngineManager.occupiesEngineGameAdmission()) {
         int commandNumber = commandNumberSnapshot();
         Lizzie.gtpConsole.addCommandForEngineGame(
             command,
             commandNumber,
             oriEnginename,
-            EngineManager.engineGameInfo.isBlackEngine(currentEngineN()));
+            EngineManager.isActiveBlackParticipant(this));
 
       } else if (Lizzie.gtpConsole != null
           && ((Lizzie.config != null && Lizzie.config.alwaysGtp)
@@ -12115,7 +11983,7 @@ public class Leelaz {
    * the engine, so its unnumbered output must remain quarantined under the old carrier until the
    * exact terminal response drains or the reader binding is replaced.
    */
-  void cancelEngineGameRequests(EngineManager.EngineGameTransaction transaction) {
+  void cancelEngineGameRequests(EngineManager.EngineGameOwnerTransaction transaction) {
     if (transaction == null) {
       return;
     }
@@ -12179,7 +12047,7 @@ public class Leelaz {
 
   private void cancelQueuedEngineGameRequests(
       ArrayDeque<QueuedCommand> queue,
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       RuntimeException failure,
       List<QueuedCommand> cancelled) {
     Iterator<QueuedCommand> iterator = queue.iterator();
@@ -12193,7 +12061,7 @@ public class Leelaz {
 
   private boolean cancelEngineGameRequestBeforeWrite(
       QueuedCommand command,
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       RuntimeException failure,
       List<QueuedCommand> cancelled) {
     if (command == null || !command.belongsToEngineGameTransaction(transaction)) {
@@ -12885,7 +12753,7 @@ public class Leelaz {
   }
 
   /** Freezes the exact engine-game startup owner before the parser dispatches post-name work. */
-  private EngineManager.EngineGameTransaction engineGameStartupTransactionForLine(
+  private EngineManager.EngineGameOwnerTransaction engineGameStartupTransactionForLine(
       String line, Object sourceEngineIncarnation) {
     if (!(sourceEngineIncarnation instanceof ReaderStreamBinding)) {
       return null;
@@ -13084,7 +12952,7 @@ public class Leelaz {
               receipt != null
                   && (responseBinding != receipt.binding
                       || !isCurrentRestartBootstrapReceiptLocked(receipt));
-          EngineManager.EngineGameTransaction startupTransaction =
+          EngineManager.EngineGameOwnerTransaction startupTransaction =
               matchedPendingHandler == null
                   ? null
                   : matchedPendingHandler.queuedCommand.engineGameStartupTransaction();
@@ -13556,7 +13424,7 @@ public class Leelaz {
         && Lizzie.frame.readBoard.isReadBoardGmaEngineBusy()) {
       return ExclusiveGtpLeaseAvailability.READBOARD_GMA;
     }
-    if (EngineManager.isEngineGame()) {
+    if (EngineManager.occupiesEngineGameAdmission()) {
       return ExclusiveGtpLeaseAvailability.ENGINE_GAME;
     }
     if (isThinking || isInputCommand) {
@@ -15345,7 +15213,7 @@ public class Leelaz {
     return isLoaded()
         && isStarted()
         && !isThinking
-        && !EngineManager.isEngineGame()
+        && !EngineManager.occupiesEngineGameAdmission()
         && (Lizzie.frame == null
             || (!Lizzie.frame.isPlayingAgainstLeelaz
                 && !Lizzie.frame.isAnaPlayingAgainstLeelaz
@@ -16211,13 +16079,13 @@ public class Leelaz {
       return state.get() == WRITE_CLAIMED;
     }
 
-    private boolean belongsTo(EngineManager.EngineGameTransaction transaction) {
+    private boolean belongsTo(EngineManager.EngineGameOwnerTransaction transaction) {
       return context.transaction == transaction;
     }
 
     /** A RESERVED request has emitted no bytes and can be retired without poisoning the stream. */
     private boolean cancelBeforePhysicalWrite(
-        EngineManager.EngineGameTransaction transaction) {
+        EngineManager.EngineGameOwnerTransaction transaction) {
       return belongsTo(transaction) && state.compareAndSet(RESERVED, SETTLED);
     }
 
@@ -18032,11 +17900,11 @@ public class Leelaz {
       }
     }
 
-    private EngineManager.EngineGameTransaction engineGameTransaction() {
+    private EngineManager.EngineGameOwnerTransaction engineGameTransaction() {
       return engineGamePermit == null ? null : engineGamePermit.transaction;
     }
 
-    private boolean belongsTo(EngineManager.EngineGameTransaction transaction) {
+    private boolean belongsTo(EngineManager.EngineGameOwnerTransaction transaction) {
       return engineGamePermit != null && engineGamePermit.belongsTo(transaction);
     }
 
@@ -18044,7 +17912,7 @@ public class Leelaz {
       return engineGamePermit != null && engineGamePermit.isPhysicalWriteClaimed();
     }
 
-    private void cancelBeforePhysicalWrite(EngineManager.EngineGameTransaction transaction) {
+    private void cancelBeforePhysicalWrite(EngineManager.EngineGameOwnerTransaction transaction) {
       if (engineGamePermit != null) {
         engineGamePermit.cancelBeforePhysicalWrite(transaction);
       }
@@ -18135,7 +18003,7 @@ public class Leelaz {
       this.binding = binding;
     }
 
-    private boolean belongsTo(EngineManager.EngineGameTransaction transaction) {
+    private boolean belongsTo(EngineManager.EngineGameOwnerTransaction transaction) {
       return turn != null && turn.transaction == transaction;
     }
 
@@ -18143,7 +18011,7 @@ public class Leelaz {
       return state.get() == WRITE_CLAIMED;
     }
 
-    private void cancelBeforePhysicalWrite(EngineManager.EngineGameTransaction transaction) {
+    private void cancelBeforePhysicalWrite(EngineManager.EngineGameOwnerTransaction transaction) {
       if (belongsTo(transaction)) {
         state.compareAndSet(RESERVED, SETTLED);
       }
@@ -18213,7 +18081,7 @@ public class Leelaz {
     private static final int SETTLED = 2;
 
     private final Leelaz owner;
-    private final EngineManager.EngineGameTransaction transaction;
+    private final EngineManager.EngineGameOwnerTransaction transaction;
     private final ReaderStreamBinding binding;
     private final boolean ordinaryBootstrap;
     private final boolean failTransactionOnGtpError;
@@ -18223,14 +18091,14 @@ public class Leelaz {
 
     private EngineGameStartupCommandPermit(
         Leelaz owner,
-        EngineManager.EngineGameTransaction transaction,
+        EngineManager.EngineGameOwnerTransaction transaction,
         ReaderStreamBinding binding) {
       this(owner, transaction, binding, false, true);
     }
 
     private EngineGameStartupCommandPermit(
         Leelaz owner,
-        EngineManager.EngineGameTransaction transaction,
+        EngineManager.EngineGameOwnerTransaction transaction,
         ReaderStreamBinding binding,
         boolean ordinaryBootstrap,
         boolean failTransactionOnGtpError) {
@@ -18241,7 +18109,7 @@ public class Leelaz {
       this.failTransactionOnGtpError = failTransactionOnGtpError;
     }
 
-    private boolean belongsTo(EngineManager.EngineGameTransaction expected) {
+    private boolean belongsTo(EngineManager.EngineGameOwnerTransaction expected) {
       return transaction == expected;
     }
 
@@ -18249,7 +18117,7 @@ public class Leelaz {
       return state.get() == WRITE_CLAIMED;
     }
 
-    private void cancelBeforePhysicalWrite(EngineManager.EngineGameTransaction expected) {
+    private void cancelBeforePhysicalWrite(EngineManager.EngineGameOwnerTransaction expected) {
       if (belongsTo(expected)) {
         state.compareAndSet(RESERVED, SETTLED);
       }
@@ -18422,7 +18290,7 @@ public class Leelaz {
           && ((EngineGameStartupCommandPermit) settlement).ordinaryBootstrap;
     }
 
-    private EngineManager.EngineGameTransaction engineGameTransaction() {
+    private EngineManager.EngineGameOwnerTransaction engineGameTransaction() {
       if (onResponse instanceof EngineGameResponseHandler) {
         return ((EngineGameResponseHandler) onResponse).context.transaction;
       }
@@ -18439,7 +18307,7 @@ public class Leelaz {
           : null;
     }
 
-    private EngineManager.EngineGameTransaction engineGameStartupTransaction() {
+    private EngineManager.EngineGameOwnerTransaction engineGameStartupTransaction() {
       if (settlement instanceof EngineGameStartupCommandPermit) {
         return ((EngineGameStartupCommandPermit) settlement).transaction;
       }
@@ -18508,7 +18376,7 @@ public class Leelaz {
     }
 
     private boolean belongsToEngineGameTransaction(
-        EngineManager.EngineGameTransaction transaction) {
+        EngineManager.EngineGameOwnerTransaction transaction) {
       if (onResponse instanceof EngineGameResponseHandler
           && ((EngineGameResponseHandler) onResponse).belongsTo(transaction)) {
         return true;
@@ -18539,7 +18407,7 @@ public class Leelaz {
     }
 
     private void cancelEngineGameBeforePhysicalWrite(
-        EngineManager.EngineGameTransaction transaction) {
+        EngineManager.EngineGameOwnerTransaction transaction) {
       if (onResponse instanceof EngineGameResponseHandler) {
         ((EngineGameResponseHandler) onResponse).cancelBeforePhysicalWrite(transaction);
       }
@@ -18815,7 +18683,7 @@ public class Leelaz {
     return Lizzie.frame != null
         && (Lizzie.frame.isPlayingAgainstLeelaz
             || Lizzie.frame.isAnaPlayingAgainstLeelaz
-            || EngineManager.isEngineGame());
+            || EngineManager.occupiesEngineGameAdmission());
   }
 
   private boolean isResponseUpToPreDate() {
@@ -20918,7 +20786,7 @@ public class Leelaz {
   }
 
   boolean genmoveForPk(
-      String color, EngineManager.EngineGameTransaction transaction) {
+      String color, EngineManager.EngineGameOwnerTransaction transaction) {
     return genmoveForPk(color, transaction, null);
   }
 
@@ -20928,24 +20796,15 @@ public class Leelaz {
 
   private boolean genmoveForPk(
       String color,
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       EngineManager.EngineGamePostMoveToken turn) {
     if (rejectNewExclusiveWorkDuringGtpLease()) return false;
-    if (LizzieFrame.toolbar.isPkStop) {
-      LizzieFrame.toolbar.isPkGenmoveStop = true;
-      if (color.equals("B")) {
-        LizzieFrame.toolbar.isPkStopGenmoveB = true;
-      } else {
-        LizzieFrame.toolbar.isPkStopGenmoveB = false;
-      }
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.whiteEngineIndex)
-          .nameCmdfornoponder();
-      Lizzie.engineManager
-          .engineList
-          .get(EngineManager.engineGameInfo.blackEngineIndex)
-          .nameCmdfornoponder();
+    if (transaction != null && transaction.paused()) {
+      EngineGameSide pending =
+          "B".equalsIgnoreCase(color) ? EngineGameSide.BLACK : EngineGameSide.WHITE;
+      transaction.recordPendingGenmoveSide(pending);
+      transaction.whiteEngine().nameCmdfornoponder();
+      transaction.blackEngine().nameCmdfornoponder();
       return false;
     }
     String command =
@@ -21147,7 +21006,7 @@ public class Leelaz {
     stopByPlayouts = false;
     stopByLimit = false;
     startPonderTime = System.currentTimeMillis();
-    if (EngineManager.isEngineGame) pkMoveStartTime = startPonderTime;
+    if (EngineManager.hasPlayingEngineGameTransaction()) pkMoveStartTime = startPonderTime;
     if (!Lizzie.config.playponder && Lizzie.frame.isPlayingAgainstLeelaz) {
       return;
     }
@@ -21787,7 +21646,7 @@ public class Leelaz {
         && Lizzie.config != null
         && !Lizzie.config.autoCheckEngineAlive
         && Lizzie.engineManager != null
-        && EngineManager.isEngineGame())
+        && EngineManager.occupiesEngineGameAdmission())
       Lizzie.engineManager.clearEngineGame();
     if (GraphicsEnvironment.isHeadless()) return;
     if (engineFailedMessage != null && engineFailedMessage.isVisible()) return;
@@ -22351,7 +22210,7 @@ public class Leelaz {
   }
 
   private void leela0110Ponder(
-      boolean first, EngineManager.EngineGameTransaction transaction) {
+      boolean first, EngineManager.EngineGameOwnerTransaction transaction) {
     if (first)
       if (Lizzie.config.isDoubleEngineMode()) {
         if (Lizzie.leelaz2 != null && this != Lizzie.leelaz2) {
@@ -22375,7 +22234,7 @@ public class Leelaz {
   }
 
   private boolean prepareLeela0110PonderState(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     long initialAnalysisInfoEpoch = analysisInfoEpochSnapshot();
     leela0110PonderPhysicalWriteLock.lock();
     try {
@@ -22436,7 +22295,7 @@ public class Leelaz {
   }
 
   void cancelLeela0110PonderForEngineGameTransaction(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     leela0110PonderPhysicalWriteLock.lock();
     try {
       synchronized (leela0110PonderStateLock) {
@@ -22466,7 +22325,7 @@ public class Leelaz {
   }
 
   private Leela0110PonderCommandOwner leela0110PonderCommandOwner(
-      EngineManager.EngineGameTransaction transaction) {
+      EngineManager.EngineGameOwnerTransaction transaction) {
     synchronized (leela0110PonderStateLock) {
       return leela0110PonderingTransaction == transaction
               && leela0110PonderingBinding != null
@@ -22481,7 +22340,7 @@ public class Leelaz {
 
   private boolean isCurrentLeela0110PonderState(
       ReaderStreamBinding binding,
-      EngineManager.EngineGameTransaction transaction,
+      EngineManager.EngineGameOwnerTransaction transaction,
       Object stateToken) {
     synchronized (leela0110PonderStateLock) {
       return binding != null
@@ -22511,7 +22370,7 @@ public class Leelaz {
     if (route == null) {
       return;
     }
-    EngineManager.EngineGameTransaction transaction =
+    EngineManager.EngineGameOwnerTransaction transaction =
         route.activeExactContext == null ? null : route.activeExactContext.transaction;
     runIfCurrentAnalysisOutputRoute(
         route,

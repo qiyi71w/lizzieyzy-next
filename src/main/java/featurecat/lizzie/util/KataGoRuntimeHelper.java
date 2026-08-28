@@ -3012,7 +3012,7 @@ public final class KataGoRuntimeHelper {
           && currentEngine.isKatago
           && Lizzie.engineManager != null
           && !EngineManager.isEmpty
-          && !EngineManager.isEngineGame) {
+          && !EngineManager.occupiesEngineGameAdmission()) {
         try {
           boolean pauseByShutdown;
           synchronized (BENCHMARK_ANALYSIS_PAUSE_LOCK) {

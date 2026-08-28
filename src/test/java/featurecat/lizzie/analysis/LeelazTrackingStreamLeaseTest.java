@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
@@ -2435,14 +2436,24 @@ class LeelazTrackingStreamLeaseTest {
   @Test
   void trackingAdmissionRejectsForegroundBusinessOwners() throws Exception {
     try (TestState state = TestState.open(reusableLocalKatago())) {
-      EngineManager.isEngineGame = true;
-      assertEquals(
-          Leelaz.ExclusiveGtpLeaseAvailability.ENGINE_GAME,
-          state
-              .engine
-              .acquireTrackingStreamLease(line -> {}, lease -> {}, lease -> {})
-              .availability());
-      EngineManager.isEngineGame = false;
+      EngineManager previousManager = Lizzie.engineManager;
+      Leelaz dummy = new Leelaz("");
+      EngineManager manager = new EngineManager(List.of(state.engine, dummy));
+      try {
+        Lizzie.engineManager = manager;
+        EngineManager.resetEngineGameTransactionStateForTest();
+        EngineManager.beginEngineGameTransaction(
+            manager, EngineGamePlans.harness(0, 1, false), null, true);
+        assertEquals(
+            Leelaz.ExclusiveGtpLeaseAvailability.ENGINE_GAME,
+            state
+                .engine
+                .acquireTrackingStreamLease(line -> {}, lease -> {}, lease -> {})
+                .availability());
+      } finally {
+        EngineManager.resetEngineGameTransactionStateForTest();
+        Lizzie.engineManager = previousManager;
+      }
 
       state.engine.isThinking = true;
       assertEquals(
@@ -3320,8 +3331,6 @@ class LeelazTrackingStreamLeaseTest {
     private final Config previousConfig;
     private final GtpConsolePane previousGtpConsole;
     private final Menu previousMenu;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
     private final Leelaz engine;
     private final ByteArrayOutputStream output;
     private final RecordingMenu menu;
@@ -3332,8 +3341,6 @@ class LeelazTrackingStreamLeaseTest {
       previousConfig = Lizzie.config;
       previousGtpConsole = Lizzie.gtpConsole;
       previousMenu = LizzieFrame.menu;
-      previousEngineGame = EngineManager.isEngineGame;
-      previousPreEngineGame = EngineManager.isPreEngineGame;
       this.engine = engine;
       output = installOutput(engine);
       Lizzie.leelaz = engine;
@@ -3343,8 +3350,6 @@ class LeelazTrackingStreamLeaseTest {
       menu = allocate(RecordingMenu.class);
       menu.transitions = new ArrayList<>();
       LizzieFrame.menu = menu;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
     }
 
     private static TestState open(Leelaz engine) throws Exception {
@@ -3359,8 +3364,6 @@ class LeelazTrackingStreamLeaseTest {
       Lizzie.config = previousConfig;
       Lizzie.gtpConsole = previousGtpConsole;
       LizzieFrame.menu = previousMenu;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 }

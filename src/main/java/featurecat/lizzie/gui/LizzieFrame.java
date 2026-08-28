@@ -29,6 +29,8 @@ import featurecat.lizzie.analysis.TrackingAnalysisController;
 import featurecat.lizzie.analysis.WholeGameAnalysisPlan;
 import featurecat.lizzie.analysis.WholeGameAnalysisSession;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.logging.SgfObservation;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
@@ -1015,7 +1017,7 @@ public class LizzieFrame extends JFrame {
               if (RightClickMenu2 != null && RightClickMenu2.isVisible()) return;
               undoForRightClick();
             } else {
-              if (!EngineManager.isEngineGame)
+              if (!EngineGamePresentation.current().playing())
                 variationTree.onClicked(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
               renderVarTree(0, 0, false, false);
             }
@@ -3323,7 +3325,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void tryPlay(boolean needRefresh) {
-    if (EngineManager.isEngineGame || EngineManager.isPreEngineGame) return;
+    if (EngineGamePresentation.current().startingOrPlaying()) return;
     if (floatBoard != null && floatBoard.isVisible() && floatBoard.editMode)
       floatBoard.changeEetEditMode();
     if (!isTrying) {
@@ -4156,7 +4158,7 @@ public class LizzieFrame extends JFrame {
 
   public static void saveFile(boolean savingRaw) {
     boolean pondering = false;
-    if (Lizzie.leelaz.isPondering() && !EngineManager.isEngineGame) {
+    if (Lizzie.leelaz.isPondering() && !EngineGamePresentation.current().playing()) {
       pondering = true;
       Lizzie.leelaz.togglePonder();
     }
@@ -4952,7 +4954,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void loadFile(File file, boolean fromTemp, boolean showHint) {
-    if (EngineManager.isEngineGame() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
+    if (EngineGamePresentation.current().startingOrPlaying() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.openFileFailed.inGame"));
       return;
     }
@@ -7250,7 +7252,8 @@ public class LizzieFrame extends JFrame {
     Optional<BoardHistoryNode> previous =
         Lizzie.board.getHistory().getCurrentHistoryNode().previous();
     BoardData curData = Lizzie.board.getHistory().getCurrentHistoryNode().getData();
-    if (EngineManager.isEngineGame && Lizzie.board.getHistory().getMoveNumber() > 3) {
+    EngineGameSnapshot engineGame = EngineGamePresentation.current();
+    if (engineGame.playing() && Lizzie.board.getHistory().getMoveNumber() > 3) {
       previous = Lizzie.board.getHistory().getCurrentHistoryNode().previous().get().previous();
     } else if (isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz)
       if (Lizzie.board.getHistory().isBlacksTurn() == playerIsBlack && previous.isPresent()) {
@@ -7273,7 +7276,7 @@ public class LizzieFrame extends JFrame {
         }
       }
     }
-    if (EngineManager.isEngineGame && Lizzie.board.getHistory().getMoveNumber() > 3) {
+    if (engineGame.playing() && Lizzie.board.getHistory().getMoveNumber() > 3) {
       lastWR = 100 - lastWR;
     }
     // Leelaz.WinrateStats stats = Lizzie.leelaz.getWinrateStats();
@@ -7331,15 +7334,14 @@ public class LizzieFrame extends JFrame {
     //      text = "";
     //    }
     boolean isKataStyle = false;
+    Leelaz engineGameBlack = EngineGamePresentation.blackEngine(engineGame);
+    Leelaz engineGameWhite = EngineGamePresentation.whiteEngine(engineGame);
     if (curData.isKataData
         || curData.isSaiData
         || (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && !EngineManager.isEmpty)
-        || (EngineManager.isEngineGame
-            && (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                    .isKatago
-                || Lizzie.engineManager.engineList.get(
-                        EngineManager.engineGameInfo.whiteEngineIndex)
-                    .isKatago))) {
+        || (engineGame.playing()
+            && ((engineGameBlack != null && engineGameBlack.isKatago)
+                || (engineGameWhite != null && engineGameWhite.isKatago)))) {
       isKataStyle = true;
       if (!curData.bestMoves.isEmpty()) {
         double score = curData.bestMoves.get(0).scoreMean;
@@ -7363,7 +7365,7 @@ public class LizzieFrame extends JFrame {
               + String.format(Locale.ENGLISH, "%.1f", scoreLead);
       if (Lizzie.config.isThinkingMode() || Lizzie.config.isFourSubMode())
         text += " (±" + String.format(Locale.ENGLISH, "%.1f", curData.scoreStdev) + ")";
-      if (EngineManager.isEngineGame && !Lizzie.leelaz.isSai)
+      if (engineGame.playing() && !Lizzie.leelaz.isSai)
         text =
             text
                 + " "
@@ -7381,7 +7383,7 @@ public class LizzieFrame extends JFrame {
               + Lizzie.resourceBundle.getString("LizzieFrame.komi")
               + Lizzie.leelaz.komi;
     }
-    if (EngineManager.isEngineGame) {
+    if (engineGame.playing()) {
       drawString(
           g,
           posX,
@@ -7402,7 +7404,7 @@ public class LizzieFrame extends JFrame {
         text += "(#" + lastNo + ")";
       } else text += "(#  )";
       text += ": " + ((wr > 0 ? "+" : "-") + String.format(Locale.ENGLISH, "%.1f%%", Math.abs(wr)));
-      if (isKataStyle && !EngineManager.isEngineGame) {
+      if (isKataStyle && !engineGame.playing()) {
         text +=
             " "
                 + ((score > 0 ? "+" : "-") + String.format(Locale.ENGLISH, "%.1f", Math.abs(score)))
@@ -7534,17 +7536,16 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean shouldDrawMoveNumberDown() {
-    if (EngineManager.isEngineGame) {
-      if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-              .isKatago
-          && Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                  .usingSpecificRules
-              > 0) return true;
-      if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-              .isKatago
-          && Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                  .usingSpecificRules
-              > 0) return true;
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    if (snapshot.playing()) {
+      Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
+      if (whiteEngine != null
+          && whiteEngine.isKatago
+          && whiteEngine.usingSpecificRules > 0) return true;
+      Leelaz blackEngine = EngineGamePresentation.blackEngine(snapshot);
+      if (blackEngine != null
+          && blackEngine.isKatago
+          && blackEngine.usingSpecificRules > 0) return true;
     }
     if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && Lizzie.leelaz.usingSpecificRules > 0)
       return true;
@@ -7665,7 +7666,7 @@ public class LizzieFrame extends JFrame {
     double blackValue = 0;
     double whiteValue = 0;
     if (!isInPlayMode()) {
-      if (!EngineManager.isEngineGame) {
+      if (!EngineGamePresentation.current().playing()) {
         BoardHistoryNode node = Lizzie.board.getHistory().getCurrentHistoryNode();
         if (node.nodeInfo.analyzedMatchValue) {
           if (node.nodeInfo.isBlack) {
@@ -7781,13 +7782,12 @@ public class LizzieFrame extends JFrame {
     String moveOrRules = "";
     boolean usingSpecificRues = false;
     Leelaz leela = null;
-    if (EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove)
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    if (snapshot.playingGenmove())
       leela =
-          Lizzie.board.getHistory().isBlacksTurn()
-              ? Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-              : Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex);
+          EngineGamePresentation.sideToMoveEngine(
+              snapshot, Lizzie.board.getHistory().isBlacksTurn());
     else leela = Lizzie.leelaz;
-    // ||(Lizzie.engineManager.isEngineGame&&Lizzie.engineManager.engineGameInfo.isGenmove)
     if (leela != null && leela.isKatago && !EngineManager.isEmpty) {
       switch (leela.usingSpecificRules) {
         case 1:
@@ -7921,7 +7921,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean canEnterSetupMode() {
-    if (EngineManager.isEngineGame()) {
+    if (EngineGamePresentation.current().startingOrPlaying()) {
       return false;
     }
     EngineFollowController controller = Lizzie.engineFollowController;
@@ -8196,7 +8196,7 @@ public class LizzieFrame extends JFrame {
     // }
     if (shouldShowSimpleVariation()
         && Lizzie.config.showVariationGraph
-        && !EngineManager.isEngineGame) {
+        && !EngineGamePresentation.current().playing()) {
       variationTreeBig.onClicked(x, y);
     }
   }
@@ -8442,7 +8442,8 @@ public class LizzieFrame extends JFrame {
   public List<MoveData> getBestMoves() {
     if (Lizzie.board != null && Lizzie.board.isSetupMode()) return new ArrayList<>();
     List<MoveData> bestMoves;
-    if (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame) {
+    if (EngineGamePresentation.current().playing()
+        && Lizzie.config.showPreviousBestmovesInEngineGame) {
       if (Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent())
         bestMoves =
             Lizzie.board.getHistory().getCurrentHistoryNode().previous().get().getData().bestMoves;
@@ -9181,25 +9182,22 @@ public class LizzieFrame extends JFrame {
   private void setComment(boolean needReaddText) {
     boolean isLoadingEngine = false;
     boolean isTuningEngine = false;
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    Leelaz blackEngine = EngineGamePresentation.blackEngine(snapshot);
+    Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
     if (((Lizzie.leelaz != null && !Lizzie.leelaz.isLoaded())
-        || (EngineManager.isPreEngineGame
-            && (!Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                    .isLoaded()
-                || !Lizzie.engineManager
-                    .engineList
-                    .get(EngineManager.engineGameInfo.blackEngineIndex)
-                    .isLoaded())))) isLoadingEngine = true;
+        || (snapshot.starting()
+            && (blackEngine == null
+                || !blackEngine.isLoaded()
+                || whiteEngine == null
+                || !whiteEngine.isLoaded())))) isLoadingEngine = true;
     if (isLoadingEngine) {
       if ((Lizzie.leelaz != null && Lizzie.leelaz.isTuning)
-          || (EngineManager.isPreEngineGame
-              && (!Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.whiteEngineIndex)
-                      .isTuning
-                  || !Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.blackEngineIndex)
-                      .isTuning))) {
+          || (snapshot.starting()
+              && (blackEngine == null
+                  || !blackEngine.isTuning
+                  || whiteEngine == null
+                  || !whiteEngine.isTuning))) {
         isTuningEngine = true;
       }
     }
@@ -9219,7 +9217,7 @@ public class LizzieFrame extends JFrame {
             comment += Lizzie.resourceBundle.getString("LizzieFrame.display.tuning");
         }
       } else {
-        if (EngineManager.isEngineGame
+        if (snapshot.playing()
             && Lizzie.config.showPreviousBestmovesInEngineGame
             && Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent())
           comment =
@@ -9227,7 +9225,7 @@ public class LizzieFrame extends JFrame {
         else {
           if (Lizzie.board.getHistory().getData().comment.equals("")) {
             if (((Lizzie.leelaz != null && Lizzie.leelaz.isPondering())
-                    || EngineManager.isEngineGame
+                    || snapshot.playing()
                     || Lizzie.frame.isPlayingAgainstLeelaz)
                 && Lizzie.config.appendWinrateToComment
                 && Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent())
@@ -9240,25 +9238,24 @@ public class LizzieFrame extends JFrame {
                       .getData()
                       .comment;
           } else comment = Lizzie.board.getHistory().getData().comment;
-          if (EngineManager.isEngineGame) {
+          if (snapshot.playing()) {
             int index =
                 comment.indexOf("\n" + Lizzie.resourceBundle.getString("SGFParse.moveTime"));
             if (index > 0) comment = comment.substring(0, index);
           }
         }
       }
-      if (EngineManager.isEngineGame && !Lizzie.config.showPreviousBestmovesInEngineGame) {
+      if (snapshot.playing() && !Lizzie.config.showPreviousBestmovesInEngineGame) {
+        Leelaz clockEngine =
+            EngineGamePresentation.sideToMoveEngine(
+                snapshot, Lizzie.board.getHistory().isBlacksTurn());
         comment =
             comment
                 + (comment.equals("") ? "" : "\n")
                 + Lizzie.resourceBundle.getString("SGFParse.moveTime")
                 + (System.currentTimeMillis()
-                        - (EngineManager.engineGameInfo.isGenmove
-                            ? (Lizzie.engineManager.engineList.get(
-                                    Lizzie.board.getHistory().isBlacksTurn()
-                                        ? EngineManager.engineGameInfo.blackEngineIndex
-                                        : EngineManager.engineGameInfo.whiteEngineIndex)
-                                .pkMoveStartTime)
+                        - (snapshot.playingGenmove() && clockEngine != null
+                            ? clockEngine.pkMoveStartTime
                             : Lizzie.leelaz.getStartPonderTime()))
                     / 1000
                 + Lizzie.resourceBundle.getString("SGFParse.seconds");
@@ -9311,7 +9308,7 @@ public class LizzieFrame extends JFrame {
   public void appendComment() {
     if (Lizzie.config.showComment) {
       if (!EngineManager.isEmpty) {
-        if (Lizzie.config.appendWinrateToComment || EngineManager.isEngineGame) {
+        if (Lizzie.config.appendWinrateToComment || EngineGamePresentation.current().playing()) {
           long currentTime = System.currentTimeMillis();
           if (autoIntervalCom > 0 && currentTime - lastAutocomTime >= autoIntervalCom) {
             lastAutocomTime = currentTime;
@@ -9328,7 +9325,7 @@ public class LizzieFrame extends JFrame {
               //     }
               if (!Lizzie.leelaz.isPondering()
                   && !isPlayingAgainstLeelaz
-                  && !EngineManager.isEngineGame
+                  && !EngineGamePresentation.current().playing()
                   && !(Lizzie.board.getHistory().getData().comment).equals(comment)) refresh();
             }
           }
@@ -9339,7 +9336,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private void autosaveMaybe() {
-    if (Lizzie.config.autoSaveOnExit && !EngineManager.isEngineGame) {
+    if (Lizzie.config.autoSaveOnExit && !EngineGamePresentation.current().playing()) {
       autosaveTime++;
       if (autosaveTime >= 60) {
         autosaveTime = 0;
@@ -9380,16 +9377,14 @@ public class LizzieFrame extends JFrame {
       return;
     }
     StringBuilder sb = new StringBuilder();
-    if ((EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove)) {
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    if (snapshot.playingGenmove()) {
+      Leelaz thinkingEngine =
+          EngineGamePresentation.sideToMoveEngine(
+              snapshot, Lizzie.board.getHistory().getData().blackToPlay);
       sb.append(DEFAULT_TITLE + "-");
       sb.append(
-          (Lizzie.board.getHistory().getData().blackToPlay
-                  ? Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.blackEngineIndex)
-                      .oriEnginename
-                  : Lizzie.engineManager.engineList.get(
-                          EngineManager.engineGameInfo.whiteEngineIndex)
-                      .oriEnginename)
+          (thinkingEngine != null ? thinkingEngine.oriEnginename : "")
               + " "
               + Lizzie.resourceBundle.getString("LizzieFrame.thinking"));
       // sb.append(playerTitle);
@@ -9674,16 +9669,15 @@ public class LizzieFrame extends JFrame {
 
   public void setCommentEditable(boolean isEditable) {
     if (isEditable) {
+      EngineGameSnapshot snapshot = EngineGamePresentation.current();
+      Leelaz blackEngine = EngineGamePresentation.blackEngine(snapshot);
+      Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
       if (((Lizzie.leelaz != null && !Lizzie.leelaz.isLoaded())
-          || (EngineManager.isPreEngineGame
-              && (!Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.whiteEngineIndex)
-                      .isLoaded()
-                  || !Lizzie.engineManager
-                      .engineList
-                      .get(EngineManager.engineGameInfo.blackEngineIndex)
-                      .isLoaded())))) return;
+          || (snapshot.starting()
+              && (blackEngine == null
+                  || !blackEngine.isLoaded()
+                  || whiteEngine == null
+                  || !whiteEngine.isLoaded())))) return;
       String text = Lizzie.board.getHistory().getCurrentHistoryNode().getData().comment;
       if (text.length() > 0) text = text + '\n';
       commentEditTextPane.setText(text);
@@ -9857,7 +9851,9 @@ public class LizzieFrame extends JFrame {
   }
 
   public Color getBlunderNodeColor(BoardHistoryNode node) {
-    if (EngineManager.isEngineGame || Lizzie.board.isPkBoard || Lizzie.frame.isContributing) {
+    if (EngineGamePresentation.current().playing()
+        || Lizzie.board.isPkBoard
+        || Lizzie.frame.isContributing) {
       if (node.previous().isPresent() && node.previous().get().previous().isPresent()) {
         if (node.previous().get().previous().get().getData().getPlayouts() == 0
             || node.getData().getPlayouts() == 0) return Color.WHITE;
@@ -11050,7 +11046,7 @@ public class LizzieFrame extends JFrame {
   private boolean canStartYikeCurveCompletion() {
     return Lizzie.leelaz != null
         && !EngineManager.isEmpty
-        && !EngineManager.isEngineGame()
+        && !EngineGamePresentation.current().startingOrPlaying()
         && !isPlayingAgainstLeelaz
         && !isAnaPlayingAgainstLeelaz
         && Lizzie.board != null
@@ -11479,7 +11475,7 @@ public class LizzieFrame extends JFrame {
       humanSlGame.showControlPanel();
       return;
     }
-    if (EngineManager.isEngineGame
+    if (EngineGamePresentation.current().playing()
         || Lizzie.frame.isPlayingAgainstLeelaz
         || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.engineGameStopFirstHint"));
@@ -11527,7 +11523,7 @@ public class LizzieFrame extends JFrame {
     if (deferUntilHumanSlExit(this::startEngineGameDialog)) {
       return;
     }
-    if (EngineManager.isEngineGame) {
+    if (EngineGamePresentation.current().playing()) {
       Utils.showMsg(
           Lizzie.resourceBundle.getString(
               "LizzieFrame.engineGameStopFirstHint")); // "请等待当前引擎对战结束,或手动终止对局");
@@ -12217,7 +12213,6 @@ public class LizzieFrame extends JFrame {
       deferUntilHumanSlExit(this::stopAiPlayingAndPolicy);
       return true;
     }
-    toolbar.isPkStop = false;
     Lizzie.leelaz.isGamePaused = false;
     boolean isGaming =
         wasHumanSlGame
@@ -12683,7 +12678,8 @@ public class LizzieFrame extends JFrame {
         //   int rownum = 0;
         if (isInPlayMode()) return 0;
         data2 = new ArrayList<MoveData>();
-        if (EngineManager.isEngineGame && Lizzie.config.showPreviousBestmovesInEngineGame) {
+        if (EngineGamePresentation.current().playing()
+            && Lizzie.config.showPreviousBestmovesInEngineGame) {
           if (Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent())
             if ((bestMoves = Lizzie.leelaz.getBestMoves()).isEmpty())
               bestMoves =
@@ -12832,7 +12828,7 @@ public class LizzieFrame extends JFrame {
                 Locale.ENGLISH, "%.1f", (double) data.playouts * 100 / totalPlayouts);
           case 5:
             double score = data.scoreMean;
-            if (EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove) {
+            if (EngineGamePresentation.current().playingGenmove()) {
               if (!Lizzie.board.getHistory().isBlacksTurn()) {
                 if (Lizzie.config.showKataGoScoreLeadWithKomi) {
                   score = score + Lizzie.board.getHistory().getGameInfo().getKomi();
@@ -14503,8 +14499,7 @@ public class LizzieFrame extends JFrame {
     return Lizzie.config.isAutoAna
         || isBatchAna
         || isBatchAnalysisMode
-        || EngineManager.isPreEngineGame
-        || EngineManager.isEngineGame()
+        || EngineGamePresentation.current().startingOrPlaying()
         || isPlayingAgainstLeelaz
         || isAnaPlayingAgainstLeelaz
         || humanSlGame != null
@@ -18659,7 +18654,7 @@ public class LizzieFrame extends JFrame {
         return;
       }
     }
-    if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
+    if (!EngineGamePresentation.current().startingOrPlaying()) {
       for (int i = 0; i < movesToAdvance; i++) Lizzie.board.nextMove(false);
       Lizzie.board.clearAfterMove();
       Lizzie.frame.refresh();
@@ -18686,7 +18681,7 @@ public class LizzieFrame extends JFrame {
         return;
       }
     }
-    if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
+    if (!EngineGamePresentation.current().startingOrPlaying()) {
       Lizzie.board.navigateHistorySteps(movesToAdvance);
     }
   }
@@ -18710,7 +18705,7 @@ public class LizzieFrame extends JFrame {
         return;
       }
     }
-    if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
+    if (!EngineGamePresentation.current().startingOrPlaying()) {
       for (int i = 0; i < movesToAdvance; i++) Lizzie.board.previousMove(false);
       Lizzie.board.clearAfterMove();
       Lizzie.frame.refresh();
@@ -18736,7 +18731,7 @@ public class LizzieFrame extends JFrame {
         return;
       }
     }
-    if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
+    if (!EngineGamePresentation.current().startingOrPlaying()) {
       Lizzie.board.navigateHistorySteps(-movesToAdvance);
     }
   }
@@ -19171,7 +19166,7 @@ public class LizzieFrame extends JFrame {
       menu.chkWRN.setEnabled(false);
       Lizzie.config.chkKataEngineWRN = false;
     } else {
-      if ((EngineManager.isPreEngineGame || EngineManager.isEngineGame || isAnaPlayingAgainstLeelaz)
+      if ((EngineGamePresentation.current().startingOrPlaying() || isAnaPlayingAgainstLeelaz)
           && Lizzie.config.disableWRNInGame) {
         WRNStatusBeforeGame = Lizzie.config.chkKataEngineWRN || Lizzie.config.autoLoadKataEngineWRN;
         autoWRNStatusBeforeGame = Lizzie.config.autoLoadKataEngineWRN;
@@ -19319,7 +19314,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public boolean ensureAnalysisResumedAfterLoad() {
-    if (EngineManager.isEngineGame() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
+    if (EngineGamePresentation.current().startingOrPlaying() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
       return false;
     }
     if (shouldAutoQuickAnalyzeLoadedGame()) {
@@ -19568,7 +19563,7 @@ public class LizzieFrame extends JFrame {
     return Lizzie.config != null
         && (!requiresAutoAnalyze || Lizzie.config.autoQuickAnalyzeOnLoad)
         && !isWholeGameAnalysisStartingOrRunning()
-        && !EngineManager.isEngineGame()
+        && !EngineGamePresentation.current().startingOrPlaying()
         && !isPlayingAgainstLeelaz
         && !isAnaPlayingAgainstLeelaz;
   }
@@ -19827,7 +19822,7 @@ public class LizzieFrame extends JFrame {
         && !isBatchAnalysisMode
         && !isEnginePKSgfStart
         && !isTrying
-        && !EngineManager.isEngineGame()
+        && !EngineGamePresentation.current().startingOrPlaying()
         && !isPlayingAgainstLeelaz
         && !isAnaPlayingAgainstLeelaz
         && Lizzie.board != null
@@ -19855,7 +19850,7 @@ public class LizzieFrame extends JFrame {
         && !analysisEngine.isRunning()) {
       analysisEngine = null;
     }
-    if (EngineManager.isEngineGame() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
+    if (EngineGamePresentation.current().startingOrPlaying() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
       return;
     }
     resumeForegroundAnalysisForCurrentPosition();
@@ -19864,7 +19859,7 @@ public class LizzieFrame extends JFrame {
   public boolean ensureAnalysisResumedAfterSyncLoad() {
     if (Lizzie.leelaz == null
         || EngineManager.isEmpty
-        || EngineManager.isEngineGame()
+        || EngineGamePresentation.current().startingOrPlaying()
         || isPlayingAgainstLeelaz
         || isAnaPlayingAgainstLeelaz) {
       return false;
@@ -20132,7 +20127,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void newEmptyBoard() {
-    if (EngineManager.isEngineGame()) return;
+    if (EngineGamePresentation.current().startingOrPlaying()) return;
     if (Lizzie.config.showNewBoardHint
         && (Lizzie.board.getHistory().getCurrentHistoryNode().previous().isPresent()
             || Lizzie.board.getHistory().getCurrentHistoryNode().next().isPresent())) {

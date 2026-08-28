@@ -1,8 +1,12 @@
 package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGameRecord;
+import featurecat.lizzie.enginegame.EngineGameRecordContext;
+import featurecat.lizzie.enginegame.EngineGameSaveSnapshot;
 import featurecat.lizzie.gui.LizzieFrame;
 import java.util.Date;
+import java.util.Objects;
 
 public class GameInfo {
   public static final String DEFAULT_NAME_CPU_PLAYER = "Computer";
@@ -15,6 +19,10 @@ public class GameInfo {
   private double komi = DEFAULT_KOMI;
   private int handicap = 0;
   private String result = "";
+  private EngineGameRecordContext engineGameRecordContext;
+  private EngineGameRecord engineGameRecord;
+  private EngineGameSaveSnapshot engineGameSaveSnapshot;
+
 
   public String getResult() {
     return result;
@@ -85,12 +93,67 @@ public class GameInfo {
     this.handicap = handicap;
   }
 
+  public boolean hasEngineGameHistory() {
+    return engineGameRecord != null
+        || engineGameRecordContext != null
+        || engineGameSaveSnapshot != null;
+  }
+
+  public EngineGameRecordContext engineGameRecordContext() {
+    return engineGameRecordContext;
+  }
+
+  public EngineGameRecord engineGameRecord() {
+    return engineGameRecord;
+  }
+
+  public EngineGameSaveSnapshot engineGameSaveSnapshot() {
+    return engineGameSaveSnapshot;
+  }
+
+  public void attachEngineGameRecordContext(EngineGameRecordContext context) {
+    if (engineGameRecord != null) {
+      return;
+    }
+    this.engineGameRecordContext = Objects.requireNonNull(context, "context");
+  }
+
+  public void freezeEngineGameRecord(EngineGameRecord record) {
+    if (engineGameRecord != null) {
+      return;
+    }
+    this.engineGameRecord = Objects.requireNonNull(record, "record");
+    if (engineGameRecordContext == null) {
+      engineGameRecordContext = record.context();
+    }
+  }
+
+  public void setEngineGameSaveSnapshot(EngineGameSaveSnapshot snapshot) {
+    this.engineGameSaveSnapshot = snapshot;
+  }
+
+  public void copyEngineGameHistoryFrom(GameInfo original) {
+    if (original == null) {
+      return;
+    }
+    engineGameRecordContext = original.engineGameRecordContext;
+    engineGameRecord = original.engineGameRecord;
+    engineGameSaveSnapshot = original.engineGameSaveSnapshot;
+  }
+
+  public void clearEngineGameHistory() {
+    engineGameRecordContext = null;
+    engineGameRecord = null;
+    engineGameSaveSnapshot = null;
+  }
+
   public void resetAllNoKomi() {
     this.handicap = 0;
     this.playerBlack = "";
     this.playerWhite = "";
     this.date = new Date();
     this.result = "";
+    clearEngineGameHistory();
     Lizzie.frame.setResult("");
   }
 }

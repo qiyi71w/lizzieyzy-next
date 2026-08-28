@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.gui.HumanSlGameController;
 import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.gui.LizzieFrame;
@@ -350,18 +351,23 @@ class AnalysisEngineRequestTest {
   @Test
   void reuseModeRejectsEngineGamePreparationAndExistingLease() throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
-      boolean previousPreEngineGame = EngineManager.isPreEngineGame;
       Lizzie.config.analysisReuseCurrentEngine = true;
       Leelaz foreground = reusableForegroundEngine(true);
       Lizzie.leelaz = foreground;
+      EngineManager previousManager = Lizzie.engineManager;
+      Leelaz dummy = new Leelaz("");
+      EngineManager manager = new EngineManager(List.of(foreground, dummy));
       try {
-        EngineManager.isPreEngineGame = true;
+        Lizzie.engineManager = manager;
+        EngineManager.resetEngineGameTransactionStateForTest();
+        EngineManager.beginEngineGameTransaction(
+            manager, EngineGamePlans.harness(0, 1, false), null, true);
         AnalysisEngine gameTask = new AnalysisEngine(false);
         assertEquals(
             Leelaz.ExclusiveGtpLeaseAvailability.ENGINE_GAME,
             gameTask.getForegroundLeaseAvailability());
 
-        EngineManager.isPreEngineGame = false;
+        EngineManager.resetEngineGameTransactionStateForTest();
         assertEquals(
             Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
             foreground.beginExclusiveGtpSession(line -> {}, () -> {}, () -> {}));
@@ -373,7 +379,8 @@ class AnalysisEngineRequestTest {
             leasedTask.getForegroundLeaseAvailability());
       } finally {
         foreground.endExclusiveGtpSession();
-        EngineManager.isPreEngineGame = previousPreEngineGame;
+        EngineManager.resetEngineGameTransactionStateForTest();
+        Lizzie.engineManager = previousManager;
       }
     }
   }

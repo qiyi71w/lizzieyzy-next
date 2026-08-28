@@ -2682,7 +2682,6 @@ class ExactSnapshotEngineRestoreContractTest {
     private final GtpConsolePane previousGtpConsole;
     private final Leelaz previousLeelaz;
     private final Leelaz previousLeelaz2;
-    private final boolean previousEngineGameFlag;
     private final int previousBoardWidth;
     private final int previousBoardHeight;
 
@@ -2693,7 +2692,6 @@ class ExactSnapshotEngineRestoreContractTest {
       this.previousGtpConsole = Lizzie.gtpConsole;
       this.previousLeelaz = Lizzie.leelaz;
       this.previousLeelaz2 = Lizzie.leelaz2;
-      this.previousEngineGameFlag = EngineManager.isEngineGame;
       this.previousBoardWidth = Board.boardWidth;
       this.previousBoardHeight = Board.boardHeight;
     }
@@ -2709,7 +2707,6 @@ class ExactSnapshotEngineRestoreContractTest {
       Lizzie.gtpConsole = allocate(SilentGtpConsole.class);
       Lizzie.leelaz = null;
       Lizzie.leelaz2 = null;
-      EngineManager.isEngineGame = false;
       return harness;
     }
 
@@ -2724,7 +2721,6 @@ class ExactSnapshotEngineRestoreContractTest {
       Lizzie.gtpConsole = previousGtpConsole;
       Lizzie.leelaz = previousLeelaz;
       Lizzie.leelaz2 = previousLeelaz2;
-      EngineManager.isEngineGame = previousEngineGameFlag;
     }
   }
 

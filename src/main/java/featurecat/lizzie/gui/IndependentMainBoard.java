@@ -6,6 +6,7 @@ import static java.lang.Math.min;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
 import featurecat.lizzie.analysis.MoveData;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
@@ -344,7 +345,7 @@ public class IndependentMainBoard extends JFrame {
                 return;
               }
               if (Lizzie.frame.isShowingRightMenu) return;
-              if (EngineManager.isEngineGame) {
+              if (EngineGamePresentation.current().playing()) {
                 if (e.getButton() == MouseEvent.BUTTON1)
                   onClickedForManul(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
                 return;

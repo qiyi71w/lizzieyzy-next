@@ -234,14 +234,12 @@ class LeelazInactiveCommandBaselineTest {
     private final LizzieFrame previousFrame;
     private final Leelaz previousLeelaz;
     private final Leelaz previousLeelaz2;
-    private final boolean previousEngineGame;
 
     private TestHarness() {
       previousConfig = Lizzie.config;
       previousFrame = Lizzie.frame;
       previousLeelaz = Lizzie.leelaz;
       previousLeelaz2 = Lizzie.leelaz2;
-      previousEngineGame = EngineManager.isEngineGame;
     }
 
     private static TestHarness open(ExtraMode mode) throws Exception {
@@ -251,7 +249,6 @@ class LeelazInactiveCommandBaselineTest {
       Lizzie.frame = allocate(LizzieFrame.class);
       Lizzie.leelaz = null;
       Lizzie.leelaz2 = null;
-      EngineManager.isEngineGame = false;
       return harness;
     }
 
@@ -261,7 +258,6 @@ class LeelazInactiveCommandBaselineTest {
       Lizzie.frame = previousFrame;
       Lizzie.leelaz = previousLeelaz;
       Lizzie.leelaz2 = previousLeelaz2;
-      EngineManager.isEngineGame = previousEngineGame;
     }
   }
 

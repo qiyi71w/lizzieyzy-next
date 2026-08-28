@@ -1,6 +1,5 @@
 package featurecat.lizzie;
 
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.MoveRankEvaluationMode;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.logging.CrashHandlers;
@@ -2474,7 +2473,7 @@ public class Config {
 
   public void toggleShowMoveNumber() {
     onlyLastMoveNumber = 1;
-    if (EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove) {
+    if (Lizzie.engineGame.current().playingGenmove()) {
       allowMoveNumber = (allowMoveNumber == -1 ? onlyLastMoveNumber : -1);
     } else {
       if (this.onlyLastMoveNumber > 0) {

@@ -353,15 +353,12 @@ class DesktopTimeControlTest {
   @Test
   void capturedEngineGameTimeIgnoresLaterLiveConfig() throws Exception {
     RecordingLeelaz white = new RecordingLeelaz("katago gtp");
-    featurecat.lizzie.analysis.EngineGameInfo game =
-        new featurecat.lizzie.analysis.EngineGameInfo();
-    game.whiteEngineIndex = 7;
-    game.blackEngineIndex = 3;
-    game.whiteTimeMode = DesktopTimeControl.SideMode.RAW_ADVANCED;
-    game.advanceWhiteTimeCmd = "time_settings 30 5 1";
-    game.timeWhite = 10;
 
-    game.applyCapturedTime(white, 7);
+    DesktopTimeControl.applyEngineGameTime(
+        white,
+        DesktopTimeControl.SideMode.RAW_ADVANCED,
+        10,
+        "time_settings 30 5 1");
 
     assertEquals(List.of("time_settings 30 5 1"), white.commands);
   }
@@ -369,15 +366,9 @@ class DesktopTimeControlTest {
   @Test
   void capturedEngineOwnedRestartStaysSilent() throws Exception {
     RecordingLeelaz black = new RecordingLeelaz("zen gtp");
-    featurecat.lizzie.analysis.EngineGameInfo game =
-        new featurecat.lizzie.analysis.EngineGameInfo();
-    game.blackEngineIndex = 1;
-    game.whiteEngineIndex = 2;
-    game.blackTimeMode = DesktopTimeControl.SideMode.ENGINE_OWNED;
-    game.advanceBlackTimeCmd = "time_settings 120 2 1";
-    game.timeBlack = 10;
 
-    game.applyCapturedTime(black, 1);
+    DesktopTimeControl.applyEngineGameTime(
+        black, DesktopTimeControl.SideMode.ENGINE_OWNED, 10, "time_settings 120 2 1");
 
     assertEquals(List.of(), black.commands);
   }
