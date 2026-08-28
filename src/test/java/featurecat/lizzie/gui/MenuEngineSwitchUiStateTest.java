@@ -155,11 +155,23 @@ class MenuEngineSwitchUiStateTest {
     Menu.applyEngineSwitchPresentation(menu, items, activeA, playing, stopped, true, "");
     Menu.applyEngineSwitchPresentation(
         menu, items, switchingB, playing, stopped, true, "switching...");
-    Menu.applyEngineSwitchPresentation(menu, items, failedB, playing, stopped, true, "");
+    Menu.applyEngineSwitchPresentation(
+        menu,
+        items,
+        failedB,
+        playing,
+        stopped,
+        true,
+        "",
+        "Switch failed, rolled back");
 
-    assertEquals("[1]: Engine A  ·  engine failed", menu.getText());
+    assertEquals("[1]: Engine A  ·  Switch failed, rolled back", menu.getText());
     assertFalse(menu.getText().startsWith("[2]:"));
-    assertTrue(menu.getAccessibleContext().getAccessibleDescription().contains("engine failed"));
+    assertFalse(menu.getText().contains("engine failed"));
+    assertTrue(
+        menu.getAccessibleContext()
+            .getAccessibleDescription()
+            .contains("Switch failed, rolled back"));
     assertSame(playing, items[0].getIcon());
     assertSame(stopped, items[1].getIcon());
   }

@@ -10091,6 +10091,14 @@ public class Menu extends JMenuBar {
                 "LizzieFrame.prompt.switching",
                 "switching...")
             : "";
+    String rolledBack =
+        snapshot.phase() == EngineManager.EngineSwitchUiPhase.FAILED
+            ? engineSwitchUiMessage(
+                resourceBundle,
+                Lizzie.resourceBundle,
+                "Menu.engineSwitchRolledBack",
+                "Switch failed, rolled back")
+            : "";
     applyEngineSwitchPresentation(
         targetMenu,
         targetItems,
@@ -10098,7 +10106,8 @@ public class Menu extends JMenuBar {
         playing,
         stop,
         activeEngineAvailable,
-        switching);
+        switching,
+        rolledBack);
   }
 
   private void applyIdleEngineSwitchFromCurrentSelection(
@@ -10166,6 +10175,26 @@ public class Menu extends JMenuBar {
       Icon stoppedIcon,
       boolean activeEngineAvailable,
       String switchingText) {
+    applyEngineSwitchPresentation(
+        targetMenu,
+        targetItems,
+        snapshot,
+        playingIcon,
+        stoppedIcon,
+        activeEngineAvailable,
+        switchingText,
+        "");
+  }
+
+  static void applyEngineSwitchPresentation(
+      JFontMenu targetMenu,
+      JFontMenuItem[] targetItems,
+      EngineManager.EngineSwitchUiSnapshot snapshot,
+      Icon playingIcon,
+      Icon stoppedIcon,
+      boolean activeEngineAvailable,
+      String switchingText,
+      String rolledBackNotice) {
     if (targetMenu == null
         || snapshot == null
         || snapshot.phase() == EngineManager.EngineSwitchUiPhase.IDLE) {
@@ -10196,6 +10225,12 @@ public class Menu extends JMenuBar {
               ? engineSwitchEngineLabel(snapshot.activeIndex(), snapshot.activeName())
               : targetLabel;
       String failure = snapshot.failureDetail();
+      if (useRecoveredIdentity) {
+        String rolledBack = rolledBackNotice == null ? "" : rolledBackNotice;
+        if (!rolledBack.isEmpty()) {
+          failure = rolledBack;
+        }
+      }
       targetMenu.setText(engineSwitchNoticeText(identityLabel, failure));
       applyEngineSwitchItemIcons(
           targetItems, snapshot, playingIcon, stoppedIcon, activeEngineAvailable);
