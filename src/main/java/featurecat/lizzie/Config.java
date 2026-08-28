@@ -3731,7 +3731,7 @@ public class Config {
     showCaptured = jsonLayout.optBoolean("show-captured");
     largeSubBoard = jsonLayout.optBoolean("large-subboard");
     largeWinrateGraph = jsonLayout.optBoolean("large-winrate-graph");
-    Lizzie.frame.BoardPositionProportion = jsonLayout.optInt("board-position-proportion");
+    Lizzie.frame.setBoardPositionProportion(jsonLayout.optInt("board-position-proportion"));
     Lizzie.frame.setVarTreeVisible(showVariationGraph);
     if (jsonLayout.optBoolean("show-list-pane") && !Lizzie.config.showListPane())
       Lizzie.config.toggleShowListPane();

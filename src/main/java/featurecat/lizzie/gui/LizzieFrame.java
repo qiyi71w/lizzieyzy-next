@@ -6802,10 +6802,11 @@ public class LizzieFrame extends JFrame {
 
   public void setBoardPositionProportion(int value) {
     BoardPositionProportion = Math.max(0, Math.min(8, value));
-    if (leftoverLeftShare != null) {
-      leftoverLeftShare = BoardPositionProportion / 8.0;
-    }
+    leftoverLeftShare =
+        InFrameLayout.leftoverShareAfterAssignedProportion(
+            leftoverLeftShare, BoardPositionProportion);
   }
+
 
   public void refreshPanelColors() {
     boolean useMorandi = Lizzie.config.useMorandiColors;

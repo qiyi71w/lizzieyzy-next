@@ -46,6 +46,18 @@ final class InFrameLeftoverDragHandles {
     basePanel.add(variationList, Integer.valueOf(11));
   }
 
+  boolean anyHandleCanReceiveFocus() {
+    return left.isFocusable()
+        || right.isFocusable()
+        || commentTop.isFocusable()
+        || variationList.isFocusable()
+        || left.isRequestFocusEnabled()
+        || right.isRequestFocusEnabled()
+        || commentTop.isRequestFocusEnabled()
+        || variationList.isRequestFocusEnabled();
+  }
+
+
   void update(InFrameLayout layout, int contentWidth, int chromeY, boolean active) {
     this.chromeY = chromeY;
     if (dragging) {
@@ -153,6 +165,8 @@ final class InFrameLeftoverDragHandles {
     JPanel handle = new JPanel();
     handle.setOpaque(false);
     handle.setVisible(false);
+    handle.setFocusable(false);
+    handle.setRequestFocusEnabled(false);
     handle.setCursor(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR));
     MouseAdapter mouse =
         new MouseAdapter() {
@@ -200,6 +214,8 @@ final class InFrameLeftoverDragHandles {
     JPanel handle = new JPanel();
     handle.setOpaque(false);
     handle.setVisible(false);
+    handle.setFocusable(false);
+    handle.setRequestFocusEnabled(false);
     handle.setCursor(Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR));
     MouseAdapter mouse =
         new MouseAdapter() {

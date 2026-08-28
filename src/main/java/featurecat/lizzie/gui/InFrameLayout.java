@@ -11,6 +11,14 @@ import java.util.Optional;
  */
 final class InFrameLayout {
   static final int DEFAULT_BOARD_POSITION_PROPORTION = 4;
+
+  static Double leftoverShareAfterAssignedProportion(Double currentShare, int proportion) {
+    if (currentShare == null) {
+      return null;
+    }
+    return Math.max(0, Math.min(8, proportion)) / 8.0;
+  }
+
   private static final int MIN_COMMENT_HEIGHT = 68;
   private static final int MIN_CANDIDATE_TABLE_HEIGHT = 36;
 

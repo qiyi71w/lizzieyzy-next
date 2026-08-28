@@ -85,6 +85,7 @@ public class SetCustomMode extends JDialog {
   private boolean showBigSubBoard;
   private boolean showBigWinrate;
   private int boardPositionProportion;
+  private Double leftoverLeftShare;
   private boolean showFloatMainBoard;
   private boolean showFloatSubBoard;
   private ExtraMode originalExtraMode;
@@ -100,6 +101,7 @@ public class SetCustomMode extends JDialog {
     showBigSubBoard = Lizzie.config.showLargeSubBoard();
     showBigWinrate = Lizzie.config.showLargeWinrate();
     boardPositionProportion = Lizzie.frame.BoardPositionProportion;
+    leftoverLeftShare = Lizzie.frame.leftoverLeftShare;
     showFloatMainBoard =
         Lizzie.frame.independentMainBoard != null && Lizzie.frame.independentMainBoard.isVisible();
     showFloatSubBoard =
@@ -116,7 +118,8 @@ public class SetCustomMode extends JDialog {
     Lizzie.config.showStatus = showStatus;
     Lizzie.config.largeSubBoard = showBigSubBoard;
     Lizzie.config.largeWinrateGraph = showBigWinrate;
-    Lizzie.frame.BoardPositionProportion = boardPositionProportion;
+    Lizzie.frame.setBoardPositionProportion(boardPositionProportion);
+    Lizzie.frame.leftoverLeftShare = leftoverLeftShare;
     Lizzie.frame.setVarTreeVisible(Lizzie.config.showVariationGraph);
     Lizzie.config.extraMode = originalExtraMode;
     if (showFloatMainBoard) {

@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Rectangle;
@@ -266,6 +267,13 @@ class InFrameLayoutTest {
     assertEquals(new Rectangle(1266, 0, 334, 450), restored.variationGraph);
     assertEquals(new Rectangle(1266, 450, 334, 450), restored.candidateTable);
   }
+
+  @Test
+  void assigningBoardProportionSyncsExistingLeftoverShareToThatTick() {
+    assertEquals(0.75, InFrameLayout.leftoverShareAfterAssignedProportion(0.41, 6));
+    assertNull(InFrameLayout.leftoverShareAfterAssignedProportion(null, 6));
+  }
+
 
   private static InFrameLayout.Request allVisible(int width, int height, int proportion) {
     return allVisible(width, height, proportion, null);
