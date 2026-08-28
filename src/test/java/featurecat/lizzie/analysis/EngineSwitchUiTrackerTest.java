@@ -70,42 +70,22 @@ class EngineSwitchUiTrackerTest {
   }
 
   @Test
-  void successfulRollbackRestoresActivePrimaryAndKeepsTheFailedTargetNotice() {
+  void failedPrimarySwitchKeepsRecoveredIdentityAndRejectedTarget() {
     EngineManager.EngineSwitchUiTracker tracker = new EngineManager.EngineSwitchUiTracker();
     EngineManager.EngineSwitchUiSnapshot pending =
         tracker.begin(true, 0, "Engine A", 1, "Engine B");
-    Leelaz recovered = availableEngineUnchecked("engine-a");
-    tracker.fail(pending.token(), true, "engine failed").orElseThrow();
 
-    EngineManager.EngineSwitchUiSnapshot restored =
-        tracker
-            .restoreActive(pending.token(), true, 0, "Engine A", recovered)
-            .orElseThrow();
+    EngineManager.EngineSwitchUiSnapshot failed =
+        tracker.fail(pending.token(), true, "engine failed").orElseThrow();
 
-    assertEquals(EngineManager.EngineSwitchUiPhase.ACTIVE, restored.phase());
-    assertEquals(pending.token(), restored.token());
-    assertEquals(0, restored.activeIndex());
-    assertEquals("Engine A", restored.activeName());
-    assertEquals(0, restored.targetIndex());
-    assertEquals("Engine A", restored.targetName());
-    assertEquals("engine failed", restored.failureDetail());
-    assertSame(restored, tracker.current(true));
-  }
-
-  @Test
-  void staleRollbackRestoreDoesNotOverwriteANewerSwitch() {
-    EngineManager.EngineSwitchUiTracker tracker = new EngineManager.EngineSwitchUiTracker();
-    EngineManager.EngineSwitchUiSnapshot first =
-        tracker.begin(true, 0, "Engine A", 1, "Engine B");
-    tracker.fail(first.token(), true, "engine failed").orElseThrow();
-    EngineManager.EngineSwitchUiSnapshot second =
-        tracker.begin(true, 0, "Engine A", 2, "Engine C");
-
-    assertFalse(
-        tracker.restoreActive(first.token(), true, 0, "Engine A", null).isPresent());
-    assertEquals(second.token(), tracker.current(true).token());
-    assertEquals(EngineManager.EngineSwitchUiPhase.SWITCHING, tracker.current(true).phase());
-    assertEquals("Engine C", tracker.current(true).targetName());
+    assertEquals(EngineManager.EngineSwitchUiPhase.FAILED, failed.phase());
+    assertEquals(pending.token(), failed.token());
+    assertEquals(0, failed.activeIndex());
+    assertEquals("Engine A", failed.activeName());
+    assertEquals(1, failed.targetIndex());
+    assertEquals("Engine B", failed.targetName());
+    assertEquals("engine failed", failed.failureDetail());
+    assertSame(failed, tracker.current(true));
   }
 
   @Test
@@ -121,8 +101,6 @@ class EngineSwitchUiTrackerTest {
     assertEquals(EngineManager.EngineSwitchUiPhase.IDLE, tracker.current(true).phase());
     assertFalse(tracker.succeed(pending.token(), true, 1, "Engine B").isPresent());
     assertFalse(tracker.fail(pending.token(), true, "late failure").isPresent());
-    assertFalse(
-        tracker.restoreActive(pending.token(), true, 0, "Engine A", null).isPresent());
   }
 
   @Test
@@ -186,14 +164,6 @@ class EngineSwitchUiTrackerTest {
     engine.started = true;
     engine.isLoaded = true;
     return engine;
-  }
-
-  private static Leelaz availableEngineUnchecked(String command) {
-    try {
-      return availableEngine(command);
-    } catch (Exception failure) {
-      throw new AssertionError(failure);
-    }
   }
 
   @Test

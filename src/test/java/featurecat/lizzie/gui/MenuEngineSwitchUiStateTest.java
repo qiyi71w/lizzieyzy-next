@@ -151,28 +151,11 @@ class MenuEngineSwitchUiStateTest {
             0,
             "Engine A",
             "engine failed");
-    EngineManager.EngineSwitchUiSnapshot restoredA =
-        snapshot(
-            EngineManager.EngineSwitchUiPhase.ACTIVE,
-            0,
-            "Engine A",
-            0,
-            "Engine A",
-            0,
-            "Engine A",
-            "engine failed");
 
     Menu.applyEngineSwitchPresentation(menu, items, activeA, playing, stopped, true, "");
     Menu.applyEngineSwitchPresentation(
         menu, items, switchingB, playing, stopped, true, "switching...");
     Menu.applyEngineSwitchPresentation(menu, items, failedB, playing, stopped, true, "");
-    assertTrue(
-        menu.getText().startsWith("[1]: Engine A"),
-        "FAILED must keep the recovered engine as the current-engine identity");
-    assertTrue(menu.getText().contains("engine failed"));
-    assertFalse(menu.getText().startsWith("[2]:"));
-
-    Menu.applyEngineSwitchPresentation(menu, items, restoredA, playing, stopped, true, "");
 
     assertEquals("[1]: Engine A  ·  engine failed", menu.getText());
     assertFalse(menu.getText().startsWith("[2]:"));
