@@ -9740,9 +9740,30 @@ public class LizzieFrame extends JFrame {
   }
 
   private void setCommentText(String comment) {
-    String rendered = CommentDisplayRenderer.render(comment);
+    String rendered =
+        CommentDisplayRenderer.render(comment, shouldSeparateOrdinaryAnalysisMatchInfo());
     setRenderedComment(commentTextArea, rendered);
     setRenderedComment(commentTextPane, rendered);
+  }
+
+  private static boolean shouldSeparateOrdinaryAnalysisMatchInfo() {
+    Board board = Lizzie.board;
+    if (board == null) {
+      return true;
+    }
+    if (EngineGamePresentation.current().playing()) {
+      return false;
+    }
+    if (board.isPkBoard || board.isGameBoard) {
+      return false;
+    }
+    if (board.getHistory() != null) {
+      GameInfo info = board.getHistory().getGameInfo();
+      if (info != null && info.hasEngineGameHistory()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private JPaintTextPane createCommentDisplayPane(HTMLDocument document) {
@@ -9786,6 +9807,10 @@ public class LizzieFrame extends JFrame {
             + "px;}");
     styleSheet.addRule(".ai-commentary-title {margin:2px 0 6px 0;}");
     styleSheet.addRule(".comment-spacer {height:6px;}");
+    styleSheet.addRule(
+        ".match-info-divider {height:1px; margin:6px 0; padding:0; border:none; overflow:hidden; font-size:1px; line-height:1px; background-color:"
+            + foreground
+            + ";}");
     styleSheet.addRule("table {border-collapse:collapse; margin:4px 0;}");
     styleSheet.addRule(
         "th, td {border:1px solid " + foreground + "; padding:3px 6px; text-align:left;}");
