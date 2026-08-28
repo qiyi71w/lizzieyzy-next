@@ -5998,62 +5998,121 @@ public class LizzieFrame extends JFrame {
           }
           boolean isLargeSubboard =
               Lizzie.config.showLargeSubBoard() && !Lizzie.config.largeWinrateGraph;
-          // board
-          maxSize = (int) (min(width - leftInset - rightInset, height - topInset - bottomInset));
-          maxSize = max(maxSize, max(Board.boardWidth, Board.boardHeight) + 5);
-          boardX = (width - maxSize) / 8 * BoardPositionProportion;
-          boardY = topInset + (height - topInset - bottomInset - maxSize) / 2;
-
-          int panelMargin = (int) (maxSize * 0.02);
-
-          // captured stones
-          int capx = leftInset;
-          int capy = topInset;
-          int capw = boardX - panelMargin - leftInset;
-          int caph = boardY + maxSize / 8 - topInset;
-
-          // move statistics (winrate bar)
-          // boardX equals width of space on each side
-          statx = capx;
-          staty = capy + caph;
-          statw = capw;
-          stath = maxSize / 10;
-
-          // winrate graph
-          grx = statx;
-          gry = staty + stath;
-          grw = statw;
-          grh = maxSize / 3;
-
-          // variation tree container
-          int vx = boardX + maxSize + panelMargin;
-          int vy = capy;
-          int vw = width - vx - rightInset;
-          int vh = height - vy - bottomInset;
-
-          // pondering message
+          boolean isWidthMode = width >= height;
+          boolean useLockedInFrameLayout =
+              isWidthMode
+                  && Lizzie.config.isNormalMode()
+                  && !Lizzie.config.showLargeSubBoard()
+                  && !Lizzie.config.showLargeWinrate();
+          InFrameLayout inFrameLayout = null;
+          int panelMargin;
+          int capx;
+          int capy;
+          int capw;
+          int caph;
+          int vx;
+          int vy;
+          int vw;
+          int vh;
           double ponderingSize = Lizzie.config.userKnownX ? 0.025 : 0.04;
           int ponderingX = leftInset;
+          int ponderingY;
+          int subBoardY;
+          int subBoardWidth;
+          int subBoardHeight;
+          int subBoardLength;
+          int subBoardX;
+          if (useLockedInFrameLayout) {
+            inFrameLayout =
+                InFrameLayout.layout(
+                    new InFrameLayout.Request(
+                        width,
+                        height,
+                        leftInset,
+                        topInset,
+                        rightInset,
+                        bottomInset,
+                        Board.boardWidth,
+                        Board.boardHeight,
+                        BoardPositionProportion,
+                        Lizzie.config.showComment,
+                        Lizzie.config.showSubBoard,
+                        Lizzie.config.showVariationGraph,
+                        showListPane,
+                        Lizzie.config.showStatus,
+                        Lizzie.config.userKnownX));
+            maxSize = inFrameLayout.board.width;
+            boardX = inFrameLayout.board.x;
+            boardY = inFrameLayout.board.y;
+            panelMargin = inFrameLayout.panelMargin;
+            capx = inFrameLayout.captured.x;
+            capy = inFrameLayout.captured.y;
+            capw = inFrameLayout.captured.width;
+            caph = inFrameLayout.captured.height;
+            statx = inFrameLayout.moveStatistics.x;
+            staty = inFrameLayout.moveStatistics.y;
+            statw = inFrameLayout.moveStatistics.width;
+            stath = inFrameLayout.moveStatistics.height;
+            grx = inFrameLayout.winrateGraph.x;
+            gry = inFrameLayout.winrateGraph.y;
+            grw = inFrameLayout.winrateGraph.width;
+            grh = inFrameLayout.winrateGraph.height;
+            vx = inFrameLayout.rightColumn.x;
+            vy = inFrameLayout.rightColumn.y;
+            vw = inFrameLayout.rightColumn.width;
+            vh = inFrameLayout.rightColumn.height;
+            ponderingY = inFrameLayout.ponderingY;
+            subBoardX = inFrameLayout.subBoard.x;
+            subBoardY = inFrameLayout.subBoard.y;
+            subBoardLength = inFrameLayout.subBoard.width;
+            subBoardWidth = inFrameLayout.subBoard.width;
+            subBoardHeight = inFrameLayout.subBoard.height;
+          } else {
+            // board
+            maxSize = (int) (min(width - leftInset - rightInset, height - topInset - bottomInset));
+            maxSize = max(maxSize, max(Board.boardWidth, Board.boardHeight) + 5);
+            boardX = (width - maxSize) / 8 * BoardPositionProportion;
+            boardY = topInset + (height - topInset - bottomInset - maxSize) / 2;
 
-          int ponderingY = statusAreaBottom(height, bottomInset);
-          if (Lizzie.config.showStatus) {
-            ponderingY = ponderingY - (int) (maxSize * 0.023) - (int) (maxBound * ponderingSize);
+            panelMargin = (int) (maxSize * 0.02);
+
+            // captured stones
+            capx = leftInset;
+            capy = topInset;
+            capw = boardX - panelMargin - leftInset;
+            caph = boardY + maxSize / 8 - topInset;
+
+            // move statistics (winrate bar)
+            // boardX equals width of space on each side
+            statx = capx;
+            staty = capy + caph;
+            statw = capw;
+            stath = maxSize / 10;
+
+            // winrate graph
+            grx = statx;
+            gry = staty + stath;
+            grw = statw;
+            grh = maxSize / 3;
+
+            // variation tree container
+            vx = boardX + maxSize + panelMargin;
+            vy = capy;
+            vw = width - vx - rightInset;
+            vh = height - vy - bottomInset;
+
+            ponderingY = statusAreaBottom(height, bottomInset);
+            if (Lizzie.config.showStatus) {
+              ponderingY = ponderingY - (int) (maxSize * 0.023) - (int) (maxBound * ponderingSize);
+            }
+
+            int subBoardGap = 0;
+            subBoardY = gry + grh + subBoardGap;
+            subBoardWidth = grw;
+            subBoardHeight = ponderingY - subBoardY;
+            subBoardLength = min(subBoardWidth, subBoardHeight);
+            subBoardX = statx + (statw - subBoardLength) / 2;
           }
-          // dynamic komi
-          // double dynamicKomiSize = .02;
-          // int dynamicKomiX = leftInset;
-          // int dynamicKomiY = ponderingY - (int) (maxBound * dynamicKomiSize);
-          // int dynamicKomiLabelX = leftInset;
-          // int dynamicKomiLabelY = dynamicKomiY - (int) (maxBound * dynamicKomiSize);
-
-          // subboard
-          int subBoardGap = 0;
-          int subBoardY = gry + grh + subBoardGap;
-          int subBoardWidth = grw;
-          int subBoardHeight = ponderingY - subBoardY;
-          int subBoardLength = min(subBoardWidth, subBoardHeight);
-          int subBoardX = statx + (statw - subBoardLength) / 2;
-          boolean isWidthMode = width >= height;
 
           if (isWidthMode) {
             // Landscape mode
@@ -6141,36 +6200,58 @@ public class LizzieFrame extends JFrame {
             // (Lizzie.config.showLargeSubBoard())) {
             //              vh = vh + grh;
             //            }
-            int treex = vx;
-            int treey = vy;
-            int treew = vw;
-            int treeh = vh;
+            int treex;
+            int treey;
+            int treew;
+            int treeh;
+            int cx;
+            int cy;
+            int cw;
+            int ch;
+            if (useLockedInFrameLayout) {
+              treex = inFrameLayout.treeX;
+              treey = inFrameLayout.treeY;
+              treew = inFrameLayout.treeW;
+              treeh = inFrameLayout.treeContainerH;
+              cx = inFrameLayout.comment.x;
+              cy = inFrameLayout.comment.y;
+              cw = inFrameLayout.comment.width;
+              ch = inFrameLayout.comment.height;
+            } else {
+              treex = vx;
+              treey = vy;
+              treew = vw;
+              treeh = vh;
 
-            // comment panel
-            int cx = vx, cy = vy, cw = vw, ch = vh;
-            if (Lizzie.config.showComment) {
-              if (Lizzie.config.showVariationGraph || showListPane) {
-                treeh = vh / 2;
-                cy = vy + treeh;
-                ch = treeh;
-              }
-
-              if (!Lizzie.config.showLargeSubBoard()) {
-                int tempx = cx;
-                int tempy = cy;
-                int tempw = cw;
-                int temph = ch;
-                if (subBoardWidth > subBoardHeight) {
-                  cx = subBoardX - (subBoardWidth - subBoardHeight) / 2;
-                } else {
-                  cx = subBoardX;
+              // comment panel
+              cx = vx;
+              cy = vy;
+              cw = vw;
+              ch = vh;
+              if (Lizzie.config.showComment) {
+                if (Lizzie.config.showVariationGraph || showListPane) {
+                  treeh = vh / 2;
+                  cy = vy + treeh;
+                  ch = treeh;
                 }
-                cy = subBoardY;
-                cw = subBoardWidth;
-                ch = subBoardHeight;
-                subBoardX = tempx;
-                subBoardY = tempy;
-                subBoardLength = Math.min(tempw, temph);
+
+                if (!Lizzie.config.showLargeSubBoard()) {
+                  int tempx = cx;
+                  int tempy = cy;
+                  int tempw = cw;
+                  int temph = ch;
+                  if (subBoardWidth > subBoardHeight) {
+                    cx = subBoardX - (subBoardWidth - subBoardHeight) / 2;
+                  } else {
+                    cx = subBoardX;
+                  }
+                  cy = subBoardY;
+                  cw = subBoardWidth;
+                  ch = subBoardHeight;
+                  subBoardX = tempx;
+                  subBoardY = tempy;
+                  subBoardLength = Math.min(tempw, temph);
+                }
               }
             }
 
@@ -6202,7 +6283,9 @@ public class LizzieFrame extends JFrame {
             boardRenderer.setLocation(boardX, boardY);
             boardRenderer.setBoardLength(maxSize, maxSize);
             boardRenderer.draw(g);
-            if (!Lizzie.config.showLargeSubBoard() && !Lizzie.config.showLargeWinrate()) {
+            if (!useLockedInFrameLayout
+                && !Lizzie.config.showLargeSubBoard()
+                && !Lizzie.config.showLargeWinrate()) {
               // treeh = vh/2;
               if (Lizzie.config.showSubBoard && Lizzie.config.showComment) {
                 treeh = treeh + vh / 2 - subBoardLength;
@@ -6231,7 +6314,9 @@ public class LizzieFrame extends JFrame {
               //          treeh = vh;
               //        }
               if (Lizzie.config.showVariationGraph || showListPane) {
-                if (!Lizzie.config.showSubBoard && Lizzie.config.showComment) treeh = vh;
+                if (!useLockedInFrameLayout
+                    && !Lizzie.config.showSubBoard
+                    && Lizzie.config.showComment) treeh = vh;
                 drawContainer(backgroundG.get(), vx, vy, vw, treeh);
               }
               //        {
@@ -6308,27 +6393,43 @@ public class LizzieFrame extends JFrame {
               // drawContainer(backgroundG.get(), vx, vy, vw, vh);
               // }
               if (Lizzie.config.showVariationGraph || showListPane) {
-                if (!Lizzie.config.showLargeSubBoard() && !Lizzie.config.showLargeWinrate()) {
-                  if ((Lizzie.config.showSubBoard && !Lizzie.config.showComment)) treeh = vh;
-                }
-                if (!Lizzie.config.showSubBoard && Lizzie.config.showComment) treeh = vh;
-
-                if (showListPane && !isLargeSubboard) {
-                  if (Lizzie.config.showVariationGraph) {
-                    treeh = treeh / 2;
-                    setListScrollpane(treex, treey + treeh, treew, treeh);
-                  } else {
-                    setListScrollpane(treex, treey, treew, treeh);
+                if (useLockedInFrameLayout) {
+                  if (showListPane && !isLargeSubboard) {
+                    Rectangle list = inFrameLayout.candidateTable;
+                    if (list.width >= 10 && list.height >= 5) {
+                      setListScrollpane(list.x, list.y, list.width, list.height);
+                    }
                   }
+                  if (Lizzie.config.showVariationGraph) {
+                    createVarTreeImage(
+                        inFrameLayout.variationGraph.x,
+                        inFrameLayout.variationGraph.y,
+                        inFrameLayout.variationGraph.width,
+                        inFrameLayout.variationGraph.height,
+                        g);
+                  } else {
+                    Rectangle list = inFrameLayout.candidateTable;
+                    createVarTreeImage(list.x, list.y, list.width, list.height, g);
+                  }
+                } else {
+                  if (!Lizzie.config.showLargeSubBoard() && !Lizzie.config.showLargeWinrate()) {
+                    if ((Lizzie.config.showSubBoard && !Lizzie.config.showComment)) treeh = vh;
+                  }
+                  if (!Lizzie.config.showSubBoard && Lizzie.config.showComment) treeh = vh;
+
+                  if (showListPane && !isLargeSubboard) {
+                    if (Lizzie.config.showVariationGraph) {
+                      treeh = treeh / 2;
+                      setListScrollpane(treex, treey + treeh, treew, treeh);
+                    } else {
+                      setListScrollpane(treex, treey, treew, treeh);
+                    }
+                  }
+                  if ((Lizzie.config.showLargeSubBoard() || Lizzie.config.showLargeWinrate())
+                      && !Lizzie.config.showCaptured)
+                    createVarTreeImage(treex - treew, treey, treew * 2, treeh, g);
+                  else createVarTreeImage(treex, treey, treew, treeh, g);
                 }
-                //            if (isSmallCap) {
-                //              createVarTreeImage(treex, treey, treew, treeh);
-                //            } else
-                // drawVariationTree(g, treex, treey, treew, treeh);
-                if ((Lizzie.config.showLargeSubBoard() || Lizzie.config.showLargeWinrate())
-                    && !Lizzie.config.showCaptured)
-                  createVarTreeImage(treex - treew, treey, treew * 2, treeh, g);
-                else createVarTreeImage(treex, treey, treew, treeh, g);
               }
 
               if (Lizzie.config.showComment) {
