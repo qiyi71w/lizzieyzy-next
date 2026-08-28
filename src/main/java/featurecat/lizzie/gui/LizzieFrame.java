@@ -9740,9 +9740,30 @@ public class LizzieFrame extends JFrame {
   }
 
   private void setCommentText(String comment) {
-    String rendered = CommentDisplayRenderer.render(comment);
+    String rendered =
+        CommentDisplayRenderer.render(comment, shouldSeparateOrdinaryAnalysisMatchInfo());
     setRenderedComment(commentTextArea, rendered);
     setRenderedComment(commentTextPane, rendered);
+  }
+
+  private static boolean shouldSeparateOrdinaryAnalysisMatchInfo() {
+    Board board = Lizzie.board;
+    if (board == null) {
+      return true;
+    }
+    if (EngineGamePresentation.current().playing()) {
+      return false;
+    }
+    if (board.isPkBoard || board.isGameBoard) {
+      return false;
+    }
+    if (board.getHistory() != null) {
+      GameInfo info = board.getHistory().getGameInfo();
+      if (info != null && info.hasEngineGameHistory()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private JPaintTextPane createCommentDisplayPane(HTMLDocument document) {

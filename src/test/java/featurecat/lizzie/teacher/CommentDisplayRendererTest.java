@@ -135,6 +135,16 @@ class CommentDisplayRendererTest {
     assertFalse(html.contains("LizzieYzy AI Commentary BEGIN"));
   }
 
+  @Test
+  void keepsMixedCommentUnsplitWhenMatchInfoSeparationIsDisabled() {
+    String mixed = "Looks like a fight.\n\n" + ENGLISH_KATA_MATCH_INFO;
+    String html = renderWithBundle(AppLocale.ENGLISH.loadBundle(), mixed, false);
+
+    assertTrue(html.contains("Looks like a fight."));
+    assertTrue(html.contains("win rate"));
+    assertFalse(html.contains("match-info-divider"));
+  }
+
   private static final String ENGLISH_KATA_MATCH_INFO =
       "White win rate: 38.9% (-22.2%)\n"
           + "lead: -8.9 (-2.8) stdev: 13.4\n"
@@ -148,10 +158,15 @@ class CommentDisplayRendererTest {
           + "贴目: 7.5";
 
   private static String renderWithBundle(ResourceBundle bundle, String comment) {
+    return renderWithBundle(bundle, comment, true);
+  }
+
+  private static String renderWithBundle(
+      ResourceBundle bundle, String comment, boolean separateMatchInfo) {
     ResourceBundle previous = Lizzie.resourceBundle;
     Lizzie.resourceBundle = bundle;
     try {
-      return CommentDisplayRenderer.render(comment);
+      return CommentDisplayRenderer.render(comment, separateMatchInfo);
     } finally {
       Lizzie.resourceBundle = previous;
     }

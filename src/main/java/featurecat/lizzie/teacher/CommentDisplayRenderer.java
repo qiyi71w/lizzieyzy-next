@@ -1,9 +1,5 @@
 package featurecat.lizzie.teacher;
 
-import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.GameInfo;
-import featurecat.lizzie.enginegame.EngineGamePresentation;
-import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.rules.SGFParser.WinrateCommentSplit;
 import java.util.Optional;
@@ -13,11 +9,15 @@ public final class CommentDisplayRenderer {
   private CommentDisplayRenderer() {}
 
   public static String render(String rawComment) {
+    return render(rawComment, false);
+  }
+
+  public static String render(String rawComment, boolean separateMatchInfo) {
     String userComment = TeacherCommentCodec.removeBlocks(rawComment);
     Optional<String> aiCommentary = TeacherCommentCodec.extract(rawComment);
     String personalComment = userComment;
     String matchInfo = "";
-    if (shouldSplitOrdinaryAnalysisMatchInfo()) {
+    if (separateMatchInfo) {
       WinrateCommentSplit split = SGFParser.splitWinrateComment(userComment);
       personalComment = split.personalComment;
       matchInfo = split.matchInfo;
@@ -53,25 +53,5 @@ public final class CommentDisplayRenderer {
     body.append("<div class='sgf-comment'>")
         .append(SafeMarkdownRenderer.plainTextToBodyHtml(text))
         .append("</div>");
-  }
-
-  private static boolean shouldSplitOrdinaryAnalysisMatchInfo() {
-    Board board = Lizzie.board;
-    if (board == null) {
-      return true;
-    }
-    if (EngineGamePresentation.current().playing()) {
-      return false;
-    }
-    if (board.isPkBoard || board.isGameBoard) {
-      return false;
-    }
-    if (board.getHistory() != null) {
-      GameInfo info = board.getHistory().getGameInfo();
-      if (info != null && info.hasEngineGameHistory()) {
-        return false;
-      }
-    }
-    return true;
   }
 }
