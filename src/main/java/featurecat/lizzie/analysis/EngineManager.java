@@ -5355,6 +5355,35 @@ public class EngineManager {
       return Optional.of(abandoned);
     }
 
+    synchronized Optional<EngineSwitchUiSnapshot> restoreActive(
+        long token,
+        boolean main,
+        int recoveredIndex,
+        String recoveredName,
+        Leelaz recoveredEngine) {
+      EngineSwitchUiSnapshot current = current(main);
+      if (current.token != token || current.phase != EngineSwitchUiPhase.FAILED) {
+        return Optional.empty();
+      }
+      EngineSwitchUiSnapshot next =
+          new EngineSwitchUiSnapshot(
+              token,
+              main,
+              EngineSwitchUiPhase.ACTIVE,
+              recoveredIndex,
+              recoveredName,
+              recoveredIndex,
+              recoveredName,
+              current.failureDetail,
+              current.rollbackIndex,
+              current.rollbackName,
+              recoveredEngine,
+              recoveredEngine,
+              current.rollbackEngineIdentity);
+      set(main, next);
+      return Optional.of(next);
+    }
+
     synchronized EngineSwitchUiSnapshot current(boolean main) {
       return main ? primary : secondary;
     }
@@ -6755,7 +6784,7 @@ public class EngineManager {
           failRecoveredPrimaryFinalInitialization(recovery, finalInitializationFailure);
           return;
         }
-        publishEngineSwitchUiState(recovery.failedSnapshot);
+        publishRestoredActiveEngineSwitchUi(recovery);
       } else {
         synchronized (ENGINE_SELECTION_STATE_LOCK) {
           recovery.engine.isLoaded = false;
@@ -6783,6 +6812,21 @@ public class EngineManager {
         }
       }
     }
+  }
+
+  private void publishRestoredActiveEngineSwitchUi(FailedRollbackRecovery recovery) {
+    if (recovery == null || recovery.failedSnapshot == null) {
+      return;
+    }
+    EngineSwitchUiSnapshot failed = recovery.failedSnapshot;
+    engineSwitchUiTracker
+        .restoreActive(
+            failed.token,
+            failed.main,
+            recovery.engineIndex,
+            engineDisplayName(recovery.engine, recovery.engineIndex),
+            recovery.engine)
+        .ifPresent(this::publishEngineSwitchUiState);
   }
 
   private void failRecoveredPrimaryFinalInitialization(

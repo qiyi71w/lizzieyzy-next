@@ -10060,7 +10060,7 @@ public class Menu extends JMenuBar {
   }
 
   public void applyEngineSwitchUiState(EngineManager.EngineSwitchUiSnapshot snapshot) {
-    if (snapshot == null || snapshot.phase() == EngineManager.EngineSwitchUiPhase.IDLE) {
+    if (snapshot == null) {
       return;
     }
     if (!SwingUtilities.isEventDispatchThread()) {
@@ -10075,6 +10075,10 @@ public class Menu extends JMenuBar {
     JFontMenu targetMenu = snapshot.isMain() ? engineMenu : engineMenu2;
     JFontMenuItem[] targetItems = snapshot.isMain() ? engine : engine2;
     if (targetMenu == null) {
+      return;
+    }
+    if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.IDLE) {
+      applyIdleEngineSwitchFromCurrentSelection(snapshot.isMain(), targetMenu, targetItems);
       return;
     }
     boolean activeEngineAvailable =
@@ -10095,6 +10099,25 @@ public class Menu extends JMenuBar {
         stop,
         activeEngineAvailable,
         switching);
+  }
+
+  private void applyIdleEngineSwitchFromCurrentSelection(
+      boolean main, JFontMenu targetMenu, JFontMenuItem[] targetItems) {
+    String emptyLabel =
+        engineSwitchUiMessage(
+            resourceBundle, Lizzie.resourceBundle, "Menu.noEngine", "no engine");
+    int index = main ? EngineManager.currentEngineNo : EngineManager.currentEngineNo2;
+    Leelaz engine = main ? Lizzie.leelaz : Lizzie.leelaz2;
+    boolean empty = main && EngineManager.isEmpty;
+    if (empty || index < 0 || engine == null) {
+      applyIdleEngineSwitchPresentation(
+          targetMenu, targetItems, -1, emptyLabel, playing, stop, false, emptyLabel);
+      return;
+    }
+    String name = engineSwitchEngineDisplayName(engine, index);
+    boolean available = engine.started && engine.isLoaded;
+    applyIdleEngineSwitchPresentation(
+        targetMenu, targetItems, index, name, playing, stop, available, emptyLabel);
   }
 
   static final int BOTTOM_TOOLBAR_SHOWN_HEIGHT = 26;
@@ -10149,30 +10172,91 @@ public class Menu extends JMenuBar {
       return;
     }
     String targetName = snapshot.targetName();
-    String targetLabel =
-        snapshot.targetIndex() < 0
-            ? targetName
-            : "[" + (snapshot.targetIndex() + 1) + "]: " + targetName;
+    String targetLabel = engineSwitchEngineLabel(snapshot.targetIndex(), targetName);
     if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.SWITCHING) {
       String switching = switchingText == null ? "" : switchingText;
-      targetMenu.setText(targetLabel + "  ·  " + switching);
+      targetMenu.setText(engineSwitchNoticeText(targetLabel, switching));
       applyEngineSwitchItemIcons(
           targetItems, snapshot, playingIcon, stoppedIcon, activeEngineAvailable);
       targetMenu.getAccessibleContext().setAccessibleDescription(targetName + " " + switching);
     } else if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.ACTIVE) {
-      targetMenu.setText(targetLabel);
-      applyEngineSwitchItemIcons(
-          targetItems, snapshot, playingIcon, stoppedIcon, activeEngineAvailable);
-      targetMenu.getAccessibleContext().setAccessibleDescription(targetName);
-    } else if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.FAILED) {
       String failure = snapshot.failureDetail();
-      targetMenu.setText(targetLabel + "  ·  " + failure);
+      targetMenu.setText(engineSwitchNoticeText(targetLabel, failure));
       applyEngineSwitchItemIcons(
           targetItems, snapshot, playingIcon, stoppedIcon, activeEngineAvailable);
-      targetMenu.getAccessibleContext().setAccessibleDescription(targetName + " " + failure);
+      targetMenu
+          .getAccessibleContext()
+          .setAccessibleDescription(
+              failure.isEmpty() ? targetName : targetName + " " + failure);
+    } else if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.FAILED) {
+      boolean useRecoveredIdentity = snapshot.activeIndex() >= 0;
+      String identityName = useRecoveredIdentity ? snapshot.activeName() : targetName;
+      String identityLabel =
+          useRecoveredIdentity
+              ? engineSwitchEngineLabel(snapshot.activeIndex(), snapshot.activeName())
+              : targetLabel;
+      String failure = snapshot.failureDetail();
+      targetMenu.setText(engineSwitchNoticeText(identityLabel, failure));
+      applyEngineSwitchItemIcons(
+          targetItems, snapshot, playingIcon, stoppedIcon, activeEngineAvailable);
+      targetMenu
+          .getAccessibleContext()
+          .setAccessibleDescription(
+              failure.isEmpty() ? identityName : identityName + " " + failure);
     }
     targetMenu.revalidate();
     targetMenu.repaint();
+  }
+
+  static void applyIdleEngineSwitchPresentation(
+      JFontMenu targetMenu,
+      JFontMenuItem[] targetItems,
+      int currentIndex,
+      String currentName,
+      Icon playingIcon,
+      Icon stoppedIcon,
+      boolean currentAvailable,
+      String emptyLabel) {
+    if (targetMenu == null) {
+      return;
+    }
+    String name = currentName == null ? "" : currentName;
+    String label =
+        currentIndex < 0
+            ? (name.isEmpty() ? (emptyLabel == null ? "" : emptyLabel) : name)
+            : engineSwitchEngineLabel(currentIndex, name);
+    targetMenu.setText(label);
+    if (currentIndex >= 0) {
+      setEngineSwitchItemIcon(
+          targetItems, currentIndex, currentAvailable ? playingIcon : stoppedIcon);
+    }
+    targetMenu.getAccessibleContext().setAccessibleDescription(name);
+    targetMenu.revalidate();
+    targetMenu.repaint();
+  }
+
+  static String engineSwitchEngineLabel(int index, String name) {
+    String resolved = name == null ? "" : name;
+    return index < 0 ? resolved : "[" + (index + 1) + "]: " + resolved;
+  }
+
+  static String engineSwitchNoticeText(String identity, String notice) {
+    if (notice == null || notice.isEmpty()) {
+      return identity;
+    }
+    return identity + "  ·  " + notice;
+  }
+
+  static String engineSwitchEngineDisplayName(Leelaz engine, int index) {
+    if (engine != null) {
+      if (engine.oriEnginename != null && !engine.oriEnginename.trim().isEmpty()) {
+        return engine.oriEnginename;
+      }
+      if (engine.currentEnginename != null && !engine.currentEnginename.trim().isEmpty()) {
+        return engine.currentEnginename;
+      }
+    }
+    return "Engine " + Math.max(1, index + 1);
   }
 
   static String engineSwitchUiMessage(
