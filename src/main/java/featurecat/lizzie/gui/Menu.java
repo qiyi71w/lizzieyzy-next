@@ -497,8 +497,7 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           @Override
           public void actionPerformed(ActionEvent e) {
-            // TODO Auto-generated method stub
-            if (Lizzie.frame.BoardPositionProportion > 0) Lizzie.frame.BoardPositionProportion--;
+            Lizzie.frame.nudgeBoardPositionProportion(-1);
             Lizzie.frame.refresh();
           }
         });
@@ -510,8 +509,7 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           @Override
           public void actionPerformed(ActionEvent e) {
-            // TODO Auto-generated method stub
-            if (Lizzie.frame.BoardPositionProportion < 8) Lizzie.frame.BoardPositionProportion++;
+            Lizzie.frame.nudgeBoardPositionProportion(1);
             Lizzie.frame.refresh();
           }
         });
@@ -1359,6 +1357,18 @@ public class Menu extends JMenuBar {
           }
         });
     panel.add(SuggestionList);
+
+    final JFontMenuItem restoreDefaultPanelSizes =
+        new JFontMenuItem(resourceBundle.getString("Menu.restoreDefaultPanelSizes"));
+    restoreDefaultPanelSizes.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.restoreDefaultPanelSizes();
+          }
+        });
+    panel.add(restoreDefaultPanelSizes);
+
 
     final JFontCheckBoxMenuItem winrateMode0 =
         new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.winrateMode0")); // ("黑方视角");
