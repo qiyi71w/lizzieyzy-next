@@ -1,7 +1,6 @@
 package featurecat.lizzie.rules;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
 import featurecat.lizzie.gui.LizzieFrame;
@@ -394,7 +393,7 @@ public class BoardData {
     if (!forceOverride
         && Lizzie.config.enableLizzieCache
         && !Lizzie.config.isAutoAna
-        && !EngineManager.isEngineGame) {
+        && !Lizzie.engineGame.current().playing()) {
       if (!(totalplayouts > playouts
           || isChanged
           || (metadataEngine != null && pda != metadataEngine.pda))) {
@@ -427,8 +426,7 @@ public class BoardData {
         pda = sourceEngine.pda;
       } else pda = 0;
     }
-    if (!(EngineManager.isEngineGame && EngineManager.engineGameInfo.isGenmove)
-        && metadataEngine != null) {
+    if (!Lizzie.engineGame.current().playingGenmove() && metadataEngine != null) {
       wrn = metadataEngine.wrn;
     }
     analysisHeaderSlots = 0;

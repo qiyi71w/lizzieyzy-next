@@ -4564,7 +4564,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
       return true;
     }
     if (!Lizzie.frame.bothSync
-        || EngineManager.isEngineGame()
+        || EngineManager.occupiesEngineGameAdmission()
         || (Lizzie.config != null && Lizzie.config.isDoubleEngineMode())) {
       showReadBoardGmaUnsupportedOnce();
       return true;

@@ -1287,8 +1287,6 @@ class LizzieFrameRegressionTest {
       StartingRemoteLeelaz leelaz = new StartingRemoteLeelaz();
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
       Lizzie.frame = frame;
 
@@ -1324,8 +1322,6 @@ class LizzieFrameRegressionTest {
       Lizzie.board = boardWith(historyWithPlaceholderAnalysisMove());
       Lizzie.leelaz = null;
       EngineManager.isEmpty = true;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
 
       assertTrue(
@@ -1349,8 +1345,6 @@ class LizzieFrameRegressionTest {
       Lizzie.board = boardWith(historyWithTargetVisitAnalyzedMove());
       Lizzie.leelaz = null;
       EngineManager.isEmpty = true;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
 
       assertFalse(frame.ensureAnalysisResumedAfterDownloadedKifuLoad());
@@ -1371,8 +1365,6 @@ class LizzieFrameRegressionTest {
       leelaz.pondering = true;
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
       Lizzie.frame = frame;
 
@@ -1402,8 +1394,6 @@ class LizzieFrameRegressionTest {
       board.events = leelaz.commands();
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
       Lizzie.frame = frame;
 
@@ -1430,8 +1420,6 @@ class LizzieFrameRegressionTest {
       board.events = leelaz.commands();
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       ManualPonderTrackingFrame frame = allocate(ManualPonderTrackingFrame.class);
       Lizzie.frame = frame;
 
@@ -1457,8 +1445,6 @@ class LizzieFrameRegressionTest {
       TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
       QuickAnalysisCompletionEngine engine = allocate(QuickAnalysisCompletionEngine.class);
       engine.requestStarted = new CountDownLatch(1);
@@ -1610,8 +1596,6 @@ class LizzieFrameRegressionTest {
       TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
       Lizzie.frame = frame;
 
@@ -1637,8 +1621,6 @@ class LizzieFrameRegressionTest {
       TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
       NavigationQuickAnalysisEngine engine = allocate(NavigationQuickAnalysisEngine.class);
       frame.analysisEngine = engine;
@@ -1696,8 +1678,6 @@ class LizzieFrameRegressionTest {
       TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
       try {
         NavigationQuickAnalysisEngine engine = allocate(NavigationQuickAnalysisEngine.class);
@@ -1750,8 +1730,6 @@ class LizzieFrameRegressionTest {
       LoadingLeelaz leelaz = allocate(LoadingLeelaz.class);
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
       NavigationQuickAnalysisEngine engine = allocate(NavigationQuickAnalysisEngine.class);
       frame.analysisEngine = engine;
@@ -1776,8 +1754,6 @@ class LizzieFrameRegressionTest {
       Lizzie.config = configWithAutoQuickAnalyze();
       Lizzie.board = boardWith(historyWithUnanalyzedMove());
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       LizzieFrame frame = allocate(LizzieFrame.class);
       NavigationQuickAnalysisEngine engine = allocate(NavigationQuickAnalysisEngine.class);
       engine.analysisInProgress = true;
@@ -1802,8 +1778,6 @@ class LizzieFrameRegressionTest {
       Lizzie.config = configWithAutoQuickAnalyze();
       Lizzie.board = boardWith(historyWithUnanalyzedMove());
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
       Lizzie.frame = frame;
 
@@ -1858,8 +1832,6 @@ class LizzieFrameRegressionTest {
       TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
       Lizzie.leelaz = leelaz;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
       AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
       Lizzie.frame = frame;
 
@@ -2239,8 +2211,6 @@ class LizzieFrameRegressionTest {
     Lizzie.frame = frame;
     Lizzie.leelaz = null;
     EngineManager.isEmpty = true;
-    EngineManager.isEngineGame = false;
-    EngineManager.isPreEngineGame = false;
     return frame;
   }
 
@@ -2657,8 +2627,6 @@ class LizzieFrameRegressionTest {
     private final LizzieFrame previousFrame;
     private final Leelaz previousLeelaz;
     private final boolean previousEngineEmpty;
-    private final boolean previousEngineGame;
-    private final boolean previousPreEngineGame;
 
     private TestEnvironment(
         int previousBoardWidth,
@@ -2667,9 +2635,7 @@ class LizzieFrameRegressionTest {
         Board previousBoard,
         LizzieFrame previousFrame,
         Leelaz previousLeelaz,
-        boolean previousEngineEmpty,
-        boolean previousEngineGame,
-        boolean previousPreEngineGame) {
+        boolean previousEngineEmpty) {
       this.previousBoardWidth = previousBoardWidth;
       this.previousBoardHeight = previousBoardHeight;
       this.previousConfig = previousConfig;
@@ -2677,8 +2643,6 @@ class LizzieFrameRegressionTest {
       this.previousFrame = previousFrame;
       this.previousLeelaz = previousLeelaz;
       this.previousEngineEmpty = previousEngineEmpty;
-      this.previousEngineGame = previousEngineGame;
-      this.previousPreEngineGame = previousPreEngineGame;
     }
 
     private static TestEnvironment open() {
@@ -2690,9 +2654,7 @@ class LizzieFrameRegressionTest {
               Lizzie.board,
               Lizzie.frame,
               Lizzie.leelaz,
-              EngineManager.isEmpty,
-              EngineManager.isEngineGame,
-              EngineManager.isPreEngineGame);
+              EngineManager.isEmpty);
       Board.boardWidth = BOARD_SIZE;
       Board.boardHeight = BOARD_SIZE;
       Zobrist.init();
@@ -2709,8 +2671,6 @@ class LizzieFrameRegressionTest {
       Lizzie.frame = previousFrame;
       Lizzie.leelaz = previousLeelaz;
       EngineManager.isEmpty = previousEngineEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 

@@ -4,6 +4,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -67,18 +68,7 @@ public class SetKataPDA extends JDialog {
     btnApply.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            Leelaz engine;
-            if (EngineManager.isEngineGame) {
-              if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-                  .isKataGoPda)
-                engine =
-                    Lizzie.engineManager.engineList.get(
-                        EngineManager.engineGameInfo.firstEngineIndex);
-              else
-                engine =
-                    Lizzie.engineManager.engineList.get(
-                        EngineManager.engineGameInfo.secondEngineIndex);
-            } else engine = Lizzie.leelaz;
+            Leelaz engine = kataGoPdaEngineGameParticipantOrPrimary();
             if (chkDymPda.isSelected()) {
               double dymCap;
               try {
@@ -338,5 +328,25 @@ public class SetKataPDA extends JDialog {
       // TODO Auto-generated catch block
       e1.printStackTrace();
     }
+  }
+
+  private static Leelaz kataGoPdaEngineGameParticipantOrPrimary() {
+    EngineGameSnapshot snapshot = Lizzie.engineGame.current();
+    EngineManager manager = Lizzie.engineManager;
+    if (!snapshot.playing() || manager == null || manager.engineList == null) {
+      return Lizzie.leelaz;
+    }
+    EngineGameSnapshot.BatchActive active = (EngineGameSnapshot.BatchActive) snapshot;
+    int first = manager.resolveEngineGameParticipant(active.batch().first());
+    int second = manager.resolveEngineGameParticipant(active.batch().second());
+    if (first >= 0
+        && first < manager.engineList.size()
+        && manager.engineList.get(first).isKataGoPda) {
+      return manager.engineList.get(first);
+    }
+    if (second >= 0 && second < manager.engineList.size()) {
+      return manager.engineList.get(second);
+    }
+    return Lizzie.leelaz;
   }
 }

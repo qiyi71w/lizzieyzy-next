@@ -3,9 +3,12 @@ package featurecat.lizzie.rules;
 import static java.util.Arrays.asList;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.MoveData;
+import featurecat.lizzie.enginegame.EngineGameParticipantDescriptor;
+import featurecat.lizzie.enginegame.EngineGameRecord;
+import featurecat.lizzie.enginegame.EngineGameRecordContext;
+import featurecat.lizzie.enginegame.EngineGameSaveSnapshot;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.logging.SgfObservation;
 import featurecat.lizzie.util.EncodingDetector;
@@ -902,13 +905,123 @@ public class SGFParser {
     copy.setKomiNoMenu(original.getKomi());
     copy.setHandicap(original.getHandicap());
     copy.setResult(original.getResult());
+    copy.copyEngineGameHistoryFrom(original);
     return copy;
   }
 
+  private static GameInfo gameInfoForSave(Board board) {
+    if (board != null && board.getHistory() != null) {
+      return board.getHistory().getGameInfo();
+    }
+    if (Lizzie.board != null && Lizzie.board.getHistory() != null) {
+      return Lizzie.board.getHistory().getGameInfo();
+    }
+    return null;
+  }
+
+  private static boolean isEngineGameHistory(Board board) {
+    GameInfo info = gameInfoForSave(board);
+    return info != null && info.hasEngineGameHistory();
+  }
+
+  private static boolean isEngineGameHistory() {
+    return isEngineGameHistory(Lizzie.board);
+  }
+
+  private static EngineGameRecordContext engineGameContext(GameInfo info) {
+    if (info == null) {
+      return null;
+    }
+    if (info.engineGameRecord() != null) {
+      return info.engineGameRecord().context();
+    }
+    if (info.engineGameSaveSnapshot() != null) {
+      return info.engineGameSaveSnapshot().context();
+    }
+    return info.engineGameRecordContext();
+  }
+
+  private static void maybeCaptureEngineGameSaveSnapshot(Board board) {
+    GameInfo info = gameInfoForSave(board);
+    if (info == null
+        || info.engineGameRecord() != null
+        || info.engineGameRecordContext() == null) {
+      return;
+    }
+    if (board == Lizzie.board && Lizzie.engineGame != null) {
+      Lizzie.engineGame.captureSaveSnapshot();
+    }
+  }
+
   public static void appendGameTimeAndPlayouts() {
-    BoardHistoryNode node = Lizzie.board.getHistory().getStart();
+    if (Lizzie.board == null || Lizzie.board.getHistory() == null) {
+      return;
+    }
+    BoardHistoryList history = Lizzie.board.getHistory();
+    GameInfo info = history.getGameInfo();
+    BoardHistoryNode node = history.getStart();
+    long blackPlayouts;
+    long whitePlayouts;
+    long blackTimeMs;
+    long whiteTimeMs;
+    int openingIndex = -1;
+    EngineGameRecord record = info == null ? null : info.engineGameRecord();
+    EngineGameSaveSnapshot snapshot = info == null ? null : info.engineGameSaveSnapshot();
+    if (record != null) {
+      blackPlayouts = record.blackVisits();
+      whitePlayouts = record.whiteVisits();
+      blackTimeMs = record.blackTimeMs();
+      whiteTimeMs = record.whiteTimeMs();
+      openingIndex = record.openingIndex();
+    } else if (snapshot != null) {
+      blackPlayouts = snapshot.blackVisits();
+      whitePlayouts = snapshot.whiteVisits();
+      blackTimeMs = snapshot.blackTimeMs();
+      whiteTimeMs = snapshot.whiteTimeMs();
+      openingIndex = snapshot.context().openingIndex();
+    } else {
+      long[] visits = historySideVisits(node);
+      blackPlayouts = visits[0];
+      whitePlayouts = visits[1];
+      blackTimeMs = 0L;
+      whiteTimeMs = 0L;
+      EngineGameRecordContext context = engineGameContext(info);
+      openingIndex = context == null ? -1 : context.openingIndex();
+    }
+    node = history.getStart();
+    if (Lizzie.config != null && Lizzie.config.chkEngineSgfStart && openingIndex >= 0) {
+      node.getData().comment =
+          node.getData().comment
+              + Lizzie.resourceBundle.getString("SGFParse.startGameSgf")
+              + openingIndex
+              + "\n";
+    }
+    if (Lizzie.resourceBundle == null) {
+      return;
+    }
+    node.getData().comment +=
+        Lizzie.resourceBundle.getString("SGFParse.blackTotalTime")
+            + blackTimeMs / (float) 1000
+            + Lizzie.resourceBundle.getString("SGFParse.seconds")
+            + "\n"
+            + Lizzie.resourceBundle.getString("SGFParse.totalVisits")
+            + blackPlayouts;
+    node.getData().comment +=
+        "\n"
+            + Lizzie.resourceBundle.getString("SGFParse.whiteTotalTime")
+            + whiteTimeMs / (float) 1000
+            + Lizzie.resourceBundle.getString("SGFParse.seconds")
+            + "\n"
+            + Lizzie.resourceBundle.getString("SGFParse.totalVisits")
+            + whitePlayouts;
+  }
+
+  private static long[] historySideVisits(BoardHistoryNode node) {
     long blackPlayouts = 0;
     long whitePlayouts = 0;
+    if (node == null) {
+      return new long[] {0L, 0L};
+    }
     while (node.next().isPresent()) {
       if (node.getData().isHistoryActionNode()
           && node.getData().lastMoveColor.equals(Stone.WHITE)) {
@@ -926,49 +1039,46 @@ public class SGFParser {
     if (node.getData().isHistoryActionNode() && node.getData().lastMoveColor.equals(Stone.BLACK)) {
       whitePlayouts += node.getData().getPlayouts();
     }
-    node = Lizzie.board.getHistory().getStart();
-    if (Lizzie.config.chkEngineSgfStart)
-      node.getData().comment =
-          node.getData().comment
-              + Lizzie.resourceBundle.getString("SGFParse.startGameSgf")
-              + LizzieFrame.toolbar.currentEnginePkSgfNum
-              + "\n";
-    node.getData().comment +=
-        Lizzie.resourceBundle.getString("SGFParse.blackTotalTime")
-            + +Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                    .pkMoveTimeGame
-                / (float) 1000
-            + Lizzie.resourceBundle.getString("SGFParse.seconds")
-            + "\n"
-            + Lizzie.resourceBundle.getString("SGFParse.totalVisits")
-            + blackPlayouts;
-
-    node.getData().comment +=
-        "\n"
-            + Lizzie.resourceBundle.getString("SGFParse.whiteTotalTime")
-            + Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                    .pkMoveTimeGame
-                / (float) 1000
-            + Lizzie.resourceBundle.getString("SGFParse.seconds")
-            + "\n"
-            + Lizzie.resourceBundle.getString("SGFParse.totalVisits")
-            + +whitePlayouts;
-    if (EngineManager.engineGameInfo.firstEngineIndex
-        == EngineManager.engineGameInfo.blackEngineIndex) {
-      EngineManager.engineGameInfo.firstEngineTotlePlayouts += blackPlayouts;
-      EngineManager.engineGameInfo.secondEngineTotlePlayouts += whitePlayouts;
-
-    } else {
-      EngineManager.engineGameInfo.firstEngineTotlePlayouts += whitePlayouts;
-      EngineManager.engineGameInfo.secondEngineTotlePlayouts += blackPlayouts;
-    }
-    EngineManager.engineGameInfo.firstEngineTotleTime +=
-        Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex)
-            .pkMoveTimeGame;
-    EngineManager.engineGameInfo.secondEngineTotleTime +=
-        Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.secondEngineIndex)
-            .pkMoveTimeGame;
+    return new long[] {blackPlayouts, whitePlayouts};
   }
+
+  private static void appendEngineGameSideRules(
+      BoardHistoryList history, EngineGameParticipantDescriptor side, String resourceKey) {
+    if (side == null || !side.katago() || Lizzie.resourceBundle == null) {
+      return;
+    }
+    String rules = specificRulesLabel(side.usingSpecificRules());
+    if (rules.isEmpty()) {
+      return;
+    }
+    BoardHistoryNode start = history.getStart();
+    if (start.getData().comment.equals("")) {
+      start.getData().comment += Lizzie.resourceBundle.getString(resourceKey) + rules;
+    } else {
+      start.getData().comment += "\n" + Lizzie.resourceBundle.getString(resourceKey) + rules;
+    }
+  }
+
+  private static String specificRulesLabel(int usingSpecificRules) {
+    if (Lizzie.resourceBundle == null) {
+      return "";
+    }
+    switch (usingSpecificRules) {
+      case 1:
+        return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
+      case 2:
+        return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
+      case 3:
+        return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
+      case 4:
+        return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
+      case 5:
+        return Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
+      default:
+        return "";
+    }
+  }
+
 
   public static void appendAiScoreBlunder() {
     int analyzedBlack = 0;
@@ -1064,6 +1174,7 @@ public class SGFParser {
       boolean mainTrunkOnly,
       boolean stripRootMetadata)
       throws IOException {
+    maybeCaptureEngineGameSaveSnapshot(board);
     BoardHistoryList history = board.getHistory().shallowCopy();
     int[] historyBoardSize = resolveHistoryBoardSize(history);
     int historyBoardWidth = historyBoardSize[0];
@@ -1080,6 +1191,8 @@ public class SGFParser {
 
       // collect game info
       GameInfo gameInfo = history.getGameInfo();
+      EngineGameRecordContext engineContext = engineGameContext(gameInfo);
+      boolean engineGameHistory = gameInfo != null && gameInfo.hasEngineGameHistory();
       String playerB = gameInfo.getPlayerBlack();
       String playerW = gameInfo.getPlayerWhite();
       String result = gameInfo.getResult();
@@ -1097,84 +1210,12 @@ public class SGFParser {
                 "KM[%s]PW[%s]PB[%s]DT[%s]RE[%s]SZ[%s]CA[UTF-8]",
                 komi, playerW, playerB, date, result, boardSizeTag));
       } else {
-        if (EngineManager.isEngineGame || EngineManager.isSaveingEngineSGF) {
+        if (engineGameHistory) {
           Lizzie.board.updateWinrate();
-          SGFParser.appendTime();
-          if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-              .isKatago) {
-            String rules = "";
-            boolean usingSpecificRues = false;
-            switch (Lizzie.engineManager.engineList.get(
-                    EngineManager.engineGameInfo.blackEngineIndex)
-                .usingSpecificRules) {
-              case 1:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
-                usingSpecificRues = true;
-                break;
-              case 2:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
-                usingSpecificRues = true;
-                break;
-              case 3:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
-                usingSpecificRues = true;
-                break;
-              case 4:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
-                usingSpecificRues = true;
-                break;
-              case 5:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
-                usingSpecificRues = true;
-                break;
-            }
-
-            if (usingSpecificRues) {
-              if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
-                Lizzie.board.getHistory().getStart().getData().comment +=
-                    Lizzie.resourceBundle.getString("SGFParse.blackRules") + rules;
-              else
-                Lizzie.board.getHistory().getStart().getData().comment +=
-                    "\n" + Lizzie.resourceBundle.getString("SGFParse.blackRules") + rules;
-            }
-          }
-          if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-              .isKatago) {
-            String rules = "";
-            boolean usingSpecificRues = false;
-            switch (Lizzie.engineManager.engineList.get(
-                    EngineManager.engineGameInfo.whiteEngineIndex)
-                .usingSpecificRules) {
-              case 1:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
-                usingSpecificRues = true;
-                break;
-              case 2:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
-                usingSpecificRues = true;
-                break;
-              case 3:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.japanese");
-                usingSpecificRues = true;
-                break;
-              case 4:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.tromp-taylor");
-                usingSpecificRues = true;
-                break;
-              case 5:
-                rules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.others");
-                usingSpecificRues = true;
-                break;
-            }
-
-            if (usingSpecificRues) {
-              if (Lizzie.board.getHistory().getStart().getData().comment.equals(""))
-                Lizzie.board.getHistory().getStart().getData().comment +=
-                    Lizzie.resourceBundle.getString("SGFParse.whiteRules") + rules;
-              else
-                Lizzie.board.getHistory().getStart().getData().comment +=
-                    "\n" + Lizzie.resourceBundle.getString("SGFParse.whiteRules") + rules;
-            }
+          appendTime(gameInfo);
+          if (engineContext != null) {
+            appendEngineGameSideRules(history, engineContext.black(), "SGFParse.blackRules");
+            appendEngineGameSideRules(history, engineContext.white(), "SGFParse.whiteRules");
           }
         } else {
           if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && !fromAutoSave) {
@@ -1237,22 +1278,17 @@ public class SGFParser {
           }
         }
 
-        if (EngineManager.isEngineGame || Lizzie.board.isPkBoard) {
-          if (Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                  .isKatago
-              || Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                  .isSai
-              || Lizzie.board.isPkBoardKataW)
+        if (engineGameHistory || Lizzie.board.isPkBoard) {
+          EngineGameParticipantDescriptor white =
+              engineContext == null ? null : engineContext.white();
+          EngineGameParticipantDescriptor black =
+              engineContext == null ? null : engineContext.black();
+          if ((white != null && (white.katago() || white.sai())) || Lizzie.board.isPkBoardKataW)
             generalProps.append(
                 String.format(
                     "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KW]AP[LizzieYzy Next: %s]RE[%s]SZ[%s]CA[UTF-8]",
                     komi, playerW, playerB, date, Lizzie.nextVersion, result, boardSizeTag));
-          else if (Lizzie.engineManager.engineList.get(
-                      EngineManager.engineGameInfo.blackEngineIndex)
-                  .isKatago
-              || Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                  .isSai
-              || Lizzie.board.isPkBoardKataB)
+          else if ((black != null && (black.katago() || black.sai())) || Lizzie.board.isPkBoardKataB)
             generalProps.append(
                 String.format(
                     "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KB]AP[LizzieYzy Next: %s]RE[%s]SZ[%s]CA[UTF-8]",
@@ -1342,7 +1378,7 @@ public class SGFParser {
             builder.append(String.format(Locale.ENGLISH, "LZOP[%s]", formatNodeData(curNode)));
           if (hasSecondaryAnalysisPayload(curNode.getData()))
             builder.append(String.format(Locale.ENGLISH, "LZOP2[%s]", formatNodeData2(curNode)));
-          if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
+          if (!engineGameHistory && !Lizzie.board.isPkBoard) {
             BoardData data = curNode.getData();
             if (Lizzie.board.isGameBoard) {
               if (data.getPlayouts() > 0 && curNode.next().isPresent())
@@ -1411,7 +1447,7 @@ public class SGFParser {
   public static void appendComment(boolean forceEngineGame) {
     // if (!Lizzie.config.showComment) return;
     // if (!Lizzie.leelaz.isLoaded()) return;
-    if (forceEngineGame || EngineManager.isEngineGame || EngineManager.isSaveingEngineSGF) {
+    if (forceEngineGame || isEngineGameHistory()) {
       if (Lizzie.board.getHistory().getCurrentHistoryNode().getData().getPlayouts() > 0) {
         Lizzie.board.getHistory().getData().comment =
             formatCommentPk(Lizzie.board.getHistory().getCurrentHistoryNode());
@@ -1428,25 +1464,31 @@ public class SGFParser {
   }
 
   public static void appendTime() {
-    BoardHistoryNode node = Lizzie.board.getHistory().getCurrentHistoryNode();
-    if (node.getData().moveNumber >= 3 && node.getData().getPlayouts() > 0) {
-      if (node.getData().blackToPlay)
-        node.getData().comment +=
-            "\n"
-                + Lizzie.resourceBundle.getString("SGFParse.moveTime")
-                + Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.blackEngineIndex)
-                        .pkMoveTime
-                    / 1000f
-                + Lizzie.resourceBundle.getString("SGFParse.seconds");
-      else
-        node.getData().comment +=
-            "\n"
-                + Lizzie.resourceBundle.getString("SGFParse.moveTime")
-                + Lizzie.engineManager.engineList.get(EngineManager.engineGameInfo.whiteEngineIndex)
-                        .pkMoveTime
-                    / 1000f
-                + Lizzie.resourceBundle.getString("SGFParse.seconds");
+    appendTime(gameInfoForSave(Lizzie.board));
+  }
+
+  private static void appendTime(GameInfo info) {
+    if (Lizzie.board == null || Lizzie.board.getHistory() == null || Lizzie.resourceBundle == null) {
+      return;
     }
+    BoardHistoryNode node = Lizzie.board.getHistory().getCurrentHistoryNode();
+    if (node.getData().moveNumber < 3 || node.getData().getPlayouts() <= 0) {
+      return;
+    }
+    EngineGameSaveSnapshot snapshot = info == null ? null : info.engineGameSaveSnapshot();
+    long moveTimeMs = 0L;
+    if (snapshot != null) {
+      moveTimeMs =
+          node.getData().blackToPlay ? snapshot.blackMoveTimeMs() : snapshot.whiteMoveTimeMs();
+    }
+    if (moveTimeMs <= 0) {
+      return;
+    }
+    node.getData().comment +=
+        "\n"
+            + Lizzie.resourceBundle.getString("SGFParse.moveTime")
+            + moveTimeMs / 1000f
+            + Lizzie.resourceBundle.getString("SGFParse.seconds");
   }
 
   //
@@ -1753,7 +1795,7 @@ public class SGFParser {
   private static void prepareCommentForSave(BoardHistoryNode node) throws IOException {
     BoardData data = node.getData();
     if (Lizzie.config.appendWinrateToComment) {
-      if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
+      if (!isEngineGameHistory() && !Lizzie.board.isPkBoard) {
         if (Lizzie.board.isGameBoard) {
           updateGameComment(node, data);
         } else {
@@ -1768,7 +1810,7 @@ public class SGFParser {
       }
       return;
     }
-    if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard && Lizzie.board.isGameBoard) {
+    if (!isEngineGameHistory() && !Lizzie.board.isPkBoard && Lizzie.board.isGameBoard) {
       updateGameComment(node, data);
     }
   }
@@ -1782,7 +1824,7 @@ public class SGFParser {
   }
 
   private static String getSerializedComment(BoardHistoryNode node) throws IOException {
-    if (!EngineManager.isSaveingEngineSGF || !node.previous().isPresent()) {
+    if (!isEngineGameHistory() || !node.previous().isPresent()) {
       return node.getData().comment;
     }
     if (node.getData().isSnapshotNode()) {
@@ -1797,7 +1839,7 @@ public class SGFParser {
   private static boolean shouldFormatSnapshotCommentForSave(BoardHistoryNode node) {
     return Lizzie.config.appendWinrateToComment
         && node.getData().isSnapshotNode()
-        && !EngineManager.isEngineGame
+        && !isEngineGameHistory()
         && !Lizzie.board.isPkBoard
         && !Lizzie.board.isGameBoard;
   }
@@ -1818,7 +1860,7 @@ public class SGFParser {
       StringBuilder builder, BoardHistoryNode node, boolean forUpload) throws IOException {
     BoardData data = node.getData();
     String curComment = data.comment;
-    if (!EngineManager.isEngineGame && !Lizzie.board.isPkBoard) {
+    if (!isEngineGameHistory() && !Lizzie.board.isPkBoard) {
       if (data.isSnapshotNode()) {
         curComment = formatSnapshotCommentForExport(node);
       } else {
@@ -2352,7 +2394,7 @@ public class SGFParser {
   }
 
   public static String formatCommentPk(BoardHistoryNode node) {
-    if (!EngineManager.isSaveingEngineSGF && !node.previous().isPresent()) return "";
+    if (!isEngineGameHistory() && !node.previous().isPresent()) return "";
     BoardData data = node.getData();
     String engine = node.getData().engineName;
     engine = engine.replaceAll(" ", "");
@@ -2485,7 +2527,7 @@ public class SGFParser {
               String.format(Locale.ENGLISH, "%.1f", data.getKomi()));
     }
 
-    if (!data.comment.isEmpty() && !EngineManager.isSaveingEngineSGF) {
+    if (!data.comment.isEmpty() && !isEngineGameHistory()) {
       // [^\\(\\)/]*
       String wp = "";
       if (!data.isKataData) {
@@ -2574,7 +2616,7 @@ public class SGFParser {
     boolean validLastWinrate = lastNode.isPresent();
 
     double lastWR = validLastWinrate ? lastNode.get().getWinrate2() : 50;
-    if (EngineManager.isEngineGame && node.moveNumberOfNode() > 2) {
+    if (isEngineGameHistory() && node.moveNumberOfNode() > 2) {
       lastWR = 100 - lastWR;
     }
     boolean validWinrate = (data.getPlayouts2() > 0);

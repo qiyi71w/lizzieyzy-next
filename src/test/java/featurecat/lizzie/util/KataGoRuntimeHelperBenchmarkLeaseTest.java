@@ -47,7 +47,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     EngineManager previousManager = Lizzie.engineManager;
     LizzieFrame previousFrame = Lizzie.frame;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     Config config =
         ConfigTestHelper.createForTests(Files.createTempDirectory("katago-benchmark-identity"));
@@ -60,7 +59,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.engineManager = engineManager(List.of(pausedEngine, selectedEngine));
       Lizzie.frame = null;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       EngineManager.currentEngineNo = 0;
 
       KataGoRuntimeHelper.BenchmarkPauseResult pause =
@@ -89,7 +87,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.engineManager = previousManager;
       Lizzie.frame = previousFrame;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
     }
   }
@@ -125,7 +122,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     EngineManager previousManager = Lizzie.engineManager;
     LizzieFrame previousFrame = Lizzie.frame;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     int previousBoardWidth = Board.boardWidth;
     int previousBoardHeight = Board.boardHeight;
@@ -143,7 +139,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.engineManager = engineManager(List.of(engine));
       Lizzie.frame = allocate(LizzieFrame.class);
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       EngineManager.currentEngineNo = 0;
       engine.Pondering();
       engine.mutateOnReservation = () -> mutateBenchmarkHistory(history);
@@ -189,7 +184,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.engineManager = previousManager;
       Lizzie.frame = previousFrame;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
       Board.boardWidth = previousBoardWidth;
       Board.boardHeight = previousBoardHeight;
@@ -621,7 +615,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
     private final Board previousBoard = Lizzie.board;
     private final LizzieFrame previousFrame = Lizzie.frame;
     private final boolean previousEmpty = EngineManager.isEmpty;
-    private final boolean previousEngineGame = EngineManager.isEngineGame;
     private final int previousEngineNo = EngineManager.currentEngineNo;
     private final List<RecordingBenchmarkLeelaz> engines = new ArrayList<>();
     private final EngineManager manager;
@@ -638,7 +631,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.frame = null;
       Lizzie.board = null;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       select(0);
     }
 
@@ -670,7 +662,6 @@ class KataGoRuntimeHelperBenchmarkLeaseTest {
       Lizzie.engineManager = previousManager;
       Lizzie.frame = previousFrame;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
     }
   }

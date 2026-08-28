@@ -53,7 +53,6 @@ class Ticket07RestartBootstrapProductionEntryTest {
     featurecat.lizzie.gui.GtpConsolePane previousConsole = Lizzie.gtpConsole;
     Board previousBoard = Lizzie.board;
     boolean previousEmpty = EngineManager.isEmpty;
-    boolean previousEngineGame = EngineManager.isEngineGame;
     int previousEngineNo = EngineManager.currentEngineNo;
     int previousBoardWidth = Board.boardWidth;
     int previousBoardHeight = Board.boardHeight;
@@ -76,7 +75,6 @@ class Ticket07RestartBootstrapProductionEntryTest {
       Lizzie.leelaz2 = null;
       Lizzie.leelaz = engine;
       EngineManager.isEmpty = false;
-      EngineManager.isEngineGame = false;
       EngineManager.currentEngineNo = 0;
       Board.boardWidth = 19;
       Board.boardHeight = 19;
@@ -174,7 +172,6 @@ class Ticket07RestartBootstrapProductionEntryTest {
       Lizzie.gtpConsole = previousConsole;
       Lizzie.board = previousBoard;
       EngineManager.isEmpty = previousEmpty;
-      EngineManager.isEngineGame = previousEngineGame;
       EngineManager.currentEngineNo = previousEngineNo;
       Board.boardWidth = previousBoardWidth;
       Board.boardHeight = previousBoardHeight;

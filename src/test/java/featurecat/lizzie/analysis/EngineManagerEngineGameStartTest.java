@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.JFontMenu;
 import featurecat.lizzie.gui.LizzieFrame;
@@ -19,27 +20,20 @@ class EngineManagerEngineGameStartTest {
   void startNewEngineGameDoesNotEnterPreGameWhenLifecycleTransitionIsRejected() throws Exception {
     LizzieFrame previousFrame = Lizzie.frame;
     Leelaz previousEngine = Lizzie.leelaz;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
     try {
       RejectingLifecycleLeelaz engine = new RejectingLifecycleLeelaz();
       CountingLeaseEngineManager manager = new CountingLeaseEngineManager(List.of(engine));
       Lizzie.frame = allocate(SilentFrame.class);
       Lizzie.leelaz = engine;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = false;
 
       manager.startNewEngineGame(true);
 
-      assertFalse(EngineManager.isPreEngineGame);
-      assertFalse(EngineManager.isEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
       assertTrue(engine.stoppedPondering);
       assertEqualsOneLeaseConflict(manager);
     } finally {
       Lizzie.frame = previousFrame;
       Lizzie.leelaz = previousEngine;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
     }
   }
 
@@ -50,8 +44,7 @@ class EngineManagerEngineGameStartTest {
     JFontMenu previousEngineMenu = Menu.engineMenu;
     Board previousBoard = Lizzie.board;
     EngineManager previousManager = Lizzie.engineManager;
-    boolean previousEngineGame = EngineManager.isEngineGame;
-    boolean previousPreEngineGame = EngineManager.isPreEngineGame;
+    Leelaz previousEngine = Lizzie.leelaz;
     try {
       TrackingFrame frame = allocate(TrackingFrame.class);
       TrackingToolbar toolbar = allocate(TrackingToolbar.class);
@@ -63,10 +56,15 @@ class EngineManagerEngineGameStartTest {
       Board board = allocate(Board.class);
       board.isPkBoard = true;
       Lizzie.board = board;
-      EngineManager.isEngineGame = false;
-      EngineManager.isPreEngineGame = true;
-      EngineManager manager = new EngineManager(List.of());
+      Leelaz blackEngine = new Leelaz("");
+      Leelaz whiteEngine = new Leelaz("");
+      EngineManager manager = new EngineManager(List.of(blackEngine, whiteEngine));
       Lizzie.engineManager = manager;
+      Lizzie.setPrimaryEngine(blackEngine);
+      assertTrue(
+          EngineManager.beginEngineGameTransaction(
+                  manager, EngineGamePlans.harness(0, 1, true), null, true)
+              != null);
 
       EngineManager.PkEngineSynchronization black =
           manager.startEngineForPkSynchronization(-1);
@@ -77,20 +75,19 @@ class EngineManagerEngineGameStartTest {
       SwingUtilities.invokeAndWait(() -> {});
 
       assertFalse(Lizzie.board.isPkBoard);
-      assertFalse(EngineManager.isPreEngineGame);
-      assertFalse(EngineManager.isEngineGame);
+      assertFalse(EngineManager.hasActiveEngineGameTransaction());
       assertTrue(frame.inputRestored);
       assertTrue(toolbar.controlsEnabled);
       assertTrue(toolbar.updatedOnEventDispatchThread);
       assertTrue(engineMenu.isEnabled());
     } finally {
+      EngineManager.resetEngineGameTransactionStateForTest();
       Lizzie.frame = previousFrame;
       LizzieFrame.toolbar = previousToolbar;
       Menu.engineMenu = previousEngineMenu;
       Lizzie.board = previousBoard;
       Lizzie.engineManager = previousManager;
-      EngineManager.isEngineGame = previousEngineGame;
-      EngineManager.isPreEngineGame = previousPreEngineGame;
+      Lizzie.setPrimaryEngine(previousEngine);
     }
   }
 

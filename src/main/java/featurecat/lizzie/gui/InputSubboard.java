@@ -78,10 +78,10 @@ public class InputSubboard implements KeyListener, MouseListener, MouseWheelList
     // TODO Auto-generated method stub
     switch (e.getKeyCode()) {
       case VK_R:
-        if (e.isAltDown()) Lizzie.engineManager.stopEngineGame(-1, true);
+        if (e.isAltDown()) EngineGameDesktop.stop();
         break;
       case VK_T:
-        if (e.isAltDown()) LizzieFrame.toolbar.btnEnginePkStop.doClick();
+        if (e.isAltDown()) EngineGameDesktop.togglePause();
         break;
     }
   }

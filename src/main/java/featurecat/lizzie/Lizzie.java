@@ -6,6 +6,9 @@ import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.LeelazEngineCommandSink;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
+import featurecat.lizzie.enginegame.EngineGameModule;
+import featurecat.lizzie.enginegame.EngineGameSnapshot;
+
 import featurecat.lizzie.gui.AppleStyleSupport;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.DesktopTimeControl;
@@ -293,6 +296,8 @@ public class Lizzie {
   public static boolean readMode = false;
   private static String[] mainArgs;
   public static EngineManager engineManager;
+  public static final EngineGameModule engineGame = new EngineGameModule();
+
   public static featurecat.lizzie.analysis.EngineFollowController engineFollowController;
   public static WebBoardManager webBoardManager = new WebBoardManager();
   public static int javaVersion = 8;
@@ -1207,7 +1212,7 @@ public class Lizzie {
     // Engine-local time setup historically precedes primary-owner publication. It must target the
     // exact engine argument (for human games), while global READY/PDA/ponder/UI effects below stay
     // fenced to the captured primary generation.
-    if (!EngineManager.isEngineGame()) {
+    if (!engineGame.current().startingOrPlaying()) {
       boolean readBoardGmaActive =
           currentFrame != null
               && currentFrame.readBoard != null
@@ -1224,22 +1229,11 @@ public class Lizzie {
     }
     Runnable pdaPresentation =
         () -> {
-          if (EngineManager.isEngineGame()) {
+          if (engineGame.current().startingOrPlaying()) {
             EngineManager manager = engineManager;
-            if (currentMenu != null
-                && manager != null
-                && manager.engineList != null
-                && EngineManager.engineGameInfo.firstEngineIndex >= 0
-                && EngineManager.engineGameInfo.secondEngineIndex >= 0
-                && EngineManager.engineGameInfo.firstEngineIndex < manager.engineList.size()
-                && EngineManager.engineGameInfo.secondEngineIndex < manager.engineList.size()) {
-              currentMenu.showPdaForEngine(
-                  engine,
-                  primaryGeneration,
-                  manager.engineList.get(EngineManager.engineGameInfo.firstEngineIndex).isKataGoPda
-                      || manager.engineList
-                          .get(EngineManager.engineGameInfo.secondEngineIndex)
-                          .isKataGoPda);
+            Boolean participantPda = engineGameParticipantPda(manager);
+            if (currentMenu != null && participantPda != null) {
+              currentMenu.showPdaForEngine(engine, primaryGeneration, participantPda);
             }
           } else if (currentMenu != null) {
             currentMenu.showPdaForEngine(engine, primaryGeneration, engine.isKataGoPda);
@@ -1279,6 +1273,26 @@ public class Lizzie {
         deferPdaPresentation
             ? () -> runIfPrimaryEngine(engine, primaryGeneration, pdaPresentation)
             : null);
+  }
+
+  private static Boolean engineGameParticipantPda(EngineManager manager) {
+    EngineGameSnapshot snapshot = engineGame.current();
+    if (!snapshot.startingOrPlaying()
+        || manager == null
+        || manager.engineList == null
+        || !(snapshot instanceof EngineGameSnapshot.BatchActive active)) {
+      return null;
+    }
+    int first = manager.resolveEngineGameParticipant(active.batch().first());
+    int second = manager.resolveEngineGameParticipant(active.batch().second());
+    if (first < 0
+        || second < 0
+        || first >= manager.engineList.size()
+        || second >= manager.engineList.size()) {
+      return null;
+    }
+    return manager.engineList.get(first).isKataGoPda
+        || manager.engineList.get(second).isKataGoPda;
   }
 
   public static final class PreparedEngineReadyPublication {
