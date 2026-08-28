@@ -3090,6 +3090,16 @@ public class Config {
     } else {
       persistedUi.remove("leftover-left-share");
     }
+    if (Lizzie.frame.commentHeightShare != null) {
+      persistedUi.put("comment-height-share", Lizzie.frame.commentHeightShare.doubleValue());
+    } else {
+      persistedUi.remove("comment-height-share");
+    }
+    if (Lizzie.frame.variationGraphShare != null) {
+      persistedUi.put("variation-graph-share", Lizzie.frame.variationGraphShare.doubleValue());
+    } else {
+      persistedUi.remove("variation-graph-share");
+    }
     persistedUi.put("window-maximized", windowIsMaximized);
 
     if (Lizzie.frame.analysisFrame != null) {

@@ -5,10 +5,14 @@ import java.util.Optional;
 
 /**
  * Default ExtraMode.Normal landscape in-frame rectangles. Optional leftover-left share overrides
- * the 0–8 board position split. Matches the current leftover formula when the share is absent,
- * including the comment / sub-board swap.
+ * the 0–8 board position split. Optional comment and variation-graph shares override the in-column
+ * height splits. Matches the current leftover formula when the shares are absent, including the
+ * comment / sub-board swap.
  */
 final class InFrameLayout {
+  private static final int MIN_COMMENT_HEIGHT = 68;
+  private static final int MIN_CANDIDATE_TABLE_HEIGHT = 36;
+
   final Rectangle board;
   final Rectangle leftColumn;
   final Rectangle rightColumn;
@@ -42,6 +46,8 @@ final class InFrameLayout {
     final int boardHeight;
     final int boardPositionProportion;
     final Optional<Double> leftoverLeftShare;
+    final Optional<Double> commentHeightShare;
+    final Optional<Double> variationGraphShare;
     final boolean showComment;
     final boolean showSubBoard;
     final boolean showVariationGraph;
@@ -107,6 +113,50 @@ final class InFrameLayout {
         boolean userKnownX,
         boolean showCaptured,
         boolean showWinrateGraph) {
+      this(
+          width,
+          height,
+          leftInset,
+          topInset,
+          rightInset,
+          bottomInset,
+          boardWidth,
+          boardHeight,
+          boardPositionProportion,
+          leftoverLeftShare,
+          Optional.empty(),
+          Optional.empty(),
+          showComment,
+          showSubBoard,
+          showVariationGraph,
+          showListPane,
+          showStatus,
+          userKnownX,
+          showCaptured,
+          showWinrateGraph);
+    }
+
+    Request(
+        int width,
+        int height,
+        int leftInset,
+        int topInset,
+        int rightInset,
+        int bottomInset,
+        int boardWidth,
+        int boardHeight,
+        int boardPositionProportion,
+        Optional<Double> leftoverLeftShare,
+        Optional<Double> commentHeightShare,
+        Optional<Double> variationGraphShare,
+        boolean showComment,
+        boolean showSubBoard,
+        boolean showVariationGraph,
+        boolean showListPane,
+        boolean showStatus,
+        boolean userKnownX,
+        boolean showCaptured,
+        boolean showWinrateGraph) {
       this.width = width;
       this.height = height;
       this.leftInset = leftInset;
@@ -117,6 +167,9 @@ final class InFrameLayout {
       this.boardHeight = boardHeight;
       this.boardPositionProportion = boardPositionProportion;
       this.leftoverLeftShare = leftoverLeftShare == null ? Optional.empty() : leftoverLeftShare;
+      this.commentHeightShare = commentHeightShare == null ? Optional.empty() : commentHeightShare;
+      this.variationGraphShare =
+          variationGraphShare == null ? Optional.empty() : variationGraphShare;
       this.showComment = showComment;
       this.showSubBoard = showSubBoard;
       this.showVariationGraph = showVariationGraph;
@@ -283,10 +336,41 @@ final class InFrameLayout {
     Rectangle candidateTable = new Rectangle();
     if (request.showListPane) {
       if (request.showVariationGraph) {
-        treeh = treeh / 2;
-        candidateTable = new Rectangle(treex, treey + treeh, treew, treeh);
+        int containerH = treeh;
+        if (request.variationGraphShare.isPresent()) {
+          int minList = MIN_CANDIDATE_TABLE_HEIGHT;
+          int raw = (int) Math.round(containerH * request.variationGraphShare.get());
+          int maxVar = containerH - minList;
+          if (maxVar >= 0) {
+            treeh = Math.max(0, Math.min(maxVar, raw));
+            candidateTable = new Rectangle(treex, treey + treeh, treew, containerH - treeh);
+          } else {
+            treeh = containerH / 2;
+            candidateTable = new Rectangle(treex, treey + treeh, treew, treeh);
+          }
+        } else {
+          treeh = treeh / 2;
+          candidateTable = new Rectangle(treex, treey + treeh, treew, treeh);
+        }
       } else {
         candidateTable = new Rectangle(treex, treey, treew, treeh);
+      }
+    }
+
+    if (request.showComment && request.commentHeightShare.isPresent() && ch > 0) {
+      int splitTop = capy;
+      int splitBottom = cy + ch;
+      int splitH = splitBottom - splitTop;
+      int raw = (int) Math.round(splitH * request.commentHeightShare.get());
+      if (MIN_COMMENT_HEIGHT <= splitH) {
+        ch = Math.max(MIN_COMMENT_HEIGHT, Math.min(splitH, raw));
+        cy = splitBottom - ch;
+        int aboveH = cy - splitTop;
+        caph = Math.min(caph, Math.max(0, aboveH));
+        stath = Math.min(stath, Math.max(0, aboveH - caph));
+        grh = Math.max(0, aboveH - caph - stath);
+        staty = capy + caph;
+        gry = staty + stath;
       }
     }
 
@@ -325,7 +409,7 @@ final class InFrameLayout {
             ? Optional.of(new Rectangle(comment.x, comment.y, comment.width, 1))
             : Optional.empty();
     Optional<Rectangle> variationListDivider =
-        variationGraph.height > 0 && candidateTable.height > 0
+        request.showVariationGraph && request.showListPane
             ? Optional.of(
                 new Rectangle(candidateTable.x, candidateTable.y, candidateTable.width, 1))
             : Optional.empty();

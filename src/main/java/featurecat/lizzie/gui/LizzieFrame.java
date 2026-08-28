@@ -485,6 +485,8 @@ public class LizzieFrame extends JFrame {
   public int winRateGridLines = 3;
   public int BoardPositionProportion = Lizzie.config.boardPositionProportion;
   public Double leftoverLeftShare;
+  public Double commentHeightShare;
+  public Double variationGraphShare;
   private InFrameLeftoverDragHandles leftoverDragHandles;
   private long lastAutocomTime = System.currentTimeMillis();
   private int autoIntervalCom;
@@ -1138,6 +1140,14 @@ public class LizzieFrame extends JFrame {
       if (Lizzie.config.persistedUi.has("leftover-left-share")
           && !Lizzie.config.persistedUi.isNull("leftover-left-share")) {
         this.leftoverLeftShare = Lizzie.config.persistedUi.getDouble("leftover-left-share");
+      }
+      if (Lizzie.config.persistedUi.has("comment-height-share")
+          && !Lizzie.config.persistedUi.isNull("comment-height-share")) {
+        this.commentHeightShare = Lizzie.config.persistedUi.getDouble("comment-height-share");
+      }
+      if (Lizzie.config.persistedUi.has("variation-graph-share")
+          && !Lizzie.config.persistedUi.isNull("variation-graph-share")) {
+        this.variationGraphShare = Lizzie.config.persistedUi.getDouble("variation-graph-share");
       }
 
       if (Lizzie.config.persistedUi.optJSONArray("main-window-other") != null
@@ -6046,6 +6056,12 @@ public class LizzieFrame extends JFrame {
                         leftoverLeftShare == null
                             ? Optional.empty()
                             : Optional.of(leftoverLeftShare),
+                        commentHeightShare == null
+                            ? Optional.empty()
+                            : Optional.of(commentHeightShare),
+                        variationGraphShare == null
+                            ? Optional.empty()
+                            : Optional.of(variationGraphShare),
                         Lizzie.config.showComment,
                         Lizzie.config.showSubBoard,
                         Lizzie.config.showVariationGraph,
@@ -6726,6 +6742,32 @@ public class LizzieFrame extends JFrame {
     }
     Lizzie.config.persistedUi.put("leftover-left-share", leftoverLeftShare.doubleValue());
     Lizzie.config.persistedUi.put("board-postion-propotion", BoardPositionProportion);
+  }
+
+  void applyCommentHeightShare(double share) {
+    commentHeightShare = Math.max(0.0, Math.min(1.0, share));
+    refreshContainer();
+    repaint();
+  }
+
+  void commitCommentHeightShare() {
+    if (commentHeightShare == null || Lizzie.config.persistedUi == null) {
+      return;
+    }
+    Lizzie.config.persistedUi.put("comment-height-share", commentHeightShare.doubleValue());
+  }
+
+  void applyVariationGraphShare(double share) {
+    variationGraphShare = Math.max(0.0, Math.min(1.0, share));
+    refreshContainer();
+    repaint();
+  }
+
+  void commitVariationGraphShare() {
+    if (variationGraphShare == null || Lizzie.config.persistedUi == null) {
+      return;
+    }
+    Lizzie.config.persistedUi.put("variation-graph-share", variationGraphShare.doubleValue());
   }
 
   public void nudgeBoardPositionProportion(int delta) {

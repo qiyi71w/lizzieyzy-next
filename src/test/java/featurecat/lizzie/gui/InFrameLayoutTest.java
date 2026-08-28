@@ -156,12 +156,126 @@ class InFrameLayoutTest {
     assertEquals(900, one.board.height);
   }
 
+  @Test
+  void largerCommentHeightShareRaisesCommentAndShortensTheRegionAbove() {
+    InFrameLayout baseline = InFrameLayout.layout(allVisible(1600, 900, 4));
+    InFrameLayout layout = InFrameLayout.layout(allVisible(1600, 900, 4, null, 0.5, null));
+
+    assertEquals(new Rectangle(0, 408, 330, 408), layout.comment);
+    assertEquals(new Rectangle(0, 0, 330, 112), layout.captured);
+    assertEquals(new Rectangle(0, 112, 330, 90), layout.moveStatistics);
+    assertEquals(new Rectangle(0, 202, 330, 206), layout.winrateGraph);
+    assertEquals(baseline.board, layout.board);
+    assertEquals(baseline.rightColumn, layout.rightColumn);
+    assertEquals(baseline.variationGraph, layout.variationGraph);
+    assertEquals(baseline.candidateTable, layout.candidateTable);
+    assertTrue(layout.comment.height > baseline.comment.height);
+    assertTrue(layout.comment.y < baseline.comment.y);
+    assertEquals(Optional.of(new Rectangle(0, 408, 330, 1)), layout.commentTopDivider);
+  }
+
+  @Test
+  void largerVariationGraphShareChangesOnlyThoseTwoRightColumnBlocks() {
+    InFrameLayout baseline = InFrameLayout.layout(allVisible(1600, 900, 4));
+    InFrameLayout layout = InFrameLayout.layout(allVisible(1600, 900, 4, null, null, 0.6));
+
+    assertEquals(new Rectangle(1266, 0, 334, 340), layout.variationGraph);
+    assertEquals(new Rectangle(1266, 340, 334, 226), layout.candidateTable);
+    assertEquals(baseline.board, layout.board);
+    assertEquals(baseline.leftColumn, layout.leftColumn);
+    assertEquals(baseline.comment, layout.comment);
+    assertEquals(baseline.subBoard, layout.subBoard);
+    assertEquals(
+        baseline.variationGraph.height + baseline.candidateTable.height,
+        layout.variationGraph.height + layout.candidateTable.height);
+    assertEquals(Optional.of(new Rectangle(1266, 340, 334, 1)), layout.variationListDivider);
+    assertTrue(layout.variationListDivider.get().y != layout.subBoard.y);
+  }
+
+  @Test
+  void hiddenCommentOrVariationListOmitsDividerAndKeepsShareForRestore() {
+    InFrameLayout hiddenComment =
+        InFrameLayout.layout(
+            visible(1600, 900, 4, null, 0.5, null, false, true, true, true));
+    InFrameLayout restoredComment = InFrameLayout.layout(allVisible(1600, 900, 4, null, 0.5, null));
+    InFrameLayout hiddenVariation =
+        InFrameLayout.layout(
+            visible(1600, 900, 4, null, null, 0.6, true, true, false, true));
+    InFrameLayout hiddenList =
+        InFrameLayout.layout(
+            visible(1600, 900, 4, null, null, 0.6, true, true, true, false));
+    InFrameLayout listOnlyDefault =
+        InFrameLayout.layout(
+            visible(1600, 900, 4, null, null, null, true, true, false, true));
+
+    assertEquals(Optional.empty(), hiddenComment.commentTopDivider);
+    assertEquals(new Rectangle(), hiddenComment.comment);
+    assertEquals(new Rectangle(0, 408, 330, 408), restoredComment.comment);
+    assertEquals(Optional.empty(), hiddenVariation.variationListDivider);
+    assertEquals(Optional.empty(), hiddenList.variationListDivider);
+    assertEquals(listOnlyDefault.candidateTable, hiddenVariation.candidateTable);
+  }
+
+  @Test
+  void extremeCommentAndListSharesAreClampedToMinimums() {
+    InFrameLayout baseline = InFrameLayout.layout(allVisible(1600, 900, 4));
+    InFrameLayout commentMin = InFrameLayout.layout(allVisible(1600, 900, 4, null, 0.0, null));
+    InFrameLayout commentMax = InFrameLayout.layout(allVisible(1600, 900, 4, null, 1.0, null));
+    InFrameLayout listMin = InFrameLayout.layout(allVisible(1600, 900, 4, null, null, 1.0));
+
+    assertEquals(new Rectangle(0, 748, 330, 68), commentMin.comment);
+    assertEquals(baseline.board, commentMin.board);
+    assertEquals(baseline.rightColumn, commentMin.rightColumn);
+    assertEquals(new Rectangle(0, 0, 330, 816), commentMax.comment);
+    assertEquals(0, commentMax.winrateGraph.height);
+    assertEquals(baseline.board, commentMax.board);
+    assertEquals(36, listMin.candidateTable.height);
+    assertEquals(530, listMin.variationGraph.height);
+    assertEquals(baseline.board, listMin.board);
+    assertEquals(baseline.leftColumn, listMin.leftColumn);
+    assertEquals(baseline.comment, listMin.comment);
+  }
+
   private static InFrameLayout.Request allVisible(int width, int height, int proportion) {
     return allVisible(width, height, proportion, null);
   }
 
   private static InFrameLayout.Request allVisible(
       int width, int height, int proportion, Double leftoverLeftShare) {
+    return allVisible(width, height, proportion, leftoverLeftShare, null, null);
+  }
+
+  private static InFrameLayout.Request allVisible(
+      int width,
+      int height,
+      int proportion,
+      Double leftoverLeftShare,
+      Double commentHeightShare,
+      Double variationGraphShare) {
+    return visible(
+        width,
+        height,
+        proportion,
+        leftoverLeftShare,
+        commentHeightShare,
+        variationGraphShare,
+        true,
+        true,
+        true,
+        true);
+  }
+
+  private static InFrameLayout.Request visible(
+      int width,
+      int height,
+      int proportion,
+      Double leftoverLeftShare,
+      Double commentHeightShare,
+      Double variationGraphShare,
+      boolean showComment,
+      boolean showSubBoard,
+      boolean showVariationGraph,
+      boolean showListPane) {
     return new InFrameLayout.Request(
         width,
         height,
@@ -173,10 +287,12 @@ class InFrameLayoutTest {
         19,
         proportion,
         leftoverLeftShare == null ? Optional.empty() : Optional.of(leftoverLeftShare),
-        true,
-        true,
-        true,
-        true,
+        commentHeightShare == null ? Optional.empty() : Optional.of(commentHeightShare),
+        variationGraphShare == null ? Optional.empty() : Optional.of(variationGraphShare),
+        showComment,
+        showSubBoard,
+        showVariationGraph,
+        showListPane,
         true,
         false,
         true,
