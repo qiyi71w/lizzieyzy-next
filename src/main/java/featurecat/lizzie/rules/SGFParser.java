@@ -1960,6 +1960,97 @@ public class SGFParser {
     return curComment;
   }
 
+  /** Personal commentary plus the current-language formatComment match-info block. */
+  public static final class WinrateCommentSplit {
+    public final String personalComment;
+    public final String matchInfo;
+
+    private WinrateCommentSplit(String personalComment, String matchInfo) {
+      this.personalComment = personalComment;
+      this.matchInfo = matchInfo;
+    }
+  }
+
+  /**
+   * Splits a stored ordinary-analysis comment into personal text and the writer match-info block
+   * using the same language-dependent pattern the writer already uses.
+   */
+  public static WinrateCommentSplit splitWinrateComment(String comment) {
+    if (comment == null || comment.isEmpty() || Lizzie.resourceBundle == null) {
+      return new WinrateCommentSplit(comment == null ? "" : comment, "");
+    }
+    boolean[][] variants = {{true, false}, {true, true}, {false, false}};
+    for (boolean[] variant : variants) {
+      String wp = winrateCommentRegexForDisplay(variant[0], variant[1]);
+      if (comment.matches("(?s).*" + wp + "(?s).*")) {
+        Matcher matcher = Pattern.compile(wp).matcher(comment);
+        if (matcher.find()) {
+          return new WinrateCommentSplit(
+              comment.replaceAll(wp, "").trim(), matcher.group().trim());
+        }
+      }
+    }
+    return new WinrateCommentSplit(comment, "");
+  }
+
+  private static String winrateCommentRegexForDisplay(boolean isKataData, boolean isSaiData) {
+    boolean leadWithKomi =
+        Lizzie.config != null && Lizzie.config.showKataGoScoreLeadWithKomi;
+    String lead =
+        leadWithKomi
+            ? Lizzie.resourceBundle.getString("SGFParse.leadWithKomi")
+            : Lizzie.resourceBundle.getString("SGFParse.leadJustScore");
+    if (!isKataData) {
+      return "("
+          + Lizzie.resourceBundle.getString("SGFParse.black")
+          + " |"
+          + Lizzie.resourceBundle.getString("SGFParse.white")
+          + " )"
+          + Lizzie.resourceBundle.getString("SGFParse.winrate")
+          + " [0-9\\.\\-]+%* \\(*[0-9.\\-+]*%*\\)*\n\\("
+          + ".*"
+          + " / [0-9\\.]*[kmKM]* "
+          + Lizzie.resourceBundle.getString("SGFParse.playouts")
+          + "\\)\\n"
+          + Lizzie.resourceBundle.getString("SGFParse.komi")
+          + ".*";
+    }
+    if (isSaiData) {
+      return "("
+          + Lizzie.resourceBundle.getString("SGFParse.black")
+          + " |"
+          + Lizzie.resourceBundle.getString("SGFParse.white")
+          + " )"
+          + Lizzie.resourceBundle.getString("SGFParse.winrate")
+          + " [0-9\\.\\-]+%* \\(*[0-9.\\-+]*%*\\)*\n"
+          + lead
+          + " [0-9\\.\\-+]* \\(*[0-9.\\-+]*\\)*\n\\("
+          + ".*"
+          + " / [0-9\\.]*[kmKM]* "
+          + Lizzie.resourceBundle.getString("SGFParse.playouts")
+          + "\\)\\n"
+          + Lizzie.resourceBundle.getString("SGFParse.komi")
+          + ".*";
+    }
+    return "("
+        + Lizzie.resourceBundle.getString("SGFParse.black")
+        + " |"
+        + Lizzie.resourceBundle.getString("SGFParse.white")
+        + " )"
+        + Lizzie.resourceBundle.getString("SGFParse.winrate")
+        + " [0-9\\.\\-]+%* \\(*[0-9.\\-+]*%*\\)*\n"
+        + lead
+        + " [0-9\\.\\-+]* \\(*[0-9.\\-+]*\\)* "
+        + Lizzie.resourceBundle.getString("SGFParse.stdev")
+        + " [0-9\\.\\-+]*\n\\("
+        + ".*"
+        + " / [0-9\\.]*[kmKM]* "
+        + Lizzie.resourceBundle.getString("SGFParse.playouts")
+        + "\\)\\n"
+        + Lizzie.resourceBundle.getString("SGFParse.komi")
+        + ".*";
+  }
+
   /**
    * Format Comment with following format: Move <Move number> <Winrate> (<Last Move Rate
    * Difference>) (<Weight name> / <Playouts>)

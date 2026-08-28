@@ -9786,6 +9786,10 @@ public class LizzieFrame extends JFrame {
             + "px;}");
     styleSheet.addRule(".ai-commentary-title {margin:2px 0 6px 0;}");
     styleSheet.addRule(".comment-spacer {height:6px;}");
+    styleSheet.addRule(
+        ".match-info-divider {height:1px; margin:6px 0; padding:0; border:none; overflow:hidden; font-size:1px; line-height:1px; background-color:"
+            + foreground
+            + ";}");
     styleSheet.addRule("table {border-collapse:collapse; margin:4px 0;}");
     styleSheet.addRule(
         "th, td {border:1px solid " + foreground + "; padding:3px 6px; text-align:left;}");
