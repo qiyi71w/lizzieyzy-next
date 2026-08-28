@@ -4,8 +4,9 @@ import java.awt.Rectangle;
 import java.util.Optional;
 
 /**
- * Default ExtraMode.Normal landscape in-frame rectangles. No size override. Matches the current
- * leftover formula, including the comment / sub-board swap.
+ * Default ExtraMode.Normal landscape in-frame rectangles. Optional leftover-left share overrides
+ * the 0–8 board position split. Matches the current leftover formula when the share is absent,
+ * including the comment / sub-board swap.
  */
 final class InFrameLayout {
   final Rectangle board;
@@ -40,12 +41,15 @@ final class InFrameLayout {
     final int boardWidth;
     final int boardHeight;
     final int boardPositionProportion;
+    final Optional<Double> leftoverLeftShare;
     final boolean showComment;
     final boolean showSubBoard;
     final boolean showVariationGraph;
     final boolean showListPane;
     final boolean showStatus;
     final boolean userKnownX;
+    final boolean showCaptured;
+    final boolean showWinrateGraph;
 
     Request(
         int width,
@@ -63,6 +67,46 @@ final class InFrameLayout {
         boolean showListPane,
         boolean showStatus,
         boolean userKnownX) {
+      this(
+          width,
+          height,
+          leftInset,
+          topInset,
+          rightInset,
+          bottomInset,
+          boardWidth,
+          boardHeight,
+          boardPositionProportion,
+          Optional.empty(),
+          showComment,
+          showSubBoard,
+          showVariationGraph,
+          showListPane,
+          showStatus,
+          userKnownX,
+          true,
+          true);
+    }
+
+    Request(
+        int width,
+        int height,
+        int leftInset,
+        int topInset,
+        int rightInset,
+        int bottomInset,
+        int boardWidth,
+        int boardHeight,
+        int boardPositionProportion,
+        Optional<Double> leftoverLeftShare,
+        boolean showComment,
+        boolean showSubBoard,
+        boolean showVariationGraph,
+        boolean showListPane,
+        boolean showStatus,
+        boolean userKnownX,
+        boolean showCaptured,
+        boolean showWinrateGraph) {
       this.width = width;
       this.height = height;
       this.leftInset = leftInset;
@@ -72,12 +116,15 @@ final class InFrameLayout {
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
       this.boardPositionProportion = boardPositionProportion;
+      this.leftoverLeftShare = leftoverLeftShare == null ? Optional.empty() : leftoverLeftShare;
       this.showComment = showComment;
       this.showSubBoard = showSubBoard;
       this.showVariationGraph = showVariationGraph;
       this.showListPane = showListPane;
       this.showStatus = showStatus;
       this.userKnownX = userKnownX;
+      this.showCaptured = showCaptured;
+      this.showWinrateGraph = showWinrateGraph;
     }
   }
 
@@ -137,9 +184,18 @@ final class InFrameLayout {
     int maxSize =
         Math.min(width - leftInset - rightInset, height - topInset - bottomInset);
     maxSize = Math.max(maxSize, Math.max(request.boardWidth, request.boardHeight) + 5);
-    int boardX = (width - maxSize) / 8 * request.boardPositionProportion;
-    int boardY = topInset + (height - topInset - bottomInset - maxSize) / 2;
     int panelMargin = (int) (maxSize * 0.02);
+    int leftoverWidth = width - maxSize;
+    int boardX = leftoverWidth / 8 * request.boardPositionProportion;
+    if (request.leftoverLeftShare.isPresent()) {
+      int minBoardX = panelMargin + leftInset;
+      int maxBoardX = width - maxSize - panelMargin - rightInset;
+      int raw = (int) Math.round(leftoverWidth * request.leftoverLeftShare.get());
+      if (minBoardX <= maxBoardX) {
+        boardX = Math.max(minBoardX, Math.min(maxBoardX, raw));
+      }
+    }
+    int boardY = topInset + (height - topInset - bottomInset - maxSize) / 2;
 
     int capx = leftInset;
     int capy = topInset;
@@ -247,10 +303,23 @@ final class InFrameLayout {
     Rectangle board = new Rectangle(boardX, boardY, maxSize, maxSize);
     Rectangle leftColumn = new Rectangle(capx, capy, capw, height - bottomInset - capy);
     Rectangle rightColumn = new Rectangle(vx, vy, vw, vh);
+    boolean leftOccupied =
+        request.showCaptured
+            || request.showWinrateGraph
+            || request.showComment
+            || request.showSubBoard;
+    boolean rightOccupied =
+        request.showVariationGraph
+            || request.showListPane
+            || (request.showSubBoard && request.showComment);
     Optional<Rectangle> boardLeftDivider =
-        Optional.of(new Rectangle(board.x, board.y, 1, board.height));
+        leftOccupied
+            ? Optional.of(new Rectangle(board.x, board.y, 1, board.height))
+            : Optional.empty();
     Optional<Rectangle> boardRightDivider =
-        Optional.of(new Rectangle(board.x + board.width - 1, board.y, 1, board.height));
+        rightOccupied
+            ? Optional.of(new Rectangle(board.x + board.width - 1, board.y, 1, board.height))
+            : Optional.empty();
     Optional<Rectangle> commentTopDivider =
         comment.height > 0
             ? Optional.of(new Rectangle(comment.x, comment.y, comment.width, 1))

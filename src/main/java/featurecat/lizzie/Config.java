@@ -3085,6 +3085,11 @@ public class Config {
     gtpPos.put(Lizzie.gtpConsole.getHeight());
     persistedUi.put("gtp-console-position", gtpPos);
     persistedUi.put("board-postion-propotion", Lizzie.frame.BoardPositionProportion);
+    if (Lizzie.frame.leftoverLeftShare != null) {
+      persistedUi.put("leftover-left-share", Lizzie.frame.leftoverLeftShare.doubleValue());
+    } else {
+      persistedUi.remove("leftover-left-share");
+    }
     persistedUi.put("window-maximized", windowIsMaximized);
 
     if (Lizzie.frame.analysisFrame != null) {

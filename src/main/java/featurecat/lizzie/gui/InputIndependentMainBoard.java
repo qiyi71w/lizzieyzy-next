@@ -545,17 +545,13 @@ public class InputIndependentMainBoard implements KeyListener {
         break;
 
       case VK_OPEN_BRACKET:
-        if (Lizzie.frame.BoardPositionProportion > 0) {
-          Lizzie.frame.BoardPositionProportion--;
-          Lizzie.frame.refreshContainer();
-        }
+        Lizzie.frame.nudgeBoardPositionProportion(-1);
+        Lizzie.frame.refreshContainer();
         break;
 
       case VK_CLOSE_BRACKET:
-        if (Lizzie.frame.BoardPositionProportion < 8) {
-          Lizzie.frame.BoardPositionProportion++;
-          Lizzie.frame.refreshContainer();
-        }
+        Lizzie.frame.nudgeBoardPositionProportion(1);
+        Lizzie.frame.refreshContainer();
         break;
 
       case VK_K:

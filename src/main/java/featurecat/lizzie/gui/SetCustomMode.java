@@ -332,7 +332,7 @@ public class SetCustomMode extends JDialog {
         new ChangeListener() {
           public void stateChanged(ChangeEvent e) {
             if (Lizzie.frame.BoardPositionProportion != sldBoardPositionProportion.getValue()) {
-              Lizzie.frame.BoardPositionProportion = sldBoardPositionProportion.getValue();
+              Lizzie.frame.setBoardPositionProportion(sldBoardPositionProportion.getValue());
               Lizzie.frame.refreshContainer();
               Lizzie.frame.repaint();
             }

@@ -484,6 +484,8 @@ public class LizzieFrame extends JFrame {
   public static boolean canGoAfterload = true;
   public int winRateGridLines = 3;
   public int BoardPositionProportion = Lizzie.config.boardPositionProportion;
+  public Double leftoverLeftShare;
+  private InFrameLeftoverDragHandles leftoverDragHandles;
   private long lastAutocomTime = System.currentTimeMillis();
   private int autoIntervalCom;
   // private int autoInterval;
@@ -1133,6 +1135,10 @@ public class LizzieFrame extends JFrame {
       }
       this.BoardPositionProportion =
           Lizzie.config.persistedUi.optInt("board-postion-propotion", this.BoardPositionProportion);
+      if (Lizzie.config.persistedUi.has("leftover-left-share")
+          && !Lizzie.config.persistedUi.isNull("leftover-left-share")) {
+        this.leftoverLeftShare = Lizzie.config.persistedUi.getDouble("leftover-left-share");
+      }
 
       if (Lizzie.config.persistedUi.optJSONArray("main-window-other") != null
           && Lizzie.config.persistedUi.optJSONArray("main-window-other").length() == 5) {
@@ -1928,6 +1934,8 @@ public class LizzieFrame extends JFrame {
         });
     basePanel.add(engineStartupStatusButton, Integer.valueOf(12));
     basePanel.add(humanSlTrainingBar, Integer.valueOf(13));
+    leftoverDragHandles = new InFrameLeftoverDragHandles(this);
+    leftoverDragHandles.install(basePanel);
     basePanel.add(commentBlunderControlPane, Integer.valueOf(10));
     basePanel.add(tempGamePanelAll, Integer.valueOf(9));
     basePanel.add(varTreeScrollPane, Integer.valueOf(8));
@@ -6035,12 +6043,17 @@ public class LizzieFrame extends JFrame {
                         Board.boardWidth,
                         Board.boardHeight,
                         BoardPositionProportion,
+                        leftoverLeftShare == null
+                            ? Optional.empty()
+                            : Optional.of(leftoverLeftShare),
                         Lizzie.config.showComment,
                         Lizzie.config.showSubBoard,
                         Lizzie.config.showVariationGraph,
                         showListPane,
                         Lizzie.config.showStatus,
-                        Lizzie.config.userKnownX));
+                        Lizzie.config.userKnownX,
+                        Lizzie.config.showCaptured,
+                        Lizzie.config.showWinrateGraph));
             maxSize = inFrameLayout.board.width;
             boardX = inFrameLayout.board.x;
             boardY = inFrameLayout.board.y;
@@ -6112,6 +6125,16 @@ public class LizzieFrame extends JFrame {
             subBoardHeight = ponderingY - subBoardY;
             subBoardLength = min(subBoardWidth, subBoardHeight);
             subBoardX = statx + (statw - subBoardLength) / 2;
+          }
+          if (leftoverDragHandles != null) {
+            int chromeY =
+                windowMenuHeight + (Lizzie.config.showDoubleMenu ? topPanelHeight : 0);
+            leftoverDragHandles.update(
+                useLockedInFrameLayout ? inFrameLayout : null,
+                width,
+                chromeY,
+                useLockedInFrameLayout
+                    && (tempGamePanelAll == null || !tempGamePanelAll.isVisible()));
           }
 
           if (isWidthMode) {
@@ -6687,6 +6710,44 @@ public class LizzieFrame extends JFrame {
   public void refreshContainer() {
     redrawBackgroundAnyway = true;
     if (Lizzie.config.isFloatBoardMode()) this.paintMianPanel(mainPanel.getGraphics());
+  }
+
+  void applyLeftoverShare(double share) {
+    leftoverLeftShare = Math.max(0.0, Math.min(1.0, share));
+    BoardPositionProportion =
+        Math.max(0, Math.min(8, (int) Math.round(leftoverLeftShare * 8.0)));
+    refreshContainer();
+    repaint();
+  }
+
+  void commitLeftoverShare() {
+    if (leftoverLeftShare == null || Lizzie.config.persistedUi == null) {
+      return;
+    }
+    Lizzie.config.persistedUi.put("leftover-left-share", leftoverLeftShare.doubleValue());
+    Lizzie.config.persistedUi.put("board-postion-propotion", BoardPositionProportion);
+  }
+
+  public void nudgeBoardPositionProportion(int delta) {
+    if (leftoverLeftShare != null) {
+      leftoverLeftShare =
+          Math.max(0.0, Math.min(1.0, leftoverLeftShare + delta / 8.0));
+      BoardPositionProportion =
+          Math.max(0, Math.min(8, (int) Math.round(leftoverLeftShare * 8.0)));
+    } else {
+      int next = BoardPositionProportion + delta;
+      if (next < 0 || next > 8) {
+        return;
+      }
+      BoardPositionProportion = next;
+    }
+  }
+
+  public void setBoardPositionProportion(int value) {
+    BoardPositionProportion = Math.max(0, Math.min(8, value));
+    if (leftoverLeftShare != null) {
+      leftoverLeftShare = BoardPositionProportion / 8.0;
+    }
   }
 
   public void refreshPanelColors() {

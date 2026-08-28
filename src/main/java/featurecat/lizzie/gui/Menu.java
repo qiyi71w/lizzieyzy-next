@@ -497,8 +497,7 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           @Override
           public void actionPerformed(ActionEvent e) {
-            // TODO Auto-generated method stub
-            if (Lizzie.frame.BoardPositionProportion > 0) Lizzie.frame.BoardPositionProportion--;
+            Lizzie.frame.nudgeBoardPositionProportion(-1);
             Lizzie.frame.refresh();
           }
         });
@@ -510,8 +509,7 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           @Override
           public void actionPerformed(ActionEvent e) {
-            // TODO Auto-generated method stub
-            if (Lizzie.frame.BoardPositionProportion < 8) Lizzie.frame.BoardPositionProportion++;
+            Lizzie.frame.nudgeBoardPositionProportion(1);
             Lizzie.frame.refresh();
           }
         });
