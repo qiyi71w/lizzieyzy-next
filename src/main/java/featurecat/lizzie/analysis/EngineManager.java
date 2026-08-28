@@ -5355,6 +5355,12 @@ public class EngineManager {
       return Optional.of(abandoned);
     }
 
+    /**
+     * After a successful previous-engine rollback, replace the intermediate FAILED snapshot with
+     * ACTIVE identity for the recovered engine while keeping the original switch token and
+     * failure notice. Failure presentation is still fenced to this token; a newer switch's token
+     * cannot be overwritten here.
+     */
     synchronized Optional<EngineSwitchUiSnapshot> restoreActive(
         long token,
         boolean main,
@@ -6818,15 +6824,20 @@ public class EngineManager {
     if (recovery == null || recovery.failedSnapshot == null) {
       return;
     }
-    EngineSwitchUiSnapshot failed = recovery.failedSnapshot;
-    engineSwitchUiTracker
-        .restoreActive(
-            failed.token,
-            failed.main,
-            recovery.engineIndex,
-            engineDisplayName(recovery.engine, recovery.engineIndex),
-            recovery.engine)
-        .ifPresent(this::publishEngineSwitchUiState);
+    try {
+      EngineSwitchUiSnapshot failed = recovery.failedSnapshot;
+      engineSwitchUiTracker
+          .restoreActive(
+              failed.token,
+              failed.main,
+              recovery.engineIndex,
+              engineDisplayNameWithoutCatalogLookup(recovery.engine, recovery.engineIndex),
+              recovery.engine)
+          .ifPresent(this::publishEngineSwitchUiState);
+    } catch (RuntimeException | Error presentationFailure) {
+      // Menu restore must never abort rollback settlement or skip failure presentation.
+      presentationFailure.printStackTrace();
+    }
   }
 
   private void failRecoveredPrimaryFinalInitialization(
@@ -12783,6 +12794,45 @@ public class EngineManager {
     }
   }
 
+  /**
+   * Successful rollback restores menu identity to ACTIVE while keeping this switch's token and
+   * failure notice. Presentation must still fire for that switch; it must not require the
+   * intermediate FAILED snapshot to remain current, and it must not treat the recovered engine as
+   * the failed target.
+   */
+  private static boolean isPresentableSynchronizationFailureSnapshot(
+      EngineSwitchUiSnapshot snapshot, EngineSynchronizationFailureFence failureFence) {
+    if (snapshot == null
+        || failureFence == null
+        || failureFence.switchingSnapshot == null
+        || snapshot.token != failureFence.switchingSnapshot.token
+        || snapshot.main != failureFence.switchingSnapshot.main) {
+      return false;
+    }
+    if (snapshot.phase == EngineSwitchUiPhase.FAILED
+        && snapshot.targetEngineIdentity == failureFence.engine) {
+      return true;
+    }
+    return snapshot.phase == EngineSwitchUiPhase.ACTIVE && !snapshot.failureDetail.isEmpty();
+  }
+
+  private static boolean isCurrentSwitchFailurePresentationSnapshot(
+      EngineSwitchUiSnapshot expected, EngineSwitchUiSnapshot current) {
+    if (expected == null || current == null) {
+      return false;
+    }
+    if (current == expected) {
+      return true;
+    }
+    if (current.token != expected.token || current.main != expected.main) {
+      return false;
+    }
+    if (current.phase == EngineSwitchUiPhase.FAILED) {
+      return true;
+    }
+    return current.phase == EngineSwitchUiPhase.ACTIVE && !current.failureDetail.isEmpty();
+  }
+
   private void enqueueEngineSynchronizationFailureIfCurrent(
       EngineSynchronizationFailureFence failureFence) {
     EngineSwitchUiSnapshot failedSnapshot;
@@ -12795,9 +12845,7 @@ public class EngineManager {
       }
       failedSnapshot =
           engineSwitchUiTracker.current(failureFence.switchingSnapshot.main);
-      if (failedSnapshot.token != failureFence.switchingSnapshot.token
-          || failedSnapshot.phase != EngineSwitchUiPhase.FAILED
-          || failedSnapshot.targetEngineIdentity != failureFence.engine) {
+      if (!isPresentableSynchronizationFailureSnapshot(failedSnapshot, failureFence)) {
         return;
       }
       peerSnapshot = engineSwitchUiTracker.current(!failureFence.switchingSnapshot.main);
@@ -12854,7 +12902,8 @@ public class EngineManager {
     try {
       synchronized (ENGINE_SELECTION_STATE_LOCK) {
         if (!isCurrentSynchronizationFailureAuthority(failureFence)
-            || engineSwitchUiTracker.current(failedSnapshot.main) != failedSnapshot
+            || !isCurrentSwitchFailurePresentationSnapshot(
+                failedSnapshot, engineSwitchUiTracker.current(failedSnapshot.main))
             || engineSwitchUiTracker.current(!failedSnapshot.main) != peerSnapshot
             || !startupStatus.isCurrent()) {
           return null;
@@ -12873,7 +12922,8 @@ public class EngineManager {
                 presentationTransaction.failurePresentationPrimaryGeneration);
         if (authorityLease == null
             || !isCurrentSynchronizationFailureAuthority(failureFence)
-            || engineSwitchUiTracker.current(failedSnapshot.main) != failedSnapshot
+            || !isCurrentSwitchFailurePresentationSnapshot(
+                failedSnapshot, engineSwitchUiTracker.current(failedSnapshot.main))
             || engineSwitchUiTracker.current(!failedSnapshot.main) != peerSnapshot
             || !startupStatus.isCurrent()) {
           return null;
@@ -12914,7 +12964,8 @@ public class EngineManager {
     AtomicBoolean exactAuthority = new AtomicBoolean(false);
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentSynchronizationFailureAuthority(failureFence)
-          || engineSwitchUiTracker.current(failedSnapshot.main) != failedSnapshot
+          || !isCurrentSwitchFailurePresentationSnapshot(
+              failedSnapshot, engineSwitchUiTracker.current(failedSnapshot.main))
           || engineSwitchUiTracker.current(!failedSnapshot.main) != peerSnapshot
           || !startupStatus.isCurrent()) {
         return false;

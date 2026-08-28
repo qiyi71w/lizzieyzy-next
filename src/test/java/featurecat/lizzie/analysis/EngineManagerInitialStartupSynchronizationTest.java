@@ -804,9 +804,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertEquals(0, EngineManager.currentEngineNo);
       assertFalse(target.started, "the partially published target reader must be stopped");
       assertFalse(target.isLoaded, "the failed target must remain unavailable");
-      assertEquals(
-          EngineManager.EngineSwitchUiPhase.FAILED,
-          manager.engineSwitchUiSnapshot(true).phase());
+      assertRestoredActiveAfterFailedTargetSwitch(manager.engineSwitchUiSnapshot(true), 0);
       assertNull(managerAtomicReferenceValue(manager, "engineSwitchTransaction"));
       assertLifecycleReservationReleased(current);
       assertLifecycleReservationReleased(target);
@@ -848,9 +846,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertEquals(0, EngineManager.currentEngineNo);
       assertFalse(target.started, "dispatch failure must exact-close the new reader");
       assertFalse(target.isLoaded);
-      assertEquals(
-          EngineManager.EngineSwitchUiPhase.FAILED,
-          manager.engineSwitchUiSnapshot(true).phase());
+      assertRestoredActiveAfterFailedTargetSwitch(manager.engineSwitchUiSnapshot(true), 0);
       assertNull(managerAtomicReferenceValue(manager, "engineSwitchTransaction"));
       assertLifecycleReservationReleased(current);
       assertLifecycleReservationReleased(target);
@@ -1788,14 +1784,18 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertTrue(
           targetSecondary.normalQuitCompleted.await(2, TimeUnit.SECONDS),
           "the failed secondary target shutdown must complete before its effects are asserted");
+      long restoreDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (manager.engineSwitchUiSnapshot(true).phase()
+              != EngineManager.EngineSwitchUiPhase.ACTIVE
+          && System.nanoTime() < restoreDeadline) {
+        Thread.sleep(10L);
+      }
 
       assertEquals(
           EngineManager.EngineSwitchUiPhase.FAILED,
           manager.engineSwitchUiSnapshot(false).phase());
-      assertEquals(
-          EngineManager.EngineSwitchUiPhase.FAILED,
-          manager.engineSwitchUiSnapshot(true).phase(),
-          "the unavailable primary mirror must not retain an ACTIVE/playing snapshot");
+      assertRestoredActiveAfterFailedTargetSwitch(
+          manager.engineSwitchUiSnapshot(true), 0);
       assertSame(oldPrimary, Lizzie.leelaz);
       assertEquals(0, EngineManager.currentEngineNo);
       assertSame(oldSecondary, Lizzie.leelaz2);
@@ -1874,13 +1874,18 @@ class EngineManagerInitialStartupSynchronizationTest {
           && System.nanoTime() < settlementDeadline) {
         Thread.sleep(10L);
       }
+      long restoreDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (manager.engineSwitchUiSnapshot(true).phase()
+              != EngineManager.EngineSwitchUiPhase.ACTIVE
+          && System.nanoTime() < restoreDeadline) {
+        Thread.sleep(10L);
+      }
 
       assertEquals(
           EngineManager.EngineSwitchUiPhase.FAILED,
           manager.engineSwitchUiSnapshot(false).phase());
-      assertEquals(
-          EngineManager.EngineSwitchUiPhase.FAILED,
-          manager.engineSwitchUiSnapshot(true).phase());
+      assertRestoredActiveAfterFailedTargetSwitch(
+          manager.engineSwitchUiSnapshot(true), 0);
       assertSame(oldPrimary, Lizzie.leelaz);
       assertEquals(0, EngineManager.currentEngineNo);
       assertSame(oldSecondary, Lizzie.leelaz2);
@@ -1899,6 +1904,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertEquals(
           EngineManager.EngineSwitchUiPhase.FAILED,
           manager.engineSwitchUiSnapshot(false).phase());
+      assertRestoredActiveAfterFailedTargetSwitch(
+          manager.engineSwitchUiSnapshot(true), 0);
       assertLifecycleReservationReleased(activePrimary);
       assertLifecycleReservationReleased(targetSecondary);
     }
@@ -2046,10 +2053,8 @@ class EngineManagerInitialStartupSynchronizationTest {
 
       assertTrue(manager.synchronizationFailed.await(2, TimeUnit.SECONDS));
       assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
-      EngineManager.EngineSwitchUiSnapshot failedSwitch = manager.engineSwitchUiSnapshot(true);
-      assertEquals(EngineManager.EngineSwitchUiPhase.FAILED, failedSwitch.phase());
-      assertEquals(0, failedSwitch.activeIndex(), "timeout must preserve the committed engine");
-      assertEquals(1, failedSwitch.targetIndex(), "failure still identifies the rejected target");
+      EngineManager.EngineSwitchUiSnapshot restoredSwitch = manager.engineSwitchUiSnapshot(true);
+      assertRestoredActiveAfterFailedTargetSwitch(restoredSwitch, 0);
       assertFalse(target.isLoaded(), "timed-out switch target remains unavailable");
       assertEquals(0, target.ponderCount, "no analysis after readiness timeout");
       assertLifecycleReservationReleased(current);
@@ -2083,10 +2088,8 @@ class EngineManagerInitialStartupSynchronizationTest {
 
       assertTrue(manager.synchronizationFailed.await(2, TimeUnit.SECONDS));
       assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
-      EngineManager.EngineSwitchUiSnapshot failedSwitch = manager.engineSwitchUiSnapshot(true);
-      assertEquals(EngineManager.EngineSwitchUiPhase.FAILED, failedSwitch.phase());
-      assertEquals(0, failedSwitch.activeIndex(), "the last committed engine remains recorded");
-      assertEquals(1, failedSwitch.targetIndex());
+      EngineManager.EngineSwitchUiSnapshot restoredSwitch = manager.engineSwitchUiSnapshot(true);
+      assertRestoredActiveAfterFailedTargetSwitch(restoredSwitch, 0);
       assertFalse(target.isLoaded(), "the failed final fence invalidates the requested target");
       assertLifecycleReservationReleased(current);
       assertLifecycleReservationReleased(target);
@@ -2366,6 +2369,22 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
     assertTrue(board.nextMove(false), "navigation must reach move 9");
     assertTrue(board.previousMove(false), "navigation must return to move 8");
+  }
+
+  private static void assertRestoredActiveAfterFailedTargetSwitch(
+      EngineManager.EngineSwitchUiSnapshot snapshot, int recoveredIndex) {
+    assertEquals(
+        EngineManager.EngineSwitchUiPhase.ACTIVE,
+        snapshot.phase(),
+        "successful rollback must restore current-engine identity, not keep the failed target");
+    assertEquals(recoveredIndex, snapshot.activeIndex());
+    assertEquals(
+        recoveredIndex,
+        snapshot.targetIndex(),
+        "the recovered engine is the current identity; the failed target stays a notice");
+    assertFalse(
+        snapshot.failureDetail().isEmpty(),
+        "the failed target remains visible as a failure notice");
   }
 
   private static void assertFenceBeforeAnalyze(StartupSyncLeelaz engine) {
@@ -3259,6 +3278,7 @@ class EngineManagerInitialStartupSynchronizationTest {
           "the fresh recovery analysis write must be promoted out of its tombstone");
       assertNull(managerAtomicReferenceValue(manager, "failedRollbackRecovery"));
       assertEquals(EngineStartupStatus.State.READY, Lizzie.engineStartupStatus.snapshot().state);
+      assertRestoredActiveAfterFailedTargetSwitch(manager.engineSwitchUiSnapshot(true), 0);
     }
   }
 

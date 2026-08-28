@@ -83,6 +83,7 @@ class EngineSwitchUiTrackerTest {
             .orElseThrow();
 
     assertEquals(EngineManager.EngineSwitchUiPhase.ACTIVE, restored.phase());
+    assertEquals(pending.token(), restored.token());
     assertEquals(0, restored.activeIndex());
     assertEquals("Engine A", restored.activeName());
     assertEquals(0, restored.targetIndex());
