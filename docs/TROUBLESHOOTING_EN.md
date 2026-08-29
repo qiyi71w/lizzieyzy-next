@@ -96,6 +96,8 @@ The most useful items are:
 - whether you used the regular `with-katago`, `nvidia`, or `without.engine` package
 - a full screenshot or exact reproduction steps
 
+If the app can start, open **Help → Diagnostics and Logs → Export package** and attach the ZIP to the issue. The package is privacy-sanitized. If the app cannot start, attach `logs/app.log`, and `logs/crash.log` if present.
+
 Related docs:
 
 - [Installation Guide](INSTALL_EN.md)
