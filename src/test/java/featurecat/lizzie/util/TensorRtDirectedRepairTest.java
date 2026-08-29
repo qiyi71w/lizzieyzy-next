@@ -2,15 +2,16 @@ package featurecat.lizzie.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.EngineFailedMessage;
 import featurecat.lizzie.gui.KataGoAutoSetupDialog;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadSession;
@@ -21,8 +22,10 @@ import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairSession;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRuntimeException;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtTargetInvalidException;
+import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -146,7 +149,8 @@ public class TensorRtDirectedRepairTest {
                     KataGoRuntimeHelper.offersTensorRtRepairAction(
                         new TensorRtRuntimeException(managedContext)));
 
-                assertFalse(KataGoRuntimeHelper.offersTensorRtRepairAction(new IOException("boom")));
+                assertFalse(
+                    KataGoRuntimeHelper.offersTensorRtRepairAction(new IOException("boom")));
                 assertFalse(KataGoRuntimeHelper.offersTensorRtRepairAction(null));
 
                 assertNull(
@@ -204,7 +208,8 @@ public class TensorRtDirectedRepairTest {
 
                         TensorRtInstallStatus defaultInspect =
                             KataGoRuntimeHelper.inspectTensorRtInstall(snapshot);
-                        assertEquals(decoyDefault.toAbsolutePath().normalize(), defaultInspect.enginePath);
+                        assertEquals(
+                            decoyDefault.toAbsolutePath().normalize(), defaultInspect.enginePath);
 
                         TensorRtInstallStatus directedInspect =
                             KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, null, context);
@@ -236,8 +241,9 @@ public class TensorRtDirectedRepairTest {
                                     .getParent()
                                     .resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME)),
                             "ordinary default destination must not be mutated in directed mode");
-                        assertTrue(repaired.detailText.contains(failedEngine.getFileName().toString())
-                            || repaired.enginePath.toString().contains("nvidia50-trt"));
+                        assertTrue(
+                            repaired.detailText.contains(failedEngine.getFileName().toString())
+                                || repaired.enginePath.toString().contains("nvidia50-trt"));
                       }));
         });
   }
@@ -286,8 +292,7 @@ public class TensorRtDirectedRepairTest {
                     KataGoRuntimeHelper.inspectTensorRtStartupFailure(
                         movedEngine, analysisCommand(movedEngine));
                 Path relocated =
-                    Files.createDirectories(tempRoot.resolve("relocated"))
-                        .resolve("katago.exe");
+                    Files.createDirectories(tempRoot.resolve("relocated")).resolve("katago.exe");
                 Files.move(movedEngine, relocated);
                 session.apply(movedContext);
                 assertThrows(
@@ -316,8 +321,7 @@ public class TensorRtDirectedRepairTest {
                         "display");
                 assertThrows(
                     TensorRtTargetInvalidException.class,
-                    () ->
-                        KataGoRuntimeHelper.requireValidDirectedTensorRtTarget(traversalContext));
+                    () -> KataGoRuntimeHelper.requireValidDirectedTensorRtTarget(traversalContext));
 
                 Path managedDir =
                     Files.createDirectories(
@@ -509,11 +513,332 @@ public class TensorRtDirectedRepairTest {
         });
   }
 
+  @Test
+  void primaryAndSecondaryGtpMissingRuntimeProduceSameContextAsAnalysisEngine() throws Exception {
+    assumeTrue(GraphicsEnvironment.isHeadless());
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("tensorrt-gtp-nvrtc");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          Path enginePath = installManagedTensorRtEngine(runtimeWorkDirectory, true);
+
+          withConfig(
+              runtimeWorkDirectory,
+              () -> {
+                String analysis = analysisCommand(enginePath);
+                TensorRtRuntimeException analysisFailure =
+                    assertThrows(
+                        TensorRtRuntimeException.class,
+                        () -> startAnalysisEngineReadinessCheck(analysis));
+                TensorRtRepairContext expected = analysisFailure.context;
+
+                String gtp = gtpCommand(enginePath);
+                Lizzie.config.leelazConfig.put(
+                    "engine-settings-list",
+                    new JSONArray()
+                        .put(new JSONObject().put("name", "Primary TRT").put("command", gtp))
+                        .put(new JSONObject().put("name", "Secondary TRT").put("command", gtp)));
+                Leelaz previousPrimary = Lizzie.leelaz;
+                Leelaz previousSecondary = Lizzie.leelaz2;
+                boolean previousFirstLaunch = forceFirstLaunchSession(true);
+                try {
+                  Leelaz primary = new Leelaz(gtp);
+                  Lizzie.setPrimaryEngine(primary);
+                  primary.startEngine(0);
+
+                  TensorRtRepairContext primaryContext = pendingTensorRtRepairContext(primary);
+                  assertEquals(expected.failedExecutable, primaryContext.failedExecutable);
+                  assertEquals(gtp, primaryContext.originalCommand);
+                  assertEquals(expected.failureKind, primaryContext.failureKind);
+                  assertEquals(expected.missingItems, primaryContext.missingItems);
+                  assertEquals(expected.repairable, primaryContext.repairable);
+                  assertTrue(primaryContext.repairable);
+                  assertTrue(primary.isDownWithError);
+                  assertFalse(primary.started);
+                  assertFalse(primary.isLoaded);
+
+                  Leelaz decoyPrimary = new Leelaz("");
+                  Leelaz secondary = new Leelaz(gtp);
+                  Lizzie.setPrimaryEngine(decoyPrimary);
+                  Lizzie.leelaz2 = secondary;
+                  secondary.startEngine(1);
+
+                  TensorRtRepairContext secondaryContext = pendingTensorRtRepairContext(secondary);
+                  assertEquals(expected.failedExecutable, secondaryContext.failedExecutable);
+                  assertEquals(gtp, secondaryContext.originalCommand);
+                  assertEquals(expected.failureKind, secondaryContext.failureKind);
+                  assertEquals(expected.missingItems, secondaryContext.missingItems);
+                  assertEquals(expected.repairable, secondaryContext.repairable);
+                  assertTrue(secondary.isDownWithError);
+                  assertFalse(secondary.started);
+                  assertFalse(secondary.isLoaded);
+                } finally {
+                  forceFirstLaunchSession(previousFirstLaunch);
+                  Lizzie.setPrimaryEngine(previousPrimary);
+                  Lizzie.leelaz2 = previousSecondary;
+                  Lizzie.engineStartupStatus.ready();
+                }
+              });
+        });
+  }
+
+  @Test
+  void gtpRepairableFailuresOpenTheSameDialogAndSetupEntryAsAnalysisEngine() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("tensorrt-gtp-dialog");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          Path enginePath = installManagedTensorRtEngine(runtimeWorkDirectory, true);
+
+          withConfig(
+              runtimeWorkDirectory,
+              () -> {
+                String gtp = gtpCommand(enginePath);
+                TensorRtRepairContext context =
+                    KataGoRuntimeHelper.inspectTensorRtStartupFailure(enginePath, gtp);
+                assertTrue(context.repairable);
+                assertTrue(EngineFailedMessage.shouldOfferTensorRtRepair(context));
+                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(true, true, context));
+                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(true, false, context));
+                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(false, true, context));
+                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, true, null));
+                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, false, null));
+                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(false, true, null));
+                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(false, false, null));
+                assertFalse(
+                    Leelaz.shouldOpenInteractiveDiagnostic(
+                        true, true, unrepairableContext(enginePath)));
+
+                KataGoAutoSetupDialog.OpenRequest repair =
+                    KataGoAutoSetupDialog.openRequestForRepair(context);
+                assertSame(context, repair.context);
+                assertEquals(3, repair.sectionIndex);
+                assertTrue(repair.directed);
+
+                KataGoAutoSetupDialog.OpenRequest status =
+                    KataGoAutoSetupDialog.openRequestForEngineStartupStatus(true, context);
+                assertSame(context, status.context);
+                assertEquals(3, status.sectionIndex);
+                assertTrue(status.directed);
+                assertFalse(
+                    KataGoAutoSetupDialog.openRequestForEngineStartupStatus(false, context)
+                        .directed);
+                assertFalse(
+                    KataGoAutoSetupDialog.openRequestForEngineStartupStatus(true, null).directed);
+
+                if (!java.awt.GraphicsEnvironment.isHeadless()) {
+                  EngineFailedMessage dialog =
+                      new EngineFailedMessage(
+                          List.of(enginePath.toString(), "gtp"),
+                          gtp,
+                          context.displayMessage,
+                          true,
+                          true,
+                          false,
+                          context);
+                  assertTrue(dialog.offersTensorRtRepair());
+                  assertSame(context, dialog.repairContext());
+                }
+
+                seedEngineSettings("Primary TRT", gtp);
+                String profilesBefore = profileFingerprint();
+                assumeTrue(GraphicsEnvironment.isHeadless());
+                Leelaz previousPrimary = Lizzie.leelaz;
+                boolean previousFirstLaunch = forceFirstLaunchSession(true);
+                try {
+                  Leelaz primary = new Leelaz(gtp);
+                  Lizzie.setPrimaryEngine(primary);
+                  primary.startEngine(0);
+                  TensorRtRepairContext pending = primary.pendingTensorRtRepairContext();
+                  assertEquals(context.failedExecutable, pending.failedExecutable);
+                  assertEquals(gtp, pending.originalCommand);
+                  assertTrue(pending.repairable);
+                  KataGoAutoSetupDialog.OpenRequest fromStatus =
+                      KataGoAutoSetupDialog.openRequestForEngineStartupStatus(true, pending);
+                  assertSame(pending, fromStatus.context);
+                  assertTrue(fromStatus.directed);
+                  assertEquals(profilesBefore, profileFingerprint());
+                  assertTrue(primary.isDownWithError);
+                  assertFalse(primary.started);
+                  assertFalse(primary.isLoaded);
+                } finally {
+                  forceFirstLaunchSession(previousFirstLaunch);
+                  Lizzie.setPrimaryEngine(previousPrimary);
+                  Lizzie.engineStartupStatus.ready();
+                }
+              });
+        });
+  }
+
+  @Test
+  void customDirectMlOpenClOrdinaryContributeAndRemoteGtpDoNotAutoRepair() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("tensorrt-gtp-negative");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          Path custom = installCustomTensorRtEngine(tempRoot.resolve("custom").resolve("owner"));
+          Path cuda = installManagedCudaEngine(runtimeWorkDirectory.resolve("cuda-engine-root"));
+          Path directMl = installManagedDirectMlEngine(runtimeWorkDirectory);
+          Path openCl = installManagedOpenClEngine(runtimeWorkDirectory);
+
+          withConfig(
+              runtimeWorkDirectory,
+              () -> {
+                TensorRtRepairContext customContext =
+                    KataGoRuntimeHelper.inspectTensorRtStartupFailure(custom, gtpCommand(custom));
+                assertFalse(customContext.repairable);
+                assertFalse(EngineFailedMessage.shouldOfferTensorRtRepair(customContext));
+                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, true, customContext));
+                assertFalse(KataGoAutoSetupDialog.openRequestForRepair(customContext).directed);
+                assertFalse(
+                    KataGoAutoSetupDialog.openRequestForEngineStartupStatus(true, customContext)
+                        .directed);
+
+                assertNull(
+                    KataGoRuntimeHelper.inspectTensorRtStartupFailure(cuda, gtpCommand(cuda)));
+                assertNull(
+                    KataGoRuntimeHelper.inspectTensorRtStartupFailure(
+                        directMl, gtpCommand(directMl)));
+                assertNull(
+                    KataGoRuntimeHelper.inspectTensorRtStartupFailure(openCl, gtpCommand(openCl)));
+
+                if (!java.awt.GraphicsEnvironment.isHeadless()) {
+                  EngineFailedMessage contributeStyle =
+                      new EngineFailedMessage(
+                          List.of("contribute.exe"),
+                          "contribute.exe",
+                          "ordinary contribute failure",
+                          false,
+                          false,
+                          true);
+                  assertFalse(contributeStyle.offersTensorRtRepair());
+                  assertNull(contributeStyle.repairContext());
+
+                  EngineFailedMessage ordinary =
+                      new EngineFailedMessage(
+                          List.of("engine.exe"),
+                          "engine.exe gtp",
+                          "ordinary process failure",
+                          true,
+                          true,
+                          false);
+                  assertFalse(ordinary.offersTensorRtRepair());
+                  assertNull(ordinary.tensorRtRepairButton());
+                }
+
+                String analysisBefore = String.valueOf(Lizzie.config.analysisEngineCommand);
+                int defaultBefore = Lizzie.config.uiConfig.optInt("default-engine", -1);
+                assumeTrue(GraphicsEnvironment.isHeadless());
+                Leelaz previousPrimary = Lizzie.leelaz;
+                boolean previousFirstLaunch = forceFirstLaunchSession(true);
+                try {
+                  assertGtpDoesNotOfferRepair(gtpCommand(custom), 0);
+                  assertGtpDoesNotOfferRepair(gtpCommand(cuda), 0);
+                  assertGtpDoesNotOfferRepair(gtpCommand(directMl), 0);
+                  assertGtpDoesNotOfferRepair(gtpCommand(openCl), 0);
+                  assertGtpDoesNotOfferRepair("missing-ordinary-engine.exe gtp", 0);
+                  try {
+                    assertGtpDoesNotOfferRepair(
+                        featurecat.lizzie.analysis.remote.RemoteComputeConfig.COMMAND_CUSTOM_WS, 0);
+                  } catch (Exception ignored) {
+                    Leelaz remote =
+                        new Leelaz(
+                            featurecat.lizzie.analysis.remote.RemoteComputeConfig
+                                .COMMAND_CUSTOM_WS);
+                    assertNull(remote.pendingTensorRtRepairContext());
+                  }
+                  assertEquals(analysisBefore, String.valueOf(Lizzie.config.analysisEngineCommand));
+                  assertEquals(defaultBefore, Lizzie.config.uiConfig.optInt("default-engine", -1));
+                  assertFalse(Lizzie.config.uiConfig.toString().contains("tensorRtRepair"));
+                  assertFalse(Lizzie.config.leelazConfig.toString().contains("failedExecutable"));
+                } finally {
+                  forceFirstLaunchSession(previousFirstLaunch);
+                  Lizzie.setPrimaryEngine(previousPrimary);
+                  Lizzie.engineStartupStatus.ready();
+                }
+              });
+        });
+  }
+
+  private static TensorRtRepairContext unrepairableContext(Path enginePath) {
+    return TensorRtRepairContext.of(
+        enginePath,
+        gtpCommand(enginePath),
+        TensorRtFailureKind.MISSING_RUNTIME,
+        List.of(TensorRtInstallStatus.MISSING_RUNTIME),
+        false,
+        "custom TensorRT is diagnostic only");
+  }
+
+  private static void seedEngineSettings(String name, String command) {
+    Lizzie.config.leelazConfig.put(
+        "engine-settings-list",
+        new JSONArray().put(new JSONObject().put("name", name).put("command", command)));
+  }
+
+  private static void assertGtpDoesNotOfferRepair(String command, int index) throws Exception {
+    seedEngineSettings("No Repair", command);
+    Leelaz engine = new Leelaz(command);
+    Lizzie.setPrimaryEngine(engine);
+    try {
+      engine.startEngine(index);
+    } catch (Exception ignored) {
+    }
+    TensorRtRepairContext pending = engine.pendingTensorRtRepairContext();
+    assertFalse(EngineFailedMessage.shouldOfferTensorRtRepair(pending));
+    assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, true, pending));
+    assertFalse(KataGoAutoSetupDialog.openRequestForEngineStartupStatus(true, pending).directed);
+    assertFalse(engine.started);
+    assertFalse(engine.isLoaded);
+  }
+
+  private static Path installManagedDirectMlEngine(Path runtimeWorkDirectory) throws IOException {
+    Path targetDir =
+        Files.createDirectories(
+            runtimeWorkDirectory
+                .resolve("engines")
+                .resolve("katago")
+                .resolve("windows-x64-directml"));
+    Path enginePath = touch(targetDir.resolve("katago.exe"));
+    Files.writeString(targetDir.resolve("lizzieyzy-next-engine-backend.txt"), "directml\n");
+    return enginePath.toAbsolutePath().normalize();
+  }
+
+  private static Path installManagedOpenClEngine(Path runtimeWorkDirectory) throws IOException {
+    Path targetDir =
+        Files.createDirectories(
+            runtimeWorkDirectory
+                .resolve("engines")
+                .resolve("katago")
+                .resolve("windows-x64-opencl"));
+    Path enginePath = touch(targetDir.resolve("katago.exe"));
+    Files.writeString(targetDir.resolve("lizzieyzy-next-engine-backend.txt"), "opencl\n");
+    return enginePath.toAbsolutePath().normalize();
+  }
+
   private static void startAnalysisEngineReadinessCheck(String engineCommand) throws IOException {
     List<String> commands = Utils.splitCommand(engineCommand);
     Path engineExecutable = KataGoRuntimeHelper.resolveCommandExecutable(commands);
-    KataGoRuntimeHelper.ensureBundledRuntimeReady(
-        engineExecutable, commands, engineCommand, null);
+    KataGoRuntimeHelper.ensureBundledRuntimeReady(engineExecutable, commands, engineCommand, null);
+  }
+
+  private static String gtpCommand(Path enginePath) {
+    return enginePath.toAbsolutePath().normalize() + " gtp -model dummy.bin.gz";
+  }
+
+  private static TensorRtRepairContext pendingTensorRtRepairContext(Leelaz engine) {
+    return engine.pendingTensorRtRepairContext();
+  }
+
+  private static boolean forceFirstLaunchSession(boolean value) throws Exception {
+    Field field = Lizzie.class.getDeclaredField("firstLaunchSession");
+    field.setAccessible(true);
+    boolean previous = field.getBoolean(null);
+    field.setBoolean(null, value);
+    return previous;
   }
 
   private static String analysisCommand(Path enginePath) {
@@ -570,10 +895,7 @@ public class TensorRtDirectedRepairTest {
   private static Path installCustomTensorRtEngine(Path ownerRoot) throws IOException {
     Path targetDir =
         Files.createDirectories(
-            ownerRoot
-                .resolve("engines")
-                .resolve("katago")
-                .resolve("windows-x64-nvidia-tensorrt"));
+            ownerRoot.resolve("engines").resolve("katago").resolve("windows-x64-nvidia-tensorrt"));
     Path enginePath = touch(targetDir.resolve("katago.exe"));
     Files.writeString(targetDir.resolve("lizzieyzy-next-engine-backend.txt"), "nvidia-tensorrt\n");
     return enginePath.toAbsolutePath().normalize();

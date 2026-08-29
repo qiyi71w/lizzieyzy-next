@@ -609,6 +609,10 @@ public class Leelaz {
   private EngineFailedMessage engineFailedMessage;
   private TensorRtRepairContext pendingTensorRtRepairContext;
 
+  public TensorRtRepairContext pendingTensorRtRepairContext() {
+    return pendingTensorRtRepairContext;
+  }
+
   public List<String> commandLists = new ArrayList<String>();
   private boolean startGetCommandList = false;
   private boolean endGetCommandList = false;
@@ -798,6 +802,7 @@ public class Leelaz {
   }
 
   public void startEngine(int index) throws IOException {
+    pendingTensorRtRepairContext = null;
     EngineManager.EngineGameOwnerTransaction engineGameStartupTransaction =
         engineGameStartupCommandContext.get();
     boolean deferredEngineGameRecovery = isDeferredEngineGameRecoveryStartup();
@@ -21648,7 +21653,8 @@ public class Leelaz {
             }
           });
     }
-    if (!shouldOpenInteractiveDiagnostic(primaryEngine, Lizzie.isFirstLaunchSession())) {
+    if (!shouldOpenInteractiveDiagnostic(
+        primaryEngine, Lizzie.isFirstLaunchSession(), pendingTensorRtRepairContext)) {
       return;
     }
     if (mayClearEngineGame
@@ -21660,7 +21666,6 @@ public class Leelaz {
     if (GraphicsEnvironment.isHeadless()) return;
     if (engineFailedMessage != null && engineFailedMessage.isVisible()) return;
     TensorRtRepairContext repairContext = pendingTensorRtRepairContext;
-    pendingTensorRtRepairContext = null;
     EngineFailedMessage.showDialog(
         commands,
         engineCommand,
@@ -21683,6 +21688,12 @@ public class Leelaz {
   static boolean shouldOpenInteractiveDiagnostic(
       boolean primaryEngine, boolean firstLaunchSession) {
     return !primaryEngine && !firstLaunchSession;
+  }
+
+  public static boolean shouldOpenInteractiveDiagnostic(
+      boolean primaryEngine, boolean firstLaunchSession, TensorRtRepairContext repairContext) {
+    return EngineFailedMessage.shouldOfferTensorRtRepair(repairContext)
+        || shouldOpenInteractiveDiagnostic(primaryEngine, firstLaunchSession);
   }
 
   static boolean hasMissingLocalStartupAsset(
