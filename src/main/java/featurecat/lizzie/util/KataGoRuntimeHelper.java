@@ -444,7 +444,9 @@ public final class KataGoRuntimeHelper {
     public enum TensorRtFailureKind {
       MISSING_RUNTIME,
       MISSING_COMPANION,
-      MISSING_RUNTIME_AND_COMPANION
+      MISSING_RUNTIME_AND_COMPANION,
+      MISSING_ENGINE,
+      MISSING_COMPONENTS
     }
   
     public static final class TensorRtRepairContext {
@@ -970,50 +972,117 @@ public final class KataGoRuntimeHelper {
         Path enginePath, String originalCommand) {
       return inspectTensorRtStartupFailure(enginePath, null, originalCommand);
     }
-  
+
     public static TensorRtRepairContext inspectTensorRtStartupFailure(
-              Path enginePath, List<String> launchCommand, String originalCommand) {
-            if (!isWindowsPlatform() || enginePath == null) {
-              return null;
-            }
-            String backend = resolveNvidiaBackend(enginePath);
-            if (!isTensorRtBackend(backend)) {
-              return null;
-            }
-            NvidiaRuntimeStatus runtime = inspectNvidiaRuntime(enginePath);
-            boolean companionReady = hasUsableTensorRtHumanSlCompanion(enginePath);
-            List<String> missingItems = new ArrayList<String>();
-            if (!runtime.ready) {
-              missingItems.add(TensorRtInstallStatus.MISSING_RUNTIME);
-            }
-            if (!companionReady) {
-              missingItems.add(TensorRtInstallStatus.MISSING_COMPANION);
-            }
-            if (missingItems.isEmpty()) {
-              return null;
-            }
-            TensorRtFailureKind kind;
-            if (!runtime.ready && !companionReady) {
-              kind = TensorRtFailureKind.MISSING_RUNTIME_AND_COMPANION;
-            } else if (!runtime.ready) {
-              kind = TensorRtFailureKind.MISSING_RUNTIME;
-            } else {
-              kind = TensorRtFailureKind.MISSING_COMPANION;
-            }
-            String displayMessage =
-                !runtime.ready
-                    ? buildMissingRuntimeMessage(runtime)
-                    : tensorRtCompanionMissingMessage();
-            Path canonical = canonicalizeExistingPath(enginePath);
-            return new TensorRtRepairContext(
-                canonical,
-                resolveOriginalCommand(enginePath, launchCommand, originalCommand),
-                kind,
-                missingItems,
-                isManagedTensorRtTarget(canonical),
-                displayMessage);
-          }
-    
+        Path enginePath, List<String> launchCommand, String originalCommand) {
+      return inspectTensorRtStartupFailure(
+          enginePath, launchCommand, originalCommand, false, false);
+    }
+
+    public static TensorRtRepairContext inspectHumanSlTensorRtStartupFailure(
+        String analysisCommand) {
+      if (analysisCommand == null || analysisCommand.trim().isEmpty()) {
+        return null;
+      }
+      String command = analysisCommand.trim();
+      List<String> parts = Utils.splitCommand(command);
+      return inspectHumanSlTensorRtStartupFailure(
+          resolveCommandExecutable(parts), parts, command);
+    }
+
+    public static TensorRtRepairContext inspectHumanSlTensorRtStartupFailure(
+        Path enginePath, List<String> launchCommand, String originalCommand) {
+      return inspectTensorRtStartupFailure(
+          enginePath, launchCommand, originalCommand, true, true);
+    }
+
+    private static TensorRtRepairContext inspectTensorRtStartupFailure(
+        Path enginePath,
+        List<String> launchCommand,
+        String originalCommand,
+        boolean includeEngineCompleteness,
+        boolean packagedCompanionOnly) {
+      if (!isWindowsPlatform() || enginePath == null) {
+        return null;
+      }
+      String backend = resolveNvidiaBackend(enginePath);
+      if (!isTensorRtBackend(backend)) {
+        return null;
+      }
+      NvidiaRuntimeStatus runtime = inspectNvidiaRuntime(enginePath);
+      boolean companionReady =
+          packagedCompanionOnly
+              ? hasUsablePackagedHumanSlCompanion(enginePath)
+              : hasUsableTensorRtHumanSlCompanion(enginePath);
+      List<String> missingItems = new ArrayList<String>();
+      if (!runtime.ready) {
+        missingItems.add(TensorRtInstallStatus.MISSING_RUNTIME);
+      }
+      if (!companionReady) {
+        missingItems.add(TensorRtInstallStatus.MISSING_COMPANION);
+      }
+      if (includeEngineCompleteness) {
+        if (!Files.isRegularFile(enginePath)) {
+          missingItems.add(TensorRtInstallStatus.MISSING_ENGINE);
+        } else if (!isCurrentTensorRtEngineBinary(enginePath)) {
+          missingItems.add(TensorRtInstallStatus.MISSING_ENGINE_STALE);
+        }
+      }
+      if (missingItems.isEmpty()) {
+        return null;
+      }
+      Path canonical = canonicalizeExistingPath(enginePath);
+      return new TensorRtRepairContext(
+          canonical,
+          resolveOriginalCommand(enginePath, launchCommand, originalCommand),
+          tensorRtFailureKind(missingItems),
+          missingItems,
+          isManagedTensorRtTarget(canonical),
+          tensorRtStartupDisplayMessage(runtime, missingItems, includeEngineCompleteness));
+    }
+
+    private static TensorRtFailureKind tensorRtFailureKind(List<String> missingItems) {
+      boolean runtime = missingItems.contains(TensorRtInstallStatus.MISSING_RUNTIME);
+      boolean companion = missingItems.contains(TensorRtInstallStatus.MISSING_COMPANION);
+      boolean engine =
+          missingItems.contains(TensorRtInstallStatus.MISSING_ENGINE)
+              || missingItems.contains(TensorRtInstallStatus.MISSING_ENGINE_STALE);
+      int groups = (runtime ? 1 : 0) + (companion ? 1 : 0) + (engine ? 1 : 0);
+      if (groups > 1) {
+        if (runtime && companion && !engine) {
+          return TensorRtFailureKind.MISSING_RUNTIME_AND_COMPANION;
+        }
+        return TensorRtFailureKind.MISSING_COMPONENTS;
+      }
+      if (runtime) {
+        return TensorRtFailureKind.MISSING_RUNTIME;
+      }
+      if (companion) {
+        return TensorRtFailureKind.MISSING_COMPANION;
+      }
+      return TensorRtFailureKind.MISSING_ENGINE;
+    }
+
+    private static String tensorRtStartupDisplayMessage(
+        NvidiaRuntimeStatus runtime,
+        List<String> missingItems,
+        boolean includeEngineCompleteness) {
+      if (!includeEngineCompleteness) {
+        return runtime != null && !runtime.ready
+            ? buildMissingRuntimeMessage(runtime)
+            : tensorRtCompanionMissingMessage();
+      }
+      if (runtime != null && !runtime.ready) {
+        return buildMissingRuntimeMessage(runtime);
+      }
+      if (missingItems.contains(TensorRtInstallStatus.MISSING_COMPANION)) {
+        return tensorRtCompanionMissingMessage();
+      }
+      return resource(
+          "HumanSlGame.error.tensorRtEngineIncomplete",
+          "AI Coach cannot start because the managed TensorRT engine is incomplete. Open Auto Setup to repair it.");
+    }
+
       private static String resolveOriginalCommand(
           Path enginePath, List<String> launchCommand, String originalCommand) {
         if (originalCommand != null && !originalCommand.trim().isEmpty()) {
@@ -1641,6 +1710,23 @@ public final class KataGoRuntimeHelper {
         || resolveConfiguredHumanSlCudaFallback(tensorRtEnginePath) != null;
   }
 
+  private static boolean directedRepairRequiresPackagedCompanion(TensorRtRepairContext context) {
+    return context != null
+        && context.missingItems != null
+        && context.missingItems.contains(TensorRtInstallStatus.MISSING_COMPANION);
+  }
+
+  private static boolean hasUsableCompanionForRepair(
+      Path tensorRtEnginePath, TensorRtRepairContext context) {
+    if (hasUsablePackagedHumanSlCompanion(tensorRtEnginePath)) {
+      return true;
+    }
+    if (directedRepairRequiresPackagedCompanion(context)) {
+      return false;
+    }
+    return hasUsableTensorRtHumanSlCompanion(tensorRtEnginePath);
+  }
+
   private static void applyHumanSlLaunchProfile(List<String> command) {
     setOverrideConfig(command, "numAnalysisThreads=1");
     setOverrideConfig(command, "numSearchThreadsPerAnalysisThread=8");
@@ -2256,7 +2342,7 @@ public final class KataGoRuntimeHelper {
     boolean engineCurrent = isCurrentTensorRtEngineBinary(spec.targetEnginePath);
     Path reusableCompanion =
         resolveTensorRtInstallCompanionSource(snapshot, spec.targetEnginePath);
-    boolean companionReady = hasUsableTensorRtHumanSlCompanion(spec.targetEnginePath);
+    boolean companionReady = hasUsableCompanionForRepair(spec.targetEnginePath, context);
     boolean companionDownloadNeeded =
         !companionReady && reusableCompanion == null && spec.companionDownloadNeeded;
     long companionBytes = companionDownloadNeeded ? Math.max(0L, spec.companionSizeBytes) : 0L;
@@ -2408,7 +2494,8 @@ public final class KataGoRuntimeHelper {
       Files.deleteIfExists(extractedCompanion);
     }
     activeSession.throwIfCancelled();
-    if (!hasUsableTensorRtHumanSlCompanion(spec.targetEnginePath) && companionDownloadNeeded) {
+    if (!hasUsableCompanionForRepair(spec.targetEnginePath, context)
+        && (companionDownloadNeeded || directedRepairRequiresPackagedCompanion(context))) {
       throw new IOException(tensorRtCompanionMissingMessage());
     }
 
@@ -5647,7 +5734,8 @@ public final class KataGoRuntimeHelper {
     boolean companionDownloadNeeded =
         !hasUsablePackagedHumanSlCompanion(targetEnginePath)
             && resolveTensorRtInstallCompanionSource(snapshot, targetEnginePath) == null
-            && resolveConfiguredHumanSlCudaFallback(targetEnginePath) == null
+            && (directedRepairRequiresPackagedCompanion(context)
+                || resolveConfiguredHumanSlCudaFallback(targetEnginePath) == null)
             && shouldDownloadTrustedCompanionArchive();
     String companionUrl =
         System.getProperty(
