@@ -154,6 +154,7 @@ public final class ThreadSnapshot {
         body.append('\n');
       }
       body.append("name=").append(name == null ? "" : name).append('\n');
+      // "id=" is treated as a Yike room parameter by ExportSanitizer.sanitizeText.
       body.append("threadId=").append(id).append('\n');
       body.append("state=").append(state == null ? "" : state.name()).append('\n');
       body.append("daemon=").append(daemon).append('\n');
