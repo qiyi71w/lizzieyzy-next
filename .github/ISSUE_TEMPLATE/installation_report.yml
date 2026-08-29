@@ -85,7 +85,7 @@ body:
     id: evidence
     attributes:
       label: Screenshot / Log / Extra Evidence
-      description: 可贴截图、报错文本、录屏链接或日志片段。
+      description: 可填。程序能启动时优先附上诊断包：帮助 → 诊断与日志 → 导出诊断包（经过隐私脱敏）。无法启动时附 logs/app.log，以及存在时的 logs/crash.log。也可贴截图、报错文本或录屏链接。 / Optional. If the app can start, prefer the diagnostic ZIP from Help → Diagnostics and Logs → Export package (privacy-sanitized). If it cannot start, attach logs/app.log and logs/crash.log if present. Screenshots, error text, or a recording link are also welcome.
   - type: checkboxes
     id: acknowledgement
     attributes:

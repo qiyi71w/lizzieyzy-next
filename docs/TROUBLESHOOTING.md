@@ -96,6 +96,8 @@ chmod +x start-linux64.sh
 - 是否是普通 `with-katago`、`nvidia`，还是 `without.engine`
 - 完整报错截图或复现步骤
 
+如果程序能够正常启动，请打开 **帮助 → 诊断与日志 → 导出诊断包**，并将生成的 ZIP 附加到 Issue 中。诊断包会经过现有隐私脱敏处理。如果程序无法启动，请提供 `logs/app.log`，以及存在时的 `logs/crash.log`。
+
 相关入口：
 
 - [安装指南](INSTALL.md)

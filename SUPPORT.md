@@ -25,7 +25,7 @@ If you need help with `LizzieYzy Next`, start with the closest path below. Clear
 - 机器架构：Windows x64 / macOS Apple Silicon / macOS Intel / Linux x64
 - 是否使用普通 `with-katago`、`nvidia`，还是 `without.engine`
 - 如果问题和野狐抓谱相关，请提供你输入的 **野狐昵称**
-- 错误截图、日志、系统安全提示
+- 错误截图、系统安全提示；如果程序能启动，优先附上 **帮助 → 诊断与日志 → 导出诊断包** 生成的 ZIP（经过隐私脱敏）；无法启动时附 `logs/app.log`，以及存在时的 `logs/crash.log`
 
 ## Fastest Path For Common Cases
 
