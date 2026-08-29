@@ -15,9 +15,8 @@
 </p>
 
 <p align="center">
-  <strong>LizzieYzy Next 是当前仍在维护的 lizzieyzy 维护版，也是一个面向普通棋友的 KataGo 围棋复盘 GUI。</strong><br/>
-  它把真正影响体验的几件事重新打磨了一遍：更好选的下载包、更省心的首次启动、继续可用的野狐抓谱，以及更容易看懂的整盘分析视角。<br/>
-  <strong>下载安装，输入野狐昵称，抓最近公开棋谱，跑快速全盘分析，再用新版胜率图和底部快速概览快速定位关键手。</strong>
+  <strong>LizzieYzy Next 是仍在维护的 lizzieyzy 分支，面向使用 KataGo 复盘的普通棋友。</strong><br/>
+  提供野狐昵称抓谱、快速全盘分析、新版胜率图和底部快速概览，并发布 Windows、macOS、Linux 版本。
 </p>
 
 <p align="center">
@@ -40,41 +39,9 @@
 > 提取码：`3i8w`
 
 > [!TIP]
-> 项目讨论 QQ 群：`299419120`
+> [项目讨论 QQ 群：299419120](https://qm.qq.com/q/JZoeojjteg)
 >
 > 欢迎交流使用问题、反馈 bug、分享使用体验，或者讨论接下来最想加的功能。
-
-> [!IMPORTANT]
-> 如果你只想先下对版本，先记住这几句：
-> - RTX 20/30/40/50 NVIDIA 显卡：到 [正式版下载页](https://goagent.top/download/) 下载 `*windows64.nvidia.portable.zip`，内置 CUDA 12.8 + cuDNN 9.8
-> - AMD、Intel 或较老的 NVIDIA 显卡：下载 `*windows64.opencl.portable.zip`
-> - 没有合适独立显卡，或 GPU 版本无法正常启动：下载 `*windows64.with-katago.portable.zip` CPU 兼容版
-> - 已经有 Windows 免安装版：日常升级优先下载 `*windows64.core-update.zip`，关闭软件后解压到旧目录覆盖，只更新主程序和启动器配置
-> - RTX 40/50 默认使用 CUDA；TensorRT 是 RTX 30 系及以下 NVIDIA 显卡的可选方案，不再作为“高级版”推荐
-> - 完整包的 CPU、OpenCL、CUDA、TensorRT、Metal 和 Linux 后端已统一升级到 KataGo `v1.18.1`；Linux NVIDIA 仍使用 CUDA 12.1 以兼顾系统运行环境
-> - `KataGo 一键设置` 会检测 NVIDIA GPU 和 Compute Capability，自动提示是否推荐 TensorRT；检测失败也可以手动继续
-> - TensorRT 一键安装成功后会自动清理下载包缓存；运行缓存尽量写入软件自己的 `user-data/runtime`，减少 C 盘额外占用
-> - Release 里的 `*windows64.nvidia.tensorrt.portable.7z.001` 是 RTX 30 系及以下可选离线包，必须下载全部 `.7z.00N` 并用 7-Zip 解压
-> - 如果 OpenCL 在你的电脑上不稳定：下载 `*windows64.with-katago.portable.zip`
-> - 现在支持直接输入野狐昵称抓最近公开棋谱，不需要先查账号数字
-> - 主推荐完整包默认内置官方旗舰 B11 `b11c768h12nbt3tflrs-fson-silu.bin.gz`（约 202 MiB）：单次判断更强、复杂局面效果更好；本机 RTX 3070 实测搜索吞吐比 B10 慢约 40%，追求速度可在“一键设置 -> 权重”切换 B10
-> - Windows 主发布包已内置原生 `readboard.exe`，同步入口只保留这套更强的棋盘同步工具
-
-## 为什么很多用户会直接选它
-
-`LizzieYzy Next` 可以直接理解成：
-
-- 一套还在持续维护的 `KataGo 围棋复盘桌面工具`
-- 一条把 `野狐抓谱 + 快速全盘分析 + 多平台发布包` 串起来的实用工作流
-- 一个让老 `lizzieyzy` 用户更容易继续用下去的维护分支
-
-如果你正在找这些东西，这个项目应该优先看：
-
-- `KataGo 围棋复盘软件`
-- `KataGo GUI`
-- `lizzieyzy 维护版`
-- `野狐棋谱抓取 + KataGo 复盘`
-- `Windows 免安装围棋 AI 复盘工具`
 
 ## 你打开后马上能做什么
 
@@ -89,9 +56,11 @@
 | 做棋盘同步 | Windows 主发布包已内置原生 `readboard.exe`，同步入口更清晰 |
 | 本机算力不够 | `设置 -> 远程算力中心` 可登录智子云算力，创建远程 KataGo 引擎后像本机引擎一样使用 |
 
-## 先下载哪个
+远程算力中心默认使用“VIP 包月”（`--gpu-type vip-share`）；非 VIP 用户可在高级设置中切换到“按量 1x / 3x / 6x”等档位。默认预设使用智子28B模型。TensorRT/CUDA 指云端引擎后端，不是充值套餐名。
 
-国内用户建议从 [官网下载页面](https://goagent.top/download/) 选择常用正式版；安装器、Linux 包和历史版本可在 [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases) 下载。
+勾选“记住登录/密码”后，凭据由 Windows DPAPI、macOS Keychain 或 Linux Secret Service 保护，不写入普通配置。系统安全存储不可用时，凭据只保留到程序退出。断线后会自动重连，也可一键切回本机引擎。
+
+## 先下载哪个
 
 <p align="center">
   <img src="assets/package-guide-zh.svg" alt="LizzieYzy Next 下载选择图" width="100%" />
@@ -117,41 +86,21 @@
 | macOS Intel，打开后拖到“应用程序” | `*mac-intel.with-katago.dmg` |
 | Linux | `*linux64.with-katago.zip` |
 
-Windows `portable.zip` 是真正的免安装模式：配置、日志、保存棋谱、下载权重和软件内安装的 TensorRT 加速文件都会保存在解压出来的同一个文件夹里，主要位置是 `user-data/`。如果想彻底清理这个免安装版，删除整个解压文件夹即可；如果想保留设置，升级前把旧文件夹里的 `user-data/` 复制到新文件夹。
+Windows `portable.zip` 把配置、日志、棋谱、权重和软件内安装的 TensorRT 文件保存在解压目录，主要位于 `user-data/`。删除整个目录即可卸载；换目录升级时，复制 `user-data/` 可保留设置。
 
-已有 Windows 免安装版时，日常小版本升级不用重新下载完整大包。下载 `*windows64.core-update.zip`，关闭软件，把 zip 里的内容解压到旧的免安装目录覆盖即可。这个小包更新 `app/lizzie-yzy2.5.3-shaded.jar` 和 `app/LizzieYzy Next*.cfg`，并保留一个供旧版自动更新器识别的兼容文件；不会重复下载或覆盖 `weights/`、`engines/`、`runtime/`、`jcef-bundle/`、`readboard/`、`user-data/`。如果某次 release 明确写了 KataGo、权重或运行环境升级，再按说明下载完整包或对应资源包。
+已有 Windows 免安装版时，小版本升级可下载 `*windows64.core-update.zip`。关闭软件后，把 zip 内容解压到原目录并覆盖旧文件。该包只更新 `app/lizzie-yzy2.5.3-shaded.jar`、`app/LizzieYzy Next*.cfg` 和供旧版自动更新器识别的兼容文件，不会覆盖 `weights/`、`engines/`、`runtime/`、`jcef-bundle/`、`readboard/` 或 `user-data/`。如果 release 说明包含 KataGo、权重或运行环境升级，请改用完整包或对应资源包。
 
-如果你懒得分辨：
+完整包的 CPU、OpenCL、CUDA、TensorRT、Metal 后端和 Linux 包均使用 KataGo `v1.18.1`。Linux NVIDIA 仍使用 CUDA 12.1，以兼顾系统运行环境。
 
-- 已经有 Windows 免安装版：先下 `*windows64.core-update.zip` 覆盖旧目录，除非更新说明要求下载完整包
-- Windows + RTX 20/30/40/50 NVIDIA 显卡：统一下载 `*windows64.nvidia.portable.zip`
-- Windows + AMD、Intel 或较老 NVIDIA 显卡：下载 `*windows64.opencl.portable.zip`
-- Windows 没有合适 GPU，或 CUDA/OpenCL 无法正常启动：下载 `*windows64.with-katago.portable.zip`
-- Windows + RTX 30 系及以下想试 TensorRT：先打开统一 NVIDIA/CUDA 包，再在软件内“一键设置”按需安装；RTX 40/50 保留 CUDA
-- TensorRT 一键安装完成后会自动删除完整下载包，之前留下的下载缓存也可以在一键设置里点“清理 TensorRT 缓存”
-- Windows + RTX 30 系及以下需要离线 TensorRT：下载 `*windows64.nvidia.tensorrt.portable.7z.001/.002/...` 全部分卷后从 `.001` 解压
-- NVIDIA 驱动 `570.65` 及以上直接加载；`528.33–570.64` 首次运行会做一次轻量真实推理探测；更旧驱动会显示明确修复状态
-- GTX 10 系以前的 NVIDIA 显卡：优先使用 OpenCL 包
-- OpenCL 不稳定：改下 `*windows64.with-katago.portable.zip`
-- Mac：先分清 Apple Silicon 还是 Intel
-- Linux：直接下 `*linux64.with-katago.zip`
+主推荐完整包默认内置官方旗舰 B11 `b11c768h12nbt3tflrs-fson-silu.bin.gz`（约 202 MiB）；本机 RTX 3070 实测搜索吞吐比 B10 慢约 40%，追求速度可在 `KataGo 一键设置 -> 权重` 中切换 B10。
 
-## 为什么这一版更适合普通用户
+NVIDIA 和 TensorRT 说明：
 
-- `野狐抓谱能继续用`
-  现在支持直接输入野狐昵称，普通用户不用先查数字账号。
-- `快速全盘分析已经是主流程`
-  打开棋谱后，可以更快得到整盘走势，而不是完全依赖一步一步手动分析。
-- `新版主胜率图 + 底部快速概览`
-  更容易看出哪里是大恶手，哪里值得先回头看。
-- `Windows 免安装优先`
-  普通用户下载更直接，OpenCL / NVIDIA / CPU 三条线也更清楚。
-- `只保留原生 readboard 同步工具`
-  Windows 主发布包内置原生 `readboard.exe`，不再让普通用户在多个同步入口之间纠结。
-- `远程算力中心`
-  本机显卡不够时，可以在软件内登录智子云算力，默认使用“VIP 包月”（`--gpu-type vip-share`）远程 KataGo；非 VIP 用户可在高级设置切换到“按量 1x / 3x / 6x”等档位。默认预设使用智子28B模型，TensorRT/CUDA 表示云端引擎后端，不是充值套餐名。勾选“记住登录/密码”后，凭据由 Windows DPAPI、macOS Keychain 或 Linux Secret Service 保护，不写入普通配置；系统安全存储不可用时只在本次运行中保留。断线会自动重连，也可以一键切回本机引擎。
-- `真实发布 + 真实烟测`
-  不是只改源码，Windows / macOS / Linux 的发布包和烟测链路也都持续在做。
+- `KataGo 一键设置` 会检测 NVIDIA GPU 和 Compute Capability，并提示是否推荐 TensorRT；检测失败时仍可手动继续。
+- RTX 40/50 默认使用 CUDA。TensorRT 是 RTX 30 系及以下的可选方案；安装完成后会自动删除下载包，旧缓存可在一键设置中清理。
+- NVIDIA 驱动 `570.65` 及以上可直接加载；`528.33–570.64` 首次运行会做一次轻量推理探测；更旧驱动会显示修复状态。
+- 离线安装 TensorRT 时，下载 `*windows64.nvidia.tensorrt.portable.7z.001/.002/...` 全部分卷，并使用 7-Zip 从 `.001` 解压。先阅读同名 `README.txt`。
+- GTX 10 系以前的显卡优先使用 OpenCL 包。OpenCL 不稳定时，改用 `*windows64.with-katago.portable.zip`。
 
 ## 三步开始
 
@@ -169,15 +118,13 @@ Windows `portable.zip` 是真正的免安装模式：配置、日志、保存棋
   如果 GitHub 里的动图加载慢，直接点上面的图就能看完整演示。
 </p>
 
-## 当前真实界面
-
-下面这张就是当前 release 的真实界面截图，不是旧版本历史图。
+## 界面预览
 
 <p align="center">
-  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next 当前新版真实界面" width="100%" />
+  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next 界面预览" width="100%" />
 </p>
 
-主胜率图和底部快速概览现在可以这样理解：
+主胜率图和底部快速概览包含：
 
 <p align="center">
   <img src="assets/winrate-quick-overview-2026-04.png" alt="LizzieYzy Next 主胜率图与快速概览" width="46%" />
@@ -199,25 +146,11 @@ Windows `portable.zip` 是真正的免安装模式：配置、日志、保存棋
 | Windows 下载体验 | 需要用户自己判断更多 | 明确优先推荐 `portable.zip` 免安装包 |
 | 同步工具 | 用户自己拼环境的情况更多 | Windows 主发布包内置原生 `readboard.exe` |
 
-## 常见问题
-
-### 棋盘同步工具还需要单独找 readboard 仓库吗？
-
-多数 Windows 用户不需要。`LizzieYzy Next` 的 Windows 主发布包内置原生 `readboard.exe`，软件里只保留这一个棋盘同步入口，避免在多个同步工具之间选错。
-
-### 现在还需要先知道野狐账号数字吗？
-
-不需要。现在直接输入野狐昵称就行，程序会自动匹配账号。
-
-### 现在还要一步一步分析，才能看到整盘走势吗？
-
-大多数情况下不需要。现在可以直接走快速全盘分析，主胜率图和底部快速概览会更快形成整盘视角。
-
-### Mac 第一次打不开怎么办？
+## macOS 首次启动
 
 先确认下载的芯片版本正确，再打开 DMG，按画面箭头把 `LizzieYzy Next` 拖到“应用程序”，弹出安装磁盘后从 Finder 的“应用程序”启动。当前官方 release 流程会完成签名和公证；如果系统仍拦截，请按 [安装说明](docs/INSTALL.md) 排查。
 
-## 用户文档
+## 文档与参与
 
 - [获取帮助](SUPPORT.md)
 - [安装说明](docs/INSTALL.md)
@@ -225,32 +158,33 @@ Windows `portable.zip` 是真正的免安装模式：配置、日志、保存棋
 - [常见问题与排错](docs/TROUBLESHOOTING.md)
 - [已验证平台](docs/TESTED_PLATFORMS.md)
 - [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases)
-- GitHub Discussions: <https://github.com/wimi321/lizzieyzy-next/discussions>
-- QQ 群：`299419120`
-
-## 项目链接
+- [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next/discussions)
+- [QQ 群：299419120](https://qm.qq.com/q/JZoeojjteg)
 - [项目路线图](ROADMAP.md)
 - [参与贡献](CONTRIBUTING.md)
 - [更新日志](CHANGELOG.md)
-- [Support](SUPPORT.md)
 
 ## 致谢
-
-`LizzieYzy Next` 能继续向前走，离不开这些项目和贡献者：
 
 - 原项目：[yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
 - KataGo：[lightvector/KataGo](https://github.com/lightvector/KataGo)
 - 棋盘同步工具：[qiyi71w/readboard](https://github.com/qiyi71w/readboard)
 
-特别感谢 [qiyi71w](https://github.com/qiyi71w) 持续优化 readboard，对 `LizzieYzy Next` 的棋盘同步体验帮助很大。也欢迎更多开发者、棋友和工具作者参与到这个项目中来，一起把它打磨得更稳定、更好用。
+感谢 [qiyi71w](https://github.com/qiyi71w) 持续维护和优化 readboard。
 
-野狐抓谱历史参考：
+感谢所有参与提交的贡献者：
+
+<p align="left">
+  <a href="https://github.com/wimi321/lizzieyzy-next/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=wimi321/lizzieyzy-next" alt="LizzieYzy Next 贡献者" />
+  </a>
+</p>
+
+野狐抓谱参考：
 
 - [yzyray/FoxRequest](https://github.com/yzyray/FoxRequest)
 - [FuckUbuntu/Lizzieyzy-Helper](https://github.com/FuckUbuntu/Lizzieyzy-Helper)
 
 ## 参与翻译
 
-欢迎提供翻译！如果您愿意将本说明翻译成您的母语，请随时提交 PR。
-
-We welcome translations! If you want to translate this README into your native language, please feel free to submit a Pull Request.
+欢迎提交 README 翻译 PR。Translations are welcome; please submit a Pull Request.
