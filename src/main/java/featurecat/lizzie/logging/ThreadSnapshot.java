@@ -154,7 +154,7 @@ public final class ThreadSnapshot {
         body.append('\n');
       }
       body.append("name=").append(name == null ? "" : name).append('\n');
-      body.append("id=").append(id).append('\n');
+      body.append("threadId=").append(id).append('\n');
       body.append("state=").append(state == null ? "" : state.name()).append('\n');
       body.append("daemon=").append(daemon).append('\n');
       body.append("priority=").append(priority).append('\n');
