@@ -76,7 +76,7 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: 可填。帮助 → 诊断与日志 → 导出诊断包，把 zip 附到本 issue；打不开软件时附 logs/app.log。 / Optional. Help → Diagnostics and Logs → Export package, then attach the zip.
+      description: 可填。如果程序能启动，打开 帮助 → 诊断与日志 → 导出诊断包，把 ZIP 附到本 issue（诊断包经过隐私脱敏）。无法启动时附 logs/app.log，以及存在时的 logs/crash.log。 / Optional. If the app can start, open Help → Diagnostics and Logs → Export package and attach the ZIP (privacy-sanitized). If it cannot start, attach logs/app.log and logs/crash.log if present.
       placeholder: Optional
   - type: textarea
     id: evidence
