@@ -89,11 +89,17 @@ public final class DiagnosticBundleExporter {
   private static final Pattern SAFE_CAPTURE_SEGMENT =
       Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
+  @FunctionalInterface
+  interface ThreadSnapshotSource {
+    String capture(ExportSanitizer sanitizer);
+  }
+
   private final Path outputDirectory;
   private final DiagnosticBundleLimits limits;
   private final PartialFileObserver partialFileObserver;
   private final BundleNameSupplier bundleNameSupplier;
   private final PartialFileCleanupStrategy partialFileCleanupStrategy;
+  private ThreadSnapshotSource threadSnapshotSource = ThreadSnapshot::capture;
 
   public DiagnosticBundleExporter(Path outputDirectory) {
     this(outputDirectory, DiagnosticBundleLimits.production());
@@ -159,6 +165,10 @@ public final class DiagnosticBundleExporter {
     this.bundleNameSupplier = Objects.requireNonNull(bundleNameSupplier, "bundleNameSupplier");
     this.partialFileCleanupStrategy =
         Objects.requireNonNull(partialFileCleanupStrategy, "partialFileCleanupStrategy");
+  }
+
+  void setThreadSnapshotSourceForTests(ThreadSnapshotSource source) {
+    this.threadSnapshotSource = source == null ? ThreadSnapshot::capture : source;
   }
 
   public static Path defaultOutputDirectory(Path workDirectory) {
@@ -715,6 +725,7 @@ public final class DiagnosticBundleExporter {
         out,
         NS_SNAPSHOTS + "readboard-observed.json",
         renderObserved(request.readBoardLogging(), sanitizer).toString(2));
+    writeThreadSnapshot(out, sanitizer, sources, hostSession);
     SyncDiagnosticsExportSnapshot snapshot =
         request.snapshot() == null
             ? new SyncDiagnosticsExportSnapshot(
@@ -746,6 +757,58 @@ public final class DiagnosticBundleExporter {
             hostSession,
             "",
             false));
+  }
+
+  private void writeThreadSnapshot(
+      ZipOutputStream out,
+      ExportSanitizer sanitizer,
+      JSONObject sources,
+      String hostSession) {
+    String text;
+    String status = "included";
+    String reason = "";
+    try {
+      text = threadSnapshotSource.capture(sanitizer);
+      if (text == null) {
+        text = "";
+      }
+    } catch (RuntimeException | Error ignored) {
+      status = "failed";
+      reason = "unreadable";
+      try {
+        text = sanitizer.sanitizeText("thread snapshot failed\n");
+      } catch (RuntimeException | Error ignoredSanitizer) {
+        text = "thread snapshot failed\n";
+      }
+    }
+    try {
+      writeTextEntry(out, NS_SNAPSHOTS + ThreadSnapshot.ENTRY_NAME, text);
+      sources.put(
+          "threads",
+          sourceRecord(
+              true,
+              status,
+              text.getBytes(StandardCharsets.UTF_8).length,
+              0,
+              0,
+              NS_SNAPSHOTS,
+              hostSession,
+              reason,
+              false));
+    } catch (IOException ignoredWrite) {
+      sources.put(
+          "threads",
+          sourceRecord(
+              true,
+              "failed",
+              0,
+              0,
+              0,
+              NS_SNAPSHOTS,
+              hostSession,
+              "unreadable",
+              false));
+    }
   }
 
   private static CaptureEventSet listCurrentCaptureEvents(
