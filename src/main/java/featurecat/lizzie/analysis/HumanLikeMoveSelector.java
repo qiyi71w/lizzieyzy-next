@@ -15,7 +15,7 @@ final class HumanLikeMoveSelector {
   static final double CANDIDATE_POLICY_MASS = 0.95;
 
   private static final double MIN_RELATIVE_POLICY = 0.01;
-  private static final double MAX_QUALITY_SCALE_LOSS = 4.0;
+  private static final double DEEP_VERIFICATION_THRESHOLD_RATIO = 0.55;
   private static final int OPENING_END_MOVE = 60;
   private static final int MIDDLEGAME_END_MOVE = 160;
   private static final double OPENING_TEMPERATURE = 1.25;
@@ -34,16 +34,20 @@ final class HumanLikeMoveSelector {
     if (pool.isEmpty()) {
       return null;
     }
-    if (pool.size() == 1) {
-      return pool.get(0).move;
-    }
 
     QualityTable quality = QualityTable.from(moveInfos);
-    double qualityScale = qualityScale(profile, quality.kind);
+    if (!quality.hasSearchResult()) {
+      return null;
+    }
+    if (quality.kind == QualityKind.NONE) {
+      return quality.bestMove;
+    }
+
+    double maxQualityLoss = maxQualityLoss(profile, quality.kind);
     double temperature = temperatureForMove(moveNumber);
     ArrayList<WeightedMove> weighted = new ArrayList<WeightedMove>(pool.size());
     for (Candidate candidate : pool) {
-      double qualityFactor = quality.factor(candidate.move, qualityScale);
+      double qualityFactor = quality.factor(candidate.move, maxQualityLoss);
       if (qualityFactor <= 0.0) {
         continue;
       }
@@ -55,9 +59,30 @@ final class HumanLikeMoveSelector {
     }
 
     if (weighted.isEmpty()) {
-      return pool.get(0).move;
+      return quality.bestMove;
     }
     return sampleWeighted(weighted, randomValue);
+  }
+
+  /** Returns true when shallow results are too incomplete or volatile for a safe final choice. */
+  static boolean needsDeepVerification(
+      List<Candidate> legalMoves, JSONArray moveInfos, String profile) {
+    List<Candidate> pool = candidatePool(legalMoves);
+    if (pool.isEmpty()) {
+      return false;
+    }
+    QualityTable quality = QualityTable.from(moveInfos);
+    if (quality.kind == QualityKind.NONE || !quality.hasSearchResult()) {
+      return true;
+    }
+    double threshold = maxQualityLoss(profile, quality.kind) * DEEP_VERIFICATION_THRESHOLD_RATIO;
+    for (Candidate candidate : pool) {
+      Double loss = quality.loss(candidate.move);
+      if (loss == null || loss.doubleValue() > threshold) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static List<Candidate> candidatePool(List<Candidate> legalMoves) {
@@ -136,37 +161,88 @@ final class HumanLikeMoveSelector {
     return moves.get(moves.size() - 1).move;
   }
 
-  private static double qualityScale(String profile, QualityKind kind) {
-    double rankMultiplier = rankQualityMultiplier(profile);
+  private static double maxQualityLoss(String profile, QualityKind kind) {
+    StrengthBand band = strengthBand(profile);
     switch (kind) {
       case UTILITY:
-        return 0.50 * rankMultiplier;
+        switch (band) {
+          case ELITE:
+            return 0.32;
+          case HIGH_DAN:
+            return 0.45;
+          case DAN:
+            return 0.65;
+          case STRONG_KYU:
+            return 0.85;
+          case KYU:
+            return 1.15;
+          case DEVELOPING:
+          default:
+            return 1.80;
+        }
       case SCORE:
-        return 4.0 * rankMultiplier;
+        switch (band) {
+          case ELITE:
+            return 3.0;
+          case HIGH_DAN:
+            return 4.0;
+          case DAN:
+            return 5.5;
+          case STRONG_KYU:
+            return 7.0;
+          case KYU:
+            return 10.0;
+          case DEVELOPING:
+          default:
+            return 15.0;
+        }
       case WINRATE:
-        return 0.12 * rankMultiplier;
+        switch (band) {
+          case ELITE:
+            return 0.10;
+          case HIGH_DAN:
+            return 0.14;
+          case DAN:
+            return 0.20;
+          case STRONG_KYU:
+            return 0.25;
+          case KYU:
+            return 0.34;
+          case DEVELOPING:
+          default:
+            return 0.48;
+        }
       case NONE:
       default:
         return 1.0;
     }
   }
 
-  private static double rankQualityMultiplier(String profile) {
+  private static StrengthBand strengthBand(String profile) {
     if (profile == null) {
-      return 1.0;
+      return StrengthBand.KYU;
     }
     String normalized = profile.trim().toLowerCase(Locale.ROOT);
+    if (normalized.startsWith("proyear_")) {
+      return StrengthBand.ELITE;
+    }
     int rank = parseRankNumber(normalized);
-    if (normalized.endsWith("d") || normalized.startsWith("proyear_")) {
-      return 0.70;
+    if (normalized.endsWith("d")) {
+      if (rank >= 7) {
+        return StrengthBand.ELITE;
+      }
+      if (rank >= 4) {
+        return StrengthBand.HIGH_DAN;
+      }
+      return StrengthBand.DAN;
     }
     if (rank <= 5) {
-      return 0.90;
+      return StrengthBand.STRONG_KYU;
     }
     if (rank <= 10) {
-      return 1.15;
+      return StrengthBand.KYU;
     }
-    return 1.45;
+    return StrengthBand.DEVELOPING;
   }
 
   private static int parseRankNumber(String profile) {
@@ -209,30 +285,48 @@ final class HumanLikeMoveSelector {
     NONE
   }
 
+  private enum StrengthBand {
+    ELITE,
+    HIGH_DAN,
+    DAN,
+    STRONG_KYU,
+    KYU,
+    DEVELOPING
+  }
+
   private static final class QualityTable {
     private final QualityKind kind;
     private final Map<String, Double> values;
     private final double best;
+    private final String bestMove;
 
-    private QualityTable(QualityKind kind, Map<String, Double> values, double best) {
+    private QualityTable(
+        QualityKind kind, Map<String, Double> values, double best, String bestMove) {
       this.kind = kind;
       this.values = values;
       this.best = best;
+      this.bestMove = bestMove;
     }
 
-    private double factor(String move, double scale) {
-      if (kind == QualityKind.NONE || values.isEmpty()) {
-        return 1.0;
-      }
+    private double factor(String move, double maxLoss) {
       Double value = values.get(normalizeMove(move));
       if (value == null) {
-        return 1.0;
-      }
-      double loss = Math.max(0.0, best - value.doubleValue());
-      if (loss > scale * MAX_QUALITY_SCALE_LOSS) {
         return 0.0;
       }
-      return Math.exp(-loss / Math.max(1.0e-9, scale * MAX_QUALITY_SCALE_LOSS));
+      double loss = Math.max(0.0, best - value.doubleValue());
+      if (loss > maxLoss) {
+        return 0.0;
+      }
+      return Math.exp(-loss / Math.max(1.0e-9, maxLoss));
+    }
+
+    private Double loss(String move) {
+      Double value = values.get(normalizeMove(move));
+      return value == null ? null : Double.valueOf(Math.max(0.0, best - value.doubleValue()));
+    }
+
+    private boolean hasSearchResult() {
+      return bestMove != null && !bestMove.isEmpty();
     }
 
     private static QualityTable from(JSONArray moveInfos) {
@@ -248,12 +342,13 @@ final class HumanLikeMoveSelector {
       if (!winrate.values.isEmpty()) {
         return winrate;
       }
-      return new QualityTable(QualityKind.NONE, Map.of(), 0.0);
+      return new QualityTable(QualityKind.NONE, Map.of(), 0.0, firstSearchMove(moveInfos));
     }
 
     private static QualityTable collect(JSONArray moveInfos, QualityKind kind) {
       HashMap<String, Double> values = new HashMap<String, Double>();
       double best = Double.NEGATIVE_INFINITY;
+      String bestMove = null;
       if (moveInfos != null) {
         for (int i = 0; i < moveInfos.length(); i++) {
           JSONObject moveInfo = moveInfos.optJSONObject(i);
@@ -266,10 +361,37 @@ final class HumanLikeMoveSelector {
             continue;
           }
           values.put(move, value);
-          best = Math.max(best, value.doubleValue());
+          if (bestMove == null || value.doubleValue() > best) {
+            best = value.doubleValue();
+            bestMove = move;
+          }
         }
       }
-      return new QualityTable(kind, values, best);
+      return new QualityTable(kind, values, best, bestMove);
+    }
+
+    private static String firstSearchMove(JSONArray moveInfos) {
+      if (moveInfos == null) {
+        return null;
+      }
+      JSONObject fallback = null;
+      for (int i = 0; i < moveInfos.length(); i++) {
+        JSONObject moveInfo = moveInfos.optJSONObject(i);
+        if (moveInfo == null) {
+          continue;
+        }
+        String move = normalizeMove(moveInfo.optString("move", ""));
+        if (move.isEmpty()) {
+          continue;
+        }
+        if (fallback == null) {
+          fallback = moveInfo;
+        }
+        if (moveInfo.optInt("order", i) == 0) {
+          return move;
+        }
+      }
+      return fallback == null ? null : normalizeMove(fallback.optString("move", ""));
     }
 
     private static Double qualityValue(JSONObject moveInfo, QualityKind kind) {

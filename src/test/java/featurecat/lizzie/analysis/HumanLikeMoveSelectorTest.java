@@ -1,6 +1,8 @@
 package featurecat.lizzie.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
@@ -58,6 +60,72 @@ class HumanLikeMoveSelectorTest {
   }
 
   @Test
+  void unverifiedHumanCandidateCanNeverBeSelected() {
+    List<HumanLikeMoveSelector.Candidate> candidates =
+        List.of(candidate("D4", 0.20), candidate("Q4", 0.80));
+    JSONArray moveInfos = new JSONArray().put(moveInfo("D4", 0.40));
+
+    for (int i = 0; i < 1000; i++) {
+      assertEquals(
+          "D4",
+          HumanLikeMoveSelector.select(candidates, moveInfos, 20, "rank_7d", (i + 0.5) / 1000.0));
+    }
+  }
+
+  @Test
+  void selectorRefusesToGuessWithoutAnySearchResult() {
+    List<HumanLikeMoveSelector.Candidate> candidates = List.of(candidate("D4", 1.0));
+
+    assertNull(HumanLikeMoveSelector.select(candidates, null, 20, "rank_7d", 0.5));
+  }
+
+  @Test
+  void sevenDanGuardRejectsTheObservedTacticalUtilityLoss() {
+    List<HumanLikeMoveSelector.Candidate> candidates =
+        List.of(candidate("S8", 0.45), candidate("D8", 0.55));
+    JSONArray moveInfos = new JSONArray().put(moveInfo("S8", 0.80)).put(moveInfo("D8", -0.12));
+
+    for (int i = 0; i < 1000; i++) {
+      assertEquals(
+          "S8",
+          HumanLikeMoveSelector.select(candidates, moveInfos, 40, "rank_7d", (i + 0.5) / 1000.0));
+    }
+  }
+
+  @Test
+  void allUnsafeHumanCandidatesFallBackToTheStrongModelMove() {
+    List<HumanLikeMoveSelector.Candidate> candidates =
+        List.of(candidate("D4", 0.55), candidate("Q4", 0.45));
+    JSONArray moveInfos =
+        new JSONArray()
+            .put(moveInfo("A3", 0.80))
+            .put(moveInfo("D4", 0.20))
+            .put(moveInfo("Q4", 0.05));
+
+    assertEquals("A3", HumanLikeMoveSelector.select(candidates, moveInfos, 40, "rank_7d", 0.5));
+  }
+
+  @Test
+  void volatileOrIncompleteCandidateSearchRequestsDeeperVerification() {
+    List<HumanLikeMoveSelector.Candidate> candidates =
+        List.of(candidate("D4", 0.55), candidate("Q4", 0.45));
+
+    assertTrue(
+        HumanLikeMoveSelector.needsDeepVerification(
+            candidates, new JSONArray().put(moveInfo("D4", 0.8)), "rank_7d"));
+    assertTrue(
+        HumanLikeMoveSelector.needsDeepVerification(
+            candidates,
+            new JSONArray().put(moveInfo("D4", 0.8)).put(moveInfo("Q4", 0.5)),
+            "rank_7d"));
+    assertFalse(
+        HumanLikeMoveSelector.needsDeepVerification(
+            candidates,
+            new JSONArray().put(moveInfo("D4", 0.8)).put(moveInfo("Q4", 0.7)),
+            "rank_7d"));
+  }
+
+  @Test
   void weakerProfileRetainsMoreNaturalMistakesThanStrongProfile() {
     List<HumanLikeMoveSelector.Candidate> candidates =
         List.of(candidate("D4", 0.50), candidate("Q4", 0.50));
@@ -95,10 +163,17 @@ class HumanLikeMoveSelectorTest {
       String profile,
       int samples) {
     HashMap<String, Integer> counts = new HashMap<>();
+    JSONArray effectiveMoveInfos = moveInfos;
+    if (effectiveMoveInfos == null) {
+      effectiveMoveInfos = new JSONArray();
+      for (HumanLikeMoveSelector.Candidate candidate : candidates) {
+        effectiveMoveInfos.put(moveInfo(candidate.move, 0.5));
+      }
+    }
     for (int i = 0; i < samples; i++) {
       String selected =
           HumanLikeMoveSelector.select(
-              candidates, moveInfos, moveNumber, profile, (i + 0.5) / samples);
+              candidates, effectiveMoveInfos, moveNumber, profile, (i + 0.5) / samples);
       counts.merge(selected, 1, Integer::sum);
     }
     return counts;

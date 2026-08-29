@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -39,7 +40,10 @@ import org.json.JSONObject;
 /** Runs KataGo HumanSL analysis queries without changing the normal analysis engine. */
 public class HumanSlAnalysisRunner implements AutoCloseable {
   private static final String GTP_COLUMNS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
+  private static final int POLICY_PROBE_VISITS = 1;
   private static final int HUMAN_LIKE_PLAY_VISITS = 64;
+  private static final int MAX_TACTICAL_VERIFICATION_VISITS = 768;
+  private static final long MIN_DEEP_VERIFICATION_MILLIS = 5_000L;
   private static final int MAX_STARTUP_DIAGNOSTICS = 10;
   private static final long PROCESS_TERMINATION_TIMEOUT_MILLIS = 10_000L;
 
@@ -179,8 +183,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
    * creation alone is insufficient because KataGo can fail later while loading models or GPU
    * libraries.
    */
-  public boolean verifyReady(
-      BoardHistoryNode positionNode, String profile, Duration timeout) {
+  public boolean verifyReady(BoardHistoryNode positionNode, String profile, Duration timeout) {
     if (positionNode == null || profile == null || profile.trim().isEmpty()) {
       unavailableReason = "HumanSL readiness position or profile is missing.";
       return false;
@@ -190,8 +193,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     }
     int generation = activeProcessGeneration;
     String requestId = "humansl-ready-" + nextRequestId.getAndIncrement();
-    JSONObject readinessRequest =
-        buildHumanSlRequest(requestId, positionNode, profile, 1, 1);
+    JSONObject readinessRequest = buildHumanSlRequest(requestId, positionNode, profile, 1, 1);
     try {
       JSONObject response =
           request(readinessRequest, timeout == null ? Duration.ofSeconds(180) : timeout);
@@ -234,29 +236,96 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       return Optional.empty();
     }
     int generation = activeProcessGeneration;
-    String requestId = "humansl-genmove-" + nextRequestId.getAndIncrement();
     boolean allowPass = shouldAllowPass(positionNode);
-    JSONObject request =
-        buildHumanSlRequest(requestId, positionNode, profile, maxVisits, rootSymmetries);
+    Duration effectiveTimeout = timeout == null ? Duration.ofSeconds(30) : timeout;
+    long deadlineNanos = System.nanoTime() + Math.max(1L, effectiveTimeout.toNanos());
     try {
-      JSONObject response = request(request, timeout == null ? Duration.ofSeconds(30) : timeout);
-      if (allowPass && isSearchTopMovePass(response)) {
-        return Optional.of("pass");
-      }
-      Object policy = extractHumanPolicy(response);
+      String probeId = "humansl-policy-" + nextRequestId.getAndIncrement();
+      JSONObject probe =
+          buildHumanSlRequest(probeId, positionNode, profile, POLICY_PROBE_VISITS, rootSymmetries);
+      JSONObject probeResponse = request(probe, remainingRequestTime(deadlineNanos));
+      Object policy = extractHumanPolicy(probeResponse);
       if (policy == null) {
         return Optional.empty();
       }
-      List<HumanLikeMoveSelector.Candidate> legalMoves =
+      List<HumanLikeMoveSelector.Candidate> selectableMoves =
           policyMoves(
               policy, Board.boardWidth, Board.boardHeight, positionNode.getData().stones, false);
-      return Optional.ofNullable(
+      List<HumanLikeMoveSelector.Candidate> policyMovesIncludingPass =
+          policyMoves(
+              policy,
+              Board.boardWidth,
+              Board.boardHeight,
+              positionNode.getData().stones,
+              allowPass);
+      LinkedHashSet<String> verificationMoves = new LinkedHashSet<String>();
+      addVerificationMoves(
+          verificationMoves,
+          HumanLikeMoveSelector.candidatePool(policyMovesIncludingPass),
+          allowPass);
+      addVerificationMoves(
+          verificationMoves, HumanLikeMoveSelector.candidatePool(selectableMoves), allowPass);
+      addVerificationMove(verificationMoves, searchTopMove(probeResponse), allowPass);
+      addVerificationMove(
+          verificationMoves,
+          argmaxPolicyMove(probeResponse.opt("policy"), Board.boardWidth, Board.boardHeight),
+          allowPass);
+      if (verificationMoves.isEmpty()) {
+        return Optional.empty();
+      }
+
+      int verificationVisits = Math.max(1, maxVisits);
+      String verificationId = "humansl-verify-" + nextRequestId.getAndIncrement();
+      JSONObject verificationRequest =
+          buildHumanSlVerificationRequest(
+              verificationId,
+              positionNode,
+              profile,
+              verificationVisits,
+              rootSymmetries,
+              new ArrayList<String>(verificationMoves));
+      JSONObject verifiedResponse =
+          request(verificationRequest, remainingRequestTime(deadlineNanos));
+      if (allowPass && isSearchTopMovePass(verifiedResponse)) {
+        return Optional.of("pass");
+      }
+
+      JSONObject finalResponse = verifiedResponse;
+      if (HumanLikeMoveSelector.needsDeepVerification(
+          selectableMoves, verifiedResponse.optJSONArray("moveInfos"), profile)) {
+        int deepVisits = tacticalVerificationVisits(verificationVisits);
+        if (deepVisits > verificationVisits
+            && remainingMillis(deadlineNanos) >= MIN_DEEP_VERIFICATION_MILLIS) {
+          String deepId = "humansl-tactical-" + nextRequestId.getAndIncrement();
+          JSONObject deepRequest =
+              buildHumanSlVerificationRequest(
+                  deepId,
+                  positionNode,
+                  profile,
+                  deepVisits,
+                  rootSymmetries,
+                  new ArrayList<String>(verificationMoves));
+          try {
+            finalResponse = request(deepRequest, remainingRequestTime(deadlineNanos));
+          } catch (TimeoutException timeoutFailure) {
+            terminateRequestBestEffort(generation, deepId);
+          }
+        }
+      }
+      if (allowPass && isSearchTopMovePass(finalResponse)) {
+        return Optional.of("pass");
+      }
+      String selected =
           HumanLikeMoveSelector.select(
-              legalMoves,
-              response.optJSONArray("moveInfos"),
+              selectableMoves,
+              finalResponse.optJSONArray("moveInfos"),
               positionNode.getData().moveNumber,
               profile,
-              ThreadLocalRandom.current().nextDouble()));
+              ThreadLocalRandom.current().nextDouble());
+      if (!allowPass && "pass".equalsIgnoreCase(selected)) {
+        return Optional.empty();
+      }
+      return Optional.ofNullable(selected);
     } catch (TimeoutException | IOException e) {
       stopActiveProcess(
           generation,
@@ -471,9 +540,9 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   }
 
   /**
-   * Cancels the current request and process without permanently closing the runner. A later
-   * request starts a clean process, so user actions such as "finish" never queue behind a stuck
-   * engine request.
+   * Cancels the current request and process without permanently closing the runner. A later request
+   * starts a clean process, so user actions such as "finish" never queue behind a stuck engine
+   * request.
    */
   public void cancelActiveRequests() {
     stopActiveProcess(false, "HumanSL request cancelled.");
@@ -665,11 +734,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   }
 
   static JSONObject buildHumanSlRequest(
-      String id,
-      BoardHistoryNode positionNode,
-      String profile,
-      int maxVisits,
-      int rootSymmetries) {
+      String id, BoardHistoryNode positionNode, String profile, int maxVisits, int rootSymmetries) {
     JSONObject request =
         AnalysisRequestBuilder.buildRequest(
             id, positionNode, Math.max(1, maxVisits), false, false, false);
@@ -681,10 +746,111 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     }
     overrideSettings.put("humanSLProfile", profile);
     overrideSettings.put("ignorePreRootHistory", false);
-    overrideSettings.put("humanSLRootExploreProbWeightless", 0.5);
+    overrideSettings.put(
+        "humanSLRootExploreProbWeightless", isEliteHumanProfile(profile) ? 0.8 : 0.5);
     overrideSettings.put("rootNumSymmetriesToSample", Math.max(1, Math.min(8, rootSymmetries)));
     request.put("overrideSettings", overrideSettings);
     return request;
+  }
+
+  static JSONObject buildHumanSlVerificationRequest(
+      String id,
+      BoardHistoryNode positionNode,
+      String profile,
+      int maxVisits,
+      int rootSymmetries,
+      List<String> allowedMoves) {
+    JSONObject request = buildHumanSlRequest(id, positionNode, profile, maxVisits, rootSymmetries);
+    JSONObject overrideSettings = request.getJSONObject("overrideSettings");
+    overrideSettings.put("humanSLCpuctPermanent", 2.0);
+    JSONArray moves = new JSONArray();
+    if (allowedMoves != null) {
+      for (String move : allowedMoves) {
+        String normalized = normalizeMove(move);
+        if (!normalized.isEmpty()) {
+          moves.put(normalized);
+        }
+      }
+    }
+    JSONObject allowance =
+        new JSONObject()
+            .put("player", positionNode.getData().blackToPlay ? "B" : "W")
+            .put("moves", moves)
+            .put("untilDepth", 1);
+    request.put("allowMoves", new JSONArray().put(allowance));
+    return request;
+  }
+
+  private static int tacticalVerificationVisits(int baseVisits) {
+    long doubled = Math.max((long) baseVisits + 64L, (long) baseVisits * 2L);
+    return (int) Math.min(MAX_TACTICAL_VERIFICATION_VISITS, doubled);
+  }
+
+  private static boolean isEliteHumanProfile(String profile) {
+    if (profile == null) {
+      return false;
+    }
+    String normalized = profile.trim().toLowerCase(java.util.Locale.ROOT);
+    if (normalized.startsWith("proyear_")) {
+      return true;
+    }
+    return normalized.matches("rank_[789]d");
+  }
+
+  private static Duration remainingRequestTime(long deadlineNanos) throws TimeoutException {
+    long remaining = deadlineNanos - System.nanoTime();
+    if (remaining <= 0L) {
+      throw new TimeoutException("HumanSL move verification exceeded its time budget.");
+    }
+    return Duration.ofNanos(remaining);
+  }
+
+  private static long remainingMillis(long deadlineNanos) {
+    return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime()));
+  }
+
+  private void terminateRequestBestEffort(int expectedGeneration, String terminateId) {
+    BufferedOutputStream activeOutput;
+    synchronized (this) {
+      if (!started
+          || expectedGeneration != activeProcessGeneration
+          || outputStream == null
+          || terminateId == null
+          || terminateId.isEmpty()) {
+        return;
+      }
+      activeOutput = outputStream;
+    }
+    JSONObject terminate =
+        new JSONObject()
+            .put("id", "humansl-terminate-" + nextRequestId.getAndIncrement())
+            .put("action", "terminate")
+            .put("terminateId", terminateId);
+    try {
+      synchronized (activeOutput) {
+        if (!started || expectedGeneration != activeProcessGeneration) {
+          return;
+        }
+        activeOutput.write((terminate.toString() + "\n").getBytes(StandardCharsets.UTF_8));
+        activeOutput.flush();
+      }
+    } catch (IOException ignored) {
+      // The next normal request will perform the authoritative process-health check.
+    }
+  }
+
+  private static void addVerificationMoves(
+      Set<String> moves, List<HumanLikeMoveSelector.Candidate> candidates, boolean allowPass) {
+    for (HumanLikeMoveSelector.Candidate candidate : candidates) {
+      addVerificationMove(moves, candidate.move, allowPass);
+    }
+  }
+
+  private static void addVerificationMove(Set<String> moves, String move, boolean allowPass) {
+    String normalized = normalizeMove(move);
+    if (!normalized.isEmpty() && (allowPass || !"pass".equals(normalized))) {
+      moves.add(normalized);
+    }
   }
 
   private static JSONObject orderedMoveInfo(JSONArray moveInfos, int order) {
@@ -798,9 +964,13 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   }
 
   private static boolean isSearchTopMovePass(JSONObject response) {
+    return "pass".equalsIgnoreCase(searchTopMove(response));
+  }
+
+  private static String searchTopMove(JSONObject response) {
     JSONArray moveInfos = response == null ? null : response.optJSONArray("moveInfos");
     if (moveInfos == null || moveInfos.length() == 0) {
-      return false;
+      return null;
     }
     JSONObject topMove = null;
     for (int i = 0; i < moveInfos.length(); i++) {
@@ -816,7 +986,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     if (topMove == null) {
       topMove = moveInfos.optJSONObject(0);
     }
-    return topMove != null && "pass".equalsIgnoreCase(topMove.optString("move", ""));
+    return topMove == null ? null : topMove.optString("move", null);
   }
 
   static Object extractHumanPolicy(JSONObject response) {
@@ -938,13 +1108,9 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       boolean activeGeneration = generation == activeProcessGeneration;
       if (activeGeneration && !closed) {
         IOException ioException =
-            failure == null
-                ? new IOException(
-                    stoppedProcessMessage(generation))
-                : failure;
+            failure == null ? new IOException(stoppedProcessMessage(generation)) : failure;
         String reason =
-            withStartupDiagnostics(
-                usefulMessage(ioException, "HumanSL analysis engine stopped."));
+            withStartupDiagnostics(usefulMessage(ioException, "HumanSL analysis engine stopped."));
         stopActiveProcess(generation, false, reason);
       }
     }
@@ -1004,7 +1170,8 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     synchronized (startupDiagnostics) {
       diagnostics = new ArrayList<String>(startupDiagnostics);
     }
-    String base = reason == null || reason.trim().isEmpty() ? "HumanSL engine failed." : reason.trim();
+    String base =
+        reason == null || reason.trim().isEmpty() ? "HumanSL engine failed." : reason.trim();
     return diagnostics.isEmpty() ? base : base + " | " + String.join(" | ", diagnostics);
   }
 
@@ -1014,9 +1181,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       return "HumanSL analysis engine stopped unexpectedly.";
     }
     try {
-      return "HumanSL analysis engine stopped unexpectedly (exit code "
-          + active.exitValue()
-          + ").";
+      return "HumanSL analysis engine stopped unexpectedly (exit code " + active.exitValue() + ").";
     } catch (IllegalThreadStateException e) {
       return "HumanSL analysis engine stopped unexpectedly.";
     }
