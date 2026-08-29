@@ -15,9 +15,8 @@
 </p>
 
 <p align="center">
-  <strong>LizzieYzy Next คือเวอร์ชันที่ดูแลต่อของ lizzieyzy ซึ่งเป็นเครื่องมือ GUI สำหรับทบทวนเกมโกะด้วย KataGo สำหรับผู้เล่นทั่วไป</strong><br/>
-  โปรเจกต์นี้ปรับปรุงประสบการณ์หลักใหม่ทั้งหมด: แพ็กเกจดาวน์โหลดที่เลือกง่ายขึ้น, การเริ่มต้นครั้งแรกที่ลื่นไหล, การดึงเกมจาก Fox (野狐) ที่ใช้งานได้ และมุมมองวิเคราะห์เกมทั้งกระดานที่เข้าใจง่ายกว่าเดิม<br/>
-  <strong>ดาวน์โหลดและติดตั้ง ใส่ชื่อเล่น Fox ดึงเกมสาธารณะล่าสุด รันการวิเคราะห์ทั้งกระดานอย่างรวดเร็ว จากนั้นใช้กราฟอัตราชนะและภาพรวมด้านล่างเพื่อหาจังหวะสำคัญทันที</strong>
+  <strong>LizzieYzy Next คือสาขา lizzieyzy ที่ยังได้รับการดูแล สำหรับผู้เล่นที่ใช้ KataGo ทบทวนเกมโกะ</strong><br/>
+  รองรับการดึงเกมด้วยชื่อเล่น Fox การวิเคราะห์ทั้งกระดานอย่างรวดเร็ว กราฟอัตราชนะใหม่ และภาพรวมด้านล่าง พร้อมเวอร์ชันสำหรับ Windows, macOS และ Linux
 </p>
 
 <p align="center">
@@ -33,22 +32,10 @@
 > [!NOTE]
 > แนะนำให้ผู้ใช้ในจีนแผ่นดินใหญ่ดาวน์โหลดเวอร์ชันเสถียรจาก [หน้าดาวน์โหลดอย่างเป็นทางการ](https://goagent.top/download/) ส่วน installer, แพ็กเกจ Linux และเวอร์ชันเก่าสามารถดาวน์โหลดได้จาก [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases)
 
-> [!IMPORTANT]
-> ถ้าคุณแค่อยากดาวน์โหลดเวอร์ชันที่ใช่ ให้จำ 6 ข้อนี้:
-> - ผู้ใช้ Windows ส่วนใหญ่: ไปที่ [ดาวน์โหลดเวอร์ชันเสถียร](https://goagent.top/download/) แล้วดาวน์โหลด `*windows64.opencl.portable.zip`
-> - ถ้าคุณมีการ์ดจอ NVIDIA และต้องการความเร็วสูงกว่า: ดาวน์โหลด `*windows64.nvidia.portable.zip`
-> - ถ้า OpenCL ไม่เสถียรบนเครื่องของคุณ: ดาวน์โหลด `*windows64.with-katago.portable.zip`
-> - ตอนนี้รองรับการใส่ชื่อเล่น Fox โดยตรงเพื่อดึงเกมสาธารณะล่าสุด ไม่ต้องรู้เลขบัญชีก่อน
-> - แพ็กเกจฉบับเต็มที่แนะนำมาพร้อม KataGo `v1.18.1` และ B11 Transformer รุ่นเรือธงอย่างเป็นทางการ ซึ่งแสดงเป็น “Transformer 11B เน้นความแข็งแกร่ง” (ประมาณ 202 MiB) การประเมินแต่ละครั้งแข็งแกร่งกว่าแต่อาจค้นหาช้าลง หากเน้นความเร็วสามารถเปลี่ยนเป็น B10 ในการตั้งค่าอัตโนมัติได้ ส่วนแพ็กเกจอัปเดตเฉพาะตัวโปรแกรมไม่มีเอนจินและโมเดล
-> - แพ็กเกจหลักมาพร้อม `readboard_java` ผู้ใช้ส่วนใหญ่ไม่ต้องไปหา readboard แยกอีก
-
-## ทำไมหลายคนเลือกโปรเจกต์นี้
-
-`LizzieYzy Next` สามารถเข้าใจได้ว่า:
-
-- เครื่องมือ `KataGo ทบทวนเกมโกะบนเดสก์ท็อป` ที่ยังดูแลอย่างต่อเนื่อง
-- เวิร์กโฟลว์ที่รวม `ดึงเกมจาก Fox + การวิเคราะห์ทั้งกระดานรวดเร็ว + แพ็กเกจหลายแพลตฟอร์ม` เข้าด้วยกัน
-- สาขาที่ดูแลต่อเพื่อให้ผู้ใช้ `lizzieyzy` เก่าใช้งานได้อย่างต่อเนื่อง
+> [!TIP]
+> [กลุ่ม QQ ภาษาจีน: 299419120](https://qm.qq.com/q/JZoeojjteg)
+>
+> ใช้สำหรับถามวิธีใช้งาน รายงานบั๊ก และเสนอฟีเจอร์
 
 ## เปิดแล้วทำอะไรได้ทันที
 
@@ -59,7 +46,7 @@
 | ค้นหาจังหวะสำคัญอย่างรวดเร็ว | กราฟอัตราชนะใหม่และภาพรวม heatmap ด้านล่าง เห็นปัญหาใหญ่ได้ทันที |
 | การตั้งค่าน้อย | แพ็กเกจแนะนำมาพร้อม KataGo, น้ำหนักเริ่มต้น และ auto setup ครั้งแรก |
 | ไม่อยากติดตั้ง | Windows แนะนำแพ็กเกจ `portable.zip` ก่อน |
-| ซิงก์กระดาน | แพ็กเกจหลักมาพร้อม `readboard_java` |
+| ซิงก์กระดาน | แพ็กเกจหลักสำหรับ Windows มี `readboard.exe` แบบเนทีฟมาให้ |
 
 ## เลือกดาวน์โหลดตัวไหน
 
@@ -82,16 +69,41 @@
 2. เปิดโปรแกรมแล้วคลิก `Fox` เพื่อใส่ชื่อเล่น Fox
 3. หลังจากดึงเกมแล้ว ให้รันการวิเคราะห์ทั้งกระดานรวดเร็ว ใช้กราฟอัตราชนะและภาพรวมด้านล่างเพื่อหาจังหวะสำคัญ
 
+## เอกสารและการมีส่วนร่วม
+
+- [ขอความช่วยเหลือ](SUPPORT.md)
+- [คู่มือติดตั้ง](docs/INSTALL.md)
+- [รายละเอียดแพ็กเกจ](docs/PACKAGES.md)
+- [คำถามที่พบบ่อยและการแก้ปัญหา](docs/TROUBLESHOOTING.md)
+- [แพลตฟอร์มที่ทดสอบแล้ว](docs/TESTED_PLATFORMS.md)
+- [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases)
+- [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next/discussions)
+- [กลุ่ม QQ ภาษาจีน: 299419120](https://qm.qq.com/q/JZoeojjteg)
+- [แผนงานโครงการ](ROADMAP.md)
+- [ร่วมพัฒนา](CONTRIBUTING.md)
+- [บันทึกการเปลี่ยนแปลง](CHANGELOG.md)
+
 ## เครดิต
 
 - โปรเจกต์ดั้งเดิม: [yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
 - KataGo: [lightvector/KataGo](https://github.com/lightvector/KataGo)
-อ้างอิงประวัติการดึงเกม Fox:
+- เครื่องมือซิงก์กระดาน: [qiyi71w/readboard](https://github.com/qiyi71w/readboard)
+
+ขอบคุณ [qiyi71w](https://github.com/qiyi71w) ที่ดูแลและปรับปรุง readboard อย่างต่อเนื่อง
+
+ขอบคุณผู้ร่วมพัฒนาทุกคน:
+
+<p align="left">
+  <a href="https://github.com/wimi321/lizzieyzy-next/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=wimi321/lizzieyzy-next" alt="ผู้ร่วมพัฒนา LizzieYzy Next" />
+  </a>
+</p>
+
+ข้อมูลอ้างอิงการดึงเกม Fox:
+
 - [yzyray/FoxRequest](https://github.com/yzyray/FoxRequest)
 - [FuckUbuntu/Lizzieyzy-Helper](https://github.com/FuckUbuntu/Lizzieyzy-Helper)
 
 ## การแปล
 
-ยินดีรับการแปล! ถ้าคุณต้องการแปล README นี้เป็นภาษาแม่ของคุณ โปรดส่ง Pull Request ได้เลย
-
-We welcome translations! If you want to translate this README into your native language, please feel free to submit a Pull Request.
+ยินดีรับ Pull Request สำหรับการแปล README นี้ Translations are welcome; please submit a Pull Request.
