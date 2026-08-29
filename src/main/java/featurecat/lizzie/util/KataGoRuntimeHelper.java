@@ -334,6 +334,13 @@ public final class KataGoRuntimeHelper {
   }
 
   public static final class TensorRtInstallStatus {
+    public static final String MISSING_RUNTIME = "runtime";
+    public static final String MISSING_COMPANION = "companion";
+    public static final String MISSING_ENGINE = "engine";
+    public static final String MISSING_ENGINE_STALE = "engine-stale";
+    public static final String MISSING_WEIGHT = "weight";
+    public static final String MISSING_GTP_CONFIG = "gtp-config";
+
     public final boolean applicable;
     public final boolean downloaded;
     public final boolean installed;
@@ -345,6 +352,16 @@ public final class KataGoRuntimeHelper {
     public final NvidiaGpuDetector.DetectionResult gpuDetection;
     public final NvidiaGpuDetector.TensorRtRecommendation gpuRecommendation;
     public final String gpuRecommendationText;
+    public final boolean platformSupported;
+    public final boolean managedTargetAvailable;
+    public final boolean runtimeReady;
+    public final boolean companionReady;
+    public final boolean enginePresent;
+    public final boolean engineCurrent;
+    public final boolean profileActive;
+    public final boolean repairable;
+    public final boolean activatable;
+    public final List<String> activationMissingItems;
 
     private TensorRtInstallStatus(
         boolean applicable,
@@ -357,7 +374,17 @@ public final class KataGoRuntimeHelper {
         String detailText,
         NvidiaGpuDetector.DetectionResult gpuDetection,
         NvidiaGpuDetector.TensorRtRecommendation gpuRecommendation,
-        String gpuRecommendationText) {
+        String gpuRecommendationText,
+        boolean platformSupported,
+        boolean managedTargetAvailable,
+        boolean runtimeReady,
+        boolean companionReady,
+        boolean enginePresent,
+        boolean engineCurrent,
+        boolean profileActive,
+        boolean repairable,
+        boolean activatable,
+        List<String> activationMissingItems) {
       this.applicable = applicable;
       this.downloaded = downloaded;
       this.installed = installed;
@@ -372,6 +399,17 @@ public final class KataGoRuntimeHelper {
               ? NvidiaGpuDetector.TensorRtRecommendation.UNKNOWN
               : gpuRecommendation;
       this.gpuRecommendationText = gpuRecommendationText == null ? "" : gpuRecommendationText;
+      this.platformSupported = platformSupported;
+      this.managedTargetAvailable = managedTargetAvailable;
+      this.runtimeReady = runtimeReady;
+      this.companionReady = companionReady;
+      this.enginePresent = enginePresent;
+      this.engineCurrent = engineCurrent;
+      this.profileActive = profileActive;
+      this.repairable = repairable;
+      this.activatable = activatable;
+      this.activationMissingItems =
+          activationMissingItems == null ? List.of() : List.copyOf(activationMissingItems);
     }
   }
 
@@ -1535,79 +1573,101 @@ public final class KataGoRuntimeHelper {
   public static TensorRtInstallStatus inspectTensorRtInstall(
       SetupSnapshot snapshot, NvidiaGpuDetector.DetectionResult gpuDetection) {
     TensorRtInstallSpec spec = buildTensorRtInstallSpec(snapshot);
-    if (!isWindowsPlatform()) {
-      return new TensorRtInstallStatus(
-          false,
-          false,
-          false,
-          false,
-          spec.targetEnginePath,
-          getNvidiaRuntimeDir(),
-          spec.totalDownloadBytes,
-          resource(
-              "AutoSetup.tensorRtNotApplicable",
-              "TensorRT acceleration is only available on Windows NVIDIA packages."),
-          null,
-          NvidiaGpuDetector.TensorRtRecommendation.UNKNOWN,
-          "");
-    }
-    if (!isTensorRtSourceProfileAllowed(snapshot)) {
-      return new TensorRtInstallStatus(
-          false,
-          false,
-          false,
-          false,
-          spec.targetEnginePath,
-          getNvidiaRuntimeDir(),
-          spec.totalDownloadBytes,
-          resource(
-              "AutoSetup.tensorRtNeedNvidia",
-              "TensorRT is optional for RTX 30 series and earlier in the unified Windows NVIDIA package. "
-                  + "RTX 40/50 should use CUDA."),
-          null,
-          NvidiaGpuDetector.TensorRtRecommendation.UNKNOWN,
-          "");
-    }
-    boolean engineDownloaded = Files.isRegularFile(spec.targetEnginePath);
+    boolean platformSupported = isWindowsPlatform();
+    boolean managedTargetAvailable = spec.targetEnginePath != null;
+    boolean sourceAllowed = isTensorRtSourceProfileAllowed(snapshot);
+    boolean enginePresent =
+        spec.targetEnginePath != null && Files.isRegularFile(spec.targetEnginePath);
     boolean runtimeReady = inspectNvidiaRuntime(spec.targetEnginePath).ready;
     boolean engineCurrent = isCurrentTensorRtEngineBinary(spec.targetEnginePath);
     boolean companionReady = hasUsableTensorRtHumanSlCompanion(spec.targetEnginePath);
-    boolean installed = engineDownloaded && runtimeReady && engineCurrent && companionReady;
-    boolean active = installed && isTensorRtEngineActive(snapshot, spec);
-    long requiredDownloadBytes = runtimeReady ? spec.katagoSizeBytes : spec.totalDownloadBytes;
-    String recommendation = tensorRtRecommendationText(gpuDetection);
-    String detail =
-        engineDownloaded && runtimeReady && engineCurrent && !companionReady
-            ? resource(
-                "HumanSlGame.error.tensorRtCompanionMissing",
-                "The TensorRT engine is current, but its verified CUDA 12.8/cuDNN 9 HumanSL companion is missing. Click Install TensorRT acceleration to repair it.")
-            : engineDownloaded && runtimeReady && !engineCurrent
-                ? String.format(
-                    Locale.ROOT,
-                    resource(
-                        "AutoSetup.tensorRtEngineUpgradeAvailable",
-                        "The TensorRT runtime is ready, but its KataGo engine is outdated. Upgrade the engine only (%s); existing runtime files will be reused."),
-                    formatBytes(spec.katagoSizeBytes))
-                : installed
-                    ? active
-                        ? resource("AutoSetup.tensorRtEnabled", "TensorRT acceleration is enabled.")
-                        : resource(
-                            "AutoSetup.tensorRtInstalledNotSelected",
-                            "TensorRT acceleration is installed. Click Enable TensorRT acceleration to use it.")
-                    : engineDownloaded
-                        ? resource(
-                            "AutoSetup.tensorRtDownloadedRuntimeMissing",
-                            "TensorRT engine files are present, but runtime files are incomplete. Click Install TensorRT acceleration to finish setup.")
-                        : String.format(
-                            Locale.ROOT,
-                            resource(
-                                "AutoSetup.tensorRtAvailable",
-                                "Optional TensorRT download: about %s. %s"),
-                            formatBytes(spec.totalDownloadBytes),
-                            recommendation);
+    boolean profileActive = isTensorRtEngineActive(snapshot, spec);
+    boolean installed = enginePresent && runtimeReady && engineCurrent && companionReady;
+    boolean applicable = platformSupported && sourceAllowed;
+    boolean downloaded = enginePresent;
+    boolean active = installed && profileActive;
+    boolean repairable = platformSupported && managedTargetAvailable;
+    boolean weightReady = snapshot != null && snapshot.hasWeight();
+    boolean gtpReady =
+        snapshot != null
+            && snapshot.gtpConfigPath != null
+            && Files.isRegularFile(snapshot.gtpConfigPath);
+    List<String> activationMissingItems = new ArrayList<String>();
+    if (!runtimeReady) {
+      activationMissingItems.add(TensorRtInstallStatus.MISSING_RUNTIME);
+    }
+    if (!companionReady) {
+      activationMissingItems.add(TensorRtInstallStatus.MISSING_COMPANION);
+    }
+    if (!enginePresent) {
+      activationMissingItems.add(TensorRtInstallStatus.MISSING_ENGINE);
+    } else if (!engineCurrent) {
+      activationMissingItems.add(TensorRtInstallStatus.MISSING_ENGINE_STALE);
+    }
+    if (!weightReady) {
+      activationMissingItems.add(TensorRtInstallStatus.MISSING_WEIGHT);
+    }
+    if (!gtpReady) {
+      activationMissingItems.add(TensorRtInstallStatus.MISSING_GTP_CONFIG);
+    }
+    boolean activatable = activationMissingItems.isEmpty();
+    NvidiaGpuDetector.TensorRtRecommendation recommendation =
+        gpuDetection == null
+            ? NvidiaGpuDetector.TensorRtRecommendation.UNKNOWN
+            : gpuDetection.recommendation;
+    String recommendationText = tensorRtRecommendationText(gpuDetection);
+    long requiredDownloadBytes =
+        applicable && runtimeReady ? spec.katagoSizeBytes : spec.totalDownloadBytes;
+    String detail;
+    if (!platformSupported) {
+      detail =
+          resource(
+              "AutoSetup.tensorRtNotApplicable",
+              "TensorRT acceleration is only available on Windows NVIDIA packages.");
+    } else if (!sourceAllowed) {
+      detail =
+          resource(
+              "AutoSetup.tensorRtNeedNvidia",
+              "TensorRT is optional for RTX 30 series and earlier in the unified Windows NVIDIA package. "
+                  + "RTX 40/50 should use CUDA.");
+    } else if (enginePresent && runtimeReady && engineCurrent && !companionReady) {
+      detail =
+          resource(
+              "HumanSlGame.error.tensorRtCompanionMissing",
+              "The TensorRT engine is current, but its verified CUDA 12.8/cuDNN 9 HumanSL companion is missing. Click Install TensorRT acceleration to repair it.");
+    } else if (enginePresent && runtimeReady && !engineCurrent) {
+      detail =
+          String.format(
+              Locale.ROOT,
+              resource(
+                  "AutoSetup.tensorRtEngineUpgradeAvailable",
+                  "The TensorRT runtime is ready, but its KataGo engine is outdated. Upgrade the engine only (%s); existing runtime files will be reused."),
+              formatBytes(spec.katagoSizeBytes));
+    } else if (installed) {
+      detail =
+          active
+              ? resource("AutoSetup.tensorRtEnabled", "TensorRT acceleration is enabled.")
+              : resource(
+                  "AutoSetup.tensorRtInstalledNotSelected",
+                  "TensorRT acceleration is installed. Click Enable TensorRT acceleration to use it.");
+    } else if (enginePresent) {
+      detail =
+          resource(
+              "AutoSetup.tensorRtDownloadedRuntimeMissing",
+              "TensorRT engine files are present, but runtime files are incomplete. Click Install TensorRT acceleration to finish setup.");
+    } else {
+      detail =
+          String.format(
+              Locale.ROOT,
+              resource(
+                  "AutoSetup.tensorRtAvailable",
+                  "Optional TensorRT download: about %s. %s"),
+              formatBytes(spec.totalDownloadBytes),
+              recommendationText);
+    }
     return new TensorRtInstallStatus(
-        true,
-        engineDownloaded,
+        applicable,
+        downloaded,
         installed,
         active,
         spec.targetEnginePath,
@@ -1615,10 +1675,18 @@ public final class KataGoRuntimeHelper {
         requiredDownloadBytes,
         detail,
         gpuDetection,
-        gpuDetection == null
-            ? NvidiaGpuDetector.TensorRtRecommendation.UNKNOWN
-            : gpuDetection.recommendation,
-        recommendation);
+        recommendation,
+        recommendationText,
+        platformSupported,
+        managedTargetAvailable,
+        runtimeReady,
+        companionReady,
+        enginePresent,
+        engineCurrent,
+        profileActive,
+        repairable,
+        activatable,
+        activationMissingItems);
   }
 
   public static boolean canInstallTensorRt(SetupSnapshot snapshot) {
@@ -5234,9 +5302,23 @@ public final class KataGoRuntimeHelper {
         || NVIDIA50_TRT_BACKEND.equalsIgnoreCase(backend);
   }
 
-  private static String tensorRtRecommendationText(NvidiaGpuDetector.DetectionResult gpuDetection) {
-    if (gpuDetection != null && !Utils.isBlank(gpuDetection.detailText)) {
+  private static String tensorRtRecommendationText(
+      NvidiaGpuDetector.DetectionResult gpuDetection) {
+    if (gpuDetection == null) {
+      return resource("AutoSetup.gpuDetecting", "Detecting NVIDIA GPU...");
+    }
+    if (!Utils.isBlank(gpuDetection.detailText)) {
       return gpuDetection.detailText;
+    }
+    if (gpuDetection.recommendation == NvidiaGpuDetector.TensorRtRecommendation.NOT_RECOMMENDED) {
+      return resource(
+          "AutoSetup.gpuNotRecommendTensorRt",
+          "Unsupported: TensorRT 10.x requires SM 7.5+. Use CUDA/OpenCL for this GPU.");
+    }
+    if (gpuDetection.recommendation == NvidiaGpuDetector.TensorRtRecommendation.UNKNOWN) {
+      return resource(
+          "AutoSetup.gpuUnknownTensorRt",
+          "Could not confirm Compute Capability. You can try manually, but CUDA/OpenCL is safer if startup fails.");
     }
     return resource(
         "AutoSetup.tensorRtGpuHint",
