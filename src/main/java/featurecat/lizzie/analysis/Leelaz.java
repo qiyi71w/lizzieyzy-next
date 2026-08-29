@@ -3762,39 +3762,68 @@ public class Leelaz {
   }
 
   private void noteEngineStarted() {
-    String id = EngineObservation.identityFor(this);
-    if (id == null) {
-      id = EngineObservation.ensureStarted(this, "MAIN_BOARD");
+    try {
+      String id = EngineObservation.identityFor(this);
+      if (id == null) {
+        id =
+            EngineObservation.ensureStarted(
+                this, "MAIN_BOARD", EngineStartupBootstrap.factsFor(engineCommand, "MAIN_BOARD"));
+      }
+      loggingEngineId = id;
+    } catch (RuntimeException ignored) {
     }
-    loggingEngineId = id;
   }
 
   private void noteEngineStopped() {
-    if (EngineObservation.engineDiagnosticsEnabled()) {
-      EngineObservation.recordRecentStderr(
-          loggingEngineId, snapshotRecentLines(recentStderrLines));
+    try {
+      if (EngineObservation.engineDiagnosticsEnabled()) {
+        EngineObservation.recordRecentStderr(
+            loggingEngineId, snapshotRecentLines(recentStderrLines));
+      }
+      EngineObservation.ensureStopped(this, "stopped");
+    } catch (RuntimeException ignored) {
     }
-    EngineObservation.ensureStopped(this, "stopped");
     loggingEngineId = null;
   }
 
   private void noteEngineFailed(String reason) {
-    loggingEngineId = EngineObservation.mintIdentity(this);
-    if (EngineObservation.engineDiagnosticsEnabled()) {
-      EngineObservation.recordRecentStderr(
-          loggingEngineId, snapshotRecentLines(recentStderrLines));
+    try {
+      String id = EngineObservation.identityFor(this);
+      if (id == null) {
+        id = EngineObservation.mintIdentity(this);
+        EngineObservation.recordBootstrap(
+            id, EngineStartupBootstrap.factsFor(engineCommand, "MAIN_BOARD"));
+      }
+      loggingEngineId = id;
+      try {
+        if (EngineObservation.engineDiagnosticsEnabled()) {
+          EngineObservation.recordRecentStderr(
+              loggingEngineId, snapshotRecentLines(recentStderrLines));
+        }
+        EngineObservation.recordFailed(loggingEngineId, reason);
+      } finally {
+        EngineObservation.discardIdentity(this);
+        loggingEngineId = null;
+      }
+    } catch (RuntimeException ignored) {
+      loggingEngineId = null;
     }
-    EngineObservation.recordFailed(loggingEngineId, reason);
-    EngineObservation.discardIdentity(this);
-    loggingEngineId = null;
   }
 
   private void markEngineLoaded() {
     boolean already = isLoaded;
     isLoaded = true;
     if (!already) {
-      EngineObservation.recordReady(loggingEngineId);
+      try {
+        EngineObservation.recordReady(currentObservationIdentity());
+      } catch (RuntimeException ignored) {
+      }
     }
+  }
+
+  private String currentObservationIdentity() {
+    String id = loggingEngineId;
+    return id != null ? id : EngineObservation.identityFor(this);
   }
 
   private boolean isFailedTrackingStreamCleanupInProgress() {
@@ -5326,6 +5355,11 @@ public class Leelaz {
         canAddPlayer = true;
       }
       isCheckingName = false;
+      try {
+        EngineObservation.markStartupStage(
+            currentObservationIdentity(), EngineObservation.STAGE_GTP_NAME);
+      } catch (RuntimeException ignored) {
+      }
     } else if (isCheckingVersion && !isLeela0110) {
       if (isKatago) {
         String[] ver = params[1].split("\\.");
@@ -5369,6 +5403,11 @@ public class Leelaz {
                 suppressGlobalPresentation);
         isTuning = false;
         // Lizzie.initializeAfterVersionCheck();
+      }
+      try {
+        EngineObservation.markStartupStage(
+            currentObservationIdentity(), EngineObservation.STAGE_GTP_VERSION);
+      } catch (RuntimeException ignored) {
       }
     }
     return startupCommandAction;
@@ -9305,6 +9344,9 @@ public class Leelaz {
                 ? "unexpected-eof"
                 : terminalFailure instanceof IOException ? "io-error" : "reader-error",
             terminalFailure);
+        if (!isLoaded) {
+          noteEngineFailed("exit-before-ready");
+        }
       }
       try {
         shutdownReaderTransport(binding);
@@ -18597,6 +18639,13 @@ public class Leelaz {
         lines.removeFirst();
       }
       lines.addLast(line);
+    }
+    if (lines == recentStderrLines) {
+      try {
+        EngineObservation.markStartupStage(
+            currentObservationIdentity(), EngineObservation.STAGE_FIRST_STDERR);
+      } catch (RuntimeException ignored) {
+      }
     }
   }
 

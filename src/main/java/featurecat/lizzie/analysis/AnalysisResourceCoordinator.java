@@ -1,5 +1,6 @@
 package featurecat.lizzie.analysis;
 
+import featurecat.lizzie.logging.EngineBootstrapFacts;
 import featurecat.lizzie.logging.EngineObservation;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -85,14 +86,18 @@ public final class AnalysisResourceCoordinator {
     }
     String purposeName = normalizedPurpose(purpose).name();
     if (process == null) {
-      EngineObservation.ensureStarted(owner, purposeName);
-      if (EngineObservation.engineDiagnosticsEnabled()) {
-        EngineObservation.recordProcessDetails(
-            EngineObservation.identityFor(owner),
-            "process-started",
-            purposeName,
-            -1L,
-            diagnosticCommand(command));
+      try {
+        EngineBootstrapFacts facts = EngineStartupBootstrap.factsFor(command, purposeName);
+        EngineObservation.ensureStarted(owner, purposeName, facts);
+        if (EngineObservation.engineDiagnosticsEnabled()) {
+          EngineObservation.recordProcessDetails(
+              EngineObservation.identityFor(owner),
+              "process-started",
+              purposeName,
+              -1L,
+              diagnosticCommand(command));
+        }
+      } catch (RuntimeException ignored) {
       }
       return;
     }
@@ -104,12 +109,16 @@ public final class AnalysisResourceCoordinator {
       }
       REGISTERED_PROCESSES.put(owner, new ProcessRegistration(process, pid));
     }
-    String engineId = EngineObservation.restartInstance(owner, purposeName);
-    if (!EngineObservation.engineDiagnosticsEnabled()) {
-      return;
+    try {
+      EngineBootstrapFacts facts = EngineStartupBootstrap.factsFor(command, purposeName);
+      String engineId = EngineObservation.restartInstance(owner, purposeName, facts);
+      EngineObservation.markStartupStage(engineId, EngineObservation.STAGE_PROCESS_STARTED);
+      if (EngineObservation.engineDiagnosticsEnabled()) {
+        EngineObservation.recordProcessDetails(
+            engineId, "process-started", purposeName, pid, diagnosticCommand(command));
+      }
+    } catch (RuntimeException ignored) {
     }
-    EngineObservation.recordProcessDetails(
-        engineId, "process-started", purposeName, pid, diagnosticCommand(command));
   }
 
   public static void processStopped(Object owner, Purpose purpose, Process process) {
