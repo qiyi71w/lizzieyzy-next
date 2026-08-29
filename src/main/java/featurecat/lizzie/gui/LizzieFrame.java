@@ -1939,7 +1939,11 @@ public class LizzieFrame extends JFrame {
     engineStartupStatusButton.addActionListener(
         event -> {
           if (Lizzie.engineStartupStatus.snapshot().isActionable()) {
-            openKataGoAutoSetup();
+            KataGoAutoSetupDialog.OpenRequest request =
+                KataGoAutoSetupDialog.openRequestForEngineStartupStatus(
+                    true,
+                    Lizzie.leelaz == null ? null : Lizzie.leelaz.pendingTensorRtRepairContext());
+            openKataGoAutoSetup(request.context);
           }
         });
     basePanel.add(engineStartupStatusButton, Integer.valueOf(12));

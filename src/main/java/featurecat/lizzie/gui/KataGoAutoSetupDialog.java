@@ -267,6 +267,14 @@ public class KataGoAutoSetupDialog extends JDialog {
     return new OpenRequest(null, 0, false);
   }
 
+  public static OpenRequest openRequestForEngineStartupStatus(
+      boolean actionable, TensorRtRepairContext pending) {
+    if (!actionable) {
+      return openRequestForMenu();
+    }
+    return openRequestForRepair(pending);
+  }
+
 
   private final JFontButton btnExperimentalPerformance = new JFontButton();
   private final JFontButton btnStopDownload = new JFontButton();
