@@ -199,6 +199,35 @@ class HumanSlAnalysisRunnerTest {
   }
 
   @Test
+  void adaptiveVerificationVisits_scalesWithMeasuredSpeedAndRemainingTime() {
+    assertEquals(
+        88,
+        HumanSlAnalysisRunner.adaptiveVerificationVisits(
+            64, Duration.ofMillis(3_500).toNanos(), Duration.ofMillis(6_150).toNanos()));
+    assertEquals(
+        4_096,
+        HumanSlAnalysisRunner.adaptiveVerificationVisits(
+            64, Duration.ofMillis(100).toNanos(), Duration.ofSeconds(9).toNanos()));
+    assertEquals(
+        80,
+        HumanSlAnalysisRunner.adaptiveVerificationVisits(
+            64, Duration.ofSeconds(7).toNanos(), Duration.ofSeconds(3).toNanos()));
+    assertEquals(
+        64,
+        HumanSlAnalysisRunner.adaptiveVerificationVisits(
+            64, Duration.ofSeconds(4).toNanos(), Duration.ofMillis(900).toNanos()));
+  }
+
+  @Test
+  void eliteProfilesUseSpareTimeEvenWhenShallowCandidatesLookStable() {
+    assertTrue(HumanSlAnalysisRunner.shouldAdaptivelyDeepen("rank_7d", false));
+    assertTrue(HumanSlAnalysisRunner.shouldAdaptivelyDeepen("rank_9d", false));
+    assertTrue(HumanSlAnalysisRunner.shouldAdaptivelyDeepen("proyear_2023", false));
+    assertTrue(HumanSlAnalysisRunner.shouldAdaptivelyDeepen("rank_3k", true));
+    assertFalse(HumanSlAnalysisRunner.shouldAdaptivelyDeepen("rank_3k", false));
+  }
+
+  @Test
   void samplePolicyMove_samplesByProbabilityAndCanExcludePass() throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       JSONArray pairPolicy =
@@ -462,7 +491,7 @@ class HumanSlAnalysisRunnerTest {
       assertEquals(3, process.sentRequests.size());
       assertEquals(1, process.sentRequests.get(0).getInt("maxVisits"));
       assertEquals(256, process.sentRequests.get(1).getInt("maxVisits"));
-      assertEquals(512, process.sentRequests.get(2).getInt("maxVisits"));
+      assertEquals(4_096, process.sentRequests.get(2).getInt("maxVisits"));
       for (int index = 1; index < process.sentRequests.size(); index++) {
         JSONObject request = process.sentRequests.get(index);
         assertTrue(request.has("allowMoves"));

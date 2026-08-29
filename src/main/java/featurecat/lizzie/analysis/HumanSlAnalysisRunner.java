@@ -42,8 +42,12 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   private static final String GTP_COLUMNS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
   private static final int POLICY_PROBE_VISITS = 1;
   private static final int HUMAN_LIKE_PLAY_VISITS = 64;
-  private static final int MAX_TACTICAL_VERIFICATION_VISITS = 768;
-  private static final long MIN_DEEP_VERIFICATION_MILLIS = 5_000L;
+  private static final int MAX_ADAPTIVE_VERIFICATION_VISITS = 4_096;
+  private static final int MAX_ADAPTIVE_VERIFICATION_ROUNDS = 4;
+  private static final int MIN_ADAPTIVE_VISIT_GAIN = 16;
+  private static final long MIN_ADAPTIVE_REQUEST_MILLIS = 750L;
+  private static final long ADAPTIVE_RETURN_RESERVE_MILLIS = 450L;
+  private static final double ADAPTIVE_TIME_USE_RATIO = 0.85;
   private static final int MAX_STARTUP_DIAGNOSTICS = 10;
   private static final long PROCESS_TERMINATION_TIMEOUT_MILLIS = 10_000L;
 
@@ -284,32 +288,52 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
               verificationVisits,
               rootSymmetries,
               new ArrayList<String>(verificationMoves));
+      long verificationStartedNanos = System.nanoTime();
       JSONObject verifiedResponse =
           request(verificationRequest, remainingRequestTime(deadlineNanos));
+      long verificationElapsedNanos = Math.max(1L, System.nanoTime() - verificationStartedNanos);
       if (allowPass && isSearchTopMovePass(verifiedResponse)) {
         return Optional.of("pass");
       }
 
       JSONObject finalResponse = verifiedResponse;
-      if (HumanLikeMoveSelector.needsDeepVerification(
-          selectableMoves, verifiedResponse.optJSONArray("moveInfos"), profile)) {
-        int deepVisits = tacticalVerificationVisits(verificationVisits);
-        if (deepVisits > verificationVisits
-            && remainingMillis(deadlineNanos) >= MIN_DEEP_VERIFICATION_MILLIS) {
-          String deepId = "humansl-tactical-" + nextRequestId.getAndIncrement();
-          JSONObject deepRequest =
-              buildHumanSlVerificationRequest(
-                  deepId,
-                  positionNode,
-                  profile,
-                  deepVisits,
-                  rootSymmetries,
-                  new ArrayList<String>(verificationMoves));
-          try {
-            finalResponse = request(deepRequest, remainingRequestTime(deadlineNanos));
-          } catch (TimeoutException timeoutFailure) {
-            terminateRequestBestEffort(generation, deepId);
-          }
+      boolean volatileCandidates =
+          HumanLikeMoveSelector.needsDeepVerification(
+              selectableMoves, verifiedResponse.optJSONArray("moveInfos"), profile);
+      int completedVisits = verificationVisits;
+      long completedElapsedNanos = verificationElapsedNanos;
+      for (int round = 0;
+          round < MAX_ADAPTIVE_VERIFICATION_ROUNDS
+              && shouldAdaptivelyDeepen(profile, volatileCandidates);
+          round++) {
+        int deepVisits =
+            adaptiveVerificationVisits(
+                completedVisits,
+                completedElapsedNanos,
+                Math.max(0L, deadlineNanos - System.nanoTime()));
+        if (deepVisits <= completedVisits) {
+          break;
+        }
+        String deepId = "humansl-tactical-" + nextRequestId.getAndIncrement();
+        JSONObject deepRequest =
+            buildHumanSlVerificationRequest(
+                deepId,
+                positionNode,
+                profile,
+                deepVisits,
+                rootSymmetries,
+                new ArrayList<String>(verificationMoves));
+        long deepStartedNanos = System.nanoTime();
+        try {
+          finalResponse = request(deepRequest, remainingAdaptiveRequestTime(deadlineNanos));
+          completedElapsedNanos = Math.max(1L, System.nanoTime() - deepStartedNanos);
+          completedVisits = deepVisits;
+          volatileCandidates =
+              HumanLikeMoveSelector.needsDeepVerification(
+                  selectableMoves, finalResponse.optJSONArray("moveInfos"), profile);
+        } catch (TimeoutException timeoutFailure) {
+          terminateRequestBestEffort(generation, deepId);
+          break;
         }
       }
       if (allowPass && isSearchTopMovePass(finalResponse)) {
@@ -781,9 +805,33 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     return request;
   }
 
-  private static int tacticalVerificationVisits(int baseVisits) {
-    long doubled = Math.max((long) baseVisits + 64L, (long) baseVisits * 2L);
-    return (int) Math.min(MAX_TACTICAL_VERIFICATION_VISITS, doubled);
+  static int adaptiveVerificationVisits(
+      int completedVisits, long completedElapsedNanos, long remainingNanos) {
+    int safeCompletedVisits = Math.max(1, completedVisits);
+    long reserveNanos = TimeUnit.MILLISECONDS.toNanos(ADAPTIVE_RETURN_RESERVE_MILLIS);
+    long usableNanos = Math.max(0L, remainingNanos - reserveNanos);
+    if (completedElapsedNanos <= 0L
+        || usableNanos < TimeUnit.MILLISECONDS.toNanos(MIN_ADAPTIVE_REQUEST_MILLIS)) {
+      return safeCompletedVisits;
+    }
+
+    double estimatedVisits =
+        safeCompletedVisits
+            * ((double) usableNanos / (double) completedElapsedNanos)
+            * ADAPTIVE_TIME_USE_RATIO;
+    int minimumGain = Math.max(MIN_ADAPTIVE_VISIT_GAIN, safeCompletedVisits / 4);
+    int minimumTarget =
+        Math.min(MAX_ADAPTIVE_VERIFICATION_VISITS, safeCompletedVisits + minimumGain);
+    int targetVisits =
+        (int)
+            Math.min(
+                MAX_ADAPTIVE_VERIFICATION_VISITS,
+                Math.max(minimumTarget, Math.floor(estimatedVisits)));
+    return targetVisits > safeCompletedVisits ? targetVisits : safeCompletedVisits;
+  }
+
+  static boolean shouldAdaptivelyDeepen(String profile, boolean volatileCandidates) {
+    return volatileCandidates || isEliteHumanProfile(profile);
   }
 
   private static boolean isEliteHumanProfile(String profile) {
@@ -805,8 +853,13 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     return Duration.ofNanos(remaining);
   }
 
-  private static long remainingMillis(long deadlineNanos) {
-    return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime()));
+  private static Duration remainingAdaptiveRequestTime(long deadlineNanos) throws TimeoutException {
+    long reserveNanos = TimeUnit.MILLISECONDS.toNanos(ADAPTIVE_RETURN_RESERVE_MILLIS);
+    long remaining = deadlineNanos - System.nanoTime() - reserveNanos;
+    if (remaining <= 0L) {
+      throw new TimeoutException("No safe time remains for deeper HumanSL verification.");
+    }
+    return Duration.ofNanos(remaining);
   }
 
   private void terminateRequestBestEffort(int expectedGeneration, String terminateId) {
