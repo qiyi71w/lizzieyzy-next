@@ -53,6 +53,12 @@
 | Avoid setup work | Use bundled KataGo, bundled weight, and first-launch auto setup |
 | Avoid installation | Use the portable Windows packages |
 | Use board sync | Windows release packages include the native `readboard.exe` |
+| Keep quick-curve work off the main engine | Download the optional 38 MB official lightweight model from `KataGo Auto Setup -> Weight management`; it runs only while filling missing game-curve positions and releases the GPU before main analysis |
+| Use more compute than this PC provides | Open `Settings -> Remote Compute`, sign in to Zhizi Cloud Compute, and create a remote KataGo engine |
+
+Remote Compute defaults to “VIP monthly” (`--gpu-type vip-share`). Non-VIP users can choose metered 1x / 3x / 6x tiers in Advanced Settings. The default preset uses the Zhizi 28B model; TensorRT and CUDA identify the cloud engine backend, not the billing plan.
+
+Saved login details are protected by Windows DPAPI, macOS Keychain, or Linux Secret Service and are not written to ordinary configuration. If secure storage is unavailable, credentials remain only until the app exits. The connection retries after interruption, and you can switch back to a local engine at any time.
 
 ## What to download first
 
@@ -64,12 +70,12 @@ Users in mainland China are encouraged to choose common stable builds from the [
 
 | Your situation | Find the file that contains this keyword on Releases |
 | --- | --- |
-| Most Windows users, recommended, no installer | `*windows64.opencl.portable.zip` |
-| Windows, OpenCL build, installer option | `*windows64.opencl.installer.exe` |
-| Windows, OpenCL is unstable, CPU fallback, no installer | `*windows64.with-katago.portable.zip` |
-| Windows, CPU fallback, installer option | `*windows64.with-katago.installer.exe` |
-| Windows, RTX 20/30/40/50 NVIDIA GPU, no installer | `*windows64.nvidia.portable.zip` |
+| Windows, RTX 20/30/40/50 NVIDIA GPU, recommended, no installer | `*windows64.nvidia.portable.zip` |
 | Windows, RTX 20/30/40/50 NVIDIA GPU, installer option | `*windows64.nvidia.installer.exe` |
+| Windows, AMD / Intel / older NVIDIA GPU, no installer | `*windows64.opencl.portable.zip` |
+| Windows, AMD / Intel / older NVIDIA GPU, installer option | `*windows64.opencl.installer.exe` |
+| Windows, no suitable GPU or the GPU build cannot start, CPU fallback | `*windows64.with-katago.portable.zip` |
+| Windows, CPU fallback, installer option | `*windows64.with-katago.installer.exe` |
 | Windows, RTX 30 series and earlier, optional TensorRT | Start with the unified NVIDIA package, then install TensorRT from `KataGo Auto Setup` |
 | Windows, DirectX 12 GPU, DirectML testing | `*windows64.experimental.directml.portable.zip` |
 | Windows, Intel GPU/NPU, OpenVINO testing | `*windows64.experimental.openvino.portable.zip` |
@@ -80,7 +86,7 @@ Users in mainland China are encouraged to choose common stable builds from the [
 | macOS Intel, then drag the app to Applications | `*mac-intel.with-katago.dmg` |
 | Linux | `*linux64.with-katago.zip` |
 
-Full packages use KataGo `v1.18.1` for CPU, OpenCL, CUDA, TensorRT, Metal, and Linux backends. Linux NVIDIA remains on CUDA 12.1 for runtime compatibility.
+Full packages for CPU, OpenCL, CUDA, TensorRT, and Metal backends, along with the Linux packages, use KataGo `v1.18.1`. Linux NVIDIA remains on CUDA 12.1 for runtime compatibility.
 
 The recommended full package includes the official flagship B11 model `b11c768h12nbt3tflrs-fson-silu.bin.gz` (about 202 MiB). An RTX 3070 comparison measured about 40% lower search throughput than B10, which remains available from `KataGo Auto Setup -> Weights`.
 

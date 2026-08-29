@@ -53,6 +53,12 @@
 | 설정을 덜 건드리기 | 추천 패키지에 KataGo, 기본 가중치, 첫 실행 자동 설정이 들어 있습니다 |
 | 설치 없이 쓰기 | Windows 에서는 `portable.zip` 을 우선 고를 수 있습니다 |
 | 바둑판 동기화도 쓰기 | Windows 주요 배포판에 네이티브 `readboard.exe` 가 포함됩니다 |
+| 빠른 곡선 작업이 주 엔진을 차지하지 않게 하기 | `KataGo 자동 설정 -> 가중치 관리` 에서 38 MB 공식 경량 모델을 필요할 때 다운로드할 수 있습니다. 기보 곡선의 빈 구간을 채울 때만 실행하고 주 분석 전에 GPU 를 해제합니다 |
+| 이 PC보다 더 많은 연산 성능 사용하기 | `설정 -> 원격 컴퓨팅` 에서 Zhizi 클라우드 컴퓨팅에 로그인하고 원격 KataGo 엔진을 만들 수 있습니다 |
+
+원격 컴퓨팅의 기본값은 “VIP 월정액”(`--gpu-type vip-share`)입니다. 비 VIP 사용자는 고급 설정에서 종량제 1x / 3x / 6x 단계를 선택할 수 있습니다. 기본 프리셋은 Zhizi 28B 모델을 사용합니다. TensorRT 와 CUDA 는 클라우드 엔진 백엔드 이름이며 요금제 이름이 아닙니다.
+
+저장한 로그인 정보는 Windows DPAPI, macOS Keychain 또는 Linux Secret Service 로 보호되며 일반 설정에 기록되지 않습니다. 보안 저장소를 사용할 수 없으면 인증 정보는 앱을 종료할 때까지만 유지됩니다. 연결이 끊기면 자동으로 다시 연결하며 언제든 로컬 엔진으로 돌아갈 수 있습니다.
 
 ## 먼저 무엇을 다운로드할까
 
@@ -64,19 +70,23 @@
 
 | 내 환경 | Releases 에서 이 키워드를 포함하는 파일 찾기 |
 | --- | --- |
-| 대부분의 Windows 사용자, 추천, 무설치 | `*windows64.opencl.portable.zip` |
-| Windows, OpenCL 버전, 설치형 | `*windows64.opencl.installer.exe` |
-| Windows, OpenCL 이 불안정, CPU 대안, 무설치 | `*windows64.with-katago.portable.zip` |
+| Windows, RTX 20/30/40/50 NVIDIA GPU, 추천, 무설치 | `*windows64.nvidia.portable.zip` |
+| Windows, RTX 20/30/40/50 NVIDIA GPU, 설치형 | `*windows64.nvidia.installer.exe` |
+| Windows, AMD / Intel / 구형 NVIDIA GPU, 무설치 | `*windows64.opencl.portable.zip` |
+| Windows, AMD / Intel / 구형 NVIDIA GPU, 설치형 | `*windows64.opencl.installer.exe` |
+| Windows, 적합한 GPU 가 없거나 GPU 버전을 시작할 수 없음, CPU 대안 | `*windows64.with-katago.portable.zip` |
 | Windows, CPU 대안, 설치형 | `*windows64.with-katago.installer.exe` |
-| Windows, NVIDIA GPU, 더 빠른 분석, 무설치 | `*windows64.nvidia.portable.zip` |
-| Windows, NVIDIA GPU, 설치형 | `*windows64.nvidia.installer.exe` |
+| Windows, RTX 30 시리즈 이하, TensorRT 선택 설치 | NVIDIA 패키지로 시작한 뒤 `KataGo 자동 설정` 에서 TensorRT 설치 |
+| Windows, DirectX 12 GPU, DirectML 테스트 | `*windows64.experimental.directml.portable.zip` |
+| Windows, Intel GPU/NPU, OpenVINO 테스트 | `*windows64.experimental.openvino.portable.zip` |
+| Windows, 지원되는 AMD GPU, ROCm 테스트 | 해당 `*windows64.experimental.rocm.*.portable.zip` 선택 |
 | Windows, 내 엔진 사용, 무설치 | `*windows64.without.engine.portable.zip` |
 | Windows, 내 엔진 사용, 설치형 | `*windows64.without.engine.installer.exe` |
 | macOS Apple Silicon | `*mac-apple-silicon.with-katago.dmg` |
 | macOS Intel | `*mac-intel.with-katago.dmg` |
 | Linux | `*linux64.with-katago.zip` |
 
-전체 패키지의 CPU, OpenCL, CUDA, TensorRT, Metal, Linux 백엔드는 KataGo `v1.18.1` 을 사용합니다. Linux NVIDIA 버전은 실행 환경 호환성을 위해 CUDA 12.1 을 유지합니다.
+CPU, OpenCL, CUDA, TensorRT, Metal 백엔드용 전체 패키지와 Linux 패키지는 KataGo `v1.18.1` 을 사용합니다. Linux NVIDIA 버전은 실행 환경 호환성을 위해 CUDA 12.1 을 유지합니다.
 
 권장 전체 패키지에는 공식 플래그십 B11 모델 `b11c768h12nbt3tflrs-fson-silu.bin.gz`(약 202 MiB)이 포함됩니다. RTX 3070 비교에서는 탐색 처리량이 B10 보다 약 40% 낮았으며, 속도를 우선하면 `KataGo 자동 설정 -> 가중치` 에서 B10 으로 바꿀 수 있습니다.
 

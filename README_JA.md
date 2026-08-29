@@ -53,6 +53,12 @@
 | 設定をあまり触りたくない | 推奨パッケージに KataGo、既定の重み、初回自動設定が入っています |
 | インストールしたくない | Windows では `portable.zip` を優先して選べます |
 | 棋盤同期も使いたい | Windows 向けの主な配布物にネイティブ版 `readboard.exe` が同梱されています |
+| 高速曲線の補完で主エンジンを占有したくない | `KataGo 自動セットアップ -> ウェイト管理` から 38 MB の公式軽量モデルを必要に応じてダウンロードできます。棋譜曲線の欠落を補う間だけ起動し、通常分析の前に GPU を解放します |
+| 本機の計算能力が足りない | `設定 -> リモートコンピューティング` で Zhizi クラウドコンピューティングにログインし、リモート KataGo エンジンを作成できます |
+
+リモートコンピューティングの既定は「VIP 月額」(`--gpu-type vip-share`) です。非 VIP ユーザーは詳細設定で従量制の 1x / 3x / 6x を選べます。既定のプリセットは Zhizi 28B モデルを使用します。TensorRT と CUDA はクラウドエンジンのバックエンド名であり、料金プラン名ではありません。
+
+保存したログイン情報は Windows DPAPI、macOS Keychain、Linux Secret Service で保護され、通常の設定には書き込まれません。安全なストレージを利用できない場合、認証情報はアプリ終了時までだけ保持されます。切断後は自動で再接続し、いつでもローカルエンジンへ戻せます。
 
 ## まずどれをダウンロードするか
 
@@ -64,19 +70,23 @@
 
 | あなたの環境 | Releases でこのキーワードを含むファイルを探す |
 | --- | --- |
-| Windows 利用者の多く、推奨、非インストール | `*windows64.opencl.portable.zip` |
-| Windows、OpenCL 版、インストーラあり | `*windows64.opencl.installer.exe` |
-| Windows、OpenCL が不安定、CPU フォールバック、非インストール | `*windows64.with-katago.portable.zip` |
+| Windows、RTX 20/30/40/50 NVIDIA GPU、推奨、非インストール | `*windows64.nvidia.portable.zip` |
+| Windows、RTX 20/30/40/50 NVIDIA GPU、インストーラあり | `*windows64.nvidia.installer.exe` |
+| Windows、AMD / Intel / 旧世代 NVIDIA GPU、非インストール | `*windows64.opencl.portable.zip` |
+| Windows、AMD / Intel / 旧世代 NVIDIA GPU、インストーラあり | `*windows64.opencl.installer.exe` |
+| Windows、適切な GPU がない、または GPU 版を起動できない、CPU フォールバック | `*windows64.with-katago.portable.zip` |
 | Windows、CPU フォールバック、インストーラあり | `*windows64.with-katago.installer.exe` |
-| Windows、NVIDIA GPU、より速い解析、非インストール | `*windows64.nvidia.portable.zip` |
-| Windows、NVIDIA GPU、インストーラあり | `*windows64.nvidia.installer.exe` |
+| Windows、RTX 30 シリーズ以前、TensorRT を任意導入 | NVIDIA パッケージから開始し、`KataGo 自動セットアップ` で TensorRT をインストール |
+| Windows、DirectX 12 GPU、DirectML テスト | `*windows64.experimental.directml.portable.zip` |
+| Windows、Intel GPU/NPU、OpenVINO テスト | `*windows64.experimental.openvino.portable.zip` |
+| Windows、対応 AMD GPU、ROCm テスト | 対応する `*windows64.experimental.rocm.*.portable.zip` を選択 |
 | Windows、自分のエンジンを使う、非インストール | `*windows64.without.engine.portable.zip` |
 | Windows、自分のエンジンを使う、インストーラあり | `*windows64.without.engine.installer.exe` |
 | macOS Apple Silicon | `*mac-apple-silicon.with-katago.dmg` |
 | macOS Intel | `*mac-intel.with-katago.dmg` |
 | Linux | `*linux64.with-katago.zip` |
 
-フルパッケージの CPU、OpenCL、CUDA、TensorRT、Metal、Linux バックエンドは KataGo `v1.18.1` を使用します。Linux NVIDIA 版は実行環境との互換性のため CUDA 12.1 を維持しています。
+CPU、OpenCL、CUDA、TensorRT、Metal の各バックエンド向けフルパッケージと Linux パッケージは KataGo `v1.18.1` を使用します。Linux NVIDIA 版は実行環境との互換性のため CUDA 12.1 を維持しています。
 
 推奨フルパッケージには、公式フラッグシップ B11 モデル `b11c768h12nbt3tflrs-fson-silu.bin.gz`（約 202 MiB）が含まれます。RTX 3070 での比較では、探索スループットが B10 より約 40% 低く、速度を優先する場合は `KataGo 自動設定 -> ウェイト` で B10 に切り替えられます。
 
