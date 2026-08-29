@@ -52,11 +52,13 @@ public class KataGoRuntimeHelperTest {
   @BeforeEach
   void acceptEmptyCompanionFixture() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(EMPTY_FILE_SHA256);
+    System.setProperty("lizzie.tensorrt.runtimeSearchPath", "");
   }
 
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
   @Test

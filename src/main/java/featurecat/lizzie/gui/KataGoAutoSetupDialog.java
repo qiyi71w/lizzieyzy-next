@@ -230,6 +230,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   private final JCheckBox chkUseQuickAnalysisModel = new JCheckBox();
   private final JFontButton btnInstallNvidiaRuntime = new JFontButton();
   private final JFontButton btnInstallTensorRt = new JFontButton();
+  private final JFontButton btnEnableTensorRt = new JFontButton();
   private final JFontButton btnSwitchBackCuda = new JFontButton();
   private final JFontButton btnCleanTensorRtCache = new JFontButton();
   private final JComboBox<Backend> cmbExperimentalBackend = new JComboBox<>(Backend.values());
@@ -422,7 +423,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     chkUseQuickAnalysisModel.setForeground(TEXT_PRIMARY);
     chkUseQuickAnalysisModel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     btnInstallNvidiaRuntime.setText(text("AutoSetup.installNvidiaRuntime"));
-    btnInstallTensorRt.setText(text("AutoSetup.installTensorRt"));
+    btnInstallTensorRt.setText(text("AutoSetup.repairTensorRt"));
+    btnEnableTensorRt.setText(text("AutoSetup.enableTensorRt"));
     btnSwitchBackCuda.setText(text("AutoSetup.switchBackCuda"));
     btnCleanTensorRtCache.setText(text("AutoSetup.cleanTensorRtCache"));
     btnInstallExperimentalBackend.setText(text("AutoSetup.installExperimentalBackend"));
@@ -453,6 +455,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     styleButton(btnDownloadQuickAnalysisModel, false);
     styleButton(btnInstallNvidiaRuntime, false);
     styleButton(btnInstallTensorRt, false);
+    styleButton(btnEnableTensorRt, false);
     styleButton(btnSwitchBackCuda, false);
     styleButton(btnCleanTensorRtCache, false);
     styleButton(btnInstallExperimentalBackend, false);
@@ -554,6 +557,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     chkUseQuickAnalysisModel.addActionListener(e -> updateQuickAnalysisModelPreference());
     btnInstallNvidiaRuntime.addActionListener(e -> startNvidiaRuntimeInstall());
     btnInstallTensorRt.addActionListener(e -> startTensorRtInstall());
+    btnEnableTensorRt.addActionListener(e -> startTensorRtEnable());
     btnSwitchBackCuda.addActionListener(e -> switchBackToCuda());
     btnCleanTensorRtCache.addActionListener(e -> cleanTensorRtCache());
     btnInstallExperimentalBackend.addActionListener(e -> startExperimentalBackendInstall());
@@ -1128,6 +1132,7 @@ public class KataGoAutoSetupDialog extends JDialog {
             FlowLayout.RIGHT,
             btnInstallNvidiaRuntime,
             btnInstallTensorRt,
+            btnEnableTensorRt,
             btnSwitchBackCuda,
             btnCleanTensorRtCache);
     return createSectionCard(
@@ -2029,9 +2034,12 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (status == null) {
       setTensorRtLabel(lblTensorRtDownloadValue, text("AutoSetup.notFound"), Color.DARK_GRAY, null);
       setTensorRtLabel(lblTensorRtConfigValue, text("AutoSetup.notFound"), Color.DARK_GRAY, null);
-      btnInstallTensorRt.setText(text("AutoSetup.installTensorRt"));
+      btnInstallTensorRt.setText(text("AutoSetup.repairTensorRt"));
       btnInstallTensorRt.setToolTipText(null);
       btnInstallTensorRt.setEnabled(false);
+      btnEnableTensorRt.setText(text("AutoSetup.enableTensorRt"));
+      btnEnableTensorRt.setToolTipText(null);
+      btnEnableTensorRt.setEnabled(false);
       btnSwitchBackCuda.setToolTipText(null);
       btnSwitchBackCuda.setEnabled(false);
       updateTensorRtCacheButton();
@@ -2039,13 +2047,11 @@ public class KataGoAutoSetupDialog extends JDialog {
       return;
     }
     updateNvidiaGpuInfo();
-    if (!status.applicable) {
+    if (!status.applicable && !status.repairable) {
       String notApplicable = text("AutoSetup.tensorRtNotApplicable");
       setTensorRtLabel(lblTensorRtDownloadValue, notApplicable, Color.DARK_GRAY, status.detailText);
       setTensorRtLabel(lblTensorRtConfigValue, notApplicable, Color.DARK_GRAY, status.detailText);
-      btnInstallTensorRt.setText(text("AutoSetup.installTensorRt"));
-      btnInstallTensorRt.setToolTipText(tensorRtButtonTooltip(status));
-      btnInstallTensorRt.setEnabled(false);
+      updateTensorRtActionButtons(status);
       btnSwitchBackCuda.setToolTipText(text("AutoSetup.switchBackCudaTooltip"));
       btnSwitchBackCuda.setEnabled(false);
       updateTensorRtCacheButton();
@@ -2065,19 +2071,7 @@ public class KataGoAutoSetupDialog extends JDialog {
             : text("AutoSetup.tensorRtNotConfigured"),
         status.active ? OK_COLOR : (status.downloaded ? WARN_COLOR : Color.DARK_GRAY),
         status.detailText);
-    if (status.installed && status.active) {
-      btnInstallTensorRt.setText(text("AutoSetup.tensorRtEnabled"));
-    } else if (status.installed) {
-      btnInstallTensorRt.setText(text("AutoSetup.enableTensorRt"));
-    } else {
-      btnInstallTensorRt.setText(tensorRtInstallButtonText(status));
-    }
-    btnInstallTensorRt.setToolTipText(tensorRtButtonTooltip(status));
-    btnInstallTensorRt.setEnabled(
-        activeDownloadSession == null
-            && activeWorkerThread == null
-            && status.applicable
-            && (!status.installed || !status.active));
+    updateTensorRtActionButtons(status);
     btnSwitchBackCuda.setToolTipText(text("AutoSetup.switchBackCudaTooltip"));
     btnSwitchBackCuda.setEnabled(
         activeDownloadSession == null
@@ -2225,6 +2219,19 @@ public class KataGoAutoSetupDialog extends JDialog {
       return text("AutoSetup.installTensorRtManual");
     }
     return text("AutoSetup.installTensorRt");
+  }
+
+  private void updateTensorRtActionButtons(KataGoRuntimeHelper.TensorRtInstallStatus status) {
+    boolean idle = activeDownloadSession == null && activeWorkerThread == null;
+    btnInstallTensorRt.setText(text("AutoSetup.repairTensorRt"));
+    btnInstallTensorRt.setToolTipText(
+        status == null
+            ? text("AutoSetup.repairTensorRtTooltip")
+            : tensorRtButtonTooltip(status));
+    btnInstallTensorRt.setEnabled(idle && canRepairTensorRt());
+    btnEnableTensorRt.setText(text("AutoSetup.enableTensorRt"));
+    btnEnableTensorRt.setToolTipText(text("AutoSetup.enableTensorRtTooltip"));
+    btnEnableTensorRt.setEnabled(idle && canActivateTensorRt());
   }
 
   private String tensorRtButtonTooltip(KataGoRuntimeHelper.TensorRtInstallStatus status) {
@@ -2813,25 +2820,21 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     KataGoRuntimeHelper.TensorRtInstallStatus status =
         KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
-    if (!status.applicable) {
+    if (!status.repairable) {
       Utils.showMsg(status.detailText, this);
       return;
     }
-    if (status.installed && status.active) {
+    if (!canRepairTensorRt()) {
       lblStatus.setText(status.detailText);
       lblStatus.setForeground(OK_COLOR);
       updateTensorRtInfo();
-      return;
-    }
-    if (status.installed) {
-      applyInstalledTensorRt();
       return;
     }
     int result =
         JOptionPane.showConfirmDialog(
             this,
             formatTensorRtConfirmMessage(status),
-            text("AutoSetup.tensorRtConfirmTitle"),
+            text("AutoSetup.tensorRtRepairConfirmTitle"),
             JOptionPane.OK_CANCEL_OPTION,
             JOptionPane.WARNING_MESSAGE);
     if (result != JOptionPane.OK_OPTION) {
@@ -2847,35 +2850,41 @@ public class KataGoAutoSetupDialog extends JDialog {
             () -> {
               try {
                 SetupSnapshot currentSnapshot = snapshot;
-                SetupResult setupResult =
-                    KataGoRuntimeHelper.downloadAndInstallTensorRt(
-                        currentSnapshot,
-                        (statusText, downloadedBytes, totalBytes) ->
-                            SwingUtilities.invokeLater(
-                                () -> setBusy(true, statusText, downloadedBytes, totalBytes)),
-                        session);
+                KataGoRuntimeHelper.repairTensorRtComponents(
+                    currentSnapshot,
+                    (statusText, downloadedBytes, totalBytes) ->
+                        SwingUtilities.invokeLater(
+                            () -> setBusy(true, statusText, downloadedBytes, totalBytes)),
+                    session);
                 SwingUtilities.invokeLater(
                     () -> {
-                      setBusy(false, text("AutoSetup.tensorRtInstallDone"), 0, 0);
-                      onSetupApplied(
-                          setupResult, text("AutoSetup.tensorRtInstallDoneMessage"), false);
+                      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+                      renderSnapshot();
+                      setBusy(false, text("AutoSetup.tensorRtRepairDone"), 0, 0);
+                      Utils.showMsg(text("AutoSetup.tensorRtRepairDoneMessage"), this);
                     });
               } catch (DownloadCancelledException e) {
                 SwingUtilities.invokeLater(() -> onDownloadCancelled());
               } catch (IOException e) {
-                SwingUtilities.invokeLater(
-                    () -> {
-                      if (!recoverInstalledTensorRtAfterError(e)) {
-                        onBackgroundError(e);
-                      }
-                    });
+                SwingUtilities.invokeLater(() -> onBackgroundError(e));
               } finally {
                 clearActiveDownload(session, Thread.currentThread());
               }
             },
-            "katago-install-tensorrt");
+            "katago-repair-tensorrt");
     activeWorkerThread = worker;
     worker.start();
+  }
+
+  private void startTensorRtEnable() {
+    if (hasActiveBackgroundTask()) {
+      showBackgroundTaskAlreadyRunningNotice();
+      return;
+    }
+    if (snapshot == null) {
+      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+    }
+    applyInstalledTensorRt();
   }
 
   private void applyInstalledTensorRt() {
@@ -2962,25 +2971,6 @@ public class KataGoAutoSetupDialog extends JDialog {
     worker.start();
   }
 
-  private boolean recoverInstalledTensorRtAfterError(IOException originalError) {
-    try {
-      SetupSnapshot currentSnapshot = KataGoAutoSetupHelper.inspectLocalSetup();
-      KataGoRuntimeHelper.TensorRtInstallStatus currentStatus =
-          KataGoRuntimeHelper.inspectTensorRtInstall(currentSnapshot);
-      if (!currentStatus.installed) {
-        return false;
-      }
-      snapshot = currentSnapshot;
-      SetupResult setupResult = KataGoRuntimeHelper.applyInstalledTensorRt(snapshot);
-      setBusy(false, text("AutoSetup.tensorRtInstallDone"), 0, 0);
-      onSetupApplied(setupResult, text("AutoSetup.tensorRtInstallDoneMessage"), false);
-      return true;
-    } catch (IOException recoveryError) {
-      originalError.addSuppressed(recoveryError);
-      return false;
-    }
-  }
-
   private void switchBackToCuda() {
     if (hasActiveBackgroundTask()) {
       showBackgroundTaskAlreadyRunningNotice();
@@ -3049,9 +3039,10 @@ public class KataGoAutoSetupDialog extends JDialog {
             : status.gpuRecommendationText;
     String message;
     try {
-      message = String.format(text("AutoSetup.tensorRtConfirmMessage"), sizeText, recommendation);
+      message =
+          String.format(text("AutoSetup.tensorRtRepairConfirmMessage"), sizeText, recommendation);
     } catch (IllegalFormatException e) {
-      message = String.format(text("AutoSetup.tensorRtConfirmMessage"), sizeText);
+      message = String.format(text("AutoSetup.tensorRtRepairConfirmMessage"), sizeText);
     }
     if (!Utils.isBlank(recommendation) && !message.contains(recommendation)) {
       message = message + "\n\n" + recommendation;
@@ -3698,7 +3689,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     strongestRecommendation.setEnabled(!busy && strongestRecommendation.getWeight() != null);
     lightweightRecommendation.setEnabled(!busy && lightweightRecommendation.getWeight() != null);
     btnInstallNvidiaRuntime.setEnabled(!busy && canInstallNvidiaRuntime());
-    btnInstallTensorRt.setEnabled(!busy && canInstallTensorRt());
+    btnInstallTensorRt.setEnabled(!busy && canRepairTensorRt());
+    btnEnableTensorRt.setEnabled(!busy && canActivateTensorRt());
     btnSwitchBackCuda.setEnabled(!busy && canSwitchBackToCuda());
     btnCleanTensorRtCache.setEnabled(
         !busy && KataGoRuntimeHelper.tensorRtDownloadCacheBytes() > 0L);
@@ -3792,6 +3784,20 @@ public class KataGoAutoSetupDialog extends JDialog {
       return false;
     }
     return KataGoRuntimeHelper.canInstallTensorRt(snapshot);
+  }
+
+  private boolean canRepairTensorRt() {
+    if (snapshot == null) {
+      return false;
+    }
+    return KataGoRuntimeHelper.canRepairTensorRt(snapshot);
+  }
+
+  private boolean canActivateTensorRt() {
+    if (snapshot == null) {
+      return false;
+    }
+    return KataGoRuntimeHelper.canActivateTensorRt(snapshot);
   }
 
   private boolean canInstallExperimentalBackend() {
@@ -4726,7 +4732,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     strongestRecommendation.setEnabled(strongestRecommendation.getWeight() != null);
     lightweightRecommendation.setEnabled(lightweightRecommendation.getWeight() != null);
     btnInstallNvidiaRuntime.setEnabled(canInstallNvidiaRuntime());
-    btnInstallTensorRt.setEnabled(canInstallTensorRt());
+    btnInstallTensorRt.setEnabled(canRepairTensorRt());
+    btnEnableTensorRt.setEnabled(canActivateTensorRt());
     btnSwitchBackCuda.setEnabled(canSwitchBackToCuda());
     updateTensorRtCacheButton();
     btnOptimizePerformance.setEnabled(canRunBenchmark());
