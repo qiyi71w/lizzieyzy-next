@@ -20,6 +20,7 @@ import featurecat.lizzie.gui.LoadEngine;
 import featurecat.lizzie.gui.Menu;
 import featurecat.lizzie.gui.web.WebBoardManager;
 import featurecat.lizzie.logging.CrashHandlers;
+import featurecat.lizzie.logging.EdtHangWatchdog;
 import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.logging.LoggingRuntime;
 import featurecat.lizzie.logging.WorkDirectoryResolution;
@@ -475,6 +476,7 @@ public class Lizzie {
           LoggingRuntime.STDERR_PREFIX + "bootstrap " + t.getClass().getSimpleName());
     }
     CrashHandlers.install();
+    EdtHangWatchdog.installDefault();
     logStartupIdentity();
     return workDirectory;
   }
@@ -1501,6 +1503,10 @@ public class Lizzie {
   }
 
   public static void shutdownLoggingThenExit(IntConsumer exit) {
+    try {
+      EdtHangWatchdog.uninstall();
+    } catch (RuntimeException ignored) {
+    }
     try {
       LoggingRuntime.current()
           .ifPresent(
