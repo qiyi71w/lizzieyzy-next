@@ -2,6 +2,7 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -58,6 +59,17 @@ public class EngineFailedMessage extends JDialog {
               + SENSITIVE_KEY
               + "\\b(?:\\s*[:=]\\s*|\\s+)");
 
+  private final TensorRtRepairContext repairContext;
+  private final JButton tensorRtRepairButton;
+
+  public static boolean shouldOfferTensorRtRepair(TensorRtRepairContext context) {
+    return context != null && context.repairable;
+  }
+
+  public static String tensorRtRepairActionLabel() {
+    return Lizzie.resourceBundle.getString("EngineFailedMessage.openTensorRtRepair");
+  }
+
   public static void runOnEventDispatchThreadAndWait(Runnable action) {
     if (action == null) {
       throw new IllegalArgumentException("The event-dispatch action must not be null.");
@@ -100,6 +112,48 @@ public class EngineFailedMessage extends JDialog {
         isGtpEngine,
         restartContribute,
         modal,
+        (TensorRtRepairContext) null,
+        null);
+  }
+  public static void showDialog(
+      List<String> commands,
+      String command,
+      String message,
+      boolean canUseCmdDignostic,
+      boolean isGtpEngine,
+      boolean restartContribute,
+      boolean modal,
+      Consumer<EngineFailedMessage> onCreated) {
+    showDialog(
+        commands,
+        command,
+        message,
+        canUseCmdDignostic,
+        isGtpEngine,
+        restartContribute,
+        modal,
+        null,
+        onCreated);
+  }
+
+  public static void showDialog(
+      List<String> commands,
+      String command,
+      String message,
+      boolean canUseCmdDignostic,
+      boolean isGtpEngine,
+      boolean restartContribute,
+      boolean modal,
+      TensorRtRepairContext repairContext) {
+    showDialog(
+        commands,
+        command,
+        message,
+        canUseCmdDignostic,
+        isGtpEngine,
+        restartContribute,
+        modal,
+        repairContext,
         null);
   }
 
@@ -111,6 +165,7 @@ public class EngineFailedMessage extends JDialog {
       boolean isGtpEngine,
       boolean restartContribute,
       boolean modal,
+      TensorRtRepairContext repairContext,
       Consumer<EngineFailedMessage> onCreated) {
     runOnEventDispatchThreadAndWait(
         () -> {
@@ -121,7 +176,8 @@ public class EngineFailedMessage extends JDialog {
                   message,
                   canUseCmdDignostic,
                   isGtpEngine,
-                  restartContribute);
+                  restartContribute,
+                  repairContext);
           if (onCreated != null) {
             onCreated.accept(dialog);
           }
@@ -137,6 +193,17 @@ public class EngineFailedMessage extends JDialog {
       boolean canUseCmdDignostic,
       boolean isGtpEngine,
       boolean restartContribute) {
+    this(commands, command, message, canUseCmdDignostic, isGtpEngine, restartContribute, null);
+  }
+
+  public EngineFailedMessage(
+      List<String> commands,
+      String command,
+      String message,
+      boolean canUseCmdDignostic,
+      boolean isGtpEngine,
+      boolean restartContribute,
+      TensorRtRepairContext repairContext) {
     // this.setModal(true);
     // setType(Type.POPUP);
     setTitle(Lizzie.resourceBundle.getString("Leelaz.engineFailed")); // "消息提醒");
@@ -248,6 +315,33 @@ public class EngineFailedMessage extends JDialog {
       footer.add(diagnosticActions, BorderLayout.CENTER);
     }
 
+    JButton repairButton = null;
+    if (shouldOfferTensorRtRepair(repairContext)) {
+      repairButton = new JFontButton(tensorRtRepairActionLabel());
+      repairButton
+          .getAccessibleContext()
+          .setAccessibleName(
+              Lizzie.resourceBundle.getString(
+                  "EngineFailedMessage.openTensorRtRepairAccessibleName"));
+      repairButton
+          .getAccessibleContext()
+          .setAccessibleDescription(
+              Lizzie.resourceBundle.getString(
+                  "EngineFailedMessage.openTensorRtRepairAccessibleDescription"));
+      repairButton.addActionListener(
+          new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+              setVisible(false);
+              if (Lizzie.frame != null) {
+                Lizzie.frame.openKataGoAutoSetup(repairContext);
+              }
+            }
+          });
+      footer.add(repairButton, restartContribute ? BorderLayout.WEST : BorderLayout.EAST);
+    }
+    this.repairContext = repairContext;
+    this.tensorRtRepairButton = repairButton;
+
     root.add(footer, BorderLayout.SOUTH);
     setContentPane(root);
     int minimumWidth =
@@ -283,6 +377,18 @@ public class EngineFailedMessage extends JDialog {
 
     setLocationRelativeTo(Lizzie.frame != null ? Lizzie.frame : null);
     setBounds(clampDialogBounds(getBounds(), usableScreenBounds));
+  }
+
+  public boolean offersTensorRtRepair() {
+    return tensorRtRepairButton != null;
+  }
+
+  public TensorRtRepairContext repairContext() {
+    return repairContext;
+  }
+
+  public JButton tensorRtRepairButton() {
+    return tensorRtRepairButton;
   }
 
   static Dimension calculateDialogSize(

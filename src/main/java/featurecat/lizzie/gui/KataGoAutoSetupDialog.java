@@ -19,6 +19,9 @@ import featurecat.lizzie.util.KataGoAutoSetupHelper.TransformerTier;
 import featurecat.lizzie.util.KataGoExperimentalBackendInstaller;
 import featurecat.lizzie.util.KataGoExperimentalBackendInstaller.Backend;
 import featurecat.lizzie.util.KataGoRuntimeHelper;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairSession;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtTargetInvalidException;
 import featurecat.lizzie.util.NvidiaGpuDetector;
 import featurecat.lizzie.util.Utils;
 import java.awt.BasicStroke;
@@ -163,6 +166,10 @@ public class KataGoAutoSetupDialog extends JDialog {
   private String lastBackgroundErrorMessage = "";
   private long lastBackgroundErrorMillis = 0L;
   private int selectedSetupSectionIndex = 0;
+  private final TensorRtRepairSession tensorRtRepairSession = new TensorRtRepairSession();
+  private final JLabel lblDirectedTensorRtTarget = new JFontLabel();
+  private final JPanel directedTensorRtBanner = new JPanel(new BorderLayout());
+
   private int hoveredWeightDownloadRow = -1;
 
   private final JLabel lblEngineValue = new JFontLabel();
@@ -237,6 +244,30 @@ public class KataGoAutoSetupDialog extends JDialog {
   private final JComboBox<Backend> cmbExperimentalBackend = new JComboBox<>(Backend.values());
   private final JFontButton btnInstallExperimentalBackend = new JFontButton();
   private final JFontButton btnOptimizePerformance = new JFontButton();
+  public static final class OpenRequest {
+    public final TensorRtRepairContext context;
+    public final int sectionIndex;
+    public final boolean directed;
+
+    private OpenRequest(TensorRtRepairContext context, int sectionIndex, boolean directed) {
+      this.context = context;
+      this.sectionIndex = sectionIndex;
+      this.directed = directed;
+    }
+  }
+
+  public static OpenRequest openRequestForRepair(TensorRtRepairContext context) {
+    if (context == null || !context.repairable) {
+      return openRequestForMenu();
+    }
+    return new OpenRequest(context, 3, true);
+  }
+
+  public static OpenRequest openRequestForMenu() {
+    return new OpenRequest(null, 0, false);
+  }
+
+
   private final JFontButton btnExperimentalPerformance = new JFontButton();
   private final JFontButton btnStopDownload = new JFontButton();
   private final JFontButton btnClose = new JFontButton();
@@ -371,6 +402,55 @@ public class KataGoAutoSetupDialog extends JDialog {
   public void showWeightsSection() {
     sectionNav.setSelectedIndex(1);
   }
+
+  public KataGoAutoSetupDialog(Window owner, TensorRtRepairContext context) {
+    this(owner);
+    applyDirectedRepairContext(context);
+  }
+
+  public void showAccelerationSection() {
+    sectionNav.setSelectedIndex(3);
+  }
+
+  public void applyDirectedRepairContext(TensorRtRepairContext context) {
+    if (context == null || !context.repairable) {
+      clearDirectedRepairContext();
+      return;
+    }
+    if (!KataGoRuntimeHelper.isValidDirectedTensorRtTarget(context)) {
+      tensorRtRepairSession.clear();
+      Utils.showMsg(text("AutoSetup.tensorRtTargetStale"), this);
+      updateDirectedTargetBanner();
+      return;
+    }
+    tensorRtRepairSession.apply(context);
+    showAccelerationSection();
+    updateTensorRtInfo();
+    updateDirectedTargetBanner();
+  }
+
+  public void clearDirectedRepairContext() {
+    tensorRtRepairSession.clear();
+    updateDirectedTargetBanner();
+  }
+
+  private void updateDirectedTargetBanner() {
+    TensorRtRepairContext context = tensorRtRepairSession.context();
+    if (context == null || context.failedExecutable == null) {
+      directedTensorRtBanner.setVisible(false);
+      lblDirectedTensorRtTarget.setText("");
+      return;
+    }
+    String target = context.failedExecutable.toString();
+    lblDirectedTensorRtTarget.setText(String.format(text("AutoSetup.tensorRtDirectedTarget"), target));
+    lblDirectedTensorRtTarget.setToolTipText(target);
+    AccessibilitySupport.named(
+        lblDirectedTensorRtTarget,
+        text("AutoSetup.tensorRtDirectedTargetAccessibleName"),
+        text("AutoSetup.tensorRtDirectedTargetAccessibleDescription"));
+    directedTensorRtBanner.setVisible(true);
+  }
+
 
   public void refreshState() {
     if (!nvidiaGpuDetectionRunning) {
@@ -1139,8 +1219,23 @@ public class KataGoAutoSetupDialog extends JDialog {
             btnEnableTensorRt,
             btnSwitchBackCuda,
             btnCleanTensorRtCache);
+    directedTensorRtBanner.setOpaque(true);
+    directedTensorRtBanner.setBackground(new Color(255, 249, 235));
+    directedTensorRtBanner.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(228, 194, 127)),
+            BorderFactory.createEmptyBorder(8, 10, 8, 10)));
+    directedTensorRtBanner.add(lblDirectedTensorRtTarget, BorderLayout.CENTER);
+    directedTensorRtBanner.setVisible(false);
+    JPanel accelerationBody = new JPanel(new BorderLayout(0, 8));
+    accelerationBody.setOpaque(false);
+    accelerationBody.add(directedTensorRtBanner, BorderLayout.NORTH);
+    accelerationBody.add(rows, BorderLayout.CENTER);
     return createSectionCard(
-        text("AutoSetup.accelerationTitle"), text("AutoSetup.accelerationSubtitle"), rows, actions);
+        text("AutoSetup.accelerationTitle"),
+        text("AutoSetup.accelerationSubtitle"),
+        accelerationBody,
+        actions);
   }
 
   private JPanel createBenchmarkSection() {
@@ -1839,6 +1934,8 @@ public class KataGoAutoSetupDialog extends JDialog {
       KataGoAutoSetupHelper.rememberSelectedLocalKataGo(selected);
       snapshot = selected.toSnapshot();
       engineValidationResult = null;
+      tensorRtRepairSession.clearAfterChooseOtherEngine();
+      updateDirectedTargetBanner();
       renderSnapshot();
       validateDiscoveredEngineAsync();
     } catch (IOException e) {
@@ -2029,13 +2126,32 @@ public class KataGoAutoSetupDialog extends JDialog {
     updateTensorRtInfo();
   }
 
+  private KataGoRuntimeHelper.TensorRtInstallStatus inspectCurrentTensorRt() {
+    if (snapshot == null) {
+      return null;
+    }
+    TensorRtRepairContext context = tensorRtRepairSession.context();
+    if (context != null && tensorRtRepairSession.clearIfTargetInvalid()) {
+      Utils.showMsg(text("AutoSetup.tensorRtTargetStale"), this);
+      updateDirectedTargetBanner();
+      return KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
+    }
+    try {
+      return KataGoRuntimeHelper.inspectTensorRtInstall(
+          snapshot, nvidiaGpuDetection, context);
+    } catch (TensorRtTargetInvalidException e) {
+      tensorRtRepairSession.clear();
+      updateDirectedTargetBanner();
+      Utils.showMsg(e.getLocalizedMessage(), this);
+      return KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
+    }
+  }
+
   private void updateTensorRtInfo() {
     maybeStartNvidiaGpuDetection();
     boolean idle = activeDownloadSession == null && activeWorkerThread == null;
     KataGoRuntimeHelper.TensorRtInstallStatus status =
-        snapshot == null
-            ? null
-            : KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
+        snapshot == null ? null : inspectCurrentTensorRt();
     TensorRtAccelerationView view =
         TensorRtAccelerationView.from(status, nvidiaGpuDetectionRunning, idle);
     applyTensorRtAccelerationView(status, view);
@@ -2841,10 +2957,14 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (snapshot == null) {
       snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
     }
-    KataGoRuntimeHelper.TensorRtInstallStatus status =
-        KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
-    if (!status.repairable) {
-      Utils.showMsg(status.detailText, this);
+    final TensorRtRepairContext directedContext = tensorRtRepairSession.context();
+    KataGoRuntimeHelper.TensorRtInstallStatus status = inspectCurrentTensorRt();
+    if (!KataGoRuntimeHelper.shouldStartTensorRtComponentRepair(directedContext)) {
+      updateTensorRtInfo();
+      return;
+    }
+    if (status == null || !status.repairable) {
+      Utils.showMsg(status == null ? text("AutoSetup.tensorRtNotApplicable") : status.detailText, this);
       return;
     }
     if (!canRepairTensorRt()) {
@@ -2873,25 +2993,32 @@ public class KataGoAutoSetupDialog extends JDialog {
             () -> {
               try {
                 SetupSnapshot currentSnapshot = snapshot;
-                KataGoRuntimeHelper.repairTensorRtComponents(
-                    currentSnapshot,
-                    (statusText, downloadedBytes, totalBytes) ->
-                        SwingUtilities.invokeLater(
-                            () -> setBusy(true, statusText, downloadedBytes, totalBytes)),
-                    session);
+                KataGoRuntimeHelper.TensorRtInstallStatus repaired =
+                    KataGoRuntimeHelper.repairTensorRtComponents(
+                        currentSnapshot,
+                        (statusText, downloadedBytes, totalBytes) ->
+                            SwingUtilities.invokeLater(
+                                () -> setBusy(true, statusText, downloadedBytes, totalBytes)),
+                        session,
+                        directedContext);
                 SwingUtilities.invokeLater(
                     () -> {
                       snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+                      tensorRtRepairSession.clearAfterSuccessfulRepair();
+                      updateDirectedTargetBanner();
                       renderSnapshot();
                       setBusy(false, text("AutoSetup.tensorRtRepairDone"), 0, 0);
                       Utils.showMsg(
                           formatTensorRtRepairSummary(
-                              TensorRtAccelerationView.from(
-                                  KataGoRuntimeHelper.inspectTensorRtInstall(
-                                      snapshot, nvidiaGpuDetection),
-                                  false,
-                                  true)),
+                              TensorRtAccelerationView.from(repaired, false, true)),
                           this);
+                    });
+              } catch (TensorRtTargetInvalidException e) {
+                SwingUtilities.invokeLater(
+                    () -> {
+                      tensorRtRepairSession.clear();
+                      updateDirectedTargetBanner();
+                      onBackgroundError(e);
                     });
               } catch (DownloadCancelledException e) {
                 SwingUtilities.invokeLater(() -> onDownloadCancelled());
@@ -3677,6 +3804,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (activeDownloadSession != null) {
       stopActiveDownload();
     }
+    tensorRtRepairSession.clearAfterClose();
+    updateDirectedTargetBanner();
     setVisible(false);
   }
 
@@ -3820,7 +3949,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (snapshot == null) {
       return false;
     }
-    return KataGoRuntimeHelper.canRepairTensorRt(snapshot);
+    return KataGoRuntimeHelper.canRepairTensorRt(snapshot, tensorRtRepairSession.context());
   }
 
   private boolean canActivateTensorRt() {

@@ -26,6 +26,8 @@ import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.util.CommandLaunchHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoRuntimeHelper;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRuntimeException;
 import featurecat.lizzie.util.Utils;
 import featurecat.lizzie.util.YikeSyncDebugLog;
 import featurecat.lizzie.logging.EngineObservation;
@@ -605,6 +607,8 @@ public class Leelaz {
   public boolean stopByPlayouts = false;
   public boolean outOfPlayoutsLimit = false;
   private EngineFailedMessage engineFailedMessage;
+  private TensorRtRepairContext pendingTensorRtRepairContext;
+
   public List<String> commandLists = new ArrayList<String>();
   private boolean startGetCommandList = false;
   private boolean endGetCommandList = false;
@@ -905,8 +909,13 @@ public class Leelaz {
           KataGoRuntimeHelper.ensureBundledRuntimeReady(
               engineExecutable,
               commands,
+              engineCommand,
               deferredEngineGameRecovery ? null : Lizzie.frame);
         } catch (IOException e) {
+          pendingTensorRtRepairContext =
+              e instanceof TensorRtRuntimeException
+                  ? ((TensorRtRuntimeException) e).context
+                  : null;
           closeBundledStartupDialog();
           String err = e.getLocalizedMessage();
           try {
@@ -21650,6 +21659,8 @@ public class Leelaz {
       Lizzie.engineManager.clearEngineGame();
     if (GraphicsEnvironment.isHeadless()) return;
     if (engineFailedMessage != null && engineFailedMessage.isVisible()) return;
+    TensorRtRepairContext repairContext = pendingTensorRtRepairContext;
+    pendingTensorRtRepairContext = null;
     EngineFailedMessage.showDialog(
         commands,
         engineCommand,
@@ -21658,6 +21669,7 @@ public class Leelaz {
         true,
         false,
         isModal,
+        repairContext,
         dialog -> engineFailedMessage = dialog);
   }
 

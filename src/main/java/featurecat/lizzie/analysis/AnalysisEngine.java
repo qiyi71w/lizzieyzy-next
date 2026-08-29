@@ -19,6 +19,8 @@ import featurecat.lizzie.rules.Zobrist;
 import featurecat.lizzie.util.CommandLaunchHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoRuntimeHelper;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRuntimeException;
 import featurecat.lizzie.util.Utils;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
@@ -354,10 +356,15 @@ public class AnalysisEngine {
       if (Config.isBundledKataGoCommand(engineCommand)) {
         try {
           KataGoRuntimeHelper.ensureBundledRuntimeReady(
-              engineExecutable, commands, Lizzie.frame);
+              engineExecutable, commands, engineCommand, Lizzie.frame);
         } catch (IOException e) {
+          TensorRtRepairContext repairContext =
+              e instanceof TensorRtRuntimeException
+                  ? ((TensorRtRuntimeException) e).context
+                  : null;
           showErrMsg(
-              resourceBundle.getString("Leelaz.engineFailed") + ": " + e.getLocalizedMessage());
+              resourceBundle.getString("Leelaz.engineFailed") + ": " + e.getLocalizedMessage(),
+              repairContext);
           process = null;
           isLoaded = false;
           return;
@@ -392,18 +399,26 @@ public class AnalysisEngine {
   }
 
   private void showErrMsg(String errMsg) {
+    showErrMsg(errMsg, null);
+  }
+
+  private void showErrMsg(String errMsg, TensorRtRepairContext repairContext) {
     if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
-      javax.swing.SwingUtilities.invokeLater(() -> showErrMsg(errMsg));
+      javax.swing.SwingUtilities.invokeLater(() -> showErrMsg(errMsg, repairContext));
       return;
     }
     if (isPreLoad) return;
     if (waitFrame != null) waitFrame.setVisible(false);
-    tryToDignostic(errMsg);
+    tryToDignostic(errMsg, repairContext);
     AnalysisSettings analysisSettings = new AnalysisSettings(true, true);
     analysisSettings.setVisible(true);
   }
 
   public void tryToDignostic(String message) {
+    tryToDignostic(message, null);
+  }
+
+  public void tryToDignostic(String message, TensorRtRepairContext repairContext) {
     EngineFailedMessage.showDialog(
         commands,
         engineCommand,
@@ -411,7 +426,8 @@ public class AnalysisEngine {
         !useJavaSSH && !useRemoteCompute && OS.isWindows(),
         false,
         false,
-        true);
+        true,
+        repairContext);
   }
 
   private void initializeStreams() {

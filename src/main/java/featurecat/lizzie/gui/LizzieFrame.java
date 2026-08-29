@@ -19500,13 +19500,27 @@ public class LizzieFrame extends JFrame {
   }
 
   public void openKataGoAutoSetup() {
+    openKataGoAutoSetup((featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext) null);
+  }
+
+  public void openKataGoAutoSetup(
+      featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext context) {
+    KataGoAutoSetupDialog.OpenRequest request =
+        context == null
+            ? KataGoAutoSetupDialog.openRequestForMenu()
+            : KataGoAutoSetupDialog.openRequestForRepair(context);
     boolean created = false;
     if (kataGoAutoSetupDialog == null || !kataGoAutoSetupDialog.isDisplayable()) {
-      kataGoAutoSetupDialog = new KataGoAutoSetupDialog(this);
+      kataGoAutoSetupDialog = new KataGoAutoSetupDialog(this, request.context);
       created = true;
-    }
-    if (!created) {
+    } else if (request.directed) {
+      kataGoAutoSetupDialog.applyDirectedRepairContext(request.context);
+    } else {
+      kataGoAutoSetupDialog.clearDirectedRepairContext();
       kataGoAutoSetupDialog.refreshState();
+    }
+    if (request.directed) {
+      kataGoAutoSetupDialog.showAccelerationSection();
     }
     kataGoAutoSetupDialog.ensureVisibleOnScreen();
     kataGoAutoSetupDialog.setVisible(true);

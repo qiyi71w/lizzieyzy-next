@@ -426,18 +426,126 @@ public final class KataGoRuntimeHelper {
   }
 
   public static final class TensorRtActivationException extends IOException {
-    public final List<String> missingItems;
+      public final List<String> missingItems;
+  
+      private TensorRtActivationException(List<String> missingItems) {
+        super(
+            String.format(
+                resource(
+                    "AutoSetup.tensorRtActivationBlocked",
+                    "TensorRT is not ready to enable. Missing: %s"),
+                missingItems == null || missingItems.isEmpty()
+                    ? ""
+                    : String.join(", ", missingItems)));
+        this.missingItems = missingItems == null ? List.of() : List.copyOf(missingItems);
+      }
+    }
+  
+    public enum TensorRtFailureKind {
+      MISSING_RUNTIME,
+      MISSING_COMPANION,
+      MISSING_RUNTIME_AND_COMPANION
+    }
+  
+    public static final class TensorRtRepairContext {
+          public final Path failedExecutable;
+          public final String originalCommand;
+          public final TensorRtFailureKind failureKind;
+          public final List<String> missingItems;
+          public final boolean repairable;
+          public final String displayMessage;
+    
+          public static TensorRtRepairContext of(
+              Path failedExecutable,
+              String originalCommand,
+              TensorRtFailureKind failureKind,
+              List<String> missingItems,
+              boolean repairable,
+              String displayMessage) {
+            return new TensorRtRepairContext(
+                failedExecutable,
+                originalCommand,
+                failureKind,
+                missingItems,
+                repairable,
+                displayMessage);
+          }
+    
+          private TensorRtRepairContext(
+              Path failedExecutable,
+              String originalCommand,
+              TensorRtFailureKind failureKind,
+              List<String> missingItems,
+              boolean repairable,
+              String displayMessage) {
+            this.failedExecutable = failedExecutable;
+            this.originalCommand = originalCommand == null ? "" : originalCommand;
+            this.failureKind = failureKind;
+            this.missingItems = missingItems == null ? List.of() : List.copyOf(missingItems);
+            this.repairable = repairable;
+            this.displayMessage = displayMessage == null ? "" : displayMessage;
+          }
+        }
+  
+    public static final class TensorRtRuntimeException extends IOException {
+          public final TensorRtRepairContext context;
+    
+          public TensorRtRuntimeException(TensorRtRepairContext context) {
+            super(context == null ? "" : context.displayMessage);
+            this.context = context;
+          }
+        }
+  
+    public static final class TensorRtTargetInvalidException extends IOException {
+      private TensorRtTargetInvalidException(String message) {
+        super(message);
+      }
+    }
 
-    private TensorRtActivationException(List<String> missingItems) {
-      super(
-          String.format(
-              resource(
-                  "AutoSetup.tensorRtActivationBlocked",
-                  "TensorRT is not ready to enable. Missing: %s"),
-              missingItems == null || missingItems.isEmpty()
-                  ? ""
-                  : String.join(", ", missingItems)));
-      this.missingItems = missingItems == null ? List.of() : List.copyOf(missingItems);
+  public static final class TensorRtRepairSession {
+    private TensorRtRepairContext context;
+
+    public void apply(TensorRtRepairContext context) {
+      this.context = context;
+    }
+
+    public TensorRtRepairContext context() {
+      return context;
+    }
+
+    public boolean isDirected() {
+      return context != null;
+    }
+
+    public int setupSectionIndex() {
+      return context == null ? 0 : 3;
+    }
+
+    public void clear() {
+      context = null;
+    }
+
+    public void clearAfterSuccessfulRepair() {
+      clear();
+    }
+
+    public void clearAfterClose() {
+      clear();
+    }
+
+    public void clearAfterChooseOtherEngine() {
+      clear();
+    }
+
+    public boolean clearIfTargetInvalid() {
+      if (context == null) {
+        return false;
+      }
+      if (isValidDirectedTensorRtTarget(context)) {
+        return false;
+      }
+      clear();
+      return true;
     }
   }
 
@@ -830,16 +938,208 @@ public final class KataGoRuntimeHelper {
   }
 
   public static void ensureBundledRuntimeReady(
-      Path enginePath, List<String> launchCommand, Window owner) throws IOException {
-    NvidiaRuntimeStatus status = inspectNvidiaRuntime(enginePath);
-    if (!status.applicable) {
-      return;
+        Path enginePath, List<String> launchCommand, Window owner) throws IOException {
+      ensureBundledRuntimeReady(enginePath, launchCommand, null, owner);
     }
-    if (!status.ready) {
-      throw new IOException(buildMissingRuntimeMessage(status));
+  
+    public static void ensureBundledRuntimeReady(
+            Path enginePath, List<String> launchCommand, String originalCommand, Window owner)
+            throws IOException {
+          NvidiaRuntimeStatus status = inspectNvidiaRuntime(enginePath);
+          TensorRtRepairContext context =
+              inspectTensorRtStartupFailure(enginePath, launchCommand, originalCommand);
+          if (context != null) {
+            throw new TensorRtRuntimeException(context);
+          }
+          if (!status.applicable) {
+            return;
+          }
+          if (!status.ready) {
+            throw new IOException(buildMissingRuntimeMessage(status));
+          }
+          ensureCuda12_8DriverCompatibility(enginePath, launchCommand);
+        }
+  
+    public static boolean offersTensorRtRepairAction(Throwable error) {
+      return error instanceof TensorRtRuntimeException
+          && ((TensorRtRuntimeException) error).context != null
+          && ((TensorRtRuntimeException) error).context.repairable;
     }
-    ensureCuda12_8DriverCompatibility(enginePath, launchCommand);
-  }
+  
+    public static TensorRtRepairContext inspectTensorRtStartupFailure(
+        Path enginePath, String originalCommand) {
+      return inspectTensorRtStartupFailure(enginePath, null, originalCommand);
+    }
+  
+    public static TensorRtRepairContext inspectTensorRtStartupFailure(
+              Path enginePath, List<String> launchCommand, String originalCommand) {
+            if (!isWindowsPlatform() || enginePath == null) {
+              return null;
+            }
+            String backend = resolveNvidiaBackend(enginePath);
+            if (!isTensorRtBackend(backend)) {
+              return null;
+            }
+            NvidiaRuntimeStatus runtime = inspectNvidiaRuntime(enginePath);
+            boolean companionReady = hasUsableTensorRtHumanSlCompanion(enginePath);
+            List<String> missingItems = new ArrayList<String>();
+            if (!runtime.ready) {
+              missingItems.add(TensorRtInstallStatus.MISSING_RUNTIME);
+            }
+            if (!companionReady) {
+              missingItems.add(TensorRtInstallStatus.MISSING_COMPANION);
+            }
+            if (missingItems.isEmpty()) {
+              return null;
+            }
+            TensorRtFailureKind kind;
+            if (!runtime.ready && !companionReady) {
+              kind = TensorRtFailureKind.MISSING_RUNTIME_AND_COMPANION;
+            } else if (!runtime.ready) {
+              kind = TensorRtFailureKind.MISSING_RUNTIME;
+            } else {
+              kind = TensorRtFailureKind.MISSING_COMPANION;
+            }
+            String displayMessage =
+                !runtime.ready
+                    ? buildMissingRuntimeMessage(runtime)
+                    : tensorRtCompanionMissingMessage();
+            Path canonical = canonicalizeExistingPath(enginePath);
+            return new TensorRtRepairContext(
+                canonical,
+                resolveOriginalCommand(enginePath, launchCommand, originalCommand),
+                kind,
+                missingItems,
+                isManagedTensorRtTarget(canonical),
+                displayMessage);
+          }
+    
+      private static String resolveOriginalCommand(
+          Path enginePath, List<String> launchCommand, String originalCommand) {
+        if (originalCommand != null && !originalCommand.trim().isEmpty()) {
+          return originalCommand;
+        }
+        if (launchCommand != null && !launchCommand.isEmpty()) {
+          return String.join(" ", launchCommand);
+        }
+        return enginePath == null ? "" : enginePath.toString();
+      }
+    
+      private static Path canonicalizeExistingPath(Path path) {
+        if (path == null) {
+          return null;
+        }
+        try {
+          if (Files.exists(path)) {
+            return path.toRealPath();
+          }
+        } catch (IOException ignored) {
+        }
+        return path.toAbsolutePath().normalize();
+      }
+    
+      static boolean isManagedTensorRtTarget(Path enginePath) {
+        if (!isWindowsPlatform() || enginePath == null) {
+          return false;
+        }
+        Path canonical = canonicalizeExistingPath(enginePath);
+        if (!isBundledTensorRtPath(canonical) && !isBundledTensorRtPath(enginePath)) {
+          return false;
+        }
+        return managedTensorRtRootFor(canonical) != null;
+      }
+    
+      private static Path managedTensorRtRootFor(Path enginePath) {
+        if (enginePath == null) {
+          return null;
+        }
+        Path engineDir = enginePath.toAbsolutePath().normalize().getParent();
+        if (engineDir == null) {
+          return null;
+        }
+        try {
+          if (Files.exists(engineDir)) {
+            engineDir = engineDir.toRealPath();
+          }
+        } catch (IOException ignored) {
+        }
+        for (Path root : managedInstallRoots()) {
+          Path tensorRt = tensorRtEngineDir(root, NVIDIA_TRT_ENGINE_DIR);
+          Path tensorRt50 = tensorRtEngineDir(root, NVIDIA50_TRT_ENGINE_DIR);
+          if (isSameOrUnder(engineDir, tensorRt) || isSameOrUnder(engineDir, tensorRt50)) {
+            return root.toAbsolutePath().normalize();
+          }
+        }
+        return null;
+      }
+    
+      private static List<Path> managedInstallRoots() {
+        LinkedHashSet<Path> roots = new LinkedHashSet<Path>();
+        if (Lizzie.config != null) {
+          roots.add(Lizzie.config.getRuntimeWorkDirectory().toPath().toAbsolutePath().normalize());
+        }
+        roots.add(
+            Paths.get(System.getProperty("user.dir", ".")).toAbsolutePath().normalize());
+        return new ArrayList<Path>(roots);
+      }
+    
+      private static boolean isSameOrUnder(Path candidate, Path root) {
+              if (candidate == null || root == null) {
+                return false;
+              }
+              Path normalizedCandidate = realOrNormalized(candidate);
+              Path normalizedRoot = realOrNormalized(root);
+              return normalizedCandidate.equals(normalizedRoot)
+                  || normalizedCandidate.startsWith(normalizedRoot);
+            }
+      
+            private static Path realOrNormalized(Path path) {
+              if (path == null) {
+                return null;
+              }
+              try {
+                if (Files.exists(path)) {
+                  return path.toRealPath();
+                }
+              } catch (IOException ignored) {
+              }
+              return path.toAbsolutePath().normalize();
+            }
+      
+            public static boolean isValidDirectedTensorRtTarget(TensorRtRepairContext context) {
+              return context != null && isValidDirectedTensorRtTarget(context.failedExecutable);
+            }
+      
+            public static boolean isValidDirectedTensorRtTarget(Path enginePath) {
+              if (!isWindowsPlatform() || enginePath == null) {
+                return false;
+              }
+              try {
+                if (!Files.isRegularFile(enginePath)) {
+                  return false;
+                }
+                Path canonical = enginePath.toRealPath();
+                if (!Files.isRegularFile(canonical)) {
+                  return false;
+                }
+                if (!isManagedTensorRtTarget(canonical)) {
+                  return false;
+                }
+                return isTensorRtBackend(resolveNvidiaBackend(canonical));
+              } catch (IOException e) {
+                return false;
+              }
+            }
+      
+            public static void requireValidDirectedTensorRtTarget(TensorRtRepairContext context)
+                throws TensorRtTargetInvalidException {
+              if (!isValidDirectedTensorRtTarget(context)) {
+                throw new TensorRtTargetInvalidException(
+                    resource(
+                        "AutoSetup.tensorRtTargetStale",
+                        "The failed TensorRT target is no longer valid. Directed repair was cleared."));
+              }
+            }
 
   private static void ensureCuda12_8DriverCompatibility(
       Path enginePath, List<String> launchCommand) throws IOException {
@@ -1613,8 +1913,26 @@ public final class KataGoRuntimeHelper {
   }
 
   public static TensorRtInstallStatus inspectTensorRtInstall(
-      SetupSnapshot snapshot, NvidiaGpuDetector.DetectionResult gpuDetection) {
-    TensorRtInstallSpec spec = buildTensorRtInstallSpec(snapshot);
+        SetupSnapshot snapshot, NvidiaGpuDetector.DetectionResult gpuDetection) {
+      return inspectTensorRtInstallUnchecked(snapshot, gpuDetection, null);
+    }
+  
+    public static TensorRtInstallStatus inspectTensorRtInstall(
+        SetupSnapshot snapshot,
+        NvidiaGpuDetector.DetectionResult gpuDetection,
+        TensorRtRepairContext context)
+        throws TensorRtTargetInvalidException {
+      if (context != null) {
+        requireValidDirectedTensorRtTarget(context);
+      }
+      return inspectTensorRtInstallUnchecked(snapshot, gpuDetection, context);
+    }
+  
+    private static TensorRtInstallStatus inspectTensorRtInstallUnchecked(
+        SetupSnapshot snapshot,
+        NvidiaGpuDetector.DetectionResult gpuDetection,
+        TensorRtRepairContext context) {
+      TensorRtInstallSpec spec = buildTensorRtInstallSpec(snapshot, context);
     boolean platformSupported = isWindowsPlatform();
     boolean managedTargetAvailable = spec.targetEnginePath != null;
     boolean sourceAllowed = isTensorRtSourceProfileAllowed(snapshot);
@@ -1740,12 +2058,24 @@ public final class KataGoRuntimeHelper {
   }
 
   public static boolean canRepairTensorRt(SetupSnapshot snapshot) {
-    TensorRtInstallStatus status = inspectTensorRtInstall(snapshot);
+    return canRepairTensorRt(snapshot, null);
+  }
+
+  public static boolean canRepairTensorRt(
+      SetupSnapshot snapshot, TensorRtRepairContext context) {
+    if (context != null && !isValidDirectedTensorRtTarget(context)) {
+      return false;
+    }
+    TensorRtInstallStatus status = inspectTensorRtInstallUnchecked(snapshot, null, context);
     return status.repairable
         && (!status.runtimeReady
             || !status.companionReady
             || !status.enginePresent
             || !status.engineCurrent);
+  }
+
+  public static boolean shouldStartTensorRtComponentRepair(TensorRtRepairContext contextAtClick) {
+    return contextAtClick == null || isValidDirectedTensorRtTarget(contextAtClick);
   }
 
   public static boolean canActivateTensorRt(SetupSnapshot snapshot) {
@@ -1788,18 +2118,30 @@ public final class KataGoRuntimeHelper {
   }
 
   public static TensorRtInstallStatus repairTensorRtComponents(
-      SetupSnapshot snapshot, ProgressListener listener, DownloadSession session)
-      throws IOException {
-    if (snapshot == null) {
-      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+        SetupSnapshot snapshot, ProgressListener listener, DownloadSession session)
+        throws IOException {
+      return repairTensorRtComponents(snapshot, listener, session, null);
     }
-    if (!isWindowsPlatform()) {
-      throw new IOException(
-          resource(
-              "AutoSetup.tensorRtNotApplicable",
-              "TensorRT acceleration is only available on Windows NVIDIA packages."));
-    }
-    TensorRtInstallSpec spec = buildTensorRtInstallSpec(snapshot);
+  
+    public static TensorRtInstallStatus repairTensorRtComponents(
+        SetupSnapshot snapshot,
+        ProgressListener listener,
+        DownloadSession session,
+        TensorRtRepairContext context)
+        throws IOException {
+      if (context != null) {
+        requireValidDirectedTensorRtTarget(context);
+      }
+      if (snapshot == null) {
+        snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+      }
+      if (!isWindowsPlatform()) {
+        throw new IOException(
+            resource(
+                "AutoSetup.tensorRtNotApplicable",
+                "TensorRT acceleration is only available on Windows NVIDIA packages."));
+      }
+      TensorRtInstallSpec spec = buildTensorRtInstallSpec(snapshot, context);
     if (spec.targetEnginePath == null) {
       throw new IOException(
           resource(
@@ -1818,7 +2160,8 @@ public final class KataGoRuntimeHelper {
       if (installLock == null) {
         throw new IOException(tensorRtInstallAlreadyRunningMessage());
       }
-      return repairTensorRtComponentsLocked(snapshot, listener, activeSession, spec, runtimeDir);
+      return repairTensorRtComponentsLocked(
+          snapshot, listener, activeSession, spec, runtimeDir, context);
     } catch (OverlappingFileLockException e) {
       throw new IOException(tensorRtInstallAlreadyRunningMessage(), e);
     }
@@ -1905,7 +2248,8 @@ public final class KataGoRuntimeHelper {
       ProgressListener listener,
       DownloadSession activeSession,
       TensorRtInstallSpec spec,
-      Path runtimeDir)
+      Path runtimeDir,
+      TensorRtRepairContext context)
       throws IOException {
     activeSession.throwIfCancelled();
     boolean runtimeReady = inspectNvidiaRuntime(spec.targetEnginePath).ready;
@@ -1936,7 +2280,7 @@ public final class KataGoRuntimeHelper {
           resource("AutoSetup.tensorRtReady", "TensorRT acceleration is installed."),
           effectiveTotalBytes,
           effectiveTotalBytes);
-      return inspectTensorRtInstall(snapshot);
+      return inspectTensorRtInstallUnchecked(snapshot, null, context);
     }
     notifyProgress(
         listener,
@@ -2053,8 +2397,7 @@ public final class KataGoRuntimeHelper {
           resource("AutoSetup.tensorRtExtracting", "Extracting TensorRT files..."),
           Math.min(completedBytes, effectiveTotalBytes),
           effectiveTotalBytes);
-      Path archiveCompanion =
-          reusableCompanion != null ? reusableCompanion : null;
+      Path archiveCompanion = reusableCompanion != null ? reusableCompanion : null;
       installTensorRtKataGoArchive(
           katagoArchive, spec.targetEngineDir, archiveCompanion, activeSession);
     }
@@ -2065,8 +2408,7 @@ public final class KataGoRuntimeHelper {
       Files.deleteIfExists(extractedCompanion);
     }
     activeSession.throwIfCancelled();
-    if (!hasUsableTensorRtHumanSlCompanion(spec.targetEnginePath)
-        && companionDownloadNeeded) {
+    if (!hasUsableTensorRtHumanSlCompanion(spec.targetEnginePath) && companionDownloadNeeded) {
       throw new IOException(tensorRtCompanionMissingMessage());
     }
 
@@ -2081,9 +2423,8 @@ public final class KataGoRuntimeHelper {
         resource("AutoSetup.tensorRtRepairDone", "TensorRT components repaired."),
         effectiveTotalBytes,
         effectiveTotalBytes);
-    return inspectTensorRtInstall(snapshot);
+    return inspectTensorRtInstallUnchecked(snapshot, null, context);
   }
-
 
   private static long tensorRtRuntimeBundleBytes(TensorRtInstallSpec spec) {
     long companionInSpec =
@@ -5275,14 +5616,24 @@ public final class KataGoRuntimeHelper {
   }
 
   static TensorRtInstallSpec buildTensorRtInstallSpec(SetupSnapshot snapshot) {
-    Path runtimeRoot =
-        Lizzie.config != null
-            ? Lizzie.config.getRuntimeWorkDirectory().toPath()
-            : Paths.get(System.getProperty("user.dir", "."))
-                .toAbsolutePath()
-                .normalize()
-                .resolve("runtime");
-    Path targetEnginePath = findExistingTensorRtEnginePath(snapshot, runtimeRoot);
+      return buildTensorRtInstallSpec(snapshot, null);
+    }
+  
+    static TensorRtInstallSpec buildTensorRtInstallSpec(
+        SetupSnapshot snapshot, TensorRtRepairContext context) {
+      Path runtimeRoot =
+          Lizzie.config != null
+              ? Lizzie.config.getRuntimeWorkDirectory().toPath()
+              : Paths.get(System.getProperty("user.dir", "."))
+                  .toAbsolutePath()
+                  .normalize()
+                  .resolve("runtime");
+      Path targetEnginePath;
+      if (context != null && context.failedExecutable != null) {
+        targetEnginePath = canonicalizeExistingPath(context.failedExecutable);
+      } else {
+        targetEnginePath = findExistingTensorRtEnginePath(snapshot, runtimeRoot);
+      }
     Path targetEngineDir;
     if (targetEnginePath != null && targetEnginePath.getParent() != null) {
       targetEnginePath = targetEnginePath.toAbsolutePath().normalize();
