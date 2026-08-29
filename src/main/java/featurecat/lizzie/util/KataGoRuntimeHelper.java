@@ -687,7 +687,7 @@ public final class KataGoRuntimeHelper {
     return OPENCL_BACKEND.equals(readEngineBackendMarker(enginePath));
   }
 
-  private static String resolveNvidiaBackend(Path enginePath) {
+  public static String resolveNvidiaBackend(Path enginePath) {
     if (enginePath == null) {
       return null;
     }
@@ -728,7 +728,7 @@ public final class KataGoRuntimeHelper {
     return null;
   }
 
-  private static String readEngineBackendMarker(Path enginePath) {
+  public static String readEngineBackendMarker(Path enginePath) {
     if (enginePath == null) {
       return "";
     }

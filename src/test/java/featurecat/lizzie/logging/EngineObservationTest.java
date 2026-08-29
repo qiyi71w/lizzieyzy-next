@@ -43,6 +43,7 @@ class EngineObservationTest {
     assertFalse(EngineObservation.traceEnabled());
 
     EngineObservation.recordStarted("eng-1", "MAIN_BOARD");
+    EngineObservation.recordBootstrap("eng-1", EngineBootstrapFacts.unknown("MAIN_BOARD"));
     EngineObservation.recordQueue("eng-1", 1, 1);
     EngineObservation.recordCommandSent("eng-1", "cmd-1", "play", 0, 1);
     EngineObservation.traceRawCommand("eng-1", "cmd-1", "play B D4");
@@ -84,8 +85,7 @@ class EngineObservationTest {
     String message = traceEvents.list.get(0).getFormattedMessage();
     String payload = message.substring(message.indexOf('=') + 1);
     assertTrue(
-        payload.getBytes(StandardCharsets.UTF_8).length
-            <= ObservationText.RAW_EVENT_MAX_UTF8_BYTES,
+        payload.getBytes(StandardCharsets.UTF_8).length <= ObservationText.RAW_EVENT_MAX_UTF8_BYTES,
         Integer.toString(payload.getBytes(StandardCharsets.UTF_8).length));
     assertTrue(payload.endsWith(" [truncated]"), payload);
   }
@@ -108,6 +108,91 @@ class EngineObservationTest {
     assertTrue(message.contains("reason=io-error"), message);
     assertTrue(message.contains("errorType=IOException"), message);
     assertFalse(message.contains("secret raw payload"), message);
+  }
+
+  @Test
+  void bootstrapUsesStructuredFieldsAndOmitsUnknownStages() {
+    LoggingRuntime.initialize(
+        new WorkDirectoryResolution(tempDir, List.of()),
+        new LoggingLimits(64, 32, 32, 32, 7, 1_000_000, 256_000));
+    Logger engine = (Logger) LoggerFactory.getLogger(LogCategories.ENGINE);
+    ListAppender<ILoggingEvent> events = attach(engine);
+
+    EngineBootstrapFacts facts =
+        EngineBootstrapFacts.fromCommand(
+            "\"C:\\\\Users\\\\Player\\\\katago.exe\" gtp -model model.bin.gz", "MAIN_BOARD");
+    EngineObservation.recordBootstrap("eng-bootstrap", facts);
+
+    assertEquals(1, events.list.size(), events.list.toString());
+    String message = events.list.get(0).getFormattedMessage();
+    assertTrue(message.contains("event=bootstrap"), message);
+    assertTrue(message.contains("engineType=katago"), message);
+    assertTrue(message.contains("purpose=MAIN_BOARD"), message);
+    assertTrue(message.contains("source=user-configured"), message);
+    assertTrue(message.contains("backend=unknown"), message);
+    assertTrue(message.contains("onnxProvider=unknown"), message);
+    assertTrue(message.contains("model=model.bin.gz"), message);
+    assertFalse(message.contains("Player"), message);
+    assertFalse(message.contains("process-started="), message);
+  }
+
+  @Test
+  void readyAndFailedReuseTheSameIdentityAsBootstrap() {
+    LoggingRuntime.initialize(
+        new WorkDirectoryResolution(tempDir, List.of()),
+        new LoggingLimits(64, 32, 32, 32, 7, 1_000_000, 256_000));
+    Logger engine = (Logger) LoggerFactory.getLogger(LogCategories.ENGINE);
+    ListAppender<ILoggingEvent> events = attach(engine);
+
+    Object owner = new Object();
+    String id =
+        EngineObservation.ensureStarted(
+            owner, "MAIN_BOARD", EngineBootstrapFacts.fromCommand("katago gtp", "MAIN_BOARD"));
+    EngineObservation.markStartupStage(id, EngineObservation.STAGE_PROCESS_STARTED);
+    EngineObservation.recordReady(id);
+
+    assertEquals(id, EngineObservation.identityFor(owner));
+    String readyLogs = formatted(events);
+    assertTrue(readyLogs.contains("event=bootstrap"), readyLogs);
+    assertTrue(readyLogs.contains("event=started"), readyLogs);
+    assertTrue(readyLogs.contains("event=ready"), readyLogs);
+    assertTrue(readyLogs.contains("process-started="), readyLogs);
+
+    events.list.clear();
+    EngineObservation.discardIdentity(owner);
+    String failedId = EngineObservation.mintIdentity(owner);
+    EngineObservation.recordBootstrap(
+        failedId, EngineBootstrapFacts.fromCommand("katago gtp", "MAIN_BOARD"));
+    EngineObservation.recordFailed(failedId, "process start failed");
+    String failedLogs = formatted(events);
+    assertTrue(failedLogs.contains("event=bootstrap"), failedLogs);
+    assertTrue(failedLogs.contains("event=failed reason=process start failed"), failedLogs);
+    assertFalse(failedLogs.contains("event=started"), failedLogs);
+  }
+
+  @Test
+  void bootstrapIsRecordedOncePerIdentity() {
+    LoggingRuntime.initialize(
+        new WorkDirectoryResolution(tempDir, List.of()),
+        new LoggingLimits(64, 32, 32, 32, 7, 1_000_000, 256_000));
+    Logger engine = (Logger) LoggerFactory.getLogger(LogCategories.ENGINE);
+    ListAppender<ILoggingEvent> events = attach(engine);
+
+    String id = EngineObservation.mintIdentity(new Object());
+    EngineBootstrapFacts facts = EngineBootstrapFacts.fromCommand("katago gtp", "MAIN_BOARD");
+    EngineObservation.recordBootstrap(id, facts);
+    EngineObservation.recordBootstrap(id, facts);
+
+    assertEquals(1, events.list.size(), events.list.toString());
+    assertTrue(events.list.get(0).getFormattedMessage().contains("event=bootstrap"));
+  }
+
+  private static String formatted(ListAppender<ILoggingEvent> events) {
+    StringBuilder text = new StringBuilder();
+    for (ILoggingEvent event : events.list) {
+      text.append(event.getFormattedMessage()).append('\n');
+    }
+    return text.toString();
   }
 
   private static ListAppender<ILoggingEvent> attach(Logger logger) {
