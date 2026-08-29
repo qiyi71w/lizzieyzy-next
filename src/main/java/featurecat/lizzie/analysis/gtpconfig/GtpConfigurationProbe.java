@@ -461,6 +461,11 @@ public final class GtpConfigurationProbe {
         }
         payload.append(line);
       }
+      try {
+        process.waitFor(200, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException error) {
+        Thread.currentThread().interrupt();
+      }
       if (!process.isAlive()) {
         throw new IOException("Engine exited before configuration completed");
       }

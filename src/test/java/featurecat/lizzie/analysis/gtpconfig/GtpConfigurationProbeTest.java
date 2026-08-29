@@ -48,7 +48,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
@@ -57,11 +56,6 @@ class GtpConfigurationProbeTest {
   private static final long REAL_PROCESS_HANDSHAKE_TIMEOUT_SECONDS = 10L;
 
   @TempDir Path tempDir;
-
-  @AfterEach
-  void tearDownLogging() {
-    LoggingRuntime.resetForTests();
-  }
 
   @Test
   void reportsUnsupportedEngineWithoutRequestingSchema() throws Exception {
@@ -183,35 +177,43 @@ class GtpConfigurationProbeTest {
   @Test
   void successfulRealProbeLeavesStructuredEventsWithoutChangingResult() throws Exception {
     LoggingRuntime runtime = startProbeDiagnostics();
-    ListAppender<ILoggingEvent> events = attachEngine();
-    String command = fakeEngineCommand();
-    GtpConfigurationProbe probe = new GtpConfigurationProbe();
+    try {
+      ListAppender<ILoggingEvent> events = attachEngine();
+      String command = fakeEngineCommand();
+      GtpConfigurationProbe probe = new GtpConfigurationProbe();
 
-    GtpConfigurationProbe.Inspection inspection = probe.inspect(command, Duration.ofSeconds(2));
+      GtpConfigurationProbe.Inspection inspection = probe.inspect(command, Duration.ofSeconds(2));
 
-    assertTrue(inspection.supported());
-    assertEquals("zengtp-config", inspection.schema().protocol());
-    String logs = formatted(events);
-    assertTrue(logs.contains("probe event=started"), logs);
-    assertTrue(logs.contains("probe event=capability-check outcome=success"), logs);
-    assertFalse(logs.contains("probe event=failed"), logs);
-    assertFalse(logs.contains("probe event=stderr"), logs);
-    awaitLogs(runtime);
+      assertTrue(inspection.supported());
+      assertEquals("zengtp-config", inspection.schema().protocol());
+      String logs = formatted(events);
+      assertTrue(logs.contains("probe event=started"), logs);
+      assertTrue(logs.contains("probe event=capability-check outcome=success"), logs);
+      assertFalse(logs.contains("probe event=failed"), logs);
+      assertFalse(logs.contains("probe event=stderr"), logs);
+      awaitLogs(runtime);
+    } finally {
+      runtime.shutdown();
+    }
   }
 
   @Test
   void stderrOnSuccessfulProbeDoesNotChangeInspectResult() throws Exception {
     LoggingRuntime runtime = startProbeDiagnostics();
-    ListAppender<ILoggingEvent> events = attachEngine();
-    GtpConfigurationProbe.Inspection inspection =
-        new GtpConfigurationProbe().inspect(fakeEngineCommand("stderr"), Duration.ofSeconds(2));
+    try {
+      ListAppender<ILoggingEvent> events = attachEngine();
+      GtpConfigurationProbe.Inspection inspection =
+          new GtpConfigurationProbe().inspect(fakeEngineCommand("stderr"), Duration.ofSeconds(2));
 
-    assertTrue(inspection.supported());
-    String logs = formatted(events);
-    assertTrue(logs.contains("probe event=started"), logs);
-    assertTrue(logs.contains("probe event=capability-check outcome=success"), logs);
-    assertFalse(logs.contains("probe event=failed"), logs);
-    awaitLogs(runtime);
+      assertTrue(inspection.supported());
+      String logs = formatted(events);
+      assertTrue(logs.contains("probe event=started"), logs);
+      assertTrue(logs.contains("probe event=capability-check outcome=success"), logs);
+      assertFalse(logs.contains("probe event=failed"), logs);
+      awaitLogs(runtime);
+    } finally {
+      runtime.shutdown();
+    }
   }
 
   @Test
@@ -228,99 +230,115 @@ class GtpConfigurationProbeTest {
             <= ObservationText.RAW_EVENT_MAX_UTF8_BYTES + 64);
 
     LoggingRuntime runtime = startProbeDiagnostics();
-    ListAppender<ILoggingEvent> events = attachEngine();
-    GtpConfigurationProbe.Inspection inspection =
-        new GtpConfigurationProbe()
-            .inspect(fakeEngineCommand("stderr-huge"), Duration.ofSeconds(5));
+    try {
+      ListAppender<ILoggingEvent> events = attachEngine();
+      GtpConfigurationProbe.Inspection inspection =
+          new GtpConfigurationProbe()
+              .inspect(fakeEngineCommand("stderr-huge"), Duration.ofSeconds(5));
 
-    assertTrue(inspection.supported());
-    String logs = formatted(events);
-    assertTrue(logs.contains("probe event=capability-check outcome=success"), logs);
-    assertFalse(logs.contains("probe event=failed"), logs);
-    awaitLogs(runtime);
+      assertTrue(inspection.supported());
+      String logs = formatted(events);
+      assertTrue(logs.contains("probe event=capability-check outcome=success"), logs);
+      assertFalse(logs.contains("probe event=failed"), logs);
+      awaitLogs(runtime);
+    } finally {
+      runtime.shutdown();
+    }
   }
 
   @Test
   void earlyExitStillThrowsAndRecordsBoundedStderrSummary() throws Exception {
     LoggingRuntime runtime = startProbeDiagnostics();
-    ListAppender<ILoggingEvent> events = attachEngine();
+    try {
+      ListAppender<ILoggingEvent> events = attachEngine();
 
-    IOException exited =
-        assertThrows(
-            IOException.class,
-            () ->
-                new GtpConfigurationProbe()
-                    .inspect(fakeEngineCommand("stderr", "exit"), Duration.ofSeconds(2)));
+      IOException exited =
+          assertThrows(
+              IOException.class,
+              () ->
+                  new GtpConfigurationProbe()
+                      .inspect(fakeEngineCommand("stderr", "exit"), Duration.ofSeconds(2)));
 
-    assertTrue(
-        exited.getMessage().contains("Engine exited before configuration completed"),
-        exited.getMessage());
-    assertFalse(exited.getMessage().contains("probe-stderr"), exited.getMessage());
-    assertFalse(exited.getMessage().contains("probe-secret-token"), exited.getMessage());
-    String logs = formatted(events);
-    assertTrue(logs.contains("probe event=started"), logs);
-    assertTrue(logs.contains("probe event=failed stage=exited"), logs);
-    assertTrue(logs.contains("probe event=stderr facts="), logs);
-    assertTrue(logs.contains("probe-stderr"), logs);
-    awaitLogs(runtime);
-    String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
-    assertFalse(app.contains("probe-secret-token"), app);
-    assertTrue(app.contains("probe event=stderr"), app);
+      assertTrue(
+          exited.getMessage().contains("Engine exited before configuration completed"),
+          exited.getMessage());
+      assertFalse(exited.getMessage().contains("probe-stderr"), exited.getMessage());
+      assertFalse(exited.getMessage().contains("probe-secret-token"), exited.getMessage());
+      String logs = formatted(events);
+      assertTrue(logs.contains("probe event=started"), logs);
+      assertTrue(logs.contains("probe event=failed stage=exited"), logs);
+      assertTrue(logs.contains("probe event=stderr facts="), logs);
+      assertTrue(logs.contains("probe-stderr"), logs);
+      awaitLogs(runtime);
+      String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
+      assertFalse(app.contains("probe-secret-token"), app);
+      assertTrue(app.contains("probe event=stderr"), app);
+    } finally {
+      runtime.shutdown();
+    }
   }
 
   @Test
   void probeTimeoutStillThrowsAndRecordsStderrSummary() throws Exception {
     LoggingRuntime runtime = startProbeDiagnostics();
-    ListAppender<ILoggingEvent> events = attachEngine();
+    try {
+      ListAppender<ILoggingEvent> events = attachEngine();
 
-    IOException timeout =
-        assertThrows(
-            IOException.class,
-            () ->
-                new GtpConfigurationProbe()
-                    .inspect(fakeEngineCommand("stderr", "hang"), Duration.ofMillis(200)));
+      IOException timeout =
+          assertThrows(
+              IOException.class,
+              () ->
+                  new GtpConfigurationProbe()
+                      .inspect(fakeEngineCommand("stderr", "hang"), Duration.ofMillis(200)));
 
-    assertTrue(
-        timeout.getMessage().contains("Timed out waiting for the engine configuration response"),
-        timeout.getMessage());
-    assertFalse(timeout.getMessage().contains("probe-stderr"), timeout.getMessage());
-    String logs = formatted(events);
-    assertTrue(logs.contains("probe event=started"), logs);
-    assertTrue(logs.contains("probe event=failed stage=timeout"), logs);
-    assertTrue(logs.contains("probe event=stderr facts="), logs);
-    assertTrue(logs.contains("probe-stderr"), logs);
-    awaitLogs(runtime);
+      assertTrue(
+          timeout.getMessage().contains("Timed out waiting for the engine configuration response"),
+          timeout.getMessage());
+      assertFalse(timeout.getMessage().contains("probe-stderr"), timeout.getMessage());
+      String logs = formatted(events);
+      assertTrue(logs.contains("probe event=started"), logs);
+      assertTrue(logs.contains("probe event=failed stage=timeout"), logs);
+      assertTrue(logs.contains("probe event=stderr facts="), logs);
+      assertTrue(logs.contains("probe-stderr"), logs);
+      awaitLogs(runtime);
+    } finally {
+      runtime.shutdown();
+    }
   }
 
   @Test
   void stderrReaderFailureDoesNotPropagateToCaller() throws Exception {
     LoggingRuntime runtime = startProbeDiagnostics();
-    ListAppender<ILoggingEvent> events = attachEngine();
-    BufferedReader throwing =
-        new BufferedReader(
-            new Reader() {
-              @Override
-              public int read(char[] cbuf, int off, int len) {
-                throw new IllegalStateException("stderr exploded");
-              }
+    try {
+      ListAppender<ILoggingEvent> events = attachEngine();
+      BufferedReader throwing =
+          new BufferedReader(
+              new Reader() {
+                @Override
+                public int read(char[] cbuf, int off, int len) {
+                  throw new IllegalStateException("stderr exploded");
+                }
 
-              @Override
-              public void close() {}
-            });
+                @Override
+                public void close() {}
+              });
 
-    GtpConfigurationProbe.drainProbeStderr(
-        throwing, new GtpConfigurationProbe.ProbeStderrTail(), () -> "eng-test");
+      GtpConfigurationProbe.drainProbeStderr(
+          throwing, new GtpConfigurationProbe.ProbeStderrTail(), () -> "eng-test");
 
-    GtpConfigurationProbe.Inspection inspection =
-        new GtpConfigurationProbe(new ScriptedFactory(response(true, "false")))
-            .inspect("fake-engine", Duration.ofSeconds(1));
-    assertFalse(inspection.supported());
-    String logs = formatted(events);
-    assertTrue(logs.contains("engine event=transport-failure"), logs);
-    assertTrue(logs.contains("stream=stderr"), logs);
-    assertTrue(logs.contains("reason=reader-error"), logs);
-    assertFalse(logs.contains("stderr exploded"), logs);
-    awaitLogs(runtime);
+      GtpConfigurationProbe.Inspection inspection =
+          new GtpConfigurationProbe(new ScriptedFactory(response(true, "false")))
+              .inspect("fake-engine", Duration.ofSeconds(1));
+      assertFalse(inspection.supported());
+      String logs = formatted(events);
+      assertTrue(logs.contains("engine event=transport-failure"), logs);
+      assertTrue(logs.contains("stream=stderr"), logs);
+      assertTrue(logs.contains("reason=reader-error"), logs);
+      assertFalse(logs.contains("stderr exploded"), logs);
+      awaitLogs(runtime);
+    } finally {
+      runtime.shutdown();
+    }
   }
 
   @Test
