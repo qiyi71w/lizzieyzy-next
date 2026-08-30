@@ -387,6 +387,112 @@ public class WinrateGraph {
     return darkBackground ? new Color(232, 225, 210, 42) : new Color(50, 54, 60, 42);
   }
 
+  static Color resolveBaselineLineColor() {
+    return new Color(236, 232, 224, 168);
+  }
+
+  static String formatScoreLead(double blackPerspectiveScore, ResourceBundle bundle) {
+    double magnitudeValue = Math.round(Math.abs(blackPerspectiveScore) * 10.0) / 10.0;
+    String magnitude = String.format(Locale.ENGLISH, "%.1f", magnitudeValue);
+    if ("0.0".equals(magnitude)) {
+      return "0.0";
+    }
+    String prefix =
+        blackPerspectiveScore > 0
+            ? bundle.getString("WinrateGraph.scoreLeadBlackPrefix")
+            : bundle.getString("WinrateGraph.scoreLeadWhitePrefix");
+    return prefix + magnitude;
+  }
+
+  static String baselineMark(RenderableMetrics metrics) {
+    if (metrics == null || metrics.renderableCount == 0) {
+      return null;
+    }
+    if (metrics.winrateRenderable && metrics.scoreRenderable) {
+      return "50% / 0";
+    }
+    if (metrics.winrateRenderable) {
+      return "50%";
+    }
+    return "0";
+  }
+
+  static boolean shouldSkipOrdinaryMidlineGrid(
+      int gridIndex, int gridLineCount, boolean baselineActive) {
+    return baselineActive && gridLineCount > 0 && gridIndex * 2 == gridLineCount + 1;
+  }
+
+  static int scoreLeadAnchorY(
+      int graphY, int graphHeight, double blackPerspectiveScore, double maxScoreLead) {
+    double scoreScale = Math.max(1.0, maxScoreLead);
+    return graphY
+        + graphHeight / 2
+        - (int) (blackPerspectiveScore * graphHeight / 2 / scoreScale);
+  }
+
+  static Rectangle baselineChipBox(int graphX, int baselineY, int textWidth, int textHeight) {
+    int padX = 4;
+    int padY = 1;
+    int width = textWidth + padX * 2;
+    int height = textHeight + padY * 2;
+    return new Rectangle(graphX + 4, baselineY - height / 2, width, height);
+  }
+
+  static Rectangle placeGraphLabelBox(
+      Rectangle preferred, Rectangle bounds, List<Rectangle> occupied) {
+    Rectangle box = clampToBounds(preferred, bounds);
+    if (!intersectsAny(box, occupied)) {
+      return box;
+    }
+    int step = Math.max(1, preferred.height + 1);
+    int[] dys = {-step, step, -2 * step, 2 * step, -3 * step, 3 * step};
+    int[] dxs = {0, preferred.width + 4, -(preferred.width + 4)};
+    for (int dy : dys) {
+      for (int dx : dxs) {
+        Rectangle candidate =
+            clampToBounds(
+                new Rectangle(
+                    preferred.x + dx, preferred.y + dy, preferred.width, preferred.height),
+                bounds);
+        if (!intersectsAny(candidate, occupied)) {
+          return candidate;
+        }
+      }
+    }
+    return box;
+  }
+
+  private static Rectangle clampToBounds(Rectangle box, Rectangle bounds) {
+    if (bounds == null || bounds.width <= 0 || bounds.height <= 0) {
+      return new Rectangle(box);
+    }
+    int x = box.x;
+    int y = box.y;
+    if (box.width >= bounds.width) {
+      x = bounds.x;
+    } else {
+      x = Math.max(bounds.x, Math.min(box.x, bounds.x + bounds.width - box.width));
+    }
+    if (box.height >= bounds.height) {
+      y = bounds.y;
+    } else {
+      y = Math.max(bounds.y, Math.min(box.y, bounds.y + bounds.height - box.height));
+    }
+    return new Rectangle(x, y, box.width, box.height);
+  }
+
+  private static boolean intersectsAny(Rectangle box, List<Rectangle> occupied) {
+    if (occupied == null) {
+      return false;
+    }
+    for (Rectangle other : occupied) {
+      if (other != null && box.intersects(other)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static double relativeLuminance(Color color) {
     return (0.2126 * color.getRed() + 0.7152 * color.getGreen() + 0.0722 * color.getBlue())
         / 255.0;
@@ -483,20 +589,31 @@ public class WinrateGraph {
         new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[] {4}, 0);
     gBackground.setStroke(dashed);
 
+    boolean suppressGraphContent =
+        Lizzie.frame.isInPlayMode()
+            || shouldSuppressForActiveHumanSlGame(Lizzie.frame.humanSlGame);
+    RenderableMetrics renderableMetrics =
+        suppressGraphContent ? null : currentRenderableMetrics();
+    String baselineText = baselineMark(renderableMetrics);
+    boolean baselineActive = baselineText != null;
     gBackground.setColor(resolveGridLineColor());
     int winRateGridLines = Lizzie.frame.winRateGridLines;
     for (int i = 1; i <= winRateGridLines; i++) {
+      if (shouldSkipOrdinaryMidlineGrid(i, winRateGridLines, baselineActive)) {
+        continue;
+      }
       double percent = i * 100.0 / (winRateGridLines + 1);
       int y = posy + height - (int) (height * percent / 100);
       gBackground.drawLine(posx, y, posx + width, y);
     }
-    if (Lizzie.frame.isInPlayMode()) return;
-    if (shouldSuppressForActiveHumanSlGame(Lizzie.frame.humanSlGame)) return;
-    RenderableMetrics renderableMetrics = currentRenderableMetrics();
+    if (suppressGraphContent) return;
     boolean fillEnabled =
         Lizzie.config != null
             && renderableMetrics.areaFillEligible(Lizzie.config.showWinrateGraphFill);
     int baselineY = posy + height / 2;
+    List<Rectangle> graphTextBoxes = new ArrayList<>();
+    Rectangle baselineChip =
+        reserveBaselineChip(gBackground, baselineY, baselineText, graphTextBoxes);
     Color activeCurveColor =
         renderableMetrics.scoreRenderable && !renderableMetrics.winrateRenderable
             ? (Lizzie.config != null && Lizzie.config.scoreMeanLineColor != null
@@ -538,7 +655,10 @@ public class WinrateGraph {
       numMoves = node.getData().moveNumber - 1;
     }
 
-    if (numMoves < 1) return;
+    if (numMoves < 1) {
+      paintHighlightedBaseline(gBackground, posx, width, baselineY, baselineText, baselineChip);
+      return;
+    }
     if (numMoves < 50) numMoves = 50;
 
     // Plot
@@ -564,7 +684,10 @@ public class WinrateGraph {
     if (engineGamePlaying() || Lizzie.board.isPkBoard) {
       int saveCurMovenum = 0;
       double saveCurWr = 0;
-      if (numMoves < 2) return;
+      if (numMoves < 2) {
+        paintHighlightedBaseline(gBackground, posx, width, baselineY, baselineText, baselineChip);
+        return;
+      }
       while (node.previous().isPresent() && node.previous().get().previous().isPresent()) {
         BoardHistoryNode twoBackNode = node.previous().get().previous().get();
         int currentMoveIndex = node.getData().moveNumber - 1;
@@ -645,27 +768,35 @@ public class WinrateGraph {
                 xPos = Math.min(xPos, origParams[0] + origParams[2] - stringWidth);
                 if (wr > 50) {
                   if (wr > 90) {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS,
+                        graphTextBoxes);
                   } else {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS,
+                        graphTextBoxes);
                   }
                 } else {
                   if (wr < 10) {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS,
+                        graphTextBoxes);
                   } else {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS,
+                        graphTextBoxes);
                   }
                 }
               } else {
@@ -687,27 +818,35 @@ public class WinrateGraph {
                 xPos = Math.min(xPos, origParams[0] + origParams[2] - stringWidth);
                 if (wr > 50) {
                   if (wr < 90) {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS,
+                        graphTextBoxes);
                   } else {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS,
+                        graphTextBoxes);
                   }
                 } else {
                   if (wr < 10) {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS,
+                        graphTextBoxes);
                   } else {
-                    g.drawString(
+                    drawPlacedString(
+                        g,
                         wrString,
                         xPos,
-                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS);
+                        posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS,
+                        graphTextBoxes);
                   }
                 }
               }
@@ -734,27 +873,35 @@ public class WinrateGraph {
           g.setFont(f);
           if (saveCurWr > 50) {
             if (saveCurWr > 90) {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS,
+                  graphTextBoxes);
             } else {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS,
+                  graphTextBoxes);
             }
           } else {
             if (saveCurWr < 10) {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS,
+                  graphTextBoxes);
             } else {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS,
+                  graphTextBoxes);
             }
           }
         } else {
@@ -770,27 +917,35 @@ public class WinrateGraph {
           g.setColor(Color.WHITE);
           if (saveCurWr > 50) {
             if (saveCurWr < 90) {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS,
+                  graphTextBoxes);
             } else {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS,
+                  graphTextBoxes);
             }
           } else {
             if (saveCurWr < 10) {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) - 2 * DOT_RADIUS,
+                  graphTextBoxes);
             } else {
-              g.drawString(
+              drawPlacedString(
+                  g,
                   wrString,
                   xPos,
-                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS);
+                  posy + (height - (int) (saveCurWr * height / 100)) + 6 * DOT_RADIUS,
+                  graphTextBoxes);
             }
           }
         }
@@ -979,7 +1134,10 @@ public class WinrateGraph {
         numMoves = node.getData().moveNumber - 1;
       }
 
-      if (numMoves < 1) return;
+      if (numMoves < 1) {
+        paintHighlightedBaseline(gBackground, posx, width, baselineY, baselineText, baselineChip);
+        return;
+      }
       lastOkMove = -1;
       movenum = node.getData().moveNumber - 1;
       //    if (Lizzie.config.dynamicWinrateGraphWidth && this.numMovesOfPlayed > 0) {
@@ -1087,25 +1245,25 @@ public class WinrateGraph {
                 belowFill);
             g.setStroke(previousStroke);
           }
-          if (curmovenum > 0) {
+          if (curmovenum >= 0) {
             g.setColor(Color.YELLOW);
             Font f =
                 new Font(
                     Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(14) : 13);
             g.setFont(f);
-            double scoreHeight = convertScoreLead(drawcurscoreMean) * height / 2 / maxScoreLead;
-            int mScoreHeight = posy + height / 2 - (int) scoreHeight - 3;
+            int mScoreHeight =
+                scoreLeadAnchorY(posy, height, convertScoreLead(drawcurscoreMean), maxScoreLead) - 3;
             int fontHeigt = g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent();
             int up = origParams[1] + fontHeigt;
             int down = origParams[1] + origParams[3];
             mScoreHeight = Math.max(up, mScoreHeight);
             mScoreHeight = Math.min(down, mScoreHeight);
-            String scoreString = String.format(Locale.ENGLISH, "%.1f", drawcurscoreMean);
+            String scoreString = formatScoreLead(drawcurscoreMean, Lizzie.resourceBundle);
             int stringWidth = g.getFontMetrics().stringWidth(scoreString);
             int x = posx + (curmovenum * width / numMoves) - stringWidth / 2;
             x = Math.max(x, origParams[0]);
             x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
-            g.drawString(scoreString, x, mScoreHeight);
+            drawPlacedString(g, scoreString, x, mScoreHeight, graphTextBoxes);
           }
         } else if (blackKataScoreMode()) {
           double lastscoreMean = -500;
@@ -1208,25 +1366,25 @@ public class WinrateGraph {
                 belowFill);
             g.setStroke(previousStroke);
           }
-          if (curmovenum > 0) {
+          if (curmovenum >= 0) {
             g.setColor(Color.YELLOW);
             Font f =
                 new Font(
                     Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(14) : 13);
             g.setFont(f);
-            double scoreHeight = convertScoreLead(drawcurscoreMean) * height / 2 / maxScoreLead;
-            int mScoreHeight = posy + height / 2 - (int) scoreHeight - 3;
+            int mScoreHeight =
+                scoreLeadAnchorY(posy, height, convertScoreLead(drawcurscoreMean), maxScoreLead) - 3;
             int fontHeigt = g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent();
             int up = origParams[1] + fontHeigt;
             int down = origParams[1] + origParams[3];
             mScoreHeight = Math.max(up, mScoreHeight);
             mScoreHeight = Math.min(down, mScoreHeight);
-            String scoreString = String.format(Locale.ENGLISH, "%.1f", drawcurscoreMean);
+            String scoreString = formatScoreLead(drawcurscoreMean, Lizzie.resourceBundle);
             int stringWidth = g.getFontMetrics().stringWidth(scoreString);
             int x = posx + (curmovenum * width / numMoves) - stringWidth / 2;
             x = Math.max(x, origParams[0]);
             x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
-            g.drawString(scoreString, x, mScoreHeight);
+            drawPlacedString(g, scoreString, x, mScoreHeight, graphTextBoxes);
           }
         }
       } else if (Lizzie.leelaz.isSai || Lizzie.leelaz.isKatago || Lizzie.board.isKataBoard) {
@@ -1301,6 +1459,8 @@ public class WinrateGraph {
 
       // record parameters for calculating moveNumber
     }
+    paintHighlightedBaseline(
+        gBackground, posx, width, baselineY, baselineText, baselineChip);
     int mwrHeight = -1;
     int mWinFontHeight = -1;
     int oriMWrHeight = -1;
@@ -1328,7 +1488,7 @@ public class WinrateGraph {
       x = Math.max(x, origParams[0]);
       x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
       mx = x;
-      g.drawString(mwrString, x, mwrHeight);
+      drawPlacedString(g, mwrString, x, mwrHeight, graphTextBoxes);
     }
     if (mScoreMoveNum >= 0) {
       //        if (Lizzie.config.dynamicWinrateGraphWidth
@@ -1339,8 +1499,8 @@ public class WinrateGraph {
       g.setColor(Color.YELLOW);
       Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(14) : 14);
       g.setFont(f);
-      double scoreHeight = convertScoreLead(drawmSoreMean) * height / 2 / maxScoreLead;
-      int mScoreHeight = posy + height / 2 - (int) scoreHeight - 3;
+      int mScoreHeight =
+          scoreLeadAnchorY(posy, height, convertScoreLead(drawmSoreMean), maxScoreLead) - 3;
       int oriScoreHeight = mScoreHeight;
       int fontHeigt = g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent();
       int up = origParams[1] + fontHeigt;
@@ -1359,12 +1519,12 @@ public class WinrateGraph {
       if (mScoreHeight > origParams[1] + origParams[3]) {
         mScoreHeight = Math.max(origParams[1] + origParams[3], mwrHeight - mWinFontHeight);
       }
-      String scoreString = String.format(Locale.ENGLISH, "%.1f", drawmSoreMean);
+      String scoreString = formatScoreLead(drawmSoreMean, Lizzie.resourceBundle);
       int stringWidth = g.getFontMetrics().stringWidth(scoreString);
       int x = posx + (mScoreMoveNum * width / numMoves) - stringWidth / 2;
       x = Math.max(x, origParams[0]);
       x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
-      g.drawString(scoreString, x, mScoreHeight);
+      drawPlacedString(g, scoreString, x, mScoreHeight, graphTextBoxes);
     }
 
     int cwrHeight = -1;
@@ -1389,14 +1549,14 @@ public class WinrateGraph {
       if (mx >= 0) {
         if (Math.abs(x - mx) < stringWidth) noC = true;
       }
-      if (!noC) g.drawString(wrString, x, cwrHeight);
+      drawPlacedString(g, wrString, x, cwrHeight, graphTextBoxes);
     }
-    if (curScoreMoveNum >= 0 && !noC) {
+    if (curScoreMoveNum >= 0) {
       g.setColor(Color.YELLOW);
       Font f = new Font(Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(14) : 14);
       g.setFont(f);
-      double scoreHeight = convertScoreLead(drawCurSoreMean) * height / 2 / maxScoreLead;
-      int cScoreHeight = posy + height / 2 - (int) scoreHeight - 3;
+      int cScoreHeight =
+          scoreLeadAnchorY(posy, height, convertScoreLead(drawCurSoreMean), maxScoreLead) - 3;
       int oriScoreHeight = cScoreHeight;
       int fontHeigt = g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent();
       int up = origParams[1] + fontHeigt;
@@ -1430,12 +1590,12 @@ public class WinrateGraph {
           } else scoreAjustMove = -1;
         }
       }
-      String scoreString = String.format(Locale.ENGLISH, "%.1f", drawCurSoreMean);
+      String scoreString = formatScoreLead(drawCurSoreMean, Lizzie.resourceBundle);
       int stringWidth = g.getFontMetrics().stringWidth(scoreString);
       int x = posx + (curScoreMoveNum * width / numMoves) - stringWidth / 2;
       x = Math.max(x, origParams[0]);
       x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
-      g.drawString(scoreString, x, cScoreHeight);
+      drawPlacedString(g, scoreString, x, cScoreHeight, graphTextBoxes);
     }
     if (width >= 150) {
       gBackground.setFont(
@@ -1496,13 +1656,86 @@ public class WinrateGraph {
     return controller != null && !controller.isFinished() && !controller.isLiveAnalysisMode();
   }
 
-  static List<String> lineLegendLabels(boolean hasScoreLead, ResourceBundle bundle) {
+  static List<String> lineLegendLabels(RenderableMetrics metrics, ResourceBundle bundle) {
     ArrayList<String> labels = new ArrayList<>();
-    labels.add(bundle.getString("WinrateGraph.legendWinrate"));
-    if (hasScoreLead) {
+    if (metrics != null && metrics.winrateRenderable) {
+      labels.add(bundle.getString("WinrateGraph.legendWinrate"));
+    }
+    if (metrics != null && metrics.scoreRenderable) {
       labels.add(bundle.getString("WinrateGraph.legendScoreLead"));
     }
     return labels;
+  }
+
+  static List<Color> lineLegendColors(
+      RenderableMetrics metrics, Color winrateColor, Color scoreColor) {
+    ArrayList<Color> colors = new ArrayList<>();
+    if (metrics != null && metrics.winrateRenderable) {
+      colors.add(winrateColor);
+    }
+    if (metrics != null && metrics.scoreRenderable) {
+      colors.add(scoreColor);
+    }
+    return colors;
+  }
+
+  private Rectangle reserveBaselineChip(
+      Graphics2D g, int baselineY, String baselineText, List<Rectangle> occupied) {
+    if (baselineText == null || g == null) {
+      return null;
+    }
+    Font chipFont =
+        new Font(Config.sysDefaultFontName, Font.PLAIN, largeEnough ? Utils.zoomOut(11) : 11);
+    Font previousFont = g.getFont();
+    g.setFont(chipFont);
+    FontMetrics metrics = g.getFontMetrics();
+    Rectangle chip =
+        baselineChipBox(
+            origParams[0],
+            baselineY,
+            metrics.stringWidth(baselineText),
+            metrics.getAscent() + metrics.getDescent());
+    occupied.add(chip);
+    g.setFont(previousFont);
+    return chip;
+  }
+
+  private void paintHighlightedBaseline(
+      Graphics2D g, int posx, int width, int baselineY, String baselineText, Rectangle chip) {
+    if (baselineText == null || g == null) {
+      return;
+    }
+    Stroke previousStroke = g.getStroke();
+    g.setStroke(new BasicStroke(1.5f));
+    g.setColor(resolveBaselineLineColor());
+    g.drawLine(posx, baselineY, posx + width, baselineY);
+    g.setStroke(previousStroke);
+    if (chip == null) {
+      return;
+    }
+    Font chipFont =
+        new Font(Config.sysDefaultFontName, Font.PLAIN, largeEnough ? Utils.zoomOut(11) : 11);
+    Font previousFont = g.getFont();
+    g.setFont(chipFont);
+    FontMetrics metrics = g.getFontMetrics();
+    g.setColor(new Color(0, 0, 0, 170));
+    g.fillRoundRect(chip.x, chip.y, chip.width, chip.height, 6, 6);
+    g.setColor(new Color(236, 232, 224, 230));
+    g.drawString(baselineText, chip.x + 4, chip.y + metrics.getAscent() + 1);
+    g.setFont(previousFont);
+  }
+
+  private void drawPlacedString(
+      Graphics2D g, String text, int preferredX, int preferredY, List<Rectangle> occupied) {
+    FontMetrics fm = g.getFontMetrics();
+    int textWidth = fm.stringWidth(text);
+    int textHeight = fm.getAscent() + fm.getDescent();
+    Rectangle bounds = new Rectangle(origParams[0], origParams[1], origParams[2], origParams[3]);
+    Rectangle preferred =
+        new Rectangle(preferredX, preferredY - fm.getAscent(), textWidth, textHeight);
+    Rectangle placed = placeGraphLabelBox(preferred, bounds, occupied);
+    occupied.add(placed);
+    g.drawString(text, placed.x, placed.y + fm.getAscent());
   }
 
   private void drawLineLegend(Graphics2D g, int graphX, int graphY, int graphWidth) {
@@ -1512,16 +1745,18 @@ public class WinrateGraph {
     g.setFont(font);
     FontMetrics fm = g.getFontMetrics();
 
-    boolean hasScoreLead = Lizzie.config.showScoreLeadLine;
-    List<String> labels = lineLegendLabels(hasScoreLead, Lizzie.resourceBundle);
-    ArrayList<Color> colors = new ArrayList<>();
-    colors.add(winrateLineColor());
-    if (hasScoreLead) {
-      colors.add(
-          Lizzie.config.scoreMeanLineColor != null
-              ? Lizzie.config.scoreMeanLineColor
-              : Color.YELLOW);
+    RenderableMetrics metrics = currentRenderableMetrics();
+    List<String> labels = lineLegendLabels(metrics, Lizzie.resourceBundle);
+    if (labels.isEmpty()) {
+      return;
     }
+    List<Color> colors =
+        lineLegendColors(
+            metrics,
+            winrateLineColor(),
+            Lizzie.config != null && Lizzie.config.scoreMeanLineColor != null
+                ? Lizzie.config.scoreMeanLineColor
+                : Color.YELLOW);
 
     int lineLen = largeEnough ? Utils.zoomOut(16) : 16;
     int gap = largeEnough ? Utils.zoomOut(12) : 12;

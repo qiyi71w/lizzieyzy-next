@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Color;
@@ -57,6 +58,21 @@ class PanelBackgroundStyleTest {
     assertTrue(
         luminanceContrast(belowLight, lightBackground)
             > luminanceContrast(belowLight, darkBackground));
+  }
+
+  @Test
+  void winrateBaselineSitsBetweenFillGridAndCurve() {
+    Color curve = new Color(100, 180, 255);
+    Color grid = WinrateGraph.resolveGridLineColor();
+    Color baseline = WinrateGraph.resolveBaselineLineColor();
+    Color fill = WinrateGraph.resolveAboveBaselineFillColor(curve);
+
+    assertTrue(baseline.getAlpha() > grid.getAlpha(), "baseline should outrank ordinary grid.");
+    assertTrue(baseline.getAlpha() < curve.getAlpha(), "baseline should stay below data curves.");
+    assertTrue(fill.getAlpha() < baseline.getAlpha(), "fill should stay below the baseline.");
+    assertTrue(fill.getAlpha() < grid.getAlpha(), "fill should stay below ordinary grid.");
+    assertFalse(
+        baseline.equals(curve), "baseline must not use the user-selectable curve color.");
   }
 
   private static double luminanceContrast(Color foreground, Color background) {
