@@ -49,6 +49,7 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Timer;
@@ -613,6 +614,44 @@ public class Leelaz {
     return pendingTensorRtRepairContext;
   }
 
+  void storePendingTensorRtRepairContext(TensorRtRepairContext context) {
+    pendingTensorRtRepairContext = context;
+  }
+
+  public boolean consumePendingTensorRtRepairContext(TensorRtRepairContext expected) {
+    if (!matchesPendingTensorRtRepairContext(pendingTensorRtRepairContext, expected)) {
+      return false;
+    }
+    pendingTensorRtRepairContext = null;
+    return true;
+  }
+
+  public static boolean consumePendingIfDirectedTransfer(
+      Leelaz engine, boolean directed, TensorRtRepairContext transferred) {
+    if (engine == null || !directed) {
+      return false;
+    }
+    return engine.consumePendingTensorRtRepairContext(transferred);
+  }
+
+  static boolean matchesPendingTensorRtRepairContext(
+      TensorRtRepairContext pending, TensorRtRepairContext expected) {
+    if (pending == null || expected == null) {
+      return false;
+    }
+    if (pending == expected) {
+      return true;
+    }
+    return Objects.equals(
+            stableRepairTarget(pending.failedExecutable),
+            stableRepairTarget(expected.failedExecutable))
+        && Objects.equals(pending.originalCommand, expected.originalCommand);
+  }
+
+  private static Path stableRepairTarget(Path path) {
+    return path == null ? null : path.toAbsolutePath().normalize();
+  }
+
   public List<String> commandLists = new ArrayList<String>();
   private boolean startGetCommandList = false;
   private boolean endGetCommandList = false;
@@ -802,7 +841,7 @@ public class Leelaz {
   }
 
   public void startEngine(int index) throws IOException {
-    pendingTensorRtRepairContext = null;
+    storePendingTensorRtRepairContext(null);
     EngineManager.EngineGameOwnerTransaction engineGameStartupTransaction =
         engineGameStartupCommandContext.get();
     boolean deferredEngineGameRecovery = isDeferredEngineGameRecoveryStartup();
@@ -917,10 +956,10 @@ public class Leelaz {
               engineCommand,
               deferredEngineGameRecovery ? null : Lizzie.frame);
         } catch (IOException e) {
-          pendingTensorRtRepairContext =
+          storePendingTensorRtRepairContext(
               e instanceof TensorRtRuntimeException
                   ? ((TensorRtRuntimeException) e).context
-                  : null;
+                  : null);
           closeBundledStartupDialog();
           String err = e.getLocalizedMessage();
           try {

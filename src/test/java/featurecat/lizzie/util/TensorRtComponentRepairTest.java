@@ -23,8 +23,10 @@ import java.lang.reflect.Constructor;
 import java.net.InetSocketAddress;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.Arrays;
@@ -63,6 +65,7 @@ public class TensorRtComponentRepairTest {
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
@@ -184,8 +187,7 @@ public class TensorRtComponentRepairTest {
                       () -> {
                         seedDirectMlProfiles(snapshot);
                         System.setProperty(
-                            "lizzie.tensorrt.companion.url",
-                            wrongCompanionZip.toUri().toString());
+                            "lizzie.tensorrt.companion.url", wrongCompanionZip.toUri().toString());
                         System.setProperty(
                             "lizzie.tensorrt.companion.sha256", sha256(wrongCompanionZip));
                         System.setProperty(
@@ -218,7 +220,8 @@ public class TensorRtComponentRepairTest {
                         KataGoRuntimeHelper.repairTensorRtComponents(
                             snapshot, null, new DownloadSession());
                         try (CountingFixtureServer server =
-                            CountingFixtureServer.start(Files.readAllBytes(fixtures.companionZip))) {
+                            CountingFixtureServer.start(
+                                Files.readAllBytes(fixtures.companionZip))) {
                           System.setProperty("lizzie.tensorrt.companion.url", server.url());
                           System.setProperty(
                               "lizzie.tensorrt.companion.sha256", fixtures.companionSha256);
@@ -290,8 +293,7 @@ public class TensorRtComponentRepairTest {
   }
 
   @Test
-  void partialRuntimeStaysIncompleteUntilALaterRepairAndCompletedFilesAreReused()
-      throws Exception {
+  void partialRuntimeStaysIncompleteUntilALaterRepairAndCompletedFilesAreReused() throws Exception {
     withOsName(
         WINDOWS_OS_NAME,
         () -> {
@@ -358,8 +360,7 @@ public class TensorRtComponentRepairTest {
                         seedDirectMlProfiles(snapshot);
                         KataGoRuntimeHelper.repairTensorRtComponents(
                             snapshot, null, new DownloadSession());
-                        Path engine =
-                            tensorRtEngineDir(runtimeWorkDirectory).resolve("katago.exe");
+                        Path engine = tensorRtEngineDir(runtimeWorkDirectory).resolve("katago.exe");
                         String engineBefore = Files.readString(engine);
 
                         Path lockPath =
@@ -368,9 +369,7 @@ public class TensorRtComponentRepairTest {
                                 .resolve("tensorrt-install.lock");
                         try (FileChannel lockChannel =
                                 FileChannel.open(
-                                    lockPath,
-                                    StandardOpenOption.CREATE,
-                                    StandardOpenOption.WRITE);
+                                    lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
                             var ignored = lockChannel.lock()) {
                           IOException locked =
                               assertThrows(
@@ -390,8 +389,7 @@ public class TensorRtComponentRepairTest {
                                 "no-engine");
                         System.setProperty(
                             "lizzie.tensorrt.katago.url", emptyEngineZip.toUri().toString());
-                        System.setProperty(
-                            "lizzie.tensorrt.katago.sha256", sha256(emptyEngineZip));
+                        System.setProperty("lizzie.tensorrt.katago.sha256", sha256(emptyEngineZip));
                         System.setProperty(
                             "lizzie.tensorrt.katago.size",
                             Long.toString(Files.size(emptyEngineZip)));
@@ -407,6 +405,108 @@ public class TensorRtComponentRepairTest {
                                     snapshot, null, new DownloadSession()));
                         assertEquals(engineBefore, Files.readString(engine));
                         assertTrue(Files.isRegularFile(engine));
+                      }));
+        });
+  }
+
+  @Test
+  void failedStagingPromotionAndRestoreMoveFallsBackToLastKnownGoodCopy() throws Exception {
+    assertLastKnownGoodSurvivesFailedPromotion(false);
+  }
+
+  @Test
+  void completedRestoreMoveThatThrowsKeepsLastKnownGoodTarget() throws Exception {
+    assertLastKnownGoodSurvivesFailedPromotion(true);
+  }
+
+  private void assertLastKnownGoodSurvivesFailedPromotion(boolean failAfterRestoreMove)
+      throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("tensorrt-repair-backup-restore");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          SetupSnapshot snapshot = createDirectMlSnapshot(tempRoot);
+          RepairFixtures fixtures = createRepairFixtures(tempRoot);
+
+          withRepairFixtures(
+              fixtures,
+              true,
+              () ->
+                  withConfig(
+                      runtimeWorkDirectory,
+                      () -> {
+                        seedDirectMlProfiles(snapshot);
+                        KataGoRuntimeHelper.repairTensorRtComponents(
+                            snapshot, null, new DownloadSession());
+                        Path engineDir = tensorRtEngineDir(runtimeWorkDirectory);
+                        Path engine = engineDir.resolve("katago.exe");
+                        Files.writeString(engine, "last-known-good-engine");
+                        Files.writeString(
+                            engineDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
+                            "KataGo release: v1.0.0\nAsset SHA-256: " + EMPTY_FILE_SHA256 + "\n");
+
+                        KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(
+                            (source, target) -> {
+                              String sourceName = source.getFileName().toString();
+                              if (sourceName.contains(".installing-")) {
+                                throw new IOException("injected TensorRT promotion failure");
+                              }
+                              if (sourceName.contains(".backup-")) {
+                                if (failAfterRestoreMove) {
+                                  Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                                }
+                                throw new IOException("injected TensorRT restore failure");
+                              }
+                              Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                            });
+                        try {
+                          assertThrows(
+                              IOException.class,
+                              () ->
+                                  KataGoRuntimeHelper.repairTensorRtComponents(
+                                      snapshot, null, new DownloadSession()));
+                        } finally {
+                          KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
+                        }
+
+                        Path recoveredBackup = null;
+                        boolean leftoverStaging = false;
+                        String prefix = engineDir.getFileName().toString();
+                        try (DirectoryStream<Path> children =
+                            Files.newDirectoryStream(engineDir.getParent())) {
+                          for (Path child : children) {
+                            String name = child.getFileName().toString();
+                            if (name.startsWith(prefix + ".installing-")) {
+                              leftoverStaging = true;
+                            }
+                            Path backupEngine = child.resolve("katago.exe");
+                            if (name.startsWith(prefix + ".backup-")
+                                && Files.isDirectory(child)
+                                && Files.isRegularFile(backupEngine)
+                                && "last-known-good-engine"
+                                    .equals(Files.readString(backupEngine))) {
+                              recoveredBackup = child;
+                            }
+                          }
+                        }
+                        assertFalse(leftoverStaging, "staging cleanup must still run");
+                        assertTrue(
+                            Files.isRegularFile(engine),
+                            "restore must keep the configured engine path usable");
+                        assertEquals("last-known-good-engine", Files.readString(engine));
+                        if (failAfterRestoreMove) {
+                          assertTrue(
+                              recoveredBackup == null,
+                              "a completed restore move should consume the backup directory");
+                        } else {
+                          assertTrue(
+                              recoveredBackup != null && Files.isDirectory(recoveredBackup),
+                              "fallback restore must retain the last-known-good backup");
+                          assertEquals(
+                              "last-known-good-engine",
+                              Files.readString(recoveredBackup.resolve("katago.exe")));
+                        }
                       }));
         });
   }

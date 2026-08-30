@@ -34,6 +34,7 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.json.JSONArray;
@@ -58,6 +59,8 @@ public class TensorRtDirectedRepairTest {
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
+    KataGoRuntimeHelper.setTensorRtBeforeTargetMutationForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
@@ -400,6 +403,72 @@ public class TensorRtDirectedRepairTest {
                             .getParent()
                             .resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME)));
               });
+        });
+  }
+
+  @Test
+  void directedTargetInvalidatedAtMutationBoundaryDoesNotMutateDefaultOrOutside()
+      throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("tensorrt-directed-post-download");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          SetupSnapshot snapshot = createDirectMlSnapshot(tempRoot);
+          Path failedEngine =
+              installManagedTensorRtEngine(runtimeWorkDirectory, "windows-x64-nvidia50-trt", false);
+          Path decoyDefault =
+              installManagedTensorRtEngine(
+                  runtimeWorkDirectory, "windows-x64-nvidia-tensorrt", false);
+          Path outside = Files.createDirectories(tempRoot.resolve("outside"));
+          Path relocatedEngine = outside.resolve("relocated-katago.exe");
+          RepairFixtures fixtures = createRepairFixtures(tempRoot);
+          AtomicBoolean invalidatedAtMutationBoundary = new AtomicBoolean();
+
+          withRepairFixtures(
+              fixtures,
+              true,
+              () ->
+                  withConfig(
+                      runtimeWorkDirectory,
+                      () -> {
+                        seedDirectMlProfiles(snapshot);
+                        TensorRtRepairContext context =
+                            KataGoRuntimeHelper.inspectTensorRtStartupFailure(
+                                failedEngine, analysisCommand(failedEngine));
+                        KataGoRuntimeHelper.requireValidDirectedTensorRtTarget(context);
+                        String decoyBefore = Files.readString(decoyDefault);
+
+                        KataGoRuntimeHelper.setTensorRtBeforeTargetMutationForTests(
+                            () -> {
+                              if (invalidatedAtMutationBoundary.compareAndSet(false, true)) {
+                                Files.move(failedEngine, relocatedEngine);
+                              }
+                            });
+
+                        assertThrows(
+                            TensorRtTargetInvalidException.class,
+                            () ->
+                                KataGoRuntimeHelper.repairTensorRtComponents(
+                                    snapshot, null, new DownloadSession(), context));
+
+                        assertTrue(invalidatedAtMutationBoundary.get());
+                        assertTrue(Files.isRegularFile(relocatedEngine));
+                        assertEquals("", Files.readString(relocatedEngine));
+                        assertFalse(Files.isRegularFile(failedEngine));
+                        assertFalse(
+                            Files.isRegularFile(
+                                failedEngine
+                                    .getParent()
+                                    .resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME)));
+                        assertEquals(decoyBefore, Files.readString(decoyDefault));
+                        assertFalse(
+                            Files.isRegularFile(
+                                decoyDefault
+                                    .getParent()
+                                    .resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME)),
+                            "ordinary default destination must not be mutated on stale directed context");
+                      }));
         });
   }
 

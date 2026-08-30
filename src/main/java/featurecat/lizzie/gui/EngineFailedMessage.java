@@ -61,6 +61,27 @@ public class EngineFailedMessage extends JDialog {
 
   private final TensorRtRepairContext repairContext;
   private final JButton tensorRtRepairButton;
+  private boolean tensorRtRepairInvoked;
+
+  public static final class DiagnosticActionResult {
+    public final boolean directedRepairOpened;
+
+    public static DiagnosticActionResult none() {
+      return new DiagnosticActionResult(false);
+    }
+
+    public static DiagnosticActionResult ofRepairChoice(boolean directedRepairOpened) {
+      return new DiagnosticActionResult(directedRepairOpened);
+    }
+
+    public static DiagnosticActionResult of(EngineFailedMessage dialog) {
+      return ofRepairChoice(dialog != null && dialog.tensorRtRepairInvoked());
+    }
+
+    DiagnosticActionResult(boolean directedRepairOpened) {
+      this.directedRepairOpened = directedRepairOpened;
+    }
+  }
 
   public static boolean shouldOfferTensorRtRepair(TensorRtRepairContext context) {
     return context != null && context.repairable;
@@ -331,10 +352,7 @@ public class EngineFailedMessage extends JDialog {
       repairButton.addActionListener(
           new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-              setVisible(false);
-              if (Lizzie.frame != null) {
-                Lizzie.frame.openKataGoAutoSetup(repairContext);
-              }
+              invokeTensorRtRepairAction();
             }
           });
       footer.add(repairButton, restartContribute ? BorderLayout.WEST : BorderLayout.EAST);
@@ -389,6 +407,28 @@ public class EngineFailedMessage extends JDialog {
 
   public JButton tensorRtRepairButton() {
     return tensorRtRepairButton;
+  }
+
+  public boolean tensorRtRepairInvoked() {
+    return tensorRtRepairInvoked;
+  }
+
+  boolean recordTensorRtRepairInvoked() {
+    if (tensorRtRepairButton == null) {
+      return false;
+    }
+    tensorRtRepairInvoked = true;
+    return true;
+  }
+
+  void invokeTensorRtRepairAction() {
+    if (!recordTensorRtRepairInvoked()) {
+      return;
+    }
+    setVisible(false);
+    if (Lizzie.frame != null) {
+      Lizzie.frame.openKataGoAutoSetup(repairContext);
+    }
   }
 
   static Dimension calculateDialogSize(

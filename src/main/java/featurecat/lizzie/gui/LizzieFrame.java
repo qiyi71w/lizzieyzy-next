@@ -19513,19 +19513,23 @@ public class LizzieFrame extends JFrame {
         context == null
             ? KataGoAutoSetupDialog.openRequestForMenu()
             : KataGoAutoSetupDialog.openRequestForRepair(context);
-    boolean created = false;
+    boolean directedTransferAccepted = false;
     if (kataGoAutoSetupDialog == null || !kataGoAutoSetupDialog.isDisplayable()) {
       kataGoAutoSetupDialog = new KataGoAutoSetupDialog(this, request.context);
-      created = true;
+      directedTransferAccepted =
+          request.directed && kataGoAutoSetupDialog.hasDirectedRepairContext(request.context);
     } else if (request.directed) {
-      kataGoAutoSetupDialog.applyDirectedRepairContext(request.context);
+      directedTransferAccepted =
+          kataGoAutoSetupDialog.applyDirectedRepairContext(request.context);
     } else {
       kataGoAutoSetupDialog.clearDirectedRepairContext();
       kataGoAutoSetupDialog.refreshState();
     }
-    if (request.directed) {
+    if (directedTransferAccepted) {
       kataGoAutoSetupDialog.showAccelerationSection();
     }
+    Leelaz.consumePendingIfDirectedTransfer(
+        Lizzie.leelaz, directedTransferAccepted, request.context);
     kataGoAutoSetupDialog.ensureVisibleOnScreen();
     kataGoAutoSetupDialog.setVisible(true);
     kataGoAutoSetupDialog.ensureVisibleOnScreen();

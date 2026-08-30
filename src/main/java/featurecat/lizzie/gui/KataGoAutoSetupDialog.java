@@ -425,21 +425,31 @@ public class KataGoAutoSetupDialog extends JDialog {
     sectionNav.setSelectedIndex(3);
   }
 
-  public void applyDirectedRepairContext(TensorRtRepairContext context) {
+  public boolean applyDirectedRepairContext(TensorRtRepairContext context) {
     if (context == null || !context.repairable) {
       clearDirectedRepairContext();
-      return;
+      return false;
     }
     if (!KataGoRuntimeHelper.isValidDirectedTensorRtTarget(context)) {
       tensorRtRepairSession.clear();
       Utils.showMsg(text("AutoSetup.tensorRtTargetStale"), this);
       updateDirectedTargetBanner();
-      return;
+      return false;
     }
     tensorRtRepairSession.apply(context);
     showAccelerationSection();
     updateTensorRtInfo();
     updateDirectedTargetBanner();
+    return hasDirectedRepairContext(context);
+  }
+
+  public boolean hasDirectedRepairContext(TensorRtRepairContext context) {
+    return directedTransferAccepted(context, tensorRtRepairSession.context());
+  }
+
+  public static boolean directedTransferAccepted(
+      TensorRtRepairContext requested, TensorRtRepairContext active) {
+    return requested != null && active == requested;
   }
 
   public void clearDirectedRepairContext() {

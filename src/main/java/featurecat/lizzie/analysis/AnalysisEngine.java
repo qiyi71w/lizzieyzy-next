@@ -6,6 +6,7 @@ import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
 import featurecat.lizzie.gui.AnalysisSettings;
 import featurecat.lizzie.gui.EngineFailedMessage;
+import featurecat.lizzie.gui.EngineFailedMessage.DiagnosticActionResult;
 import featurecat.lizzie.gui.RemoteEngineData;
 import featurecat.lizzie.gui.WaitForAnalysis;
 import featurecat.lizzie.rules.Board;
@@ -43,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jdesktop.swingx.util.OS;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -301,6 +303,11 @@ public class AnalysisEngine {
     return !isPreLoad && generatedConfig;
   }
 
+  static boolean shouldOpenAnalysisSettingsAfterDiagnostic(
+      boolean isPreLoad, DiagnosticActionResult result) {
+    return !isPreLoad && (result == null || !result.directedRepairOpened);
+  }
+
   public void startEngine(String engineCommand) {
     CommandLaunchHelper.LaunchSpec launchSpec =
         CommandLaunchHelper.prepare(Utils.splitCommand(engineCommand));
@@ -409,16 +416,20 @@ public class AnalysisEngine {
     }
     if (isPreLoad) return;
     if (waitFrame != null) waitFrame.setVisible(false);
-    tryToDignostic(errMsg, repairContext);
-    AnalysisSettings analysisSettings = new AnalysisSettings(true, true);
-    analysisSettings.setVisible(true);
+    DiagnosticActionResult diagnostic = tryToDignostic(errMsg, repairContext);
+    if (shouldOpenAnalysisSettingsAfterDiagnostic(isPreLoad, diagnostic)) {
+      AnalysisSettings analysisSettings = new AnalysisSettings(true, true);
+      analysisSettings.setVisible(true);
+    }
   }
 
-  public void tryToDignostic(String message) {
-    tryToDignostic(message, null);
+  public DiagnosticActionResult tryToDignostic(String message) {
+    return tryToDignostic(message, null);
   }
 
-  public void tryToDignostic(String message, TensorRtRepairContext repairContext) {
+  public DiagnosticActionResult tryToDignostic(
+      String message, TensorRtRepairContext repairContext) {
+    AtomicReference<EngineFailedMessage> dialog = new AtomicReference<>();
     EngineFailedMessage.showDialog(
         commands,
         engineCommand,
@@ -427,7 +438,9 @@ public class AnalysisEngine {
         false,
         false,
         true,
-        repairContext);
+        repairContext,
+        dialog::set);
+    return DiagnosticActionResult.of(dialog.get());
   }
 
   private void initializeStreams() {
