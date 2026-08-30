@@ -5,11 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.gui.EngineFailedMessage.DiagnosticActionResult;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtFailureKind;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtInstallStatus;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.GraphicsEnvironment;
 import java.awt.Insets;
 import java.awt.Rectangle;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -400,5 +408,47 @@ class EngineFailedMessageLayoutTest {
       worker.join(TimeUnit.SECONDS.toMillis(5));
       SwingUtilities.invokeAndWait(() -> {});
     }
+  }
+
+  @Test
+  void ordinaryFailureDoesNotRecordARepairClick() {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    EngineFailedMessage dialog =
+        new EngineFailedMessage(
+            List.of("engine.exe"), "engine.exe gtp", "ordinary process failure", true, true, false);
+    assertFalse(dialog.offersTensorRtRepair());
+    assertFalse(dialog.recordTensorRtRepairInvoked());
+    assertFalse(dialog.tensorRtRepairInvoked());
+    assertFalse(DiagnosticActionResult.of(dialog).directedRepairOpened);
+  }
+
+  @Test
+  void repairClickIsRecordedWithoutOpeningSetup() {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    TensorRtRepairContext context =
+        TensorRtRepairContext.of(
+            Path.of("engines", "katago", "windows-x64-nvidia-tensorrt", "katago.exe"),
+            "katago.exe gtp",
+            TensorRtFailureKind.MISSING_RUNTIME,
+            List.of(TensorRtInstallStatus.MISSING_RUNTIME),
+            true,
+            "display");
+    EngineFailedMessage dialog =
+        new EngineFailedMessage(
+            List.of("katago.exe", "gtp"),
+            context.originalCommand,
+            context.displayMessage,
+            true,
+            true,
+            false,
+            context);
+    assertTrue(dialog.offersTensorRtRepair());
+    assertFalse(dialog.tensorRtRepairInvoked());
+    assertFalse(DiagnosticActionResult.of(dialog).directedRepairOpened);
+    assertTrue(dialog.recordTensorRtRepairInvoked());
+    assertTrue(dialog.tensorRtRepairInvoked());
+    assertTrue(DiagnosticActionResult.of(dialog).directedRepairOpened);
   }
 }

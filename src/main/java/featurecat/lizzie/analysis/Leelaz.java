@@ -26,6 +26,8 @@ import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.util.CommandLaunchHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoRuntimeHelper;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRuntimeException;
 import featurecat.lizzie.util.Utils;
 import featurecat.lizzie.util.YikeSyncDebugLog;
 import featurecat.lizzie.logging.EngineObservation;
@@ -605,6 +607,29 @@ public class Leelaz {
   public boolean stopByPlayouts = false;
   public boolean outOfPlayoutsLimit = false;
   private EngineFailedMessage engineFailedMessage;
+  private final AtomicReference<TensorRtRepairContext> pendingTensorRtRepairContext =
+      new AtomicReference<>();
+
+  public TensorRtRepairContext pendingTensorRtRepairContext() {
+    return pendingTensorRtRepairContext.get();
+  }
+
+  void storePendingTensorRtRepairContext(TensorRtRepairContext context) {
+    pendingTensorRtRepairContext.set(context);
+  }
+
+  public boolean consumePendingTensorRtRepairContext(TensorRtRepairContext expected) {
+    return expected != null && pendingTensorRtRepairContext.compareAndSet(expected, null);
+  }
+
+  public static boolean consumePendingIfDirectedTransfer(
+      Leelaz engine, boolean directed, TensorRtRepairContext transferred) {
+    if (engine == null || !directed) {
+      return false;
+    }
+    return engine.consumePendingTensorRtRepairContext(transferred);
+  }
+
   public List<String> commandLists = new ArrayList<String>();
   private boolean startGetCommandList = false;
   private boolean endGetCommandList = false;
@@ -794,6 +819,7 @@ public class Leelaz {
   }
 
   public void startEngine(int index) throws IOException {
+    storePendingTensorRtRepairContext(null);
     EngineManager.EngineGameOwnerTransaction engineGameStartupTransaction =
         engineGameStartupCommandContext.get();
     boolean deferredEngineGameRecovery = isDeferredEngineGameRecoveryStartup();
@@ -905,8 +931,13 @@ public class Leelaz {
           KataGoRuntimeHelper.ensureBundledRuntimeReady(
               engineExecutable,
               commands,
+              engineCommand,
               deferredEngineGameRecovery ? null : Lizzie.frame);
         } catch (IOException e) {
+          storePendingTensorRtRepairContext(
+              e instanceof TensorRtRuntimeException
+                  ? ((TensorRtRuntimeException) e).context
+                  : null);
           closeBundledStartupDialog();
           String err = e.getLocalizedMessage();
           try {
@@ -21688,7 +21719,9 @@ public class Leelaz {
             }
           });
     }
-    if (!shouldOpenInteractiveDiagnostic(primaryEngine, Lizzie.isFirstLaunchSession())) {
+    TensorRtRepairContext repairContext = pendingTensorRtRepairContext.get();
+    if (!shouldOpenInteractiveDiagnostic(
+        primaryEngine, Lizzie.isFirstLaunchSession(), repairContext)) {
       return;
     }
     if (mayClearEngineGame
@@ -21707,6 +21740,7 @@ public class Leelaz {
         true,
         false,
         isModal,
+        repairContext,
         dialog -> engineFailedMessage = dialog);
   }
 
@@ -21720,6 +21754,12 @@ public class Leelaz {
   static boolean shouldOpenInteractiveDiagnostic(
       boolean primaryEngine, boolean firstLaunchSession) {
     return !primaryEngine && !firstLaunchSession;
+  }
+
+  public static boolean shouldOpenInteractiveDiagnostic(
+      boolean primaryEngine, boolean firstLaunchSession, TensorRtRepairContext repairContext) {
+    return EngineFailedMessage.shouldOfferTensorRtRepair(repairContext)
+        || shouldOpenInteractiveDiagnostic(primaryEngine, firstLaunchSession);
   }
 
   static boolean hasMissingLocalStartupAsset(

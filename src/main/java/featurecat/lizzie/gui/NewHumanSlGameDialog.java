@@ -13,6 +13,7 @@ import featurecat.lizzie.training.HumanSlTrainingSession;
 import featurecat.lizzie.training.OpponentPreset;
 import featurecat.lizzie.training.TrainingMode;
 import featurecat.lizzie.util.AnalysisEngineCommandHelper;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadCancelledException;
 import featurecat.lizzie.util.Utils;
@@ -95,6 +96,7 @@ public final class NewHumanSlGameDialog extends JDialog {
   private final JPanel downloadPanel = new JPanel(new GridBagLayout());
 
   private volatile KataGoAutoSetupHelper.DownloadSession downloadSession;
+  private TensorRtRepairContext pendingTensorRtRepairContext;
   private volatile HumanSlAnalysisRunner preparingRunner;
   private volatile HumanSlAnalysisRunner cleanupRetryRunner;
   private volatile Throwable cleanupRetryFailure;
@@ -618,6 +620,10 @@ public final class NewHumanSlGameDialog extends JDialog {
       retryPostCleanupRecovery();
       return;
     }
+    if (pendingTensorRtRepairContext != null) {
+      openPendingTensorRtRepair();
+      return;
+    }
     if (rejectActiveUrlSgfSync()) {
       return;
     }
@@ -759,6 +765,7 @@ public final class NewHumanSlGameDialog extends JDialog {
             : new BoardHistoryList(BoardData.empty(Board.boardWidth, Board.boardHeight)).root();
     AnalysisEngineCommandHelper.Result commandResult = resolveAnalysisCommand();
     if (!commandResult.isSuccess()) {
+      pendingTensorRtRepairContext = null;
       String detail = commandResult.getMessage();
       showInlineError(
           Utils.isBlank(detail)
@@ -1343,20 +1350,8 @@ public final class NewHumanSlGameDialog extends JDialog {
               return null;
             },
             () -> {
-              String failureDetail =
-                  preparationFailureMessage(preparationFailure, unavailableReason);
-              if (restoreFailure[0] != null) {
-                failureDetail =
-                    failureDetail
-                        + " | "
-                        + foregroundRestoreFailureMessage(restoreFailure[0]);
-              }
-              showInlineError(
-                  MessageFormat.format(
-                      text(
-                          "HumanSlGame.error.startFailed",
-                          "Failed to start HumanSL engine: {0}"),
-                      failureDetail));
+              presentPreparationFailure(
+                  runner, preparationFailure, unavailableReason, restoreFailure[0]);
               return null;
             });
     if (restoreFailure[0] == null) {
@@ -1491,6 +1486,57 @@ public final class NewHumanSlGameDialog extends JDialog {
         });
     logLifecycleFailure(
         "runner preparation cancellation dialog restore", dialogRestoreFailure[0]);
+  }
+
+  private void presentPreparationFailure(
+      HumanSlAnalysisRunner runner,
+      Throwable preparationFailure,
+      String unavailableReason,
+      Throwable restoreFailure) {
+    HumanSlTensorRtRepairView view =
+        HumanSlTensorRtRepairView.fromPreparation(
+            true,
+            HumanSlGameController.resolveDefaultHumanModel() != null,
+            runner == null ? null : runner.getTensorRtRepairContext());
+    if (restoreFailure == null && view.offerRepair) {
+      pendingTensorRtRepairContext = view.context;
+      startButton.setText(view.repairActionLabel(key -> text(key, "Open Auto Setup repair")));
+      startButton
+          .getAccessibleContext()
+          .setAccessibleName(
+              text(
+                  HumanSlTensorRtRepairView.REPAIR_ACTION_ACCESSIBLE_NAME_KEY,
+                  "Open TensorRT repair"));
+      startButton
+          .getAccessibleContext()
+          .setAccessibleDescription(
+              text(
+                  HumanSlTensorRtRepairView.REPAIR_ACTION_ACCESSIBLE_DESCRIPTION_KEY,
+                  "Open KataGo Auto Setup and repair the TensorRT engine that failed to start."));
+      showInlineError(view.inlineError(key -> text(key, "")));
+      return;
+    }
+    pendingTensorRtRepairContext = null;
+    if (restoreFailure == null) {
+      restorePrimaryActionLabel();
+    }
+    String failureDetail = preparationFailureMessage(preparationFailure, unavailableReason);
+    if (restoreFailure != null) {
+      failureDetail = failureDetail + " | " + foregroundRestoreFailureMessage(restoreFailure);
+    }
+    showInlineError(
+        MessageFormat.format(
+            text("HumanSlGame.error.startFailed", "Failed to start HumanSL engine: {0}"),
+            failureDetail));
+  }
+
+  private void openPendingTensorRtRepair() {
+    TensorRtRepairContext context = pendingTensorRtRepairContext;
+    pendingTensorRtRepairContext = null;
+    restorePrimaryActionLabel();
+    HumanSlTensorRtRepairView.fromPreparation(
+            true, HumanSlGameController.resolveDefaultHumanModel() != null, context)
+        .openDirectedRepair(this);
   }
 
   private String preparationFailureMessage(Throwable failure, String unavailableReason) {
