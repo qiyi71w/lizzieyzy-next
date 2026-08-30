@@ -37,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -75,6 +76,8 @@ class DiagnosticBundleExporterTest {
   @AfterEach
   void tearDown() {
     LoggingRuntime.resetForTests();
+    ThreadSnapshot.resetHeldForTests();
+    EdtHangWatchdog.uninstall();
   }
 
   @Test
@@ -128,6 +131,8 @@ class DiagnosticBundleExporterTest {
     assertTrue(names.contains("snapshots/summary.txt"));
     assertTrue(names.contains("snapshots/sync-context.json"));
     assertTrue(names.contains("snapshots/versions.json"));
+    assertTrue(names.contains("snapshots/runtime.json"));
+    assertTrue(names.contains("snapshots/threads.txt"));
     assertFalse(names.contains("app.log"));
     assertFalse(names.contains("crash.log"));
     assertFalse(names.contains("logs/lizzie/engine-trace.log"));
@@ -169,7 +174,161 @@ class DiagnosticBundleExporterTest {
     assertFalse(engine.has("command"));
     JSONObject versions = new JSONObject(text(entries, "snapshots/versions.json"));
     assertEquals("next-dev", versions.getString("host"));
+    JSONObject runtimeSnapshot = new JSONObject(text(entries, "snapshots/runtime.json"));
+    assertRuntimeSnapshotShape(runtimeSnapshot);
+    assertRuntimeSnapshotMemoryNonNegative(runtimeSnapshot);
+    assertWorkDirUsablePresentOrMissing(runtimeSnapshot);
+    assertFalse(
+        text(entries, "snapshots/runtime.json").contains(tempDir.toAbsolutePath().toString()),
+        text(entries, "snapshots/runtime.json"));
+    String threads = text(entries, "snapshots/threads.txt");
+    assertTrue(threads.contains("name="), threads);
+    assertTrue(threads.contains("state="), threads);
+    assertTrue(threads.contains("daemon="), threads);
+    assertTrue(threads.contains("--- stack ---"), threads);
+    assertEquals("included", source(manifest, "threads").getString("status"));
     assertNoCanaries(entries, "CANARY_PASSWORD_EXPORT", "C:\\Users\\alice");
+  }
+
+  @Test
+  void exportWritesFindableEventQueueThreadSnapshotThroughSanitizer() throws Exception {
+    LoggingRuntime runtime = start();
+    CountDownLatch parked = new CountDownLatch(1);
+    CountDownLatch secretParked = new CountDownLatch(1);
+    Thread edt =
+        new Thread(
+            () -> {
+              parked.countDown();
+              LockSupport.park();
+            },
+            "AWT-EventQueue-0");
+    edt.setDaemon(true);
+    Thread secret =
+        new Thread(
+            () -> {
+              secretParked.countDown();
+              LockSupport.park();
+            },
+            "diag-worker password=CANARY_THREAD_SECRET");
+    secret.setDaemon(true);
+    edt.start();
+    secret.start();
+    assertTrue(parked.await(5, TimeUnit.SECONDS));
+    assertTrue(secretParked.await(5, TimeUnit.SECONDS));
+    try {
+      Map<String, byte[]> entries = unzipEntries(exportDefault(runtime));
+      assertTrue(entries.containsKey("snapshots/threads.txt"));
+      String threads = text(entries, "snapshots/threads.txt");
+      assertTrue(threads.contains("AWT-EventQueue-0"), threads);
+      assertTrue(threads.contains("name=AWT-EventQueue-0"), threads);
+      assertTrue(threads.contains(">>> HIGHLIGHT"), threads);
+      assertTrue(threads.contains("state="), threads);
+      assertTrue(threads.contains("--- stack ---"), threads);
+      assertFalse(threads.contains("CANARY_THREAD_SECRET"), threads);
+      assertTrue(threads.contains("password=<redacted>"), threads);
+      assertSource(source(manifest(entries), "threads"), true, true, "included", "snapshots/");
+    } finally {
+      LockSupport.unpark(edt);
+      LockSupport.unpark(secret);
+      edt.join(1_000);
+      secret.join(1_000);
+    }
+  }
+
+  @Test
+  void threadSnapshotFailureDoesNotFailThePackage() throws Exception {
+    LoggingRuntime runtime = start();
+    DiagnosticBundleExporter exporter =
+        new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir));
+    exporter.setThreadSnapshotSourceForTests(
+        sanitizer -> {
+          throw new IllegalStateException("snapshot boom");
+        });
+    Path zip = exporter.export(request(runtime, EnumSet.noneOf(TraceScope.class)));
+    assertTrue(Files.isRegularFile(zip));
+    Map<String, byte[]> entries = unzipEntries(zip);
+    assertTrue(entries.containsKey("snapshots/config.json"));
+    assertTrue(entries.containsKey("snapshots/versions.json"));
+    assertTrue(entries.containsKey("snapshots/runtime.json"));
+    assertTrue(entries.containsKey("snapshots/threads.txt"));
+    assertTrue(text(entries, "snapshots/threads.txt").contains("thread snapshot failed"));
+    JSONObject threads = source(manifest(entries), "threads");
+    assertSource(threads, true, false, "failed", "snapshots/");
+    assertEquals("unreadable", threads.getString("reason"));
+  }
+
+  @Test
+  void exportWritesParseableRuntimeSnapshot() throws Exception {
+    LoggingRuntime runtime = start();
+    Map<String, byte[]> entries = unzipEntries(exportDefault(runtime));
+    assertTrue(entries.containsKey("snapshots/config.json"));
+    assertTrue(entries.containsKey("snapshots/environment.txt"));
+    assertTrue(entries.containsKey("snapshots/summary.txt"));
+    assertTrue(entries.containsKey("snapshots/sync-context.json"));
+    assertTrue(entries.containsKey("snapshots/versions.json"));
+    assertTrue(entries.containsKey("snapshots/threads.txt"));
+    assertTrue(entries.containsKey("snapshots/runtime.json"));
+    JSONObject runtimeSnapshot = new JSONObject(text(entries, "snapshots/runtime.json"));
+    assertRuntimeSnapshotShape(runtimeSnapshot);
+    assertRuntimeSnapshotMemoryNonNegative(runtimeSnapshot);
+    assertWorkDirUsablePresentOrMissing(runtimeSnapshot);
+    assertFalse(
+        text(entries, "snapshots/runtime.json").contains(tempDir.toAbsolutePath().toString()));
+  }
+
+  @Test
+  void runtimeSnapshotDiskFailureDoesNotFailThePackage() throws Exception {
+    LoggingRuntime runtime = start();
+    DiagnosticBundleExporter exporter =
+        new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir));
+    exporter.setRuntimeSnapshotSourceForTests(
+        (workDirectory, sanitizer) ->
+            RuntimeSnapshot.capture(
+                workDirectory,
+                sanitizer,
+                ignored -> {
+                  throw new IOException("store-unreadable");
+                }));
+    Path zip = exporter.export(request(runtime, EnumSet.noneOf(TraceScope.class)));
+    assertTrue(Files.isRegularFile(zip));
+    Map<String, byte[]> entries = unzipEntries(zip);
+    assertTrue(entries.containsKey("snapshots/config.json"));
+    assertTrue(entries.containsKey("snapshots/environment.txt"));
+    assertTrue(entries.containsKey("snapshots/summary.txt"));
+    assertTrue(entries.containsKey("snapshots/sync-context.json"));
+    assertTrue(entries.containsKey("snapshots/versions.json"));
+    assertTrue(entries.containsKey("snapshots/threads.txt"));
+    assertTrue(entries.containsKey("snapshots/runtime.json"));
+    JSONObject runtimeSnapshot = new JSONObject(text(entries, "snapshots/runtime.json"));
+    assertRuntimeSnapshotShape(runtimeSnapshot);
+    assertTrue(runtimeSnapshot.isNull("workDirUsableGiB"), runtimeSnapshot.toString());
+    assertEquals(
+        RuntimeSnapshot.MISSING_UNREADABLE,
+        runtimeSnapshot.getJSONObject("missing").getString("workDirUsableGiB"));
+    assertRuntimeSnapshotMemoryNonNegative(runtimeSnapshot);
+    assertTrue(runtimeSnapshot.getLong("heapUsedMiB") >= 0L, runtimeSnapshot.toString());
+  }
+
+  @Test
+  void runtimeSnapshotCaptureFailureDoesNotFailThePackage() throws Exception {
+    LoggingRuntime runtime = start();
+    DiagnosticBundleExporter exporter =
+        new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir));
+    exporter.setRuntimeSnapshotSourceForTests(
+        (workDirectory, sanitizer) -> {
+          throw new IllegalStateException("runtime boom");
+        });
+    Path zip = exporter.export(request(runtime, EnumSet.noneOf(TraceScope.class)));
+    assertTrue(Files.isRegularFile(zip));
+    Map<String, byte[]> entries = unzipEntries(zip);
+    assertTrue(entries.containsKey("snapshots/config.json"));
+    assertTrue(entries.containsKey("snapshots/versions.json"));
+    assertTrue(entries.containsKey("snapshots/runtime.json"));
+    JSONObject runtimeSnapshot = new JSONObject(text(entries, "snapshots/runtime.json"));
+    assertRuntimeSnapshotShape(runtimeSnapshot);
+    for (String field : RuntimeSnapshot.REQUIRED_FIELDS) {
+      assertTrue(runtimeSnapshot.isNull(field), field);
+    }
   }
 
   @Test
@@ -2245,6 +2404,37 @@ class DiagnosticBundleExporterTest {
 
   private static JSONObject source(JSONObject manifest, String name) {
     return manifest.getJSONObject("sources").getJSONObject(name);
+  }
+
+  private static void assertRuntimeSnapshotShape(JSONObject runtime) {
+    for (String field : RuntimeSnapshot.REQUIRED_FIELDS) {
+      assertTrue(runtime.has(field), field + " missing from " + runtime);
+    }
+  }
+
+  private static void assertRuntimeSnapshotMemoryNonNegative(JSONObject runtime) {
+    assertNonNegativeIfPresent(runtime, "heapUsedMiB");
+    assertNonNegativeIfPresent(runtime, "heapCommittedMiB");
+    assertNonNegativeIfPresent(runtime, "heapMaxMiB");
+    assertNonNegativeIfPresent(runtime, "nonHeapUsedMiB");
+  }
+
+  private static void assertWorkDirUsablePresentOrMissing(JSONObject runtime) {
+    assertTrue(runtime.has("workDirUsableGiB"), runtime.toString());
+    if (runtime.isNull("workDirUsableGiB")) {
+      assertEquals(
+          RuntimeSnapshot.MISSING_UNREADABLE,
+          runtime.getJSONObject("missing").getString("workDirUsableGiB"));
+    } else {
+      assertTrue(runtime.getLong("workDirUsableGiB") >= 0L, runtime.toString());
+    }
+  }
+
+  private static void assertNonNegativeIfPresent(JSONObject json, String field) {
+    assertTrue(json.has(field), field);
+    if (!json.isNull(field)) {
+      assertTrue(json.getLong(field) >= 0L, field + "=" + json.get(field));
+    }
   }
 
   private static void assertSource(

@@ -34,8 +34,7 @@ This project is a maintained fork. We care about practical fixes, clear packagin
 - 下载的安装包文件名
 - 是否内置引擎版本
 - 问题出现时的操作步骤
-- 截图或录屏
-- 报错文本
+- 如果程序能启动，优先附上 **帮助 → 诊断与日志 → 导出诊断包** 生成的 ZIP（经过隐私脱敏）；无法启动时附 `logs/app.log`，以及存在时的 `logs/crash.log`；截图或录屏、报错文本也有帮助
 - 如果和野狐抓谱相关，请写清楚你输入的野狐昵称，以及返回结果
 - 如果能复现，请写出稳定复现步骤
 

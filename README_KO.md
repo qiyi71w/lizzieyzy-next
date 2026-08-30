@@ -15,9 +15,8 @@
 </p>
 
 <p align="center">
-  <strong>LizzieYzy Next 는 지금도 유지보수 중인 lizzieyzy 계열 실사용판이며, 일반 사용자를 위한 KataGo 복기 GUI 입니다.</strong><br/>
-  사용자가 실제로 체감하는 부분인 배포판 선택, 첫 실행 준비, Fox 기보 가져오기, 전판을 한눈에 읽는 분석 경험을 지금 시점에 맞게 다시 다듬고 있습니다.<br/>
-  <strong>다운로드하고, Fox 닉네임을 입력하고, 공개 기보를 가져오고, 빠른 전판 분석을 돌린 뒤, 새 승률 그래프와 하단 빠른 개요로 중요한 수로 바로 이동할 수 있습니다.</strong>
+  <strong>LizzieYzy Next 는 KataGo 로 대국을 복기하는 사용자를 위해 유지보수되는 lizzieyzy 브랜치입니다.</strong><br/>
+  Fox 닉네임 기보 가져오기, 빠른 전판 분석, 새 승률 그래프와 하단 빠른 개요를 제공하며 Windows, macOS, Linux 버전을 배포합니다.
 </p>
 
 <p align="center">
@@ -40,34 +39,9 @@
 > 추출 코드: `3i8w`
 
 > [!TIP]
-> 중국어 QQ 그룹: `299419120`
+> [중국어 QQ 그룹: 299419120](https://qm.qq.com/q/JZoeojjteg)
 >
 > 일상적인 사용 질문, 버그 제보, 기능 요청을 가장 빠르게 주고받는 곳입니다.
-
-> [!IMPORTANT]
-> 먼저 이 6가지만 기억하면 됩니다:
-> - 대부분의 Windows 사용자는 [안정판 다운로드](https://goagent.top/download/)에서 `*windows64.opencl.portable.zip` 을 받으면 가장 쉽습니다
-> - NVIDIA GPU 가 있고 더 빠른 분석을 원하면 `*windows64.nvidia.portable.zip` 을 선택하면 됩니다
-> - OpenCL 이 잘 맞지 않으면 `*windows64.with-katago.portable.zip` 으로 바꿔 쓸 수 있습니다
-> - Fox 기보 가져오기는 닉네임 입력을 지원하므로, 많은 사용자는 계정 번호를 먼저 알 필요가 없습니다
-> - 권장 전체 패키지에는 KataGo `v1.18.1`과 공식 플래그십 B11 Transformer가 포함되며 화면에는 “Transformer 11B 기력 우선”(약 202 MiB)으로 표시됩니다. 한 번의 판단은 더 강하지만 탐색 속도는 느릴 수 있으며, 속도를 우선하면 자동 설정에서 B10으로 바꿀 수 있습니다. 코어 업데이트 패키지에는 엔진과 가중치가 포함되지 않습니다
-> - 주요 release 패키지에는 `readboard_java` 도 들어 있으므로, 대부분의 사용자는 별도 readboard 저장소가 필요하지 않습니다
-
-## 왜 많은 사용자가 여기서 시작하는가
-
-`LizzieYzy Next` 는 이렇게 이해하면 됩니다.
-
-- 일반 사용자가 바로 쓰기 쉬운 `KataGo 복기 소프트웨어`
-- `Fox 기보 가져오기 + 빠른 전판 분석 + 여러 OS 배포판` 을 한데 묶은 실사용 워크플로
-- 오래된 `lizzieyzy` 환경에서 이어서 쓰기 쉬운 현재 유지보수 브랜치
-
-다음 같은 것을 찾고 있다면 이 프로젝트를 먼저 보면 됩니다.
-
-- `KataGo 복기 소프트웨어`
-- `KataGo GUI`
-- `lizzieyzy 유지보수판`
-- `Fox 기보 가져오기 + KataGo 복기`
-- `Windows 무설치 바둑 AI 도구`
 
 ## 실행하자마자 할 수 있는 것
 
@@ -78,7 +52,13 @@
 | 문제수를 빨리 찾기 | 새 메인 승률 그래프와 하단 열지도 개요로 큰 손해 구간을 더 쉽게 찾습니다 |
 | 설정을 덜 건드리기 | 추천 패키지에 KataGo, 기본 가중치, 첫 실행 자동 설정이 들어 있습니다 |
 | 설치 없이 쓰기 | Windows 에서는 `portable.zip` 을 우선 고를 수 있습니다 |
-| 바둑판 동기화도 쓰기 | 주요 배포판에 `readboard_java` 가 포함됩니다 |
+| 바둑판 동기화도 쓰기 | Windows 주요 배포판에 네이티브 `readboard.exe` 가 포함됩니다 |
+| 빠른 곡선 작업이 주 엔진을 차지하지 않게 하기 | `KataGo 자동 설정 -> 가중치 관리` 에서 38 MB 공식 경량 모델을 필요할 때 다운로드할 수 있습니다. 기보 곡선의 빈 구간을 채울 때만 실행하고 주 분석 전에 GPU 를 해제합니다 |
+| 이 PC보다 더 많은 연산 성능 사용하기 | `설정 -> 원격 컴퓨팅` 에서 Zhizi 클라우드 컴퓨팅에 로그인하고 원격 KataGo 엔진을 만들 수 있습니다 |
+
+원격 컴퓨팅의 기본값은 “VIP 월정액”(`--gpu-type vip-share`)입니다. 비 VIP 사용자는 고급 설정에서 종량제 1x / 3x / 6x 단계를 선택할 수 있습니다. 기본 프리셋은 Zhizi 28B 모델을 사용합니다. TensorRT 와 CUDA 는 클라우드 엔진 백엔드 이름이며 요금제 이름이 아닙니다.
+
+저장한 로그인 정보는 Windows DPAPI, macOS Keychain 또는 Linux Secret Service 로 보호되며 일반 설정에 기록되지 않습니다. 보안 저장소를 사용할 수 없으면 인증 정보는 앱을 종료할 때까지만 유지됩니다. 연결이 끊기면 자동으로 다시 연결하며 언제든 로컬 엔진으로 돌아갈 수 있습니다.
 
 ## 먼저 무엇을 다운로드할까
 
@@ -90,40 +70,32 @@
 
 | 내 환경 | Releases 에서 이 키워드를 포함하는 파일 찾기 |
 | --- | --- |
-| 대부분의 Windows 사용자, 추천, 무설치 | `*windows64.opencl.portable.zip` |
-| Windows, OpenCL 버전, 설치형 | `*windows64.opencl.installer.exe` |
-| Windows, OpenCL 이 불안정, CPU 대안, 무설치 | `*windows64.with-katago.portable.zip` |
+| Windows, RTX 20/30/40/50 NVIDIA GPU, 추천, 무설치 | `*windows64.nvidia.portable.zip` |
+| Windows, RTX 20/30/40/50 NVIDIA GPU, 설치형 | `*windows64.nvidia.installer.exe` |
+| Windows, AMD / Intel / 구형 NVIDIA GPU, 무설치 | `*windows64.opencl.portable.zip` |
+| Windows, AMD / Intel / 구형 NVIDIA GPU, 설치형 | `*windows64.opencl.installer.exe` |
+| Windows, 적합한 GPU 가 없거나 GPU 버전을 시작할 수 없음, CPU 대안 | `*windows64.with-katago.portable.zip` |
 | Windows, CPU 대안, 설치형 | `*windows64.with-katago.installer.exe` |
-| Windows, NVIDIA GPU, 더 빠른 분석, 무설치 | `*windows64.nvidia.portable.zip` |
-| Windows, NVIDIA GPU, 설치형 | `*windows64.nvidia.installer.exe` |
+| Windows, RTX 30 시리즈 이하, TensorRT 선택 설치 | NVIDIA 패키지로 시작한 뒤 `KataGo 자동 설정` 에서 TensorRT 설치 |
+| Windows, DirectX 12 GPU, DirectML 테스트 | `*windows64.experimental.directml.portable.zip` |
+| Windows, Intel GPU/NPU, OpenVINO 테스트 | `*windows64.experimental.openvino.portable.zip` |
+| Windows, 지원되는 AMD GPU, ROCm 테스트 | 해당 `*windows64.experimental.rocm.*.portable.zip` 선택 |
 | Windows, 내 엔진 사용, 무설치 | `*windows64.without.engine.portable.zip` |
 | Windows, 내 엔진 사용, 설치형 | `*windows64.without.engine.installer.exe` |
 | macOS Apple Silicon | `*mac-apple-silicon.with-katago.dmg` |
 | macOS Intel | `*mac-intel.with-katago.dmg` |
 | Linux | `*linux64.with-katago.zip` |
 
-헷갈릴 때는 이렇게 보면 됩니다:
+CPU, OpenCL, CUDA, TensorRT, Metal 백엔드용 전체 패키지와 Linux 패키지는 KataGo `v1.18.1` 을 사용합니다. Linux NVIDIA 버전은 실행 환경 호환성을 위해 CUDA 12.1 을 유지합니다.
 
-- Windows: 먼저 `*windows64.opencl.portable.zip`
-- Windows + NVIDIA GPU: 먼저 `*windows64.nvidia.portable.zip`
-- OpenCL 이 잘 맞지 않음: `*windows64.with-katago.portable.zip`
-- Mac: Apple Silicon 인지 Intel 인지 먼저 확인
-- Linux: `*linux64.with-katago.zip`
+권장 전체 패키지에는 공식 플래그십 B11 모델 `b11c768h12nbt3tflrs-fson-silu.bin.gz`(약 202 MiB)이 포함됩니다. RTX 3070 비교에서는 탐색 처리량이 B10 보다 약 40% 낮았으며, 속도를 우선하면 `KataGo 자동 설정 -> 가중치` 에서 B10 으로 바꿀 수 있습니다.
 
-## 왜 지금 이 버전이 더 쓰기 쉬운가
+NVIDIA 및 TensorRT:
 
-- `Fox 기보 가져오기가 다시 작동`
-  사용자가 기억하는 닉네임에서 바로 시작할 수 있습니다.
-- `빠른 전판 분석이 주 흐름이 됨`
-  한 수씩 쌓지 않아도 전체 그림을 빨리 만들 수 있습니다.
-- `메인 승률 그래프 + 하단 빠른 개요`
-  큰 손해가 나온 구간을 먼저 보기 쉬워졌습니다.
-- `Windows 는 무설치판 우선`
-  OpenCL / NVIDIA / CPU 대안의 차이를 더 쉽게 이해할 수 있습니다.
-- `readboard_java 를 메인 release 에 포함`
-  대부분의 사용자는 별도 저장소를 조합할 필요가 없습니다.
-- `실제 release + 실제 스모크 테스트`
-  소스만 바꾸는 것이 아니라, 여러 OS 배포판과 실제 흐름 검증도 계속 하고 있습니다.
+- `KataGo 자동 설정` 은 NVIDIA GPU 와 Compute Capability 를 감지해 TensorRT 사용 여부를 안내합니다. 감지에 실패해도 수동으로 계속할 수 있습니다.
+- RTX 40/50 은 기본적으로 CUDA 를 사용합니다. TensorRT 는 RTX 30 시리즈 이하에서 선택할 수 있습니다.
+- NVIDIA 드라이버 `570.65` 이상은 바로 로드합니다. `528.33–570.64` 는 첫 실행 때 가벼운 추론 테스트를 한 번 수행하고, 그보다 오래된 드라이버는 복구 상태를 표시합니다.
+- GTX 10 시리즈 이전 카드는 OpenCL 을 사용하세요. OpenCL 이 불안정하면 `*windows64.with-katago.portable.zip` 으로 전환합니다.
 
 ## 3단계로 시작
 
@@ -141,15 +113,13 @@
   GitHub 에서 GIF 재생이 느리면 위 이미지를 눌러 전체 애니메이션을 열 수 있습니다.
 </p>
 
-## 실제 화면
-
-아래 이미지는 현재 유지보수판의 실제 화면입니다.
+## 화면 미리보기
 
 <p align="center">
-  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next actual interface" width="100%" />
+  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next 화면 미리보기" width="100%" />
 </p>
 
-그래프 영역은 이렇게 읽으면 됩니다.
+메인 승률 그래프와 하단 빠른 개요에는 다음 정보가 표시됩니다.
 
 <p align="center">
   <img src="assets/winrate-quick-overview-2026-04.png" alt="LizzieYzy Next winrate graph and quick overview" width="46%" />
@@ -169,27 +139,13 @@
 | 입력 방식 | 숫자 계정 번호를 먼저 알아야 하는 경우가 많음 | Fox 닉네임을 넣으면 앱이 계정을 자동으로 찾음 |
 | KataGo 사용 장벽 | 직접 환경이나 누락 리소스를 채워야 하는 경우가 많음 | 추천 패키지에 KataGo 와 기본 가중치가 이미 포함됨 |
 | Windows 다운로드 경험 | 사용자가 직접 판단해야 할 부분이 더 많음 | `portable.zip` 우선 추천으로 더 명확함 |
-| 동기화 도구 | 사용자가 직접 조합해야 하는 경우가 많음 | 주요 release 에 `readboard_java` 포함 |
+| 동기화 도구 | 사용자가 직접 조합해야 하는 경우가 많음 | Windows 주요 배포판에 네이티브 `readboard.exe` 포함 |
 
-## 자주 묻는 질문
+## macOS 첫 실행
 
-### readboard 용으로 별도 저장소가 아직도 필요한가?
+Mac 에 맞는 패키지를 선택하고 DMG 를 연 다음 `LizzieYzy Next` 를 응용 프로그램으로 드래그합니다. 설치 디스크를 꺼낸 뒤 Finder 의 응용 프로그램 폴더에서 실행하세요. 공식 release 는 서명과 공증을 거칩니다. macOS 가 계속 차단하면 [설치 가이드](docs/INSTALL_KO.md) 를 확인하세요.
 
-대부분의 사용자는 필요 없습니다. `LizzieYzy Next` 는 `readboard_java` 를 주요 release 패키지에 포함합니다.
-
-### Fox 계정 번호를 먼저 알아야 하나?
-
-대부분의 경우 그럴 필요 없습니다. Fox 닉네임을 입력하면 앱이 맞는 계정을 찾아 줍니다.
-
-### 전판 흐름을 보려면 아직도 한 수씩 넘겨야 하나?
-
-보통은 그럴 필요가 없습니다. 빠른 전판 분석이 있어서 메인 승률 그래프와 개요가 훨씬 빨리 만들어집니다.
-
-### macOS 에서 첫 실행 때 막히면 어떻게 하나?
-
-현재 macOS 배포판은 아직 서명과 공증이 없습니다. 첫 실행에서 막히면 [설치 가이드](docs/INSTALL_KO.md) 를 따라 진행하면 됩니다.
-
-## 사용자 문서
+## 문서와 참여
 
 - [지원 가이드](SUPPORT.md)
 - [설치 가이드](docs/INSTALL_KO.md)
@@ -197,25 +153,33 @@
 - [문제 해결 (English)](docs/TROUBLESHOOTING_EN.md)
 - [검증된 플랫폼 (English)](docs/TESTED_PLATFORMS.md)
 - [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases)
-- GitHub Discussions: <https://github.com/wimi321/lizzieyzy-next/discussions>
-- 중국어 QQ 그룹: `299419120`
-
-## 프로젝트 링크
+- [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next/discussions)
+- [중국어 QQ 그룹: 299419120](https://qm.qq.com/q/JZoeojjteg)
 - [Roadmap](ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
-- [Support](SUPPORT.md)
 
 ## Credits
 
 - Original project: [yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
 - KataGo: [lightvector/KataGo](https://github.com/lightvector/KataGo)
-Historical Fox sync references:
+- 바둑판 동기화 도구: [qiyi71w/readboard](https://github.com/qiyi71w/readboard)
+
+readboard 를 계속 유지보수하고 개선하는 [qiyi71w](https://github.com/qiyi71w) 님께 감사드립니다.
+
+모든 기여자에게 감사드립니다:
+
+<p align="left">
+  <a href="https://github.com/wimi321/lizzieyzy-next/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=wimi321/lizzieyzy-next" alt="LizzieYzy Next 기여자" />
+  </a>
+</p>
+
+Fox 기보 가져오기 참고 자료:
+
 - [yzyray/FoxRequest](https://github.com/yzyray/FoxRequest)
 - [FuckUbuntu/Lizzieyzy-Helper](https://github.com/FuckUbuntu/Lizzieyzy-Helper)
 
 ## 번역 참여
 
-번역을 환영합니다! 이 README를 모국어로 번역해 주실 분은 Pull Request를 보내 주세요.
-
-We welcome translations! If you want to translate this README into your native language, please feel free to submit a Pull Request.
+README 번역 Pull Request 를 환영합니다. Translations are welcome; please submit a Pull Request.

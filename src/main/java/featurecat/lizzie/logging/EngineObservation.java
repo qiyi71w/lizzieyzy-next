@@ -3,15 +3,35 @@ package featurecat.lizzie.logging;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class EngineObservation {
+  public static final String STAGE_PROCESS_STARTED = "process-started";
+  public static final String STAGE_FIRST_STDERR = "first-stderr";
+  public static final String STAGE_GTP_NAME = "gtp-name";
+  public static final String STAGE_GTP_VERSION = "gtp-version";
+  public static final String STAGE_READY = "ready";
+  public static final String STAGE_FAILED = "failed";
+
+  private static final String[] STARTUP_STAGE_ORDER = {
+    STAGE_PROCESS_STARTED,
+    STAGE_FIRST_STDERR,
+    STAGE_GTP_NAME,
+    STAGE_GTP_VERSION,
+    STAGE_READY,
+    STAGE_FAILED
+  };
+
   private static final Logger ENGINE = LoggerFactory.getLogger(LogCategories.ENGINE);
   private static final Logger GTP = LoggerFactory.getLogger(LogCategories.GTP);
   private static final Logger TRACE = LoggerFactory.getLogger(LogCategories.ENGINE_TRACE);
   private static final Object IDENTITY_LOCK = new Object();
   private static final WeakHashMap<Object, String> ENGINE_IDS = new WeakHashMap<>();
+  private static final ConcurrentHashMap<String, StartupState> STARTUPS = new ConcurrentHashMap<>();
 
   private EngineObservation() {}
 
@@ -38,16 +58,24 @@ public final class EngineObservation {
   }
 
   public static String ensureStarted(Object owner, String purpose) {
+    return ensureStarted(owner, purpose, null);
+  }
+
+  public static String ensureStarted(Object owner, String purpose, EngineBootstrapFacts facts) {
     String existing = identityFor(owner);
     if (existing != null) {
       return existing;
     }
-    return startInstance(owner, purpose);
+    return startInstance(owner, purpose, facts);
   }
 
   public static String restartInstance(Object owner, String purpose) {
+    return restartInstance(owner, purpose, null);
+  }
+
+  public static String restartInstance(Object owner, String purpose, EngineBootstrapFacts facts) {
     ensureStopped(owner, "replaced");
-    return startInstance(owner, purpose);
+    return startInstance(owner, purpose, facts);
   }
 
   public static void ensureStopped(Object owner, String reason) {
@@ -56,9 +84,7 @@ public final class EngineObservation {
       return;
     }
     recordStopped(id, reason);
-    synchronized (IDENTITY_LOCK) {
-      ENGINE_IDS.remove(owner);
-    }
+    discardIdentity(owner);
   }
 
   public static String commandName(String command) {
@@ -85,19 +111,47 @@ public final class EngineObservation {
     if (protocolId >= 0) {
       return Integer.toString(protocolId);
     }
-    return LoggingRuntime.current()
-        .map(LoggingRuntime::newCommandIdentity)
-        .orElse("cmd-none");
+    return LoggingRuntime.current().map(LoggingRuntime::newCommandIdentity).orElse("cmd-none");
   }
 
   public static void recordStarted(String engineId, String purpose) {
-    if (!runtimeActive() || !ENGINE.isInfoEnabled()) {
-      return;
+    try {
+      if (!runtimeActive() || !ENGINE.isInfoEnabled()) {
+        return;
+      }
+      inContext(
+          engineId,
+          null,
+          () ->
+              ENGINE.info(
+                  "engine event=started purpose={}", purpose == null ? "unknown" : purpose));
+    } catch (RuntimeException ignored) {
     }
-    inContext(
-        engineId,
-        null,
-        () -> ENGINE.info("engine event=started purpose={}", purpose == null ? "unknown" : purpose));
+  }
+
+  public static void recordBootstrap(String engineId, EngineBootstrapFacts facts) {
+    try {
+      if (!runtimeActive() || !ENGINE.isInfoEnabled() || engineId == null) {
+        return;
+      }
+      StartupState state = STARTUPS.computeIfAbsent(engineId, ignored -> new StartupState());
+      if (!state.bootstrapRecorded.compareAndSet(false, true)) {
+        return;
+      }
+      EngineBootstrapFacts safe = facts == null ? EngineBootstrapFacts.unknown(null) : facts;
+      inContext(engineId, null, () -> ENGINE.info("{}", safe.formatLogLine(state.formatStages())));
+    } catch (RuntimeException ignored) {
+    }
+  }
+
+  public static void markStartupStage(String engineId, String stage) {
+    try {
+      if (engineId == null || stage == null || stage.isEmpty()) {
+        return;
+      }
+      STARTUPS.computeIfAbsent(engineId, ignored -> new StartupState()).mark(stage);
+    } catch (RuntimeException ignored) {
+    }
   }
 
   public static void recordStopped(String engineId, String reason) {
@@ -111,20 +165,32 @@ public final class EngineObservation {
   }
 
   public static void recordReady(String engineId) {
-    if (!runtimeActive() || !ENGINE.isInfoEnabled()) {
-      return;
+    try {
+      if (!runtimeActive() || !ENGINE.isInfoEnabled()) {
+        return;
+      }
+      markStartupStage(engineId, STAGE_READY);
+      String stages = formatKnownStages(engineId);
+      inContext(engineId, null, () -> ENGINE.info("engine event=ready{}", stages));
+    } catch (RuntimeException ignored) {
     }
-    inContext(engineId, null, () -> ENGINE.info("engine event=ready"));
   }
 
   public static void recordFailed(String engineId, String reason) {
-    if (!runtimeActive() || !ENGINE.isWarnEnabled()) {
-      return;
+    try {
+      if (!runtimeActive() || !ENGINE.isWarnEnabled()) {
+        return;
+      }
+      markStartupStage(engineId, STAGE_FAILED);
+      String stages = formatKnownStages(engineId);
+      inContext(
+          engineId,
+          null,
+          () ->
+              ENGINE.warn(
+                  "engine event=failed reason={}{}", reason == null ? "unknown" : reason, stages));
+    } catch (RuntimeException ignored) {
     }
-    inContext(
-        engineId,
-        null,
-        () -> ENGINE.warn("engine event=failed reason={}", reason == null ? "unknown" : reason));
   }
 
   public static void recordTransportFailure(
@@ -179,6 +245,69 @@ public final class EngineObservation {
     inContext(engineId, null, () -> ENGINE.debug("engine event=stderr facts={}", facts));
   }
 
+  public static void recordProbeStarted(String engineId) {
+    try {
+      if (!runtimeActive() || !ENGINE.isInfoEnabled()) {
+        return;
+      }
+      inContext(engineId, null, () -> ENGINE.info("probe event=started"));
+    } catch (RuntimeException ignored) {
+    }
+  }
+
+  public static void recordProbeCapabilityCheck(String engineId, boolean success) {
+    try {
+      if (!runtimeActive() || !ENGINE.isInfoEnabled()) {
+        return;
+      }
+      inContext(
+          engineId,
+          null,
+          () ->
+              ENGINE.info(
+                  "probe event=capability-check outcome={}", success ? "success" : "failure"));
+    } catch (RuntimeException ignored) {
+    }
+  }
+
+  public static void recordProbeFailed(String engineId, String stage) {
+    try {
+      if (!runtimeActive() || !ENGINE.isWarnEnabled()) {
+        return;
+      }
+      String safeStage = safeProbeStage(stage);
+      inContext(engineId, null, () -> ENGINE.warn("probe event=failed stage={}", safeStage));
+    } catch (RuntimeException ignored) {
+    }
+  }
+
+  public static void recordProbeStderr(String engineId, String facts) {
+    try {
+      if (!runtimeActive() || !ENGINE.isWarnEnabled() || facts == null || facts.isEmpty()) {
+        return;
+      }
+      String bounded = ObservationText.boundedRawEvent(facts);
+      inContext(engineId, null, () -> ENGINE.warn("probe event=stderr facts={}", bounded));
+    } catch (RuntimeException ignored) {
+    }
+  }
+
+  private static String safeProbeStage(String stage) {
+    return switch (stage == null ? "" : stage) {
+      case "start",
+          "capability",
+          "schema",
+          "handshake",
+          "timeout",
+          "exited",
+          "apply",
+          "interrupted",
+          "reader" ->
+          stage;
+      default -> "unknown";
+    };
+  }
+
   public static void recordThroughput(String engineId, int playouts, double playoutsPerSecond) {
     if (!engineDiagnosticsEnabled()) {
       return;
@@ -218,10 +347,7 @@ public final class EngineObservation {
     if (!gtpDiagnosticsEnabled()) {
       return;
     }
-    inContext(
-        engineId,
-        commandId,
-        () -> GTP.debug("gtp command={} outcome={}", name, "sent"));
+    inContext(engineId, commandId, () -> GTP.debug("gtp command={} outcome={}", name, "sent"));
   }
 
   public static void recordCommandOutcome(
@@ -232,9 +358,7 @@ public final class EngineObservation {
     inContext(
         engineId,
         commandId,
-        () ->
-            GTP.debug(
-                "gtp command={} outcome={} latencyMs={}", name, outcome, latencyMs));
+        () -> GTP.debug("gtp command={} outcome={} latencyMs={}", name, outcome, latencyMs));
   }
 
   public static void traceRawCommand(String engineId, String commandId, String command) {
@@ -271,8 +395,7 @@ public final class EngineObservation {
     if (action == null) {
       return;
     }
-    String trace =
-        LoggingRuntime.current().map(LoggingRuntime::currentTraceSessionId).orElse(null);
+    String trace = LoggingRuntime.current().map(LoggingRuntime::currentTraceSessionId).orElse(null);
     try (CorrelationContext.Scope scope =
         CorrelationContext.openScope().installEngine(engineId).installCommand(commandId)) {
       if (trace != null) {
@@ -299,15 +422,16 @@ public final class EngineObservation {
   }
 
   public static String mintIdentity(Object owner) {
-    String id =
-        LoggingRuntime.current()
-            .map(LoggingRuntime::newEngineIdentity)
-            .orElse("eng-none");
+    String id = LoggingRuntime.current().map(LoggingRuntime::newEngineIdentity).orElse("eng-none");
     if (owner != null) {
       synchronized (IDENTITY_LOCK) {
-        ENGINE_IDS.put(owner, id);
+        String previous = ENGINE_IDS.put(owner, id);
+        if (previous != null && !previous.equals(id)) {
+          STARTUPS.remove(previous);
+        }
       }
     }
+    STARTUPS.put(id, new StartupState());
     return id;
   }
 
@@ -315,8 +439,12 @@ public final class EngineObservation {
     if (owner == null) {
       return;
     }
+    String removed;
     synchronized (IDENTITY_LOCK) {
-      ENGINE_IDS.remove(owner);
+      removed = ENGINE_IDS.remove(owner);
+    }
+    if (removed != null) {
+      STARTUPS.remove(removed);
     }
   }
 
@@ -330,13 +458,53 @@ public final class EngineObservation {
         return false;
       }
       ENGINE_IDS.remove(owner);
-      return true;
     }
+    STARTUPS.remove(expectedIdentity);
+    return true;
   }
 
-  private static String startInstance(Object owner, String purpose) {
+  private static String startInstance(Object owner, String purpose, EngineBootstrapFacts facts) {
     String id = allocateIdentity(owner);
-    recordStarted(id, purpose);
+    try {
+      EngineBootstrapFacts safe = facts == null ? EngineBootstrapFacts.unknown(purpose) : facts;
+      recordBootstrap(id, safe);
+      recordStarted(id, purpose);
+    } catch (RuntimeException ignored) {
+    }
     return id;
+  }
+
+  private static String formatKnownStages(String engineId) {
+    if (engineId == null) {
+      return "";
+    }
+    StartupState state = STARTUPS.get(engineId);
+    return state == null ? "" : state.formatStages();
+  }
+
+  private static final class StartupState {
+    private final long startNanos = System.nanoTime();
+    private final ConcurrentHashMap<String, Long> stages = new ConcurrentHashMap<>();
+    private final AtomicBoolean bootstrapRecorded = new AtomicBoolean();
+
+    private void mark(String stage) {
+      stages.putIfAbsent(stage, elapsedMs());
+    }
+
+    private long elapsedMs() {
+      return TimeUnit.NANOSECONDS.toMillis(Math.max(0L, System.nanoTime() - startNanos));
+    }
+
+    private String formatStages() {
+      StringBuilder rendered = new StringBuilder();
+      for (String stage : STARTUP_STAGE_ORDER) {
+        Long elapsed = stages.get(stage);
+        if (elapsed == null) {
+          continue;
+        }
+        rendered.append(' ').append(stage).append('=').append(elapsed).append("ms");
+      }
+      return rendered.toString();
+    }
   }
 }

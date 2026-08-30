@@ -174,6 +174,11 @@ class AnalysisResourceCoordinatorTest {
     awaitIdle.invoke(runtime);
 
     String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
+    assertTrue(app.contains("engine event=bootstrap"), app);
+    assertTrue(app.contains("engineType=katago"), app);
+    assertTrue(app.contains("source=user-configured"), app);
+    assertTrue(app.contains("backend=unknown"), app);
+    assertTrue(app.contains("model=model.bin.gz"), app);
     assertTrue(app.contains("engine event=started"), app);
     assertTrue(app.contains("engine event=process-started"), app);
     assertTrue(app.contains("engine event=dynamic-parameter"), app);

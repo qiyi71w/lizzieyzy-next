@@ -1,5 +1,6 @@
 package featurecat.lizzie.analysis;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -18,6 +19,7 @@ import featurecat.lizzie.logging.LoggingSettings;
 import featurecat.lizzie.logging.TraceScope;
 import featurecat.lizzie.logging.WorkDirectoryResolution;
 import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.util.KataGoRuntimeHelper;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -69,10 +71,12 @@ class EngineGtpLoggingTest {
 
     assertNotEquals(first, second);
     String app = readApp();
+    assertTrue(app.contains("engine event=bootstrap"), app);
     assertTrue(app.contains("engine event=started"), app);
     assertTrue(app.contains("engine event=ready"), app);
     assertTrue(app.contains("engine=" + first), app);
     assertTrue(app.contains("engine=" + second), app);
+    assertTrue(app.contains("purpose=MAIN_BOARD"), app);
     assertFalse(app.contains("gtp raw"), app);
   }
 
@@ -80,14 +84,107 @@ class EngineGtpLoggingTest {
   void startupFailureAllocatesEngineIdentityWithoutStartedEvent() throws Exception {
     LoggingRuntime runtime = startRuntime();
     Leelaz engine = prepareEngine();
+    engine.setEngineCommand(
+        "\"C:\\\\Users\\\\Player\\\\secret\\\\katago.exe\" gtp "
+            + "-model \"C:\\\\Users\\\\Player\\\\secret\\\\model.bin.gz\"");
     Method fail = Leelaz.class.getDeclaredMethod("noteEngineFailed", String.class);
     fail.setAccessible(true);
     fail.invoke(engine, "ssh login failed");
     awaitLogs(runtime);
     String app = readApp();
     assertTrue(app.contains("engine event=failed reason=ssh login failed"), app);
+    assertTrue(app.contains("engine event=bootstrap"), app);
+    assertTrue(app.contains("engineType=katago"), app);
+    assertTrue(app.contains("source=user-configured"), app);
+    assertTrue(app.contains("purpose=MAIN_BOARD"), app);
+    assertTrue(app.contains("model=model.bin.gz"), app);
     assertFalse(app.contains("engine event=started"), app);
+    assertFalse(app.contains("Player"), app);
+    assertFalse(app.contains("secret"), app);
+    assertSameEngineIdentity(app, "event=bootstrap", "event=failed");
     assertTrue(app.contains("engine=eng-"), app);
+  }
+
+  @Test
+  void processStartFailureKeepsBootstrapIdentityWithoutStartedEvent() throws Exception {
+    LoggingRuntime runtime = startRuntime();
+    Leelaz engine = prepareEngine();
+    Method fail = Leelaz.class.getDeclaredMethod("noteEngineFailed", String.class);
+    fail.setAccessible(true);
+    fail.invoke(engine, "process start failed");
+    awaitLogs(runtime);
+    String app = readApp();
+    assertTrue(app.contains("engine event=bootstrap"), app);
+    assertTrue(app.contains("engine event=failed reason=process start failed"), app);
+    assertTrue(app.contains("engineType=unknown"), app);
+    assertTrue(app.contains("backend=unknown"), app);
+    assertTrue(app.contains("onnxProvider=unknown"), app);
+    assertFalse(app.contains("engine event=started"), app);
+    assertSameEngineIdentity(app, "event=bootstrap", "event=failed");
+  }
+
+  @Test
+  void exitBeforeReadyReusesBootstrapIdentity() throws Exception {
+    LoggingRuntime runtime = startRuntime();
+    Leelaz engine = prepareEngine();
+    Method started = Leelaz.class.getDeclaredMethod("noteEngineStarted");
+    started.setAccessible(true);
+    started.invoke(engine);
+    String identity = EngineObservation.identityFor(engine);
+    Method fail = Leelaz.class.getDeclaredMethod("noteEngineFailed", String.class);
+    fail.setAccessible(true);
+    fail.invoke(engine, "exit-before-ready");
+    awaitLogs(runtime);
+    String app = readApp();
+    assertTrue(app.contains("engine event=bootstrap"), app);
+    assertTrue(app.contains("engine event=started"), app);
+    assertTrue(app.contains("engine event=failed reason=exit-before-ready"), app);
+    assertTrue(identity != null && app.contains("engine=" + identity), app);
+    assertSameEngineIdentity(app, "event=bootstrap", "event=failed");
+    assertSameEngineIdentity(app, "event=started", "event=failed");
+  }
+
+  @Test
+  void bundledLaunchBootstrapRecordsSourceAndAvailableBackend() throws Exception {
+    LoggingRuntime runtime = startRuntime();
+    Leelaz engine = prepareEngine();
+    Path enginePath =
+        tempDir
+            .resolve("engines")
+            .resolve("katago")
+            .resolve("windows-x64-nvidia")
+            .resolve("katago.exe");
+    Files.createDirectories(enginePath.getParent());
+    Files.writeString(enginePath, "", StandardCharsets.UTF_8);
+    engine.setEngineCommand(
+        "\""
+            + enginePath.toAbsolutePath().normalize()
+            + "\" gtp -model kata1.bin.gz -config gtp.cfg");
+    Method started = Leelaz.class.getDeclaredMethod("noteEngineStarted");
+    started.setAccessible(true);
+    started.invoke(engine);
+    Method loaded = Leelaz.class.getDeclaredMethod("markEngineLoaded");
+    loaded.setAccessible(true);
+    engine.isLoaded = false;
+    loaded.invoke(engine);
+    awaitLogs(runtime);
+    String app = readApp();
+    String identity = EngineObservation.identityFor(engine);
+    assertTrue(app.contains("engine event=bootstrap"), app);
+    assertTrue(app.contains("source=bundled"), app);
+    assertTrue(app.contains("backend=nvidia"), app);
+    assertTrue(app.contains("engineType=katago"), app);
+    assertEquals(
+        KataGoRuntimeHelper.resolveNvidiaBackend(enginePath),
+        EngineStartupBootstrap.factsFor(engine.engineCommand, "MAIN_BOARD").backend());
+    assertEquals(
+        "unknown",
+        EngineStartupBootstrap.factsFor(engine.engineCommand, "MAIN_BOARD").onnxProvider());
+    assertTrue(app.contains("engine event=ready"), app);
+    assertTrue(identity != null && app.contains("engine=" + identity), app);
+    assertSameEngineIdentity(app, "event=bootstrap", "event=ready");
+    String bootstrapLine = eventLine(app, "event=bootstrap");
+    assertTrue(bootstrapLine != null && !bootstrapLine.contains(tempDir.toString()), app);
   }
 
   @Test
@@ -299,6 +396,33 @@ class EngineGtpLoggingTest {
   private String readApp() throws Exception {
     Path file = tempDir.resolve("logs/app.log");
     return Files.isRegularFile(file) ? Files.readString(file, StandardCharsets.UTF_8) : "";
+  }
+
+  private static void assertSameEngineIdentity(String app, String firstEvent, String secondEvent) {
+    String first = engineIdOnEventLine(app, firstEvent);
+    String second = engineIdOnEventLine(app, secondEvent);
+    assertTrue(
+        first != null && first.equals(second),
+        firstEvent + "=" + first + " " + secondEvent + "=" + second + "\n" + app);
+  }
+
+  private static String eventLine(String app, String eventToken) {
+    for (String line : app.split("\n")) {
+      if (line.contains(eventToken)) {
+        return line;
+      }
+    }
+    return null;
+  }
+
+  private static String engineIdOnEventLine(String app, String eventToken) {
+    String line = eventLine(app, eventToken);
+    if (line == null) {
+      return null;
+    }
+    java.util.regex.Matcher matcher =
+        java.util.regex.Pattern.compile("engine=(eng-[0-9a-f-]+)").matcher(line);
+    return matcher.find() ? matcher.group(1) : null;
   }
 
   private static void awaitLogs(LoggingRuntime runtime) throws Exception {

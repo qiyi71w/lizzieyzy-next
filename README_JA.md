@@ -15,9 +15,8 @@
 </p>
 
 <p align="center">
-  <strong>LizzieYzy Next は、現在も保守されている lizzieyzy 系の実用版であり、普通の利用者向けの KataGo 復盤 GUI です。</strong><br/>
-  配布物の選びやすさ、初回起動の負担、野狐棋譜取得の使いやすさ、そして全局を見渡しやすい解析体験の4点を、いまの利用者目線で整え直しています。<br/>
-  <strong>ダウンロードして、野狐のニックネームを入力し、公開棋譜を取得して、全局を素早く解析し、新しい勝率グラフと下部のクイック概要で重要な手へすぐ移動できます。</strong>
+  <strong>LizzieYzy Next は、KataGo で対局を振り返る利用者向けに保守されている lizzieyzy ブランチです。</strong><br/>
+  野狐のニックネームによる棋譜取得、全局の高速解析、新しい勝率グラフと下部概要を備え、Windows、macOS、Linux 向けに配布しています。
 </p>
 
 <p align="center">
@@ -40,34 +39,9 @@
 > 取り出しコード: `3i8w`
 
 > [!TIP]
-> 中国語 QQ グループ: `299419120`
+> [中国語 QQ グループ: 299419120](https://qm.qq.com/q/JZoeojjteg)
 >
 > 日常の利用相談、バグ報告、機能要望のやり取りが一番速い場所です。
-
-> [!IMPORTANT]
-> まずはこの 6 点だけ押さえれば大丈夫です:
-> - Windows 利用者の多くは [安定版ダウンロード](https://goagent.top/download/) で `*windows64.opencl.portable.zip` を選べば始めやすいです
-> - NVIDIA GPU があり、より速く解析したい場合は `*windows64.nvidia.portable.zip` を選べます
-> - OpenCL の相性が悪い場合は `*windows64.with-katago.portable.zip` に切り替えられます
-> - 野狐棋譜取得はニックネーム入力に対応しており、多くの利用者はアカウント番号を先に知らなくても大丈夫です
-> - 推奨フルパッケージには KataGo `v1.18.1` と公式フラッグシップ B11 Transformer が含まれ、画面では「Transformer 11B 棋力優先」（約 202 MiB）と表示されます。1 回ごとの判断は強くなりますが探索速度は遅くなる場合があり、速度優先なら自動設定で B10 に切り替えられます。コア更新パッケージにはエンジンとウェイトは含まれません
-> - 主な release パッケージには `readboard_java` も同梱されており、多くの利用者は別の readboard リポジトリを用意する必要がありません
-
-## なぜ多くの利用者がここから始めるのか
-
-`LizzieYzy Next` は次のように考えればわかりやすいです。
-
-- 普通の利用者向けに使いやすく整えた `KataGo 復盤ソフト`
-- `野狐棋譜取得 + 全局を素早く見る解析 + 複数 OS 向け配布` を一つにした実用ワークフロー
-- 古い `lizzieyzy` 環境から移りやすい現行の保守ブランチ
-
-次のようなものを探しているなら、まずこのプロジェクトを見る価値があります。
-
-- `KataGo 復盤ソフト`
-- `KataGo GUI`
-- `lizzieyzy 保守版`
-- `野狐棋譜取得 + KataGo 復盤`
-- `Windows 非インストール 囲碁 AI ツール`
 
 ## 起動したあとすぐできること
 
@@ -78,7 +52,13 @@
 | 問題手を早く見たい | 新しい主勝率グラフと下部のヒート概要で大きな損失を見つけやすくなっています |
 | 設定をあまり触りたくない | 推奨パッケージに KataGo、既定の重み、初回自動設定が入っています |
 | インストールしたくない | Windows では `portable.zip` を優先して選べます |
-| 棋盤同期も使いたい | 主な配布物に `readboard_java` が同梱されています |
+| 棋盤同期も使いたい | Windows 向けの主な配布物にネイティブ版 `readboard.exe` が同梱されています |
+| 高速曲線の補完で主エンジンを占有したくない | `KataGo 自動セットアップ -> ウェイト管理` から 38 MB の公式軽量モデルを必要に応じてダウンロードできます。棋譜曲線の欠落を補う間だけ起動し、通常分析の前に GPU を解放します |
+| 本機の計算能力が足りない | `設定 -> リモートコンピューティング` で Zhizi クラウドコンピューティングにログインし、リモート KataGo エンジンを作成できます |
+
+リモートコンピューティングの既定は「VIP 月額」(`--gpu-type vip-share`) です。非 VIP ユーザーは詳細設定で従量制の 1x / 3x / 6x を選べます。既定のプリセットは Zhizi 28B モデルを使用します。TensorRT と CUDA はクラウドエンジンのバックエンド名であり、料金プラン名ではありません。
+
+保存したログイン情報は Windows DPAPI、macOS Keychain、Linux Secret Service で保護され、通常の設定には書き込まれません。安全なストレージを利用できない場合、認証情報はアプリ終了時までだけ保持されます。切断後は自動で再接続し、いつでもローカルエンジンへ戻せます。
 
 ## まずどれをダウンロードするか
 
@@ -90,40 +70,32 @@
 
 | あなたの環境 | Releases でこのキーワードを含むファイルを探す |
 | --- | --- |
-| Windows 利用者の多く、推奨、非インストール | `*windows64.opencl.portable.zip` |
-| Windows、OpenCL 版、インストーラあり | `*windows64.opencl.installer.exe` |
-| Windows、OpenCL が不安定、CPU フォールバック、非インストール | `*windows64.with-katago.portable.zip` |
+| Windows、RTX 20/30/40/50 NVIDIA GPU、推奨、非インストール | `*windows64.nvidia.portable.zip` |
+| Windows、RTX 20/30/40/50 NVIDIA GPU、インストーラあり | `*windows64.nvidia.installer.exe` |
+| Windows、AMD / Intel / 旧世代 NVIDIA GPU、非インストール | `*windows64.opencl.portable.zip` |
+| Windows、AMD / Intel / 旧世代 NVIDIA GPU、インストーラあり | `*windows64.opencl.installer.exe` |
+| Windows、適切な GPU がない、または GPU 版を起動できない、CPU フォールバック | `*windows64.with-katago.portable.zip` |
 | Windows、CPU フォールバック、インストーラあり | `*windows64.with-katago.installer.exe` |
-| Windows、NVIDIA GPU、より速い解析、非インストール | `*windows64.nvidia.portable.zip` |
-| Windows、NVIDIA GPU、インストーラあり | `*windows64.nvidia.installer.exe` |
+| Windows、RTX 30 シリーズ以前、TensorRT を任意導入 | NVIDIA パッケージから開始し、`KataGo 自動セットアップ` で TensorRT をインストール |
+| Windows、DirectX 12 GPU、DirectML テスト | `*windows64.experimental.directml.portable.zip` |
+| Windows、Intel GPU/NPU、OpenVINO テスト | `*windows64.experimental.openvino.portable.zip` |
+| Windows、対応 AMD GPU、ROCm テスト | 対応する `*windows64.experimental.rocm.*.portable.zip` を選択 |
 | Windows、自分のエンジンを使う、非インストール | `*windows64.without.engine.portable.zip` |
 | Windows、自分のエンジンを使う、インストーラあり | `*windows64.without.engine.installer.exe` |
 | macOS Apple Silicon | `*mac-apple-silicon.with-katago.dmg` |
 | macOS Intel | `*mac-intel.with-katago.dmg` |
 | Linux | `*linux64.with-katago.zip` |
 
-迷ったときの目安:
+CPU、OpenCL、CUDA、TensorRT、Metal の各バックエンド向けフルパッケージと Linux パッケージは KataGo `v1.18.1` を使用します。Linux NVIDIA 版は実行環境との互換性のため CUDA 12.1 を維持しています。
 
-- Windows: まず `*windows64.opencl.portable.zip`
-- Windows + NVIDIA GPU: まず `*windows64.nvidia.portable.zip`
-- OpenCL が合わない: `*windows64.with-katago.portable.zip`
-- Mac: Apple Silicon か Intel かを先に確認
-- Linux: `*linux64.with-katago.zip`
+推奨フルパッケージには、公式フラッグシップ B11 モデル `b11c768h12nbt3tflrs-fson-silu.bin.gz`（約 202 MiB）が含まれます。RTX 3070 での比較では、探索スループットが B10 より約 40% 低く、速度を優先する場合は `KataGo 自動設定 -> ウェイト` で B10 に切り替えられます。
 
-## なぜ今この版が使いやすいのか
+NVIDIA と TensorRT:
 
-- `野狐棋譜取得が再び使える`
-  利用者が覚えているニックネームから始められます。
-- `全局を素早く見る解析が主導線になった`
-  一手ずつ積み上げなくても、全体像を早く作れます。
-- `主勝率グラフ + 下部クイック概要`
-  大きな損失が出た場所を先に探しやすくなりました。
-- `Windows は非インストール版を先に案内`
-  OpenCL / NVIDIA / CPU フォールバックの違いがわかりやすくなっています。
-- `readboard_java を主 release に同梱`
-  多くの利用者は別リポジトリを組み合わせなくて済みます。
-- `実際の release とスモークテスト`
-  単にソースを更新するだけでなく、複数 OS の配布と確認も続けています。
+- `KataGo 自動設定` は NVIDIA GPU と Compute Capability を検出し、TensorRT が適しているかを案内します。検出に失敗しても手動で続行できます。
+- RTX 40/50 は既定で CUDA を使用します。TensorRT は RTX 30 シリーズ以前で選べます。
+- NVIDIA ドライバ `570.65` 以降はそのまま読み込みます。`528.33–570.64` は初回起動時に軽量推論テストを 1 回実行し、それより古いドライバでは修復状態を表示します。
+- GTX 10 シリーズ以前は OpenCL を使用してください。OpenCL が不安定な場合は `*windows64.with-katago.portable.zip` に切り替えます。
 
 ## 3 ステップで開始
 
@@ -141,15 +113,13 @@
   GitHub 上で GIF の再生が遅い場合は、上の画像をクリックすると全体を開けます。
 </p>
 
-## 実際の画面
-
-以下は現在のメンテ版そのものの実画面です。
+## 画面プレビュー
 
 <p align="center">
-  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next actual interface" width="100%" />
+  <img src="assets/interface-overview-2026-04.png" alt="LizzieYzy Next 画面プレビュー" width="100%" />
 </p>
 
-グラフ部分は次のように読むとわかりやすいです。
+主勝率グラフと下部のクイック概要には、次の情報が表示されます。
 
 <p align="center">
   <img src="assets/winrate-quick-overview-2026-04.png" alt="LizzieYzy Next winrate graph and quick overview" width="46%" />
@@ -169,27 +139,13 @@
 | 入力方法 | 数字のアカウント番号を先に知っている前提が強い | 野狐のニックネームを入れるとアプリが自動で対応付け |
 | KataGo 利用の敷居 | 自分で環境や不足リソースを補う場面が多い | 推奨パッケージに KataGo と既定の重みを同梱 |
 | Windows での選びやすさ | 利用者が自分で判断する余地が大きい | `portable.zip` を先に勧める構成でわかりやすい |
-| 同期ツール | 利用者が自分で組み合わせる場面が多い | 主な release に `readboard_java` を同梱 |
+| 同期ツール | 利用者が自分で組み合わせる場面が多い | Windows 向けの主な配布物にネイティブ版 `readboard.exe` を同梱 |
 
-## よくある質問
+## macOS の初回起動
 
-### readboard 用に別リポジトリは必要ですか？
+Mac に合うパッケージを選び、DMG を開いて `LizzieYzy Next` を「アプリケーション」へドラッグします。インストールディスクを取り出したあと、Finder の「アプリケーション」から起動してください。公式 release は署名と公証を行っています。macOS にブロックされる場合は [インストールガイド](docs/INSTALL_JA.md) を参照してください。
 
-多くの利用者には不要です。`LizzieYzy Next` は `readboard_java` を主な release パッケージに含めています。
-
-### 野狐のアカウント番号を先に知っておく必要はありますか？
-
-多くの場合は不要です。野狐のニックネームを入力すれば、アプリが対応するアカウントを探します。
-
-### 全局の流れを見るのに、まだ一手ずつ進める必要がありますか？
-
-通常はそこまで必要ありません。全局を素早く見る解析があるため、主勝率グラフと概要をかなり早く作れます。
-
-### macOS で初回起動時にブロックされたらどうすればよいですか？
-
-現在の macOS 配布物は未署名・未公証です。初回にブロックされた場合は [インストールガイド](docs/INSTALL_JA.md) の手順を見てください。
-
-## 利用者向けドキュメント
+## ドキュメントと参加
 
 - [サポートガイド](SUPPORT.md)
 - [インストールガイド](docs/INSTALL_JA.md)
@@ -197,25 +153,33 @@
 - [トラブル対応 (English)](docs/TROUBLESHOOTING_EN.md)
 - [検証済みプラットフォーム (English)](docs/TESTED_PLATFORMS.md)
 - [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases)
-- GitHub Discussions: <https://github.com/wimi321/lizzieyzy-next/discussions>
-- 中国語 QQ グループ: `299419120`
-
-## プロジェクトリンク
+- [GitHub Discussions](https://github.com/wimi321/lizzieyzy-next/discussions)
+- [中国語 QQ グループ: 299419120](https://qm.qq.com/q/JZoeojjteg)
 - [Roadmap](ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
-- [Support](SUPPORT.md)
 
 ## Credits
 
 - Original project: [yzyray/lizzieyzy](https://github.com/yzyray/lizzieyzy)
 - KataGo: [lightvector/KataGo](https://github.com/lightvector/KataGo)
-Historical Fox sync references:
+- 棋盤同期ツール: [qiyi71w/readboard](https://github.com/qiyi71w/readboard)
+
+readboard の継続的な保守と改善に取り組む [qiyi71w](https://github.com/qiyi71w) に感謝します。
+
+すべてのコントリビューターに感謝します:
+
+<p align="left">
+  <a href="https://github.com/wimi321/lizzieyzy-next/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=wimi321/lizzieyzy-next" alt="LizzieYzy Next のコントリビューター" />
+  </a>
+</p>
+
+野狐棋譜取得の参考:
+
 - [yzyray/FoxRequest](https://github.com/yzyray/FoxRequest)
 - [FuckUbuntu/Lizzieyzy-Helper](https://github.com/FuckUbuntu/Lizzieyzy-Helper)
 
 ## 翻訳について
 
-翻訳を歓迎します！この README をあなたの母語に翻訳したい方は、ぜひ Pull Request をお送りください。
-
-We welcome translations! If you want to translate this README into your native language, please feel free to submit a Pull Request.
+README の翻訳 PR を歓迎します。Translations are welcome; please submit a Pull Request.
