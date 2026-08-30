@@ -81,6 +81,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   private volatile boolean started;
   private volatile boolean closed;
   private volatile String unavailableReason;
+  private volatile KataGoRuntimeHelper.TensorRtRepairContext tensorRtRepairContext;
   private volatile int activeProcessGeneration;
   private volatile StartupListener startupListener;
 
@@ -96,6 +97,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   public synchronized boolean start() {
     if (closed) {
       unavailableReason = "HumanSL analysis runner is closed.";
+      tensorRtRepairContext = null;
       return false;
     }
     Throwable terminationFailure = awaitAllTerminatingProcesses();
@@ -107,12 +109,20 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     }
     if (commandParts.isEmpty()) {
       unavailableReason = "HumanSL analysis command is empty.";
+      tensorRtRepairContext = null;
       return false;
     }
 
     CommandLaunchHelper.LaunchSpec launchSpec = CommandLaunchHelper.prepare(commandParts);
     List<String> preparedCommands = launchSpec.getCommandParts();
     Path engineExecutable = KataGoRuntimeHelper.resolveCommandExecutable(preparedCommands);
+    tensorRtRepairContext =
+        KataGoRuntimeHelper.inspectHumanSlTensorRtStartupFailure(
+            engineExecutable, preparedCommands, String.join(" ", preparedCommands));
+    if (tensorRtRepairContext != null && tensorRtRepairContext.repairable) {
+      unavailableReason = tensorRtRepairContext.displayMessage;
+      return false;
+    }
     if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
       unavailableReason = "KataGo tuning is using the local compute device.";
       return false;
@@ -159,6 +169,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       activeProcessGeneration = generation;
       started = true;
       unavailableReason = null;
+      tensorRtRepairContext = null;
       launchedReader.execute(() -> readLoop(generation, launchedInput));
       AnalysisResourceCoordinator.processStarted(
           this,
@@ -552,6 +563,10 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
 
   public String getUnavailableReason() {
     return unavailableReason;
+  }
+
+  public KataGoRuntimeHelper.TensorRtRepairContext getTensorRtRepairContext() {
+    return tensorRtRepairContext;
   }
 
   public void setStartupListener(StartupListener listener) {

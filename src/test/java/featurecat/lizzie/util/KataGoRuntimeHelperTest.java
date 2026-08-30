@@ -61,11 +61,13 @@ public class KataGoRuntimeHelperTest {
   @BeforeEach
   void acceptEmptyCompanionFixture() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(EMPTY_FILE_SHA256);
+    System.setProperty("lizzie.tensorrt.runtimeSearchPath", "");
   }
 
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
   @Test
@@ -1608,17 +1610,26 @@ public class KataGoRuntimeHelperTest {
                     "nvidia-tensorrt\n");
                 writeCurrentTensorRtEngineManifestWithoutCompanion(targetDir);
 
-                IOException failure =
-                    assertThrows(
-                        IOException.class,
-                        () ->
-                            KataGoRuntimeHelper.downloadAndInstallTensorRt(
-                                snapshot, null, new DownloadSession()));
+                String companionUrlKey = "lizzie.tensorrt.companion.url";
+                String previousCompanionUrl = System.getProperty(companionUrlKey);
+                try {
+                  System.setProperty(
+                      companionUrlKey,
+                      tempRoot.resolve("missing-trusted-companion.zip").toUri().toString());
+                  IOException failure =
+                      assertThrows(
+                          IOException.class,
+                          () ->
+                              KataGoRuntimeHelper.downloadAndInstallTensorRt(
+                                  snapshot, null, new DownloadSession()));
 
-                assertFalse(failure.getMessage().trim().isEmpty());
-                assertFalse(
-                    Files.exists(
-                        targetDir.resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME)));
+                  assertFalse(failure.getMessage().trim().isEmpty());
+                  assertFalse(
+                      Files.exists(
+                          targetDir.resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME)));
+                } finally {
+                  restoreProperty(companionUrlKey, previousCompanionUrl);
+                }
               });
         });
   }

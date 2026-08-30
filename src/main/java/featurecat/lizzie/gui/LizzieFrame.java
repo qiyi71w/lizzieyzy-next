@@ -1939,7 +1939,11 @@ public class LizzieFrame extends JFrame {
     engineStartupStatusButton.addActionListener(
         event -> {
           if (Lizzie.engineStartupStatus.snapshot().isActionable()) {
-            openKataGoAutoSetup();
+            KataGoAutoSetupDialog.OpenRequest request =
+                KataGoAutoSetupDialog.openRequestForEngineStartupStatus(
+                    true,
+                    Lizzie.leelaz == null ? null : Lizzie.leelaz.pendingTensorRtRepairContext());
+            openKataGoAutoSetup(request.context);
           }
         });
     basePanel.add(engineStartupStatusButton, Integer.valueOf(12));
@@ -19500,14 +19504,32 @@ public class LizzieFrame extends JFrame {
   }
 
   public void openKataGoAutoSetup() {
-    boolean created = false;
+    openKataGoAutoSetup((featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext) null);
+  }
+
+  public void openKataGoAutoSetup(
+      featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext context) {
+    KataGoAutoSetupDialog.OpenRequest request =
+        context == null
+            ? KataGoAutoSetupDialog.openRequestForMenu()
+            : KataGoAutoSetupDialog.openRequestForRepair(context);
+    boolean directedTransferAccepted = false;
     if (kataGoAutoSetupDialog == null || !kataGoAutoSetupDialog.isDisplayable()) {
-      kataGoAutoSetupDialog = new KataGoAutoSetupDialog(this);
-      created = true;
-    }
-    if (!created) {
+      kataGoAutoSetupDialog = new KataGoAutoSetupDialog(this, request.context);
+      directedTransferAccepted =
+          request.directed && kataGoAutoSetupDialog.hasDirectedRepairContext(request.context);
+    } else if (request.directed) {
+      directedTransferAccepted =
+          kataGoAutoSetupDialog.applyDirectedRepairContext(request.context);
+    } else {
+      kataGoAutoSetupDialog.clearDirectedRepairContext();
       kataGoAutoSetupDialog.refreshState();
     }
+    if (directedTransferAccepted) {
+      kataGoAutoSetupDialog.showAccelerationSection();
+    }
+    Leelaz.consumePendingIfDirectedTransfer(
+        Lizzie.leelaz, directedTransferAccepted, request.context);
     kataGoAutoSetupDialog.ensureVisibleOnScreen();
     kataGoAutoSetupDialog.setVisible(true);
     kataGoAutoSetupDialog.ensureVisibleOnScreen();
