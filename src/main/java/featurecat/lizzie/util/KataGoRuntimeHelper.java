@@ -252,6 +252,7 @@ public final class KataGoRuntimeHelper {
   private static final Object NVIDIA_RUNTIME_LOCK = new Object();
   private static volatile String humanSlCompanionSha256OverrideForTests;
   private static volatile TensorRtDirectoryMove tensorRtDirectoryMoveForTests;
+  private static volatile TensorRtDirectoryCopy tensorRtDirectoryCopyForTests;
   private static volatile TensorRtBeforeTargetMutation tensorRtBeforeTargetMutationForTests;
   private static final int BENCHMARK_VISITS = 800;
   private static final int BENCHMARK_POSITIONS = 6;
@@ -318,6 +319,15 @@ public final class KataGoRuntimeHelper {
 
   static void setTensorRtDirectoryMoveForTests(TensorRtDirectoryMove move) {
     tensorRtDirectoryMoveForTests = move;
+  }
+
+  @FunctionalInterface
+  interface TensorRtDirectoryCopy {
+    void copy(Path source, Path target) throws IOException;
+  }
+
+  static void setTensorRtDirectoryCopyForTests(TensorRtDirectoryCopy copy) {
+    tensorRtDirectoryCopyForTests = copy;
   }
 
   @FunctionalInterface
@@ -6160,15 +6170,15 @@ public final class KataGoRuntimeHelper {
       }
     } catch (IOException fallbackFailure) {
       installFailure.addSuppressed(fallbackFailure);
-      try {
-        deleteRecursively(targetEngineDir);
-      } catch (IOException cleanupFailure) {
-        installFailure.addSuppressed(cleanupFailure);
-      }
     }
   }
 
   private static void copyTensorRtDirectory(Path source, Path target) throws IOException {
+    TensorRtDirectoryCopy override = tensorRtDirectoryCopyForTests;
+    if (override != null) {
+      override.copy(source, target);
+      return;
+    }
     try (Stream<Path> paths = Files.walk(source)) {
       for (Path sourcePath : (Iterable<Path>) paths::iterator) {
         Path targetPath = target.resolve(source.relativize(sourcePath));

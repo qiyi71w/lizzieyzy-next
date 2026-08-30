@@ -66,6 +66,7 @@ public class TensorRtComponentRepairTest {
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
     KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
+    KataGoRuntimeHelper.setTensorRtDirectoryCopyForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
@@ -512,6 +513,131 @@ public class TensorRtComponentRepairTest {
                               "last-known-good-engine",
                               Files.readString(recoveredBackup.resolve("katago.exe")));
                         }
+                      }));
+        });
+  }
+
+  @Test
+  void failedRestoreMoveAndCopyFallbackKeepsLastKnownGoodBackupAndPartialTarget()
+      throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("tensorrt-repair-restore-copy-double-fail");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          SetupSnapshot snapshot = createDirectMlSnapshot(tempRoot);
+          RepairFixtures fixtures = createRepairFixtures(tempRoot);
+
+          withRepairFixtures(
+              fixtures,
+              true,
+              () ->
+                  withConfig(
+                      runtimeWorkDirectory,
+                      () -> {
+                        seedDirectMlProfiles(snapshot);
+                        KataGoRuntimeHelper.repairTensorRtComponents(
+                            snapshot, null, new DownloadSession());
+                        Path engineDir = tensorRtEngineDir(runtimeWorkDirectory);
+                        Path engine = engineDir.resolve("katago.exe");
+                        Files.writeString(engine, "last-known-good-engine");
+                        Files.writeString(
+                            engineDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
+                            "KataGo release: v1.0.0\nAsset SHA-256: " + EMPTY_FILE_SHA256 + "\n");
+
+                        KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(
+                            (source, target) -> {
+                              String sourceName = source.getFileName().toString();
+                              if (sourceName.contains(".installing-")) {
+                                throw new IOException("injected TensorRT promotion failure");
+                              }
+                              if (sourceName.contains(".backup-")) {
+                                throw new IOException("injected TensorRT restore failure");
+                              }
+                              Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                            });
+                        KataGoRuntimeHelper.setTensorRtDirectoryCopyForTests(
+                            (source, target) -> {
+                              Files.createDirectories(target);
+                              Files.copy(
+                                  source.resolve("katago.exe"),
+                                  target.resolve("katago.exe"),
+                                  StandardCopyOption.REPLACE_EXISTING);
+                              Files.writeString(
+                                  target.resolve("partial-restore.marker"), "copied-then-failed");
+                              throw new IOException("injected TensorRT copy fallback failure");
+                            });
+                        IOException failure;
+                        try {
+                          failure =
+                              assertThrows(
+                                  IOException.class,
+                                  () ->
+                                      KataGoRuntimeHelper.repairTensorRtComponents(
+                                          snapshot, null, new DownloadSession()));
+                        } finally {
+                          KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
+                          KataGoRuntimeHelper.setTensorRtDirectoryCopyForTests(null);
+                        }
+
+                        assertEquals(
+                            "injected TensorRT promotion failure", failure.getMessage());
+                        boolean sawRestore = false;
+                        boolean sawCopy = false;
+                        for (Throwable suppressed : failure.getSuppressed()) {
+                          String message = suppressed.getMessage();
+                          if ("injected TensorRT restore failure".equals(message)) {
+                            sawRestore = true;
+                          }
+                          if ("injected TensorRT copy fallback failure".equals(message)) {
+                            sawCopy = true;
+                          }
+                        }
+                        assertTrue(
+                            sawRestore,
+                            "restore-move failure must be suppressed on the install error");
+                        assertTrue(
+                            sawCopy,
+                            "copy-fallback failure must be suppressed on the install error");
+
+                        Path recoveredBackup = null;
+                        boolean leftoverStaging = false;
+                        String prefix = engineDir.getFileName().toString();
+                        try (DirectoryStream<Path> children =
+                            Files.newDirectoryStream(engineDir.getParent())) {
+                          for (Path child : children) {
+                            String name = child.getFileName().toString();
+                            if (name.startsWith(prefix + ".installing-")) {
+                              leftoverStaging = true;
+                            }
+                            Path backupEngine = child.resolve("katago.exe");
+                            if (name.startsWith(prefix + ".backup-")
+                                && Files.isDirectory(child)
+                                && Files.isRegularFile(backupEngine)
+                                && "last-known-good-engine"
+                                    .equals(Files.readString(backupEngine))) {
+                              recoveredBackup = child;
+                            }
+                          }
+                        }
+                        assertFalse(leftoverStaging, "staging cleanup must still run");
+                        assertTrue(
+                            recoveredBackup != null && Files.isDirectory(recoveredBackup),
+                            "double-failure restore must retain the last-known-good backup");
+                        assertEquals(
+                            "last-known-good-engine",
+                            Files.readString(recoveredBackup.resolve("katago.exe")));
+                        assertTrue(
+                            Files.exists(engineDir),
+                            "copy failure must not recursively delete the configured target");
+                        assertTrue(
+                            Files.isRegularFile(engineDir.resolve("partial-restore.marker")),
+                            "partial copy contents must remain after copy fallback failure");
+                        assertEquals(
+                            "copied-then-failed",
+                            Files.readString(engineDir.resolve("partial-restore.marker")));
+                        assertTrue(Files.isRegularFile(engine));
+                        assertEquals("last-known-good-engine", Files.readString(engine));
                       }));
         });
   }
