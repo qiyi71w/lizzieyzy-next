@@ -216,8 +216,6 @@ public class ConfigDialog2 extends JDialog {
   private JComboBox<String> chkShowWhiteSuggWhite;
   private JComboBox<String> comboSuggestionColorRatio;
 
-  private JRadioButton rdoShowWinrateBlack;
-  private JRadioButton rdoShowWinrateBoth;
   private JCheckBox chkAppendWinrateToComment;
   private JCheckBox chkShowSuggLabel;
   private JCheckBox chkMaxValueReverseColor;
@@ -425,7 +423,6 @@ public class ConfigDialog2 extends JDialog {
     nf.setGroupingUsed(false);
     ButtonGroup showMoveGroup = new ButtonGroup();
 
-    ButtonGroup ShowWinratGroup = new ButtonGroup();
 
     uiTab = new SettingsContentPanel(SettingsContentPanel.Mode.UI);
     tabbedPane.addTab(
@@ -733,22 +730,6 @@ public class ConfigDialog2 extends JDialog {
     chkShowBlunderBar.setBounds(837, 233, 26, 23);
     uiTab.add(chkShowBlunderBar);
 
-    JLabel lblWinratePerspective =
-        new JLabel(
-            resourceBundle.getString(
-                "LizzieConfig.lblWinratePerspective")); // ("胜率图视角"); //$NON-NLS-1$
-    lblWinratePerspective.setBounds(10, 236, 184, 16);
-    uiTab.add(lblWinratePerspective);
-
-    rdoShowWinrateBlack =
-        new JRadioButton(resourceBundle.getString("LizzieConfig.rdoShowWinrateBlack")); // ("黑方视角");
-    rdoShowWinrateBlack.setBounds(Lizzie.config.isChinese ? 155 : 162, 234, 60, 23);
-    uiTab.add(rdoShowWinrateBlack);
-
-    rdoShowWinrateBoth =
-        new JRadioButton(resourceBundle.getString("LizzieConfig.rdoShowWinrateBoth")); // ("双方视角");
-    rdoShowWinrateBoth.setBounds(225, 234, 78, 23);
-    uiTab.add(rdoShowWinrateBoth);
 
     JLabel lblShowWhiteSuggestionWhite =
         new JLabel(
@@ -766,8 +747,6 @@ public class ConfigDialog2 extends JDialog {
         resourceBundle.getString("LizzieConfig.chkShowWhiteSuggWhite4")); // ("全部");
     chkShowWhiteSuggWhite.setBounds(504, 286, 67, 23);
     uiTab.add(chkShowWhiteSuggWhite);
-    ShowWinratGroup.add(rdoShowWinrateBlack);
-    ShowWinratGroup.add(rdoShowWinrateBoth);
 
     JLabel lblSuggestionMoveColorConcentration =
         new JLabel(
@@ -1987,7 +1966,6 @@ public class ConfigDialog2 extends JDialog {
     //  new ComsWorker(this).execute();
     setBoardSize();
     setShowMoveNumber();
-    setShowWinrateSide();
     rebuildDisplayTabLikeDesign();
     SwingUtilities.invokeLater(() -> rebuildDisplayTabLikeDesign(activeModernNavIndex));
     syncModernTabSelection();
@@ -5591,13 +5569,6 @@ public class ConfigDialog2 extends JDialog {
     }
   }
 
-  private void setShowWinrateSide() {
-    if (LizzieFrame.winrateGraph.mode == 0) {
-      rdoShowWinrateBlack.setSelected(true);
-    } else {
-      rdoShowWinrateBoth.setSelected(true);
-    }
-  }
 
   private void setStoneIndicatorType(int type) {
     switch (type) {
@@ -6301,8 +6272,6 @@ public class ConfigDialog2 extends JDialog {
       Lizzie.config.uiConfig.put("only-last-move-number", Lizzie.config.onlyLastMoveNumber);
       Lizzie.config.uiConfig.put("allow-move-number", Lizzie.config.allowMoveNumber);
 
-      if (this.rdoShowWinrateBlack.isSelected()) LizzieFrame.winrateGraph.mode = 0;
-      if (this.rdoShowWinrateBoth.isSelected()) LizzieFrame.winrateGraph.mode = 1;
       Lizzie.config.showBlunderBar = chkShowBlunderBar.isSelected();
       Lizzie.config.uiConfig.putOpt("show-blunder-bar", Lizzie.config.showBlunderBar);
 

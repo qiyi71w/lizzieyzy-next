@@ -100,7 +100,7 @@ class WinrateGraphEnginePkModeHitTest {
   }
 
   @Test
-  void pendingCurrentMoveUsesItsOwnColumnWithoutVerticalGuideInDualCurveMode()
+  void pendingCurrentMoveUsesItsOwnColumnWithoutVerticalGuide()
       throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
@@ -185,49 +185,12 @@ class WinrateGraphEnginePkModeHitTest {
     }
   }
 
-  @Test
-  void modeOneClickAndDragUseRenderedWhiteDotPixel() throws Exception {
-    TestEnvironment env = TestEnvironment.open();
-    try {
-      RenderFixture fixture = modeOneFixture();
-      EngineGameSnapshotFixtures.publishIdle();
-      fixture.board.isPkBoard = false;
-
-      int[] pixel =
-          renderedModeOneWhiteDotPixel(fixture.graph, fixture.target, fixture.whiteDotWinrate);
-      clickAndDragShouldReachTarget(fixture, pixel);
-    } finally {
-      env.close();
-    }
-  }
-
-  @Test
-  void modeOneHoverUsesRenderedWhiteDotPixel() throws Exception {
-    TestEnvironment env = TestEnvironment.open();
-    try {
-      RenderFixture fixture = modeOneFixture();
-      EngineGameSnapshotFixtures.publishIdle();
-      fixture.board.isPkBoard = false;
-
-      int[] pixel =
-          renderedModeOneWhiteDotPixel(fixture.graph, fixture.target, fixture.whiteDotWinrate);
-      boolean handled = fixture.frame.processMouseMoveOnWinrateGraph(pixel[0], pixel[1]);
-
-      assertTrue(handled, "hover should consume the rendered white-dot pixel in mode 1.");
-      assertSame(
-          fixture.target,
-          fixture.graph.mouseOverNode,
-          "hover should resolve the same rendered white-dot target node as click and drag.");
-    } finally {
-      env.close();
-    }
-  }
 
   @Test
   void engineGameSnapshotGapBoundaryUsesRealColumnsAndConsistentHit() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
-      SnapshotGapFixture fixture = snapshotGapFixture(0);
+      SnapshotGapFixture fixture = snapshotGapFixture();
       fixture.renderFixture.board.isPkBoard = false;
       EngineGameSnapshotFixtures.publishPlaying();
       assertSnapshotGapBoundaryHitConsistency(fixture, "engine game");
@@ -240,7 +203,7 @@ class WinrateGraphEnginePkModeHitTest {
   void pkSnapshotGapBoundaryUsesRealColumnsAndConsistentHit() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
-      SnapshotGapFixture fixture = snapshotGapFixture(0);
+      SnapshotGapFixture fixture = snapshotGapFixture();
       fixture.renderFixture.board.isPkBoard = true;
       EngineGameSnapshotFixtures.publishIdle();
       assertSnapshotGapBoundaryHitConsistency(fixture, "pk");
@@ -250,37 +213,37 @@ class WinrateGraphEnginePkModeHitTest {
   }
 
   @Test
-  void modeOneSnapshotGapBoundaryUsesRealColumnsAndConsistentHit() throws Exception {
+  void ordinaryAnalysisSnapshotGapBoundaryUsesRealColumnsAndConsistentHit() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
-      SnapshotGapFixture fixture = snapshotGapFixture(1);
+      SnapshotGapFixture fixture = snapshotGapFixture();
       fixture.renderFixture.board.isPkBoard = false;
       EngineGameSnapshotFixtures.publishIdle();
-      assertSnapshotGapBoundaryHitConsistency(fixture, "mode 1");
+      assertSnapshotGapBoundaryHitConsistency(fixture, "ordinary analysis");
     } finally {
       env.close();
     }
   }
 
   @Test
-  void modeOneZeroPlayoutSnapshotBlankPixelsStillScrubToBoundaryColumn() throws Exception {
+  void ordinaryAnalysisZeroPlayoutSnapshotBlankPixelsStillScrubToBoundaryColumn() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
-      SnapshotGapFixture fixture = snapshotGapFixture(1);
+      SnapshotGapFixture fixture = snapshotGapFixture();
       fixture.renderFixture.board.isPkBoard = false;
       EngineGameSnapshotFixtures.publishIdle();
       WinrateGraph graph = fixture.renderFixture.graph;
       BufferedImage layer = renderGraphLayer(graph);
       int[] anchor =
-          renderedModeOneWhiteDotPixel(
-              graph, fixture.snapshotBoundary, fixture.renderFixture.whiteDotWinrate);
-      assertNotNull(anchor, "mode 1 should keep a snapshot boundary anchor point.");
+          renderedModeZeroDotPixel(
+              graph, fixture.snapshotBoundary, fixture.renderFixture.targetWinrate);
+      assertNotNull(anchor, "ordinary analysis should keep a snapshot boundary anchor point.");
       int[] blankPixel =
           blankPixelResolvingToNode(graph, fixture.snapshotBoundary, layer, anchor, 8);
       assertSame(
           fixture.snapshotBoundary,
           graph.resolveMoveTargetNode(blankPixel[0], blankPixel[1]),
-          "mode 1 zero-playout snapshot should scrub from blank graph pixels to its boundary column.");
+          "ordinary analysis zero-playout snapshot should scrub from blank graph pixels to its boundary column.");
     } finally {
       env.close();
     }
@@ -384,24 +347,6 @@ class WinrateGraphEnginePkModeHitTest {
     }
   }
 
-  @Test
-  void customMissColorPaintsModeOneWhiteLineAndDot() throws Exception {
-    TestEnvironment env = TestEnvironment.open();
-    try {
-      Lizzie.config.winrateMissLineColor = CUSTOM_MISS_COLOR;
-      RenderFixture fixture = modeOneFixture();
-      fixture.board.isPkBoard = false;
-      EngineGameSnapshotFixtures.publishIdle();
-
-      RenderLayers layers = renderLayers(fixture.graph);
-      int[] dot =
-          renderedModeOneWhiteDotPixel(fixture.graph, fixture.target, fixture.whiteDotWinrate);
-
-      assertColorNear(layers.winrate, dot, CUSTOM_MISS_COLOR, 3);
-    } finally {
-      env.close();
-    }
-  }
 
   @Test
   void showBlunderBarFalseLeavesBlunderLayerEmpty() throws Exception {
@@ -472,13 +417,13 @@ class WinrateGraphEnginePkModeHitTest {
   }
 
   @Test
-  void modeOneBlankGraphBackgroundScrubsToNearestVisibleColumn() throws Exception {
+  void ordinaryAnalysisBlankGraphBackgroundScrubsToNearestVisibleColumn() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
       RenderFixture fixture = modeOneFixture();
       fixture.board.isPkBoard = false;
       EngineGameSnapshotFixtures.publishIdle();
-      assertBlankGraphBackgroundScrubsToNearestVisibleColumn(fixture, "mode 1");
+      assertBlankGraphBackgroundScrubsToNearestVisibleColumn(fixture, "ordinary analysis");
     } finally {
       env.close();
     }
@@ -650,7 +595,7 @@ class WinrateGraphEnginePkModeHitTest {
     history.setHead(current);
     board.setHistory(history);
 
-    return setupGraph(board, current, target, 82, 0, 0);
+    return setupGraph(board, current, target, 82);
   }
 
   private static RenderFixture modeOneFixture() throws Exception {
@@ -670,7 +615,7 @@ class WinrateGraphEnginePkModeHitTest {
     history.setHead(current);
     board.setHistory(history);
 
-    return setupGraph(board, current, target, 80, 1, 80);
+    return setupGraph(board, current, target, 80);
   }
 
   private static RenderFixture modeZeroDuplicatedColumnFixture() throws Exception {
@@ -690,10 +635,10 @@ class WinrateGraphEnginePkModeHitTest {
     history.setHead(current);
     board.setHistory(history);
 
-    return setupGraph(board, current, target, 82, 0, 0);
+    return setupGraph(board, current, target, 82);
   }
 
-  private static SnapshotGapFixture snapshotGapFixture(int mode) throws Exception {
+  private static SnapshotGapFixture snapshotGapFixture() throws Exception {
     TrackingBoard board = allocate(TrackingBoard.class);
     board.startStonelist = new ArrayList<>();
     board.hasStartStone = false;
@@ -708,7 +653,7 @@ class WinrateGraphEnginePkModeHitTest {
     history.setHead(current);
     board.setHistory(history);
 
-    RenderFixture renderFixture = setupGraph(board, current, snapshotBoundary, 50, mode, 50);
+    RenderFixture renderFixture = setupGraph(board, current, snapshotBoundary, 50);
     return new SnapshotGapFixture(renderFixture, snapshotBoundary, preGapMove);
   }
 
@@ -716,12 +661,9 @@ class WinrateGraphEnginePkModeHitTest {
       TrackingBoard board,
       BoardHistoryNode current,
       BoardHistoryNode target,
-      double targetWinrate,
-      int mode,
-      double whiteDotWinrate)
+      double targetWinrate)
       throws Exception {
     WinrateGraph graph = new WinrateGraph();
-    graph.mode = mode;
     TrackingFrame frame = allocate(TrackingFrame.class);
     javax.swing.JScrollPane commentEditPane = new javax.swing.JScrollPane();
     commentEditPane.setVisible(false);
@@ -732,13 +674,10 @@ class WinrateGraphEnginePkModeHitTest {
     Lizzie.frame = frame;
     LizzieFrame.winrateGraph = graph;
 
-    return new RenderFixture(board, frame, graph, current, target, targetWinrate, whiteDotWinrate);
+    return new RenderFixture(board, frame, graph, current, target, targetWinrate);
   }
 
   private static int[] renderedPrimaryGraphPixel(RenderFixture fixture) throws Exception {
-    if (fixture.graph.mode == 1) {
-      return renderedModeOneWhiteDotPixel(fixture.graph, fixture.target, fixture.whiteDotWinrate);
-    }
     return renderedModeZeroDotPixel(fixture.graph, fixture.target, fixture.targetWinrate);
   }
 
@@ -750,13 +689,6 @@ class WinrateGraphEnginePkModeHitTest {
     return renderedGraphPointMatchingY(graph, target, expectedY);
   }
 
-  private static int[] renderedModeOneWhiteDotPixel(
-      WinrateGraph graph, BoardHistoryNode target, double whiteDotWinrate) throws Exception {
-    renderGraphLayer(graph);
-    int[] params = (int[]) getField(graph, "params");
-    int expectedY = graphCenterY(params, whiteDotWinrate);
-    return renderedGraphPointMatchingY(graph, target, expectedY);
-  }
 
   @SuppressWarnings("unchecked")
   private static int[] renderedGraphPointMatchingY(
@@ -1123,7 +1055,6 @@ class WinrateGraphEnginePkModeHitTest {
     private final BoardHistoryNode current;
     private final BoardHistoryNode target;
     private final double targetWinrate;
-    private final double whiteDotWinrate;
 
     private RenderFixture(
         TrackingBoard board,
@@ -1131,15 +1062,13 @@ class WinrateGraphEnginePkModeHitTest {
         WinrateGraph graph,
         BoardHistoryNode current,
         BoardHistoryNode target,
-        double targetWinrate,
-        double whiteDotWinrate) {
+        double targetWinrate) {
       this.board = board;
       this.frame = frame;
       this.graph = graph;
       this.current = current;
       this.target = target;
       this.targetWinrate = targetWinrate;
-      this.whiteDotWinrate = whiteDotWinrate;
     }
   }
 

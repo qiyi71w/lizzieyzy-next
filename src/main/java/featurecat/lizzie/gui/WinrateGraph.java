@@ -134,7 +134,6 @@ public class WinrateGraph {
   private int[] params = {0, 0, 0, 0, 0};
   public BoardHistoryNode mouseOverNode;
   // private int numMovesOfPlayed = 0;
-  public int mode = 0;
   private double maxScoreLead = Lizzie.config.initialMaxScoreLead;
   private double weightedMaxScoreBlunder = 50;
   private boolean largeEnough = false;
@@ -150,7 +149,6 @@ public class WinrateGraph {
   private BoardHistoryNode renderedCurrentGraphNode;
   private BoardHistoryNode renderedGraphEndNode;
   private BoardHistoryNode renderedMainEndNode;
-  private int renderedMode;
   private boolean renderedEngineOrPkGraphMode;
   private boolean renderedShowWinrateLine;
   private boolean renderedFrameInPlayMode;
@@ -687,7 +685,6 @@ public class WinrateGraph {
         }
       }
     } else {
-      if (mode == 0) {
         boolean canDrawBlunderBar = true;
         while (node.previous().isPresent()) {
           BoardData data = node.getData();
@@ -852,189 +849,6 @@ public class WinrateGraph {
         }
         g.setStroke(new BasicStroke(1));
 
-      } else if (mode == 1) {
-        //    boolean isMain = node.isMainTrunk();
-        while (node.previous().isPresent()) {
-          int currentMoveIndex = node.getData().moveNumber - 1;
-          double wr = node.getData().winrate;
-          double score = node.getData().scoreMean;
-          int playouts = node.getData().getPlayouts();
-          if (playouts > 0) {
-            if (wr < 0) {
-              wr = 100 - lastWr;
-              score = lastScore;
-            } else if (!node.getData().blackToPlay) {
-              wr = 100 - wr;
-              score = -score;
-            }
-            // if (Lizzie.frame.isPlayingAgainstLeelaz
-            // && Lizzie.frame.playerIsBlack == !node.getData().blackToPlay) {
-            // wr = lastWr;
-            // }
-
-            if (lastOkMove >= 0 && Math.abs(currentMoveIndex - lastOkMove) < 25) {
-              if (Lizzie.config.showBlunderBar) {
-                double lastMoveRate = Math.abs(lastWr - wr);
-                double lastMoveScoreRate = Math.abs(lastScore - score);
-                drawBlunderBar(
-                    gBlunder,
-                    posx,
-                    width,
-                    numMoves,
-                    lastOkMove,
-                    currentMoveIndex,
-                    height,
-                    blunderBottom,
-                    lastMoveRate,
-                    lastMoveScoreRate);
-              }
-
-              //        if (isMain) {
-              g.setColor(winrateLineColor());
-              g.setStroke(new BasicStroke(Lizzie.config.winrateStrokeWidth));
-              //              } else {
-              //                g.setColor(Color.BLACK);
-              //                g.setStroke(dashed);
-              //              }
-              //              if (lastNodeOk) g.setStroke(new BasicStroke(2f));
-              //              else g.setStroke(new BasicStroke(1f));
-              // g.setColor(Color.BLACK);
-              if (Lizzie.config.showWinrateLine) {
-                g.drawLine(
-                    posx + (lastOkMove * width / numMoves),
-                    posy + height - (int) (lastWr * height / 100),
-                    posx + (currentMoveIndex * width / numMoves),
-                    posy + height - (int) (wr * height / 100));
-                //       if (isMain) {
-                g.setColor(winrateMissLineColor());
-                g.setStroke(new BasicStroke(Lizzie.config.winrateStrokeWidth));
-                //              } else {
-                //                g.setColor(Color.WHITE);
-                //                g.setStroke(dashed);
-                //              }
-                //   if (lastNodeOk) g.setStroke(new BasicStroke(2f));
-                //    else g.setStroke(new BasicStroke(1f));
-                // g.setColor(Color.WHITE);
-                g.drawLine(
-                    posx + (lastOkMove * width / numMoves),
-                    posy + height - (int) ((100 - lastWr) * height / 100),
-                    posx + (currentMoveIndex * width / numMoves),
-                    posy + height - (int) ((100 - wr) * height / 100));
-              }
-            }
-            if (Lizzie.config.showWinrateLine) {
-              if (node == curMove
-                  || (curMove.previous().isPresent()
-                      && node == curMove.previous().get()
-                      && curMove.getData().getPlayouts() <= 0)) {
-                g.setColor(winrateLineColor());
-                g.fillOval(
-                    posx + (currentMoveIndex * width / numMoves) - DOT_RADIUS,
-                    clampDotY(posy + height - (int) (wr * height / 100) - DOT_RADIUS, DOT_RADIUS),
-                    DOT_RADIUS * 2,
-                    DOT_RADIUS * 2);
-                Font f =
-                    new Font(
-                        Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
-                g.setFont(f);
-
-                String wrString = String.format(Locale.ENGLISH, "%.1f", wr);
-                int stringWidth = g.getFontMetrics().stringWidth(wrString);
-                int x = posx + (currentMoveIndex * width / numMoves) - stringWidth / 2;
-                x = Math.max(x, origParams[0]);
-                x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
-
-                if (wr > 50) {
-                  if (wr > 90) {
-                    g.drawString(
-                        wrString, x, posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS);
-                  } else {
-                    g.drawString(
-                        wrString, x, posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS);
-                  }
-                } else {
-                  if (wr < 10) {
-                    g.drawString(
-                        wrString, x, posy + (height - (int) (wr * height / 100)) - 2 * DOT_RADIUS);
-                  } else {
-                    g.drawString(
-                        wrString, x, posy + (height - (int) (wr * height / 100)) + 6 * DOT_RADIUS);
-                  }
-                }
-                g.setColor(winrateMissLineColor());
-                Font fw =
-                    new Font(
-                        Config.sysDefaultFontName, Font.BOLD, largeEnough ? Utils.zoomOut(16) : 16);
-                g.setFont(fw);
-                g.setColor(winrateMissLineColor());
-                g.fillOval(
-                    posx + (currentMoveIndex * width / numMoves) - DOT_RADIUS,
-                    clampDotY(
-                        posy + height - (int) ((100 - wr) * height / 100) - DOT_RADIUS, DOT_RADIUS),
-                    DOT_RADIUS * 2,
-                    DOT_RADIUS * 2);
-                g.setColor(Color.WHITE);
-
-                wrString = String.format(Locale.ENGLISH, "%.1f", 100 - wr);
-                stringWidth = g.getFontMetrics().stringWidth(wrString);
-                x = posx + (currentMoveIndex * width / numMoves) - stringWidth / 2;
-                x = Math.max(x, origParams[0]);
-                x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
-
-                if (wr > 50) {
-                  if (wr < 90) {
-                    g.drawString(
-                        wrString,
-                        x,
-                        posy + (height - (int) ((100 - wr) * height / 100)) + 6 * DOT_RADIUS);
-                  } else {
-                    g.drawString(
-                        wrString,
-                        x,
-                        posy + (height - (int) ((100 - wr) * height / 100)) - 2 * DOT_RADIUS);
-                  }
-                } else {
-                  if (wr > 10) {
-                    g.drawString(
-                        wrString,
-                        x,
-                        posy + (height - (int) ((100 - wr) * height / 100)) - 2 * DOT_RADIUS);
-                  } else {
-                    g.drawString(
-                        wrString,
-                        x,
-                        posy + (height - (int) ((100 - wr) * height / 100)) + 6 * DOT_RADIUS);
-                  }
-                }
-              }
-            }
-            lastWr = wr;
-            lastScore = score;
-            lastNodeOk = true;
-            // Check if we were in a variation and has reached the main trunk
-            //            if (topOfVariation.isPresent() && topOfVariation.get() == node) {
-            //              // Reached top of variation, go to end of main trunk before continuing
-            //              while (node.next().isPresent()) {
-            //                node = node.next().get();
-            //              }
-            //              movenum = node.getData().moveNumber - 1;
-            //              lastWr = node.getData().winrate;
-            //              if (!node.getData().blackToPlay) lastWr = 100 - lastWr;
-            //              // g.setStroke(new BasicStroke(2));
-            //              isMain = true;
-            //              topOfVariation = Optional.empty();
-            //              if (node.getData().getPlayouts() == 0) {
-            //                lastNodeOk = false;
-            //              }
-            //            }
-            lastOkMove = lastNodeOk ? currentMoveIndex : -1;
-          } else {
-            lastNodeOk = false;
-          }
-          // g.setStroke(new BasicStroke(1));
-          node = node.previous().get();
-        }
-      }
     }
     // 添加是否显示目差
     if (Lizzie.config.showScoreLeadLine) {
@@ -1489,15 +1303,9 @@ public class WinrateGraph {
     return controller != null && !controller.isFinished() && !controller.isLiveAnalysisMode();
   }
 
-  static List<String> lineLegendLabels(
-      boolean twoLine, boolean hasScoreLead, ResourceBundle bundle) {
+  static List<String> lineLegendLabels(boolean hasScoreLead, ResourceBundle bundle) {
     ArrayList<String> labels = new ArrayList<>();
-    if (twoLine) {
-      labels.add(bundle.getString("WinrateGraph.legendBlackWinrate"));
-      labels.add(bundle.getString("WinrateGraph.legendWhiteWinrate"));
-    } else {
-      labels.add(bundle.getString("WinrateGraph.legendWinrate"));
-    }
+    labels.add(bundle.getString("WinrateGraph.legendWinrate"));
     if (hasScoreLead) {
       labels.add(bundle.getString("WinrateGraph.legendScoreLead"));
     }
@@ -1512,17 +1320,9 @@ public class WinrateGraph {
     FontMetrics fm = g.getFontMetrics();
 
     boolean hasScoreLead = Lizzie.config.showScoreLeadLine;
-    boolean isTwoLine = mode == 1;
-
-    List<String> labels = lineLegendLabels(isTwoLine, hasScoreLead, Lizzie.resourceBundle);
+    List<String> labels = lineLegendLabels(hasScoreLead, Lizzie.resourceBundle);
     ArrayList<Color> colors = new ArrayList<>();
-
-    if (isTwoLine) {
-      colors.add(winrateLineColor());
-      colors.add(winrateMissLineColor());
-    } else {
-      colors.add(winrateLineColor());
-    }
+    colors.add(winrateLineColor());
     if (hasScoreLead) {
       colors.add(
           Lizzie.config.scoreMeanLineColor != null
@@ -2030,8 +1830,6 @@ public class WinrateGraph {
     List<GraphPoint> points;
     if (isEngineOrPkGraphMode()) {
       points = buildEngineGraphAnchorPoints(currentNode);
-    } else if (mode == 1) {
-      points = buildDualCurveGraphAnchorPoints(currentNode);
     } else {
       points = buildDefaultGraphAnchorPoints(currentNode);
     }
@@ -2125,49 +1923,6 @@ public class WinrateGraph {
     return fallbackWinrate;
   }
 
-  private List<GraphPoint> buildDualCurveGraphAnchorPoints(BoardHistoryNode currentNode) {
-    ArrayList<GraphPoint> points = new ArrayList<>();
-    BoardHistoryNode node = graphTraversalEnd(currentNode);
-    double lastWinrate = 50;
-    while (node.previous().isPresent()) {
-      Double blackCurveWinrate = displayedDualCurveAnchorWinrate(node, lastWinrate);
-      if (blackCurveWinrate != null) {
-        lastWinrate = blackCurveWinrate.doubleValue();
-        appendGraphPoint(points, node, blackCurveWinrate.doubleValue());
-        appendGraphPoint(points, node, 100 - blackCurveWinrate.doubleValue());
-      }
-      node = node.previous().get();
-    }
-    return points;
-  }
-
-  private Double displayedDualCurveAnchorWinrate(BoardHistoryNode node, double fallbackWinrate) {
-    Double displayedWinrate = displayedDualCurveBlackWinrate(node, fallbackWinrate);
-    if (displayedWinrate != null) {
-      return displayedWinrate;
-    }
-    if (node == null || node.getData() == null) {
-      return null;
-    }
-    BoardData data = node.getData();
-    if (!data.isSnapshotNode() || hasPrimaryAnalysisPayload(data)) {
-      return null;
-    }
-    return Math.max(0, Math.min(100, fallbackWinrate));
-  }
-
-  private Double displayedDualCurveBlackWinrate(BoardHistoryNode node, double fallbackWinrate) {
-    if (node == null || node.getData() == null || !hasPrimaryAnalysisPayload(node.getData())) {
-      return null;
-    }
-    double winrate = node.getData().winrate;
-    if (winrate < 0) {
-      winrate = 100 - fallbackWinrate;
-    } else if (!node.getData().blackToPlay) {
-      winrate = 100 - winrate;
-    }
-    return winrate;
-  }
 
   private boolean isEngineOrPkGraphMode() {
     return engineGamePlaying() || (Lizzie.board != null && Lizzie.board.isPkBoard);
@@ -2627,7 +2382,6 @@ public class WinrateGraph {
     renderedCurrentGraphNode = null;
     renderedGraphEndNode = null;
     renderedMainEndNode = null;
-    renderedMode = 0;
     renderedEngineOrPkGraphMode = false;
     renderedShowWinrateLine = false;
     renderedFrameInPlayMode = false;
@@ -2660,7 +2414,6 @@ public class WinrateGraph {
     renderedCurrentGraphNode = currentNode;
     renderedGraphEndNode = currentNode == null ? null : graphTraversalEnd(currentNode);
     renderedMainEndNode = currentMainEndNode();
-    renderedMode = mode;
     renderedEngineOrPkGraphMode = isEngineOrPkGraphMode();
     renderedShowWinrateLine = isShowWinrateLineEnabled();
     renderedFrameInPlayMode = isFrameInPlayMode();
@@ -2670,7 +2423,6 @@ public class WinrateGraph {
     boolean sameState =
         (!isFrameTryingMode() || currentGraphNode() == renderedCurrentGraphNode)
             && currentMainEndNode() == renderedMainEndNode
-            && mode == renderedMode
             && isEngineOrPkGraphMode() == renderedEngineOrPkGraphMode
             && isShowWinrateLineEnabled() == renderedShowWinrateLine
             && isFrameInPlayMode() == renderedFrameInPlayMode;

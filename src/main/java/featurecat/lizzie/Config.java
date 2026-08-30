@@ -3014,6 +3014,12 @@ public class Config {
     }
   }
 
+  void dropPersistedWinrateGraphMode() {
+    if (persistedUi != null) {
+      persistedUi.remove("winrate-graph");
+    }
+  }
+
   public void persist() throws IOException {
     if (deletedPersist) return;
     boolean windowIsMaximized = Lizzie.frame.getExtendedState() == JFrame.MAXIMIZED_BOTH;
@@ -3380,9 +3386,7 @@ public class Config {
     persistedUi.put("toolbar-parameter", toolbarParameter);
 
 
-    JSONArray winrateGraph = new JSONArray();
-    winrateGraph.put(LizzieFrame.winrateGraph.mode);
-    persistedUi.put("winrate-graph", winrateGraph);
+    dropPersistedWinrateGraphMode();
 
     if (Lizzie.frame.independentSubBoard != null) {
       JSONArray independentSub = new JSONArray();

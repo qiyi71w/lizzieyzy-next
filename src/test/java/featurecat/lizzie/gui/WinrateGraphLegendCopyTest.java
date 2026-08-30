@@ -13,22 +13,22 @@ class WinrateGraphLegendCopyTest {
   private static final Pattern HAN_CHARACTER = Pattern.compile("[\\p{IsHan}]");
 
   @Test
-  void englishSingleLineWithScoreLeadUsesWinrateAndScoreLeadWithoutHan() {
+  void englishWinrateAndScoreLeadLegendDoesNotUseHan() {
     ResourceBundle english = AppLocale.ENGLISH.loadBundle();
 
-    List<String> labels = WinrateGraph.lineLegendLabels(false, true, english);
+    List<String> labels = WinrateGraph.lineLegendLabels(true, english);
 
     assertEquals(List.of("Winrate", "Score lead"), labels);
     labels.forEach(WinrateGraphLegendCopyTest::assertNoHan);
   }
 
   @Test
-  void englishTwoLineLegendUsesBlackAndWhiteWinrateWithoutHan() {
+  void englishWinrateOnlyLegendDoesNotUseHan() {
     ResourceBundle english = AppLocale.ENGLISH.loadBundle();
 
-    List<String> labels = WinrateGraph.lineLegendLabels(true, false, english);
+    List<String> labels = WinrateGraph.lineLegendLabels(false, english);
 
-    assertEquals(List.of("Black winrate", "White winrate"), labels);
+    assertEquals(List.of("Winrate"), labels);
     labels.forEach(WinrateGraphLegendCopyTest::assertNoHan);
   }
 
@@ -36,8 +36,8 @@ class WinrateGraphLegendCopyTest {
   void simplifiedChineseKeepsCurrentWinrateAndScoreLeadLiterals() {
     ResourceBundle chinese = AppLocale.SIMPLIFIED_CHINESE.loadBundle();
 
-    assertEquals(List.of("胜率", "目差"), WinrateGraph.lineLegendLabels(false, true, chinese));
-    assertEquals(List.of("黑胜率", "白胜率"), WinrateGraph.lineLegendLabels(true, false, chinese));
+    assertEquals(List.of("胜率", "目差"), WinrateGraph.lineLegendLabels(true, chinese));
+    assertEquals(List.of("胜率"), WinrateGraph.lineLegendLabels(false, chinese));
   }
 
   private static void assertNoHan(String value) {
