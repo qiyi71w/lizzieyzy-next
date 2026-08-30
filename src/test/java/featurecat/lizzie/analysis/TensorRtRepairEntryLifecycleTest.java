@@ -52,7 +52,7 @@ class TensorRtRepairEntryLifecycleTest {
   }
 
   @Test
-  void consumeMatchesIdentityOrStableTargetAndCommand() throws Exception {
+  void consumeRequiresIdentityAndPreservesReplacement() throws Exception {
     Leelaz engine = new Leelaz("");
     TensorRtRepairContext pending = repairable("katago.exe gtp");
     engine.storePendingTensorRtRepairContext(pending);
@@ -69,9 +69,13 @@ class TensorRtRepairEntryLifecycleTest {
             pending.missingItems,
             pending.repairable,
             pending.displayMessage);
-    assertTrue(Leelaz.matchesPendingTensorRtRepairContext(pending, copy));
-    assertTrue(engine.consumePendingTensorRtRepairContext(copy));
-    assertNull(engine.pendingTensorRtRepairContext());
+    assertFalse(engine.consumePendingTensorRtRepairContext(copy));
+    assertSame(pending, engine.pendingTensorRtRepairContext());
+
+    TensorRtRepairContext replacement = repairable("katago.exe gtp");
+    engine.storePendingTensorRtRepairContext(replacement);
+    assertFalse(Leelaz.consumePendingIfDirectedTransfer(engine, true, pending));
+    assertSame(replacement, engine.pendingTensorRtRepairContext());
   }
 
   @Test

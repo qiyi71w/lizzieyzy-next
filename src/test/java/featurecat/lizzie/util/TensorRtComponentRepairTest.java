@@ -512,6 +512,75 @@ public class TensorRtComponentRepairTest {
   }
 
   @Test
+  void completedInitialBackupMoveThatThrowsRestoresLastKnownGoodTarget() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("tensorrt-repair-initial-backup");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          SetupSnapshot snapshot = createDirectMlSnapshot(tempRoot);
+          RepairFixtures fixtures = createRepairFixtures(tempRoot);
+
+          withRepairFixtures(
+              fixtures,
+              true,
+              () ->
+                  withConfig(
+                      runtimeWorkDirectory,
+                      () -> {
+                        seedDirectMlProfiles(snapshot);
+                        KataGoRuntimeHelper.repairTensorRtComponents(
+                            snapshot, null, new DownloadSession());
+                        Path engineDir = tensorRtEngineDir(runtimeWorkDirectory);
+                        Path engine = engineDir.resolve("katago.exe");
+                        Files.writeString(engine, "last-known-good-engine");
+                        Files.writeString(
+                            engineDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
+                            "KataGo release: v1.0.0\nAsset SHA-256: "
+                                + EMPTY_FILE_SHA256
+                                + "\n");
+
+                        KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(
+                            (source, target) -> {
+                              Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                              if (source.equals(engineDir)) {
+                                throw new IOException(
+                                    "injected completed TensorRT initial backup move failure");
+                              }
+                            });
+                        IOException failure;
+                        try {
+                          failure =
+                              assertThrows(
+                                  IOException.class,
+                                  () ->
+                                      KataGoRuntimeHelper.repairTensorRtComponents(
+                                          snapshot, null, new DownloadSession()));
+                        } finally {
+                          KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
+                        }
+
+                        assertEquals(
+                            "injected completed TensorRT initial backup move failure",
+                            failure.getMessage());
+                        assertTrue(
+                            Files.isRegularFile(engine),
+                            "failed initial backup move must restore the configured engine path");
+                        assertEquals("last-known-good-engine", Files.readString(engine));
+                        String prefix = engineDir.getFileName().toString();
+                        try (DirectoryStream<Path> children =
+                            Files.newDirectoryStream(engineDir.getParent())) {
+                          for (Path child : children) {
+                            assertFalse(
+                                child.getFileName().toString().startsWith(prefix + ".installing-"),
+                                "staging cleanup must still run");
+                          }
+                        }
+                      }));
+        });
+  }
+
+  @Test
   void onlyEnableTensorRtWritesTheProfileAndMissingItemsBlockActivation() throws Exception {
     withOsName(
         WINDOWS_OS_NAME,

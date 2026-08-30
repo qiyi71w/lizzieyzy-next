@@ -608,22 +608,19 @@ public class Leelaz {
   public boolean stopByPlayouts = false;
   public boolean outOfPlayoutsLimit = false;
   private EngineFailedMessage engineFailedMessage;
-  private TensorRtRepairContext pendingTensorRtRepairContext;
+  private final AtomicReference<TensorRtRepairContext> pendingTensorRtRepairContext =
+      new AtomicReference<>();
 
   public TensorRtRepairContext pendingTensorRtRepairContext() {
-    return pendingTensorRtRepairContext;
+    return pendingTensorRtRepairContext.get();
   }
 
   void storePendingTensorRtRepairContext(TensorRtRepairContext context) {
-    pendingTensorRtRepairContext = context;
+    pendingTensorRtRepairContext.set(context);
   }
 
   public boolean consumePendingTensorRtRepairContext(TensorRtRepairContext expected) {
-    if (!matchesPendingTensorRtRepairContext(pendingTensorRtRepairContext, expected)) {
-      return false;
-    }
-    pendingTensorRtRepairContext = null;
-    return true;
+    return expected != null && pendingTensorRtRepairContext.compareAndSet(expected, null);
   }
 
   public static boolean consumePendingIfDirectedTransfer(
@@ -632,24 +629,6 @@ public class Leelaz {
       return false;
     }
     return engine.consumePendingTensorRtRepairContext(transferred);
-  }
-
-  static boolean matchesPendingTensorRtRepairContext(
-      TensorRtRepairContext pending, TensorRtRepairContext expected) {
-    if (pending == null || expected == null) {
-      return false;
-    }
-    if (pending == expected) {
-      return true;
-    }
-    return Objects.equals(
-            stableRepairTarget(pending.failedExecutable),
-            stableRepairTarget(expected.failedExecutable))
-        && Objects.equals(pending.originalCommand, expected.originalCommand);
-  }
-
-  private static Path stableRepairTarget(Path path) {
-    return path == null ? null : path.toAbsolutePath().normalize();
   }
 
   public List<String> commandLists = new ArrayList<String>();
@@ -21741,8 +21720,9 @@ public class Leelaz {
             }
           });
     }
+    TensorRtRepairContext repairContext = pendingTensorRtRepairContext.get();
     if (!shouldOpenInteractiveDiagnostic(
-        primaryEngine, Lizzie.isFirstLaunchSession(), pendingTensorRtRepairContext)) {
+        primaryEngine, Lizzie.isFirstLaunchSession(), repairContext)) {
       return;
     }
     if (mayClearEngineGame
@@ -21753,7 +21733,6 @@ public class Leelaz {
       Lizzie.engineManager.clearEngineGame();
     if (GraphicsEnvironment.isHeadless()) return;
     if (engineFailedMessage != null && engineFailedMessage.isVisible()) return;
-    TensorRtRepairContext repairContext = pendingTensorRtRepairContext;
     EngineFailedMessage.showDialog(
         commands,
         engineCommand,

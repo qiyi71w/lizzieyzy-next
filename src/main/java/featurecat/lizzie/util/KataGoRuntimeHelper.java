@@ -6034,7 +6034,14 @@ public final class KataGoRuntimeHelper {
         }
         revalidateDirectedTensorRtTargetAtMutationBoundary(context);
         if (Files.exists(targetEngineDir)) {
-          moveTensorRtDirectory(targetEngineDir, backupDir);
+          try {
+            moveTensorRtDirectory(targetEngineDir, backupDir);
+          } catch (IOException e) {
+            if (Files.exists(backupDir) && !Files.exists(targetEngineDir)) {
+              restoreTensorRtBackup(backupDir, targetEngineDir, e);
+            }
+            throw e;
+          }
         }
         try {
           moveTensorRtDirectory(stagingDir, targetEngineDir);
