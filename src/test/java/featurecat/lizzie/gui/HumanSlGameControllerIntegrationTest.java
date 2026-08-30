@@ -133,6 +133,44 @@ class HumanSlGameControllerIntegrationTest {
   }
 
   @Test
+  void continueAnalysisRetriesARepairedPrimaryWhenNoEngineIsCurrentlyRoutable() throws Exception {
+    EngineManager previousManager = Lizzie.engineManager;
+    try (CoachEnvironment env = CoachEnvironment.open()) {
+      RetryTrackingEngineManager manager = new RetryTrackingEngineManager();
+      Lizzie.engineManager = manager;
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+
+      assertDoesNotThrow(() -> Lizzie.frame.togglePonderMannul());
+
+      assertEquals(1, manager.retryRequests.get());
+      assertFalse(Lizzie.frame.stopAiPlayingAndPolicy());
+    } finally {
+      Lizzie.engineManager = previousManager;
+    }
+  }
+
+  @Test
+  void continueAnalysisToolbarActionIsNullSafeWhileRepairedPrimaryStartsAsync() throws Exception {
+    EngineManager previousManager = Lizzie.engineManager;
+    try (CoachEnvironment env = CoachEnvironment.open()) {
+      RetryTrackingEngineManager manager = new RetryTrackingEngineManager();
+      Lizzie.engineManager = manager;
+      Lizzie.leelaz = null;
+      EngineManager.isEmpty = true;
+      CoachFrame frame = (CoachFrame) Lizzie.frame;
+      SilentBottomToolbar toolbar = (SilentBottomToolbar) LizzieFrame.toolbar;
+
+      assertDoesNotThrow(toolbar::toggleAnalysisFromToolbar);
+
+      assertEquals(1, manager.retryRequests.get());
+      assertEquals(1, frame.refreshRequests);
+    } finally {
+      Lizzie.engineManager = previousManager;
+    }
+  }
+
+  @Test
   void analysisPausedDuringPreparationIsRestoredWhenCoachEnds() throws Exception {
     try (CoachEnvironment env = CoachEnvironment.open()) {
       TrackingLeelaz engine = new TrackingLeelaz();
@@ -889,6 +927,91 @@ class HumanSlGameControllerIntegrationTest {
       assertEquals(resultBefore, Lizzie.board.getHistory().getGameInfo().getResult());
       assertFalse(sessionStates.contains(HumanSlTrainingSession.State.REVIEWING));
       assertFalse(sessionStates.contains(HumanSlTrainingSession.State.REPORT_READY));
+    }
+  }
+
+  @Test
+  void postGameReviewStartsNormalAnalysisOnlyAfterSuccessfulDetach() throws Exception {
+    try (CoachEnvironment env = CoachEnvironment.open()) {
+      CoachFrame frame = (CoachFrame) Lizzie.frame;
+      HumanSlTrainingSession session = new HumanSlTrainingSession();
+      HumanSlGameController controller =
+          new HumanSlGameController(
+              new BlockingHumanSlRunner(),
+              HumanSlTrainingConfig.builder()
+                  .mode(TrainingMode.POST_GAME_REVIEW)
+                  .playerColor(HumanSlTrainingConfig.PlayerColor.BLACK)
+                  .fromCurrentPosition(false)
+                  .moveTimeSeconds(2)
+                  .build(),
+              session);
+      controller.setExitLifecycleForTesting(Runnable::run, Runnable::run, () -> true, null);
+      session.setState(HumanSlTrainingSession.State.PLAYING);
+      frame.humanSlGame = controller;
+
+      controller.finishAndReturnToBoard();
+      SwingUtilities.invokeAndWait(() -> {});
+
+      assertTrue(controller.isFinished());
+      assertNull(frame.humanSlGame);
+      assertEquals(1, frame.analysisResumeRequests);
+      assertTrue(frame.detachedWhenAnalysisResumed);
+    }
+  }
+
+  @Test
+  void liveAnalysisFinishDoesNotStartPostGameCurve() throws Exception {
+    try (CoachEnvironment env = CoachEnvironment.open()) {
+      CoachFrame frame = (CoachFrame) Lizzie.frame;
+      HumanSlTrainingSession session = new HumanSlTrainingSession();
+      HumanSlGameController controller =
+          new HumanSlGameController(
+              new BlockingHumanSlRunner(),
+              HumanSlTrainingConfig.builder()
+                  .mode(TrainingMode.LIVE_ANALYSIS)
+                  .playerColor(HumanSlTrainingConfig.PlayerColor.BLACK)
+                  .fromCurrentPosition(false)
+                  .moveTimeSeconds(2)
+                  .build(),
+              session);
+      controller.setExitLifecycleForTesting(Runnable::run, Runnable::run, () -> true, null);
+      session.setState(HumanSlTrainingSession.State.PLAYING);
+      frame.humanSlGame = controller;
+
+      controller.finishAndReturnToBoard();
+      SwingUtilities.invokeAndWait(() -> {});
+
+      assertTrue(controller.isFinished());
+      assertEquals(0, frame.analysisResumeRequests);
+    }
+  }
+
+  @Test
+  void modeTransitionAfterCoachExitDoesNotStartPostGameCurve() throws Exception {
+    try (CoachEnvironment env = CoachEnvironment.open()) {
+      CoachFrame frame = (CoachFrame) Lizzie.frame;
+      HumanSlTrainingSession session = new HumanSlTrainingSession();
+      HumanSlGameController controller =
+          new HumanSlGameController(
+              new BlockingHumanSlRunner(),
+              HumanSlTrainingConfig.builder()
+                  .mode(TrainingMode.POST_GAME_REVIEW)
+                  .playerColor(HumanSlTrainingConfig.PlayerColor.BLACK)
+                  .fromCurrentPosition(false)
+                  .moveTimeSeconds(2)
+                  .build(),
+              session);
+      controller.setExitLifecycleForTesting(Runnable::run, Runnable::run, () -> true, null);
+      session.setState(HumanSlTrainingSession.State.PLAYING);
+      frame.humanSlGame = controller;
+      AtomicInteger transitions = new AtomicInteger();
+
+      controller.abortAndThen(transitions::incrementAndGet);
+      SwingUtilities.invokeAndWait(() -> {});
+
+      assertTrue(controller.isFinished());
+      assertEquals(1, transitions.get());
+      assertEquals(0, frame.analysisResumeRequests);
     }
   }
 
@@ -1665,6 +1788,10 @@ class HumanSlGameControllerIntegrationTest {
   }
 
   private static class CoachFrame extends LizzieFrame {
+    private int analysisResumeRequests;
+    private boolean detachedWhenAnalysisResumed;
+    private int refreshRequests;
+
     @Override
     public void clearKataEstimate() {}
 
@@ -1681,7 +1808,9 @@ class HumanSlGameControllerIntegrationTest {
     public void setMainPanelFocus() {}
 
     @Override
-    public void refresh() {}
+    public void refresh() {
+      refreshRequests++;
+    }
 
     @Override
     public void updateTitle() {}
@@ -1694,6 +1823,13 @@ class HumanSlGameControllerIntegrationTest {
 
     @Override
     public void setResult(String result) {}
+
+    @Override
+    public boolean ensureAnalysisResumedAfterLoad() {
+      analysisResumeRequests++;
+      detachedWhenAnalysisResumed = humanSlGame == null;
+      return true;
+    }
   }
 
   private static final class ThrowingStartCoachFrame extends CoachFrame {
@@ -1833,6 +1969,20 @@ class HumanSlGameControllerIntegrationTest {
     }
   }
 
+  private static final class RetryTrackingEngineManager extends EngineManager {
+    private final AtomicInteger retryRequests = new AtomicInteger();
+
+    private RetryTrackingEngineManager() {
+      super(new ArrayList<>());
+    }
+
+    @Override
+    public boolean retryUnavailablePrimaryEngine() {
+      retryRequests.incrementAndGet();
+      return true;
+    }
+  }
+
   private static final class ExactReplayTrackingLeelaz extends Leelaz {
     private final List<String> events;
     private boolean pondering;
@@ -1939,6 +2089,9 @@ class HumanSlGameControllerIntegrationTest {
 
   private static final class SilentBottomToolbar extends BottomToolbar {
     private SilentBottomToolbar() {}
+
+    @Override
+    public void setTxtUnfocuse() {}
 
     @Override
     public void setChkShowBlack(boolean show) {}

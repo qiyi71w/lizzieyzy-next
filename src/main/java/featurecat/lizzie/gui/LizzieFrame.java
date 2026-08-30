@@ -1934,7 +1934,11 @@ public class LizzieFrame extends JFrame {
     engineStartupStatusButton.addActionListener(
         event -> {
           if (Lizzie.engineStartupStatus.snapshot().isActionable()) {
-            openKataGoAutoSetup();
+            KataGoAutoSetupDialog.OpenRequest request =
+                KataGoAutoSetupDialog.openRequestForEngineStartupStatus(
+                    true,
+                    Lizzie.leelaz == null ? null : Lizzie.leelaz.pendingTensorRtRepairContext());
+            openKataGoAutoSetup(request.context);
           }
         });
     basePanel.add(engineStartupStatusButton, Integer.valueOf(12));
@@ -12350,7 +12354,13 @@ public class LizzieFrame extends JFrame {
   }
 
   public void togglePonderMannul() {
-    if (stopAiPlayingAndPolicy() || Lizzie.leelaz == null) {
+    if (Lizzie.leelaz == null) {
+      if (Lizzie.engineManager != null) {
+        Lizzie.engineManager.retryUnavailablePrimaryEngine();
+      }
+      return;
+    }
+    if (stopAiPlayingAndPolicy()) {
       return;
     }
     if (!Lizzie.leelaz.isPondering()) {
@@ -12452,6 +12462,9 @@ public class LizzieFrame extends JFrame {
       // engine modes, but defer every mutation when AI Coach still owns a companion/restore lease.
       deferUntilHumanSlExit(this::stopAiPlayingAndPolicy);
       return true;
+    }
+    if (Lizzie.leelaz == null) {
+      return false;
     }
     Lizzie.leelaz.isGamePaused = false;
     boolean isGaming =
@@ -12635,11 +12648,15 @@ public class LizzieFrame extends JFrame {
   }
 
   private int currentNativeMenuBarReserve() {
-    JMenuBar bar = getJMenuBar();
+    JRootPane rootPane = getRootPane();
+    JMenuBar bar = rootPane == null ? null : rootPane.getJMenuBar();
     int height = bar == null ? 0 : bar.getHeight();
     int preferred =
         bar == null || bar.getPreferredSize() == null ? 0 : bar.getPreferredSize().height;
-    return nativeMenuBarReserve(menuPresentationMode.usesNativeMenuBar(), height, preferred);
+    return nativeMenuBarReserve(
+        menuPresentationMode != null && menuPresentationMode.usesNativeMenuBar(),
+        height,
+        preferred);
   }
 
   public void reSetLoc() {
@@ -15690,15 +15707,22 @@ public class LizzieFrame extends JFrame {
   }
 
   private void layoutEngineStartupStatus(int availableWidth) {
-    if (engineStartupStatusButton == null || !engineStartupStatusButton.isVisible()) {
+    if (engineStartupStatusButton == null
+        || !engineStartupStatusButton.isVisible()
+        || basePanel == null) {
       return;
     }
     Dimension preferred = engineStartupStatusButton.getPreferredSize();
     int width = Math.min(Math.max(180, preferred.width + 8), Math.max(180, availableWidth - 20));
     Insets insets = getInsets();
+    JRootPane rootPane = getRootPane();
+    int contentPaneHeight =
+        rootPane == null || rootPane.getContentPane() == null
+            ? 0
+            : rootPane.getContentPane().getHeight();
     int contentHeight =
         resolvedContentLength(
-            preferLaidOutLength(basePanel.getHeight(), getContentPane().getHeight()),
+            preferLaidOutLength(basePanel.getHeight(), contentPaneHeight),
             getHeight(),
             insets.top,
             insets.bottom,
@@ -19495,14 +19519,32 @@ public class LizzieFrame extends JFrame {
   }
 
   public void openKataGoAutoSetup() {
-    boolean created = false;
+    openKataGoAutoSetup((featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext) null);
+  }
+
+  public void openKataGoAutoSetup(
+      featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext context) {
+    KataGoAutoSetupDialog.OpenRequest request =
+        context == null
+            ? KataGoAutoSetupDialog.openRequestForMenu()
+            : KataGoAutoSetupDialog.openRequestForRepair(context);
+    boolean directedTransferAccepted = false;
     if (kataGoAutoSetupDialog == null || !kataGoAutoSetupDialog.isDisplayable()) {
-      kataGoAutoSetupDialog = new KataGoAutoSetupDialog(this);
-      created = true;
-    }
-    if (!created) {
+      kataGoAutoSetupDialog = new KataGoAutoSetupDialog(this, request.context);
+      directedTransferAccepted =
+          request.directed && kataGoAutoSetupDialog.hasDirectedRepairContext(request.context);
+    } else if (request.directed) {
+      directedTransferAccepted =
+          kataGoAutoSetupDialog.applyDirectedRepairContext(request.context);
+    } else {
+      kataGoAutoSetupDialog.clearDirectedRepairContext();
       kataGoAutoSetupDialog.refreshState();
     }
+    if (directedTransferAccepted) {
+      kataGoAutoSetupDialog.showAccelerationSection();
+    }
+    Leelaz.consumePendingIfDirectedTransfer(
+        Lizzie.leelaz, directedTransferAccepted, request.context);
     kataGoAutoSetupDialog.ensureVisibleOnScreen();
     kataGoAutoSetupDialog.setVisible(true);
     kataGoAutoSetupDialog.ensureVisibleOnScreen();

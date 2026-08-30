@@ -10529,24 +10529,28 @@ public class Menu extends JMenuBar {
                 if (Lizzie.frame.floatBoard != null && Lizzie.frame.floatBoard.isVisible()) {
                   Lizzie.frame.floatBoard.setPonderState(isPondering);
                 }
-                LizzieFrame.toolbar.analyse.setIcon(ready2);
-                LizzieFrame.toolbar.analyse.setText(
-                    Lizzie.resourceBundle.getString("BottomToolbar.pauseAnalyse"));
               } else {
                 engineMenu.setIcon(ready2);
                 if (Lizzie.config.isDoubleEngineMode()) engineMenu2.setIcon(ready2);
                 if (Lizzie.frame.floatBoard != null && Lizzie.frame.floatBoard.isVisible()) {
                   Lizzie.frame.floatBoard.setPonderState(false);
                 }
-                LizzieFrame.toolbar.analyse.setIcon(Playing2);
-                LizzieFrame.toolbar.analyse.setText(
-                    Lizzie.resourceBundle.getString("BottomToolbar.analyse"));
               }
+              BottomToolbar toolbar = LizzieFrame.toolbar;
+              updateAnalysisToolbarButton(toolbar == null ? null : toolbar.analyse, isPondering);
             }
             if (Lizzie.config.isDoubleEngineMode() && Lizzie.leelaz2 == null)
               engineMenu2.setIcon(ready2);
           }
         });
+  }
+
+  static void updateAnalysisToolbarButton(JButton analyseButton, boolean isPondering) {
+    if (analyseButton == null) return;
+    analyseButton.setIcon(isPondering ? ready2 : Playing2);
+    analyseButton.setText(
+        Lizzie.resourceBundle.getString(
+            isPondering ? "BottomToolbar.pauseAnalyse" : "BottomToolbar.analyse"));
   }
 
   @Override
@@ -10610,10 +10614,19 @@ public class Menu extends JMenuBar {
   }
 
   private void configureAiFeatureButton(JFontButton button) {
-    Dimension natural = button.getPreferredSize();
-    int minWidth = Lizzie.config.isChinese ? Config.menuHeight * 4 : Config.menuHeight * 5;
+    configureAiFeatureButton(button, Lizzie.config.isChinese, Config.menuHeight);
+  }
+
+  static void configureAiFeatureButton(
+      JFontButton button, boolean useCompactMinimum, int menuHeight) {
+    Dimension natural =
+        button.getUI() == null ? null : button.getUI().getPreferredSize(button);
+    if (natural == null) {
+      natural = button.getMinimumSize();
+    }
+    int minWidth = useCompactMinimum ? menuHeight * 4 : menuHeight * 5;
     button.setPreferredSize(
-        new Dimension(Math.max(minWidth, natural.width + 14), Math.max(26, Config.menuHeight - 2)));
+        new Dimension(Math.max(minWidth, natural.width + 14), Math.max(26, menuHeight - 2)));
     button.setMinimumSize(new Dimension(Math.min(84, button.getPreferredSize().width), 24));
   }
 

@@ -6,6 +6,7 @@ import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
 import featurecat.lizzie.gui.AnalysisSettings;
 import featurecat.lizzie.gui.EngineFailedMessage;
+import featurecat.lizzie.gui.EngineFailedMessage.DiagnosticActionResult;
 import featurecat.lizzie.gui.RemoteEngineData;
 import featurecat.lizzie.gui.WaitForAnalysis;
 import featurecat.lizzie.rules.Board;
@@ -19,6 +20,8 @@ import featurecat.lizzie.rules.Zobrist;
 import featurecat.lizzie.util.CommandLaunchHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoRuntimeHelper;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
+import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRuntimeException;
 import featurecat.lizzie.util.Utils;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
@@ -41,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jdesktop.swingx.util.OS;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -299,6 +303,11 @@ public class AnalysisEngine {
     return !isPreLoad && generatedConfig;
   }
 
+  static boolean shouldOpenAnalysisSettingsAfterDiagnostic(
+      boolean isPreLoad, DiagnosticActionResult result) {
+    return !isPreLoad && (result == null || !result.directedRepairOpened);
+  }
+
   public void startEngine(String engineCommand) {
     CommandLaunchHelper.LaunchSpec launchSpec =
         CommandLaunchHelper.prepare(Utils.splitCommand(engineCommand));
@@ -354,10 +363,15 @@ public class AnalysisEngine {
       if (Config.isBundledKataGoCommand(engineCommand)) {
         try {
           KataGoRuntimeHelper.ensureBundledRuntimeReady(
-              engineExecutable, commands, Lizzie.frame);
+              engineExecutable, commands, engineCommand, Lizzie.frame);
         } catch (IOException e) {
+          TensorRtRepairContext repairContext =
+              e instanceof TensorRtRuntimeException
+                  ? ((TensorRtRuntimeException) e).context
+                  : null;
           showErrMsg(
-              resourceBundle.getString("Leelaz.engineFailed") + ": " + e.getLocalizedMessage());
+              resourceBundle.getString("Leelaz.engineFailed") + ": " + e.getLocalizedMessage(),
+              repairContext);
           process = null;
           isLoaded = false;
           return;
@@ -392,18 +406,30 @@ public class AnalysisEngine {
   }
 
   private void showErrMsg(String errMsg) {
+    showErrMsg(errMsg, null);
+  }
+
+  private void showErrMsg(String errMsg, TensorRtRepairContext repairContext) {
     if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
-      javax.swing.SwingUtilities.invokeLater(() -> showErrMsg(errMsg));
+      javax.swing.SwingUtilities.invokeLater(() -> showErrMsg(errMsg, repairContext));
       return;
     }
     if (isPreLoad) return;
     if (waitFrame != null) waitFrame.setVisible(false);
-    tryToDignostic(errMsg);
-    AnalysisSettings analysisSettings = new AnalysisSettings(true, true);
-    analysisSettings.setVisible(true);
+    DiagnosticActionResult diagnostic = tryToDignostic(errMsg, repairContext);
+    if (shouldOpenAnalysisSettingsAfterDiagnostic(isPreLoad, diagnostic)) {
+      AnalysisSettings analysisSettings = new AnalysisSettings(true, true);
+      analysisSettings.setVisible(true);
+    }
   }
 
-  public void tryToDignostic(String message) {
+  public DiagnosticActionResult tryToDignostic(String message) {
+    return tryToDignostic(message, null);
+  }
+
+  public DiagnosticActionResult tryToDignostic(
+      String message, TensorRtRepairContext repairContext) {
+    AtomicReference<EngineFailedMessage> dialog = new AtomicReference<>();
     EngineFailedMessage.showDialog(
         commands,
         engineCommand,
@@ -411,7 +437,10 @@ public class AnalysisEngine {
         !useJavaSSH && !useRemoteCompute && OS.isWindows(),
         false,
         false,
-        true);
+        true,
+        repairContext,
+        dialog::set);
+    return DiagnosticActionResult.of(dialog.get());
   }
 
   private void initializeStreams() {

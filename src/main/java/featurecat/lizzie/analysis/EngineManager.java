@@ -4050,11 +4050,18 @@ public class EngineManager {
     currentEngineNo2 = -1;
     currentEngineNo = -1;
     isEmpty = true;
-    Lizzie.leelaz.notPondering();
-    Lizzie.leelaz.isLoaded = true;
-    Menu.engineMenu.setText(resourceBundle.getString("Menu.noEngine"));
-    Lizzie.frame.invalidateTrackingAnalysis();
-    Lizzie.frame.refresh();
+    Leelaz primaryEngine = Lizzie.leelaz;
+    if (primaryEngine != null) {
+      primaryEngine.notPondering();
+      primaryEngine.isLoaded = true;
+    }
+    if (Menu.engineMenu != null) {
+      Menu.engineMenu.setText(resourceBundle.getString("Menu.noEngine"));
+    }
+    if (Lizzie.frame != null) {
+      Lizzie.frame.invalidateTrackingAnalysis();
+      Lizzie.frame.refresh();
+    }
   }
 
   public void forceKillAllEngines() {
@@ -4067,7 +4074,8 @@ public class EngineManager {
         }
       }
     }
-    Lizzie.leelaz.notPondering();
+    Leelaz primaryEngine = Lizzie.leelaz;
+    if (primaryEngine != null) primaryEngine.notPondering();
   }
 
   public void reStartEngine() {
@@ -10343,6 +10351,34 @@ public class EngineManager {
 
   public void switchEngine(int index, boolean isMain) {
     switchEngineIfAvailable(index, isMain, true);
+  }
+
+  /**
+   * Retries the primary engine selected immediately before startup failed.
+   *
+   * <p>The main analysis toggle remains available while startup diagnostics or a directed repair
+   * are open. Once the failed binary has been repaired there is no live {@link Leelaz} to toggle,
+   * so recover the exact failed catalog target instead of requiring an application restart.
+   */
+  public boolean retryUnavailablePrimaryEngine() {
+    if (Lizzie.leelaz != null || !isEmpty || engineList == null || engineList.isEmpty()) {
+      return false;
+    }
+    EngineSwitchUiSnapshot lastAttempt = engineSwitchUiTracker.current(true);
+    int retryIndex =
+        lastAttempt.phase() == EngineSwitchUiPhase.FAILED ? lastAttempt.targetIndex() : engineNo;
+    if (retryIndex < 0 || retryIndex >= engineList.size()) {
+      retryIndex = engineNo;
+    }
+    if ((retryIndex < 0 || retryIndex >= engineList.size())
+        && Lizzie.config != null
+        && Lizzie.config.uiConfig != null) {
+      retryIndex = Lizzie.config.uiConfig.optInt("default-engine", -1);
+    }
+    if (retryIndex < 0 || retryIndex >= engineList.size()) {
+      return false;
+    }
+    return switchEngineIfAvailable(retryIndex, true);
   }
 
   /**
