@@ -1513,6 +1513,20 @@ public class Menu extends JMenuBar {
         });
     showWinRateOrScoreLeadLine.add(showBothLine);
 
+    final JFontCheckBoxMenuItem showWinrateGraphFill =
+        new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.showWinrateGraphFill"));
+    showWinrateGraphFill.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.config.showWinrateGraphFill = !Lizzie.config.showWinrateGraphFill;
+            Lizzie.config.uiConfig.put(
+                "show-winrate-graph-fill", Lizzie.config.showWinrateGraphFill);
+            Lizzie.frame.refresh();
+          }
+        });
+    winrate.add(showWinrateGraphFill);
+
     final JFontCheckBoxMenuItem showBlunderBar =
         new JFontCheckBoxMenuItem(resourceBundle.getString("Menu.showBlunderBar"));
     showBlunderBar.addActionListener(
@@ -2682,6 +2696,8 @@ public class Menu extends JMenuBar {
             }
             if (Lizzie.config.showMouseOverWinrateGraph) showMouseOverWinrateGraph.setState(true);
             else showMouseOverWinrateGraph.setState(false);
+            if (Lizzie.config.showWinrateGraphFill) showWinrateGraphFill.setState(true);
+            else showWinrateGraphFill.setState(false);
             if (Lizzie.config.showWinrateGraph && Lizzie.config.showLargeWinrate())
               largeWinrateGraph.setState(true);
             else largeWinrateGraph.setState(false);

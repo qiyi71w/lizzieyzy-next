@@ -1051,6 +1051,7 @@ public class Config {
   public boolean analysisRecentIsAllBranches = false;
   public boolean showScoreLeadLine = true;
   public boolean showWinrateLine = true;
+  public boolean showWinrateGraphFill = true;
   public boolean showMouseOverWinrateGraph = true;
   public boolean isChinese;
 
@@ -1833,6 +1834,7 @@ public class Config {
     analysisSpecificRules = uiConfig.optString("analysis-specific-rules", "");
     showScoreLeadLine = uiConfig.optBoolean("show-score-lead-line", true);
     showWinrateLine = uiConfig.optBoolean("show-win-rate-line", true);
+    showWinrateGraphFill = uiConfig.optBoolean("show-winrate-graph-fill", true);
     showMouseOverWinrateGraph = uiConfig.optBoolean("show-mouse-over-winrate-graph", true);
     frameFontSize = uiConfig.optInt("frame-font-size", 12);
     menuHeight = isFrameFontSmall() ? 20 : (isFrameFontMiddle() ? 25 : 30);

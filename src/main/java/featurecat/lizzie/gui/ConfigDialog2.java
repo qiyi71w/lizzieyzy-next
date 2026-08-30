@@ -319,6 +319,7 @@ public class ConfigDialog2 extends JDialog {
   private JCheckBox chkVariationRemoveDeadChain;
   private JComboBox<String> cbxShowWinrateOrScoreLeadLine;
   private JCheckBox chkShowMouseOverWinrateGraph;
+  private JCheckBox chkShowWinrateGraphFill;
   private JCheckBox chkShowScoreAsLead;
   private JComboBox<String> comboBoxPvVisits;
   private JComboBox<String> chkShowIndependentSubBoard;
@@ -1658,6 +1659,9 @@ public class ConfigDialog2 extends JDialog {
 
     chkShowMouseOverWinrateGraph.setSelected(Lizzie.config.showMouseOverWinrateGraph);
 
+    chkShowWinrateGraphFill = new JCheckBox();
+    chkShowWinrateGraphFill.setSelected(Lizzie.config.showWinrateGraphFill);
+
     chkShowScoreAsLead = new JCheckBox(resourceBundle.getString("Menu.showScoreAsDiff"));
     chkShowScoreAsLead.setBounds(295, 368, 110, 23); // 216, 368, 86, 23
     uiTab.add(chkShowScoreAsLead);
@@ -2765,6 +2769,12 @@ public class ConfigDialog2 extends JDialog {
             configText("ConfigDialog2.modern.analysis.hover", "鼠标悬停胜率图"),
             configText("ConfigDialog2.modern.analysis.hoverSub", "鼠标经过胜率图时显示局面信息"),
             chkShowMouseOverWinrateGraph);
+        addToggleRow(
+            analysis,
+            configText("ConfigDialog2.modern.analysis.graphFill", "单曲线模式使用面积填充"),
+            configText(
+                "ConfigDialog2.modern.analysis.graphFillSub", "仅当图上只有一条曲线时，填充到 50% / 0 中线"),
+            chkShowWinrateGraphFill);
         addToggleRow(
             analysis,
             configText("ConfigDialog2.modern.analysis.maxRed", "候选点最高值红色高亮"),
@@ -6041,6 +6051,8 @@ public class ConfigDialog2 extends JDialog {
     }
     Lizzie.config.uiConfig.put("show-score-lead-line", Lizzie.config.showScoreLeadLine);
     Lizzie.config.uiConfig.put("show-win-rate-line", Lizzie.config.showWinrateLine);
+    Lizzie.config.showWinrateGraphFill = chkShowWinrateGraphFill.isSelected();
+    Lizzie.config.uiConfig.put("show-winrate-graph-fill", Lizzie.config.showWinrateGraphFill);
     Lizzie.config.removeDeadChainInVariation = chkVariationRemoveDeadChain.isSelected();
     Lizzie.config.uiConfig.put(
         "remove-dead-in-variation", Lizzie.config.removeDeadChainInVariation);

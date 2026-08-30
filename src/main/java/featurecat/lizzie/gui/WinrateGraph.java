@@ -9,6 +9,8 @@ import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.util.Utils;
 import java.awt.*;
+import java.awt.geom.Path2D;
+import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -313,6 +315,128 @@ public class WinrateGraph {
     return new Color(255, 255, 255, 72);
   }
 
+  static final class RenderableMetrics {
+    final boolean winrateRenderable;
+    final boolean scoreRenderable;
+    final int renderableCount;
+
+    RenderableMetrics(boolean winrateRenderable, boolean scoreRenderable) {
+      this.winrateRenderable = winrateRenderable;
+      this.scoreRenderable = scoreRenderable;
+      this.renderableCount = (winrateRenderable ? 1 : 0) + (scoreRenderable ? 1 : 0);
+    }
+
+    boolean areaFillEligible(boolean showWinrateGraphFill) {
+      return showWinrateGraphFill && renderableCount == 1;
+    }
+  }
+
+  static final class BaselineFillShape {
+    final boolean aboveBaseline;
+    final List<Point2D.Double> vertices;
+
+    BaselineFillShape(boolean aboveBaseline, List<Point2D.Double> vertices) {
+      this.aboveBaseline = aboveBaseline;
+      this.vertices = vertices;
+    }
+  }
+
+  @FunctionalInterface
+  interface BaselineFillConsumer {
+    void polygon(
+        boolean aboveBaseline,
+        double x1,
+        double y1,
+        double x2,
+        double y2,
+        double x3,
+        double y3,
+        double x4,
+        double y4,
+        int vertexCount);
+  }
+
+  static RenderableMetrics resolveRenderableMetrics(
+      boolean winrateLineEnabled, boolean scoreLeadLineEnabled, boolean scoreLeadAvailable) {
+    return new RenderableMetrics(winrateLineEnabled, scoreLeadLineEnabled && scoreLeadAvailable);
+  }
+
+  static boolean resolveScoreLeadAvailable(
+      boolean engineOrPkBoard,
+      boolean whiteKataScoreMode,
+      boolean blackKataScoreMode,
+      boolean saiOrKatago,
+      boolean kataBoard) {
+    if (engineOrPkBoard) {
+      return whiteKataScoreMode || blackKataScoreMode;
+    }
+    return saiOrKatago || kataBoard;
+  }
+
+  static boolean shouldFillSegment(boolean areaFillEligible, boolean missingAnalysis) {
+    return areaFillEligible && !missingAnalysis;
+  }
+
+  static Color resolveAboveBaselineFillColor(Color curveColor) {
+    Color source = curveColor != null ? curveColor : new Color(100, 180, 255);
+    return new Color(source.getRed(), source.getGreen(), source.getBlue(), 52);
+  }
+
+  static Color resolveBelowBaselineFillColor(Color background) {
+    boolean darkBackground = background == null || relativeLuminance(background) < 0.5;
+    return darkBackground ? new Color(232, 225, 210, 42) : new Color(50, 54, 60, 42);
+  }
+
+  private static double relativeLuminance(Color color) {
+    return (0.2126 * color.getRed() + 0.7152 * color.getGreen() + 0.0722 * color.getBlue())
+        / 255.0;
+  }
+
+  static List<BaselineFillShape> baselineFillShapes(
+      double x1, double y1, double x2, double y2, double baselineY) {
+    ArrayList<BaselineFillShape> shapes = new ArrayList<>(2);
+    visitBaselineFillShapes(
+        x1,
+        y1,
+        x2,
+        y2,
+        baselineY,
+        (aboveBaseline, vx1, vy1, vx2, vy2, vx3, vy3, vx4, vy4, vertexCount) -> {
+          ArrayList<Point2D.Double> vertices = new ArrayList<>(vertexCount);
+          vertices.add(new Point2D.Double(vx1, vy1));
+          vertices.add(new Point2D.Double(vx2, vy2));
+          vertices.add(new Point2D.Double(vx3, vy3));
+          if (vertexCount > 3) {
+            vertices.add(new Point2D.Double(vx4, vy4));
+          }
+          shapes.add(new BaselineFillShape(aboveBaseline, vertices));
+        });
+    return shapes;
+  }
+
+  static void visitBaselineFillShapes(
+      double x1,
+      double y1,
+      double x2,
+      double y2,
+      double baselineY,
+      BaselineFillConsumer consumer) {
+    if (y1 == baselineY && y2 == baselineY) {
+      return;
+    }
+    double side1 = y1 - baselineY;
+    double side2 = y2 - baselineY;
+    if (side1 * side2 >= 0) {
+      boolean above = y1 < baselineY || y2 < baselineY;
+      consumer.polygon(above, x1, y1, x2, y2, x2, baselineY, x1, baselineY, 4);
+      return;
+    }
+    double t = (baselineY - y1) / (y2 - y1);
+    double xi = x1 + t * (x2 - x1);
+    consumer.polygon(y1 < baselineY, x1, y1, xi, baselineY, x1, baselineY, 0, 0, 3);
+    consumer.polygon(y2 < baselineY, x2, y2, xi, baselineY, x2, baselineY, 0, 0, 3);
+  }
+
   private static int blend(int base, int lift, double liftRatio) {
     return clamp((int) Math.round(base * (1.0 - liftRatio) + lift * liftRatio), 0, 255);
   }
@@ -368,6 +492,24 @@ public class WinrateGraph {
     }
     if (Lizzie.frame.isInPlayMode()) return;
     if (shouldSuppressForActiveHumanSlGame(Lizzie.frame.humanSlGame)) return;
+    RenderableMetrics renderableMetrics = currentRenderableMetrics();
+    boolean fillEnabled =
+        Lizzie.config != null
+            && renderableMetrics.areaFillEligible(Lizzie.config.showWinrateGraphFill);
+    int baselineY = posy + height / 2;
+    Color activeCurveColor =
+        renderableMetrics.scoreRenderable && !renderableMetrics.winrateRenderable
+            ? (Lizzie.config != null && Lizzie.config.scoreMeanLineColor != null
+                ? Lizzie.config.scoreMeanLineColor
+                : new Color(255, 0, 255))
+            : winrateLineColor();
+    Color aboveFill = resolveAboveBaselineFillColor(activeCurveColor);
+    Color belowFill =
+        resolveBelowBaselineFillColor(
+            resolveGraphBackgroundColor(
+                Lizzie.config != null ? Lizzie.config.commentBackgroundColor : null,
+                Lizzie.config != null && Lizzie.config.isAppleStyle));
+    Path2D.Double fillPath = new Path2D.Double();
     //    if(Lizzie.frame.extraMode==8)
     //    	{if(width>65)width=width-12;
     //    	else width=width*85/100;}
@@ -409,40 +551,6 @@ public class WinrateGraph {
     //    if (Lizzie.config.dynamicWinrateGraphWidth && this.numMovesOfPlayed > 0) {
     //      numMoves = this.numMovesOfPlayed;
     //    }
-    if (width >= 150) {
-      gBackground.setFont(
-          new Font(Config.sysDefaultFontName, Font.PLAIN, largeEnough ? Utils.zoomOut(11) : 11));
-      gBackground.setColor(new Color(200, 200, 200));
-      if (numMoves <= 63) {
-        for (int i = 1; i <= (numMoves / 10); i++)
-          if (numMoves - i * 10 > 3)
-            gBackground.drawString(
-                String.valueOf(i * 10),
-                posx + (i * 10 - 1) * width / numMoves - 3,
-                posy + height - strokeRadius);
-      } else if (numMoves <= 125) {
-        for (int i = 1; i <= (numMoves / 20); i++)
-          if (numMoves - i * 20 > 3)
-            gBackground.drawString(
-                String.valueOf(i * 20),
-                posx + (i * 20 - 1) * width / numMoves - 3,
-                posy + height - strokeRadius);
-      } else if (numMoves < 205) {
-        for (int i = 1; i <= (numMoves / 30); i++)
-          if (numMoves - i * 30 > 3)
-            gBackground.drawString(
-                String.valueOf(i * 30),
-                posx + (i * 30 - 1) * width / numMoves - 3,
-                posy + height - strokeRadius);
-      } else {
-        for (int i = 1; i <= (numMoves / 40); i++)
-          if (numMoves - i * 40 > 3)
-            gBackground.drawString(
-                String.valueOf(i * 40),
-                posx + (i * 40 - 1) * width / numMoves - 3,
-                posy + height - strokeRadius);
-      }
-    }
     double cwr = -1;
     int cmovenum = -1;
     double mwr = -1;
@@ -495,22 +603,25 @@ public class WinrateGraph {
 
         lastOkMove = twoBackMoveIndex;
         if (Lizzie.config.showWinrateLine) {
-          if (node.getData().blackToPlay) {
-            g.setColor(winrateLineColor());
-            g.drawLine(
-                posx + (twoBackMoveIndex * width / numMoves),
-                posy + height - (int) (lastWr * height / 100),
-                posx + (currentMoveIndex * width / numMoves),
-                posy + height - (int) (wr * height / 100));
-
-          } else {
-            g.setColor(winrateMissLineColor());
-            g.drawLine(
-                posx + (twoBackMoveIndex * width / numMoves),
-                posy + height - (int) (lastWr * height / 100),
-                posx + (currentMoveIndex * width / numMoves),
-                posy + height - (int) (wr * height / 100));
-          }
+          int x1 = posx + (twoBackMoveIndex * width / numMoves);
+          int y1 = posy + height - (int) (lastWr * height / 100);
+          int x2 = posx + (currentMoveIndex * width / numMoves);
+          int y2 = posy + height - (int) (wr * height / 100);
+          boolean blackSegment = node.getData().blackToPlay;
+          g.setColor(blackSegment ? winrateLineColor() : winrateMissLineColor());
+          drawFilledGraphLine(
+              g,
+              gBackground,
+              fillPath,
+              fillEnabled,
+              !blackSegment,
+              x1,
+              y1,
+              x2,
+              y2,
+              baselineY,
+              aboveFill,
+              belowFill);
           if (curMove.previous().isPresent() && currentMoveIndex > 1) {
             if (node == curMove) {
               saveCurMovenum = currentMoveIndex;
@@ -727,11 +838,19 @@ public class WinrateGraph {
                     Math.abs(lastScore - score));
               }
               if (Lizzie.config.showWinrateLine) {
-                g.drawLine(
+                drawFilledGraphLine(
+                    g,
+                    gBackground,
+                    fillPath,
+                    fillEnabled,
+                    !lastNodeOk,
                     posx + (lastOkMove * width / numMoves),
                     posy + height - (int) (lastWr * height / 100),
                     posx + (movenum * width / numMoves),
-                    posy + height - (int) (wr * height / 100));
+                    posy + height - (int) (wr * height / 100),
+                    baselineY,
+                    aboveFill,
+                    belowFill);
               }
             }
             if (forkNode != null && forkNode == node) {
@@ -906,7 +1025,12 @@ public class WinrateGraph {
                   Stroke previousStroke = g.getStroke();
                   g.setColor(Lizzie.config.scoreMeanLineColor);
                   g.setStroke(new BasicStroke(Lizzie.config.scoreLeadStrokeWidth));
-                  g.drawLine(
+                  drawFilledGraphLine(
+                      g,
+                      gBackground,
+                      fillPath,
+                      fillEnabled,
+                      false,
                       posx + ((lastOkMove) * width / numMoves),
                       posy
                           + height / 2
@@ -914,7 +1038,10 @@ public class WinrateGraph {
                       posx + ((movenum) * width / numMoves),
                       posy
                           + height / 2
-                          - (int) (convertScoreLead(curscoreMean) * height / 2 / maxScoreLead));
+                          - (int) (convertScoreLead(curscoreMean) * height / 2 / maxScoreLead),
+                      baselineY,
+                      aboveFill,
+                      belowFill);
                   g.setStroke(previousStroke);
                 }
               }
@@ -941,7 +1068,12 @@ public class WinrateGraph {
             Stroke previousStroke = g.getStroke();
             g.setColor(Lizzie.config.scoreMeanLineColor);
             g.setStroke(new BasicStroke(Lizzie.config.scoreLeadStrokeWidth));
-            g.drawLine(
+            drawFilledGraphLine(
+                g,
+                gBackground,
+                fillPath,
+                fillEnabled,
+                false,
                 posx + ((lastOkMove) * width / numMoves),
                 posy
                     + height / 2
@@ -949,7 +1081,10 @@ public class WinrateGraph {
                 posx + ((movenum) * width / numMoves),
                 posy
                     + height / 2
-                    - (int) (convertScoreLead(lastscoreMean) * height / 2 / maxScoreLead));
+                    - (int) (convertScoreLead(lastscoreMean) * height / 2 / maxScoreLead),
+                baselineY,
+                aboveFill,
+                belowFill);
             g.setStroke(previousStroke);
           }
           if (curmovenum > 0) {
@@ -1011,7 +1146,12 @@ public class WinrateGraph {
                   Stroke previousStroke = g.getStroke();
                   g.setColor(Lizzie.config.scoreMeanLineColor);
                   g.setStroke(new BasicStroke(Lizzie.config.scoreLeadStrokeWidth));
-                  g.drawLine(
+                  drawFilledGraphLine(
+                      g,
+                      gBackground,
+                      fillPath,
+                      fillEnabled,
+                      false,
                       posx + ((lastOkMove) * width / numMoves),
                       posy
                           + height / 2
@@ -1019,7 +1159,10 @@ public class WinrateGraph {
                       posx + ((movenum) * width / numMoves),
                       posy
                           + height / 2
-                          - (int) (convertScoreLead(curscoreMean) * height / 2 / maxScoreLead));
+                          - (int) (convertScoreLead(curscoreMean) * height / 2 / maxScoreLead),
+                      baselineY,
+                      aboveFill,
+                      belowFill);
                   g.setStroke(previousStroke);
                 }
               }
@@ -1046,7 +1189,12 @@ public class WinrateGraph {
             Stroke previousStroke = g.getStroke();
             g.setColor(Lizzie.config.scoreMeanLineColor);
             g.setStroke(new BasicStroke(Lizzie.config.scoreLeadStrokeWidth));
-            g.drawLine(
+            drawFilledGraphLine(
+                g,
+                gBackground,
+                fillPath,
+                fillEnabled,
+                false,
                 posx + ((lastOkMove) * width / numMoves),
                 posy
                     + height / 2
@@ -1054,7 +1202,10 @@ public class WinrateGraph {
                 posx + ((movenum) * width / numMoves),
                 posy
                     + height / 2
-                    - (int) (convertScoreLead(lastscoreMean) * height / 2 / maxScoreLead));
+                    - (int) (convertScoreLead(lastscoreMean) * height / 2 / maxScoreLead),
+                baselineY,
+                aboveFill,
+                belowFill);
             g.setStroke(previousStroke);
           }
           if (curmovenum > 0) {
@@ -1117,7 +1268,12 @@ public class WinrateGraph {
                 //                  g.setStroke(dashed);
                 //                } else
                 g.setStroke(new BasicStroke(Lizzie.config.scoreLeadStrokeWidth));
-                g.drawLine(
+                drawFilledGraphLine(
+                    g,
+                    gBackground,
+                    fillPath,
+                    fillEnabled,
+                    false,
                     posx + (lastOkMove * width / numMoves),
                     posy
                         + height / 2
@@ -1125,7 +1281,10 @@ public class WinrateGraph {
                     posx + (movenum * width / numMoves),
                     posy
                         + height / 2
-                        - (int) (convertScoreLead(curscoreMean) * height / 2 / maxScoreLead));
+                        - (int) (convertScoreLead(curscoreMean) * height / 2 / maxScoreLead),
+                    baselineY,
+                    aboveFill,
+                    belowFill);
                 g.setStroke(previousStroke);
               }
             }
@@ -1277,6 +1436,40 @@ public class WinrateGraph {
       x = Math.max(x, origParams[0]);
       x = Math.min(x, origParams[0] + origParams[2] - stringWidth);
       g.drawString(scoreString, x, cScoreHeight);
+    }
+    if (width >= 150) {
+      gBackground.setFont(
+          new Font(Config.sysDefaultFontName, Font.PLAIN, largeEnough ? Utils.zoomOut(11) : 11));
+      gBackground.setColor(new Color(200, 200, 200));
+      if (numMoves <= 63) {
+        for (int i = 1; i <= (numMoves / 10); i++)
+          if (numMoves - i * 10 > 3)
+            gBackground.drawString(
+                String.valueOf(i * 10),
+                posx + (i * 10 - 1) * width / numMoves - 3,
+                posy + height - strokeRadius);
+      } else if (numMoves <= 125) {
+        for (int i = 1; i <= (numMoves / 20); i++)
+          if (numMoves - i * 20 > 3)
+            gBackground.drawString(
+                String.valueOf(i * 20),
+                posx + (i * 20 - 1) * width / numMoves - 3,
+                posy + height - strokeRadius);
+      } else if (numMoves < 205) {
+        for (int i = 1; i <= (numMoves / 30); i++)
+          if (numMoves - i * 30 > 3)
+            gBackground.drawString(
+                String.valueOf(i * 30),
+                posx + (i * 30 - 1) * width / numMoves - 3,
+                posy + height - strokeRadius);
+      } else {
+        for (int i = 1; i <= (numMoves / 40); i++)
+          if (numMoves - i * 40 > 3)
+            gBackground.drawString(
+                String.valueOf(i * 40),
+                posx + (i * 40 - 1) * width / numMoves - 3,
+                posy + height - strokeRadius);
+      }
     }
     drawLineLegend(gBackground, origParams[0], origParams[1], origParams[2]);
 
@@ -2511,6 +2704,87 @@ public class WinrateGraph {
 
   private boolean isShowWinrateLineEnabled() {
     return Lizzie.config != null && Lizzie.config.showWinrateLine;
+  }
+
+  private RenderableMetrics currentRenderableMetrics() {
+    boolean winrateLineEnabled = Lizzie.config != null && Lizzie.config.showWinrateLine;
+    boolean scoreLeadLineEnabled = Lizzie.config != null && Lizzie.config.showScoreLeadLine;
+    return resolveRenderableMetrics(winrateLineEnabled, scoreLeadLineEnabled, scoreLeadAvailable());
+  }
+
+  private boolean scoreLeadAvailable() {
+    boolean engineOrPkBoard =
+        engineGamePlaying() || (Lizzie.board != null && Lizzie.board.isPkBoard);
+    boolean saiOrKatago =
+        Lizzie.leelaz != null && (Lizzie.leelaz.isSai || Lizzie.leelaz.isKatago);
+    boolean kataBoard = Lizzie.board != null && Lizzie.board.isKataBoard;
+    return resolveScoreLeadAvailable(
+        engineOrPkBoard, whiteKataScoreMode(), blackKataScoreMode(), saiOrKatago, kataBoard);
+  }
+
+  private void drawFilledGraphLine(
+      Graphics2D gLine,
+      Graphics2D gFill,
+      Path2D.Double fillPath,
+      boolean fillEligible,
+      boolean missingAnalysis,
+      int x1,
+      int y1,
+      int x2,
+      int y2,
+      int baselineY,
+      Color aboveFill,
+      Color belowFill) {
+    fillBaselineAreaIfNeeded(
+        gFill,
+        fillPath,
+        fillEligible,
+        missingAnalysis,
+        x1,
+        y1,
+        x2,
+        y2,
+        baselineY,
+        aboveFill,
+        belowFill);
+    gLine.drawLine(x1, y1, x2, y2);
+  }
+
+  private void fillBaselineAreaIfNeeded(
+      Graphics2D gFill,
+      Path2D.Double fillPath,
+      boolean fillEligible,
+      boolean missingAnalysis,
+      double x1,
+      double y1,
+      double x2,
+      double y2,
+      double baselineY,
+      Color aboveFill,
+      Color belowFill) {
+    if (!shouldFillSegment(fillEligible, missingAnalysis) || gFill == null || fillPath == null) {
+      return;
+    }
+    Paint previous = gFill.getPaint();
+    visitBaselineFillShapes(
+        x1,
+        y1,
+        x2,
+        y2,
+        baselineY,
+        (aboveBaseline, vx1, vy1, vx2, vy2, vx3, vy3, vx4, vy4, vertexCount) -> {
+          fillPath.reset();
+          fillPath.moveTo(vx1, vy1);
+          fillPath.lineTo(vx2, vy2);
+          fillPath.lineTo(vx3, vy3);
+          if (vertexCount > 3) {
+            fillPath.lineTo(vx4, vy4);
+          }
+          fillPath.closePath();
+          gFill.setColor(aboveBaseline ? aboveFill : belowFill);
+          gFill.fill(fillPath);
+        });
+    gFill.setPaint(previous);
   }
 
   private boolean isFrameTryingMode() {
