@@ -405,16 +405,17 @@ public class WinrateGraph {
   }
 
   static String baselineMark(RenderableMetrics metrics) {
-    if (metrics == null || metrics.renderableCount == 0) {
+    if (metrics == null || metrics.renderableCount != 1) {
       return null;
-    }
-    if (metrics.winrateRenderable && metrics.scoreRenderable) {
-      return "50% / 0";
     }
     if (metrics.winrateRenderable) {
       return "50%";
     }
     return "0";
+  }
+
+  static boolean hasHighlightedBaseline(RenderableMetrics metrics) {
+    return metrics != null && metrics.renderableCount > 0;
   }
 
   static boolean shouldSkipOrdinaryMidlineGrid(
@@ -595,7 +596,7 @@ public class WinrateGraph {
     RenderableMetrics renderableMetrics =
         suppressGraphContent ? null : currentRenderableMetrics();
     String baselineText = baselineMark(renderableMetrics);
-    boolean baselineActive = baselineText != null;
+    boolean baselineActive = hasHighlightedBaseline(renderableMetrics);
     gBackground.setColor(resolveGridLineColor());
     int winRateGridLines = Lizzie.frame.winRateGridLines;
     for (int i = 1; i <= winRateGridLines; i++) {
@@ -656,7 +657,8 @@ public class WinrateGraph {
     }
 
     if (numMoves < 1) {
-      paintHighlightedBaseline(gBackground, posx, width, baselineY, baselineText, baselineChip);
+      paintHighlightedBaseline(
+          gBackground, posx, width, baselineY, baselineText, baselineChip, baselineActive);
       return;
     }
     if (numMoves < 50) numMoves = 50;
@@ -685,7 +687,8 @@ public class WinrateGraph {
       int saveCurMovenum = 0;
       double saveCurWr = 0;
       if (numMoves < 2) {
-        paintHighlightedBaseline(gBackground, posx, width, baselineY, baselineText, baselineChip);
+        paintHighlightedBaseline(
+            gBackground, posx, width, baselineY, baselineText, baselineChip, baselineActive);
         return;
       }
       while (node.previous().isPresent() && node.previous().get().previous().isPresent()) {
@@ -1135,7 +1138,8 @@ public class WinrateGraph {
       }
 
       if (numMoves < 1) {
-        paintHighlightedBaseline(gBackground, posx, width, baselineY, baselineText, baselineChip);
+        paintHighlightedBaseline(
+            gBackground, posx, width, baselineY, baselineText, baselineChip, baselineActive);
         return;
       }
       lastOkMove = -1;
@@ -1460,7 +1464,7 @@ public class WinrateGraph {
       // record parameters for calculating moveNumber
     }
     paintHighlightedBaseline(
-        gBackground, posx, width, baselineY, baselineText, baselineChip);
+        gBackground, posx, width, baselineY, baselineText, baselineChip, baselineActive);
     int mwrHeight = -1;
     int mWinFontHeight = -1;
     int oriMWrHeight = -1;
@@ -1701,8 +1705,14 @@ public class WinrateGraph {
   }
 
   private void paintHighlightedBaseline(
-      Graphics2D g, int posx, int width, int baselineY, String baselineText, Rectangle chip) {
-    if (baselineText == null || g == null) {
+      Graphics2D g,
+      int posx,
+      int width,
+      int baselineY,
+      String baselineText,
+      Rectangle chip,
+      boolean baselineActive) {
+    if (g == null || !baselineActive) {
       return;
     }
     Stroke previousStroke = g.getStroke();
@@ -1710,7 +1720,7 @@ public class WinrateGraph {
     g.setColor(resolveBaselineLineColor());
     g.drawLine(posx, baselineY, posx + width, baselineY);
     g.setStroke(previousStroke);
-    if (chip == null) {
+    if (baselineText == null || chip == null) {
       return;
     }
     Font chipFont =

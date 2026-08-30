@@ -62,14 +62,26 @@ class WinrateGraphScoreLeadDisplayTest {
         "50%", WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(true, false, true)));
     assertEquals(
         "0", WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(false, true, true)));
-    assertEquals(
-        "50% / 0",
-        WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(true, true, true)));
+    assertNull(WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(true, true, true)));
     assertEquals(
         "50%", WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(true, true, false)));
-    assertNull(WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(false, true, false)));
+    assertNull(
+        WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(false, true, false)));
     assertNull(
         WinrateGraph.baselineMark(WinrateGraph.resolveRenderableMetrics(false, false, true)));
+    assertTrue(
+        WinrateGraph.hasHighlightedBaseline(
+            WinrateGraph.resolveRenderableMetrics(true, true, true)));
+    assertTrue(
+        WinrateGraph.hasHighlightedBaseline(
+            WinrateGraph.resolveRenderableMetrics(true, false, true)));
+    assertTrue(
+        WinrateGraph.hasHighlightedBaseline(
+            WinrateGraph.resolveRenderableMetrics(false, true, true)));
+    assertFalse(
+        WinrateGraph.hasHighlightedBaseline(
+            WinrateGraph.resolveRenderableMetrics(false, false, true)));
+    assertFalse(WinrateGraph.hasHighlightedBaseline(null));
   }
 
   @Test
