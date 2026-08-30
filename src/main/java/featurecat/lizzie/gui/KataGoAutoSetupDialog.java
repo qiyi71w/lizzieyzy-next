@@ -51,6 +51,8 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.Window;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
@@ -92,6 +94,7 @@ import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JToggleButton;
+import javax.swing.JViewport;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
@@ -120,6 +123,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   private static final Color ACCENT_GOLD = new Color(194, 139, 45);
   private static final String BENCHMARK_PROGRESS_KEY = "lizzie.benchmark.dialog.progress";
   private static final String WRAPPING_TEXT_KEY = "lizzie.autosetup.wrappingText";
+  private static final String STATUS_CHIP_TEXT_KEY = "lizzie.autosetup.statusChipText";
   private static final String INFO_HTML_PREFIX = "<html><div style='width: 360px'>";
   private static final String INFO_HTML_SUFFIX = "</div></html>";
   private static final int MAX_INFO_TEXT_LENGTH = 104;
@@ -129,6 +133,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   private static final int SIDEBAR_MAX_WIDTH = 330;
   private static final int SIDEBAR_TEXT_CHROME_WIDTH = 100;
   private static final int VALUE_COLUMN_WIDTH = 390;
+  private static final int STATUS_CHIP_MAX_WIDTH = 560;
   private static final int WEIGHT_CATALOG_ROW_HEIGHT = 34;
   private static final int WEIGHT_CATALOG_VISIBLE_ROWS = 6;
   private static final int WEIGHT_CATALOG_HORIZONTAL_INSET = 14;
@@ -180,13 +185,13 @@ public class KataGoAutoSetupDialog extends JDialog {
   private final JLabel lblDiscoverySourceValue = new JFontLabel();
   private final JLabel lblPackageFlavorValue = new JFontLabel();
   private final JLabel lblEngineValidationValue = new JFontLabel();
-  private final JLabel lblNvidiaRuntimeValue = new JFontLabel();
-  private final JLabel lblNvidiaGpuValue = new JFontLabel();
-  private final JLabel lblTensorRtRuntimeValue = new JFontLabel();
-  private final JLabel lblTensorRtCompanionValue = new JFontLabel();
-  private final JLabel lblTensorRtEngineValue = new JFontLabel();
-  private final JLabel lblTensorRtActivationValue = new JFontLabel();
-  private final JLabel lblExperimentalBackendValue = new JFontLabel();
+  private final WrappingStatusChip lblNvidiaRuntimeValue = new WrappingStatusChip();
+  private final WrappingStatusChip lblNvidiaGpuValue = new WrappingStatusChip();
+  private final WrappingStatusChip lblTensorRtRuntimeValue = new WrappingStatusChip();
+  private final WrappingStatusChip lblTensorRtCompanionValue = new WrappingStatusChip();
+  private final WrappingStatusChip lblTensorRtEngineValue = new WrappingStatusChip();
+  private final WrappingStatusChip lblTensorRtActivationValue = new WrappingStatusChip();
+  private final WrappingStatusChip lblExperimentalBackendValue = new WrappingStatusChip();
   private final JLabel lblBenchmarkValue = new JFontLabel();
   private final JLabel lblSelectedWeightName = new JFontLabel();
   private final JLabel lblSelectedWeightMeta = new JFontLabel();
@@ -544,7 +549,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     styleButton(btnDownloadQuickAnalysisModel, false);
     styleButton(btnInstallNvidiaRuntime, false);
     styleButton(btnInstallTensorRt, false);
-    styleButton(btnEnableTensorRt, false);
+    styleButton(btnEnableTensorRt, true);
     styleButton(btnSwitchBackCuda, false);
     styleButton(btnCleanTensorRtCache, false);
     styleButton(btnInstallExperimentalBackend, false);
@@ -672,6 +677,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     button.setMargin(new Insets(0, 10, 0, 10));
     AppleStyleSupport.installButtonStyle(button);
+    resizeStyledButton(button, primary);
+  }
+
+  private void resizeStyledButton(AbstractButton button, boolean primary) {
     Dimension preferred = localizedButtonSize(button, primary ? 106 : 90, 32);
     button.setPreferredSize(preferred);
     button.setMinimumSize(preferred);
@@ -1201,32 +1210,39 @@ public class KataGoAutoSetupDialog extends JDialog {
   private JPanel createAccelerationSection() {
     JPanel rows = createRowsPanel();
     GridBagConstraints gbc = createRowConstraints();
-    addInfoRow(rows, gbc, text("AutoSetup.nvidiaRuntime"), lblNvidiaRuntimeValue);
-    addInfoRow(rows, gbc, text("AutoSetup.nvidiaGpu"), lblNvidiaGpuValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtRuntimeStatus"), lblTensorRtRuntimeValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtCompanionStatus"), lblTensorRtCompanionValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtEngineStatus"), lblTensorRtEngineValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtActivationStatus"), lblTensorRtActivationValue);
+    addStatusChipRow(rows, gbc, text("AutoSetup.nvidiaRuntime"), lblNvidiaRuntimeValue);
+    addStatusChipRow(rows, gbc, text("AutoSetup.nvidiaGpu"), lblNvidiaGpuValue);
+    addStatusChipRow(rows, gbc, text("AutoSetup.tensorRtRuntimeStatus"), lblTensorRtRuntimeValue);
+    addStatusChipRow(rows, gbc, text("AutoSetup.tensorRtCompanionStatus"), lblTensorRtCompanionValue);
+    addStatusChipRow(rows, gbc, text("AutoSetup.tensorRtEngineStatus"), lblTensorRtEngineValue);
+    addStatusChipRow(
+        rows, gbc, text("AutoSetup.tensorRtActivationStatus"), lblTensorRtActivationValue);
     makeTensorRtStatusRowsKeyboardReachable();
-    addInfoRow(rows, gbc, text("AutoSetup.experimentalBackendStatus"), lblExperimentalBackendValue);
+    addStatusChipRow(
+        rows, gbc, text("AutoSetup.experimentalBackendStatus"), lblExperimentalBackendValue);
 
-    JTextArea tensorRtHint = createHintText(text("AutoSetup.accelerationTensorRtHint"));
-    addComponentRow(rows, gbc, text("AutoSetup.installTensorRt"), tensorRtHint);
-
-    JTextArea experimentalHint = createHintText(text("AutoSetup.experimentalBackendHint"));
-    addComponentRow(rows, gbc, text("AutoSetup.experimentalBackends"), experimentalHint);
-    JPanel experimentalActions =
-        createResponsiveActionRow(cmbExperimentalBackend, btnInstallExperimentalBackend);
-    addComponentRow(rows, gbc, text("AutoSetup.experimentalBackendChoose"), experimentalActions);
-
-    JPanel actions =
-        createActionBar(
-            FlowLayout.RIGHT,
-            btnInstallNvidiaRuntime,
-            btnInstallTensorRt,
-            btnEnableTensorRt,
-            btnSwitchBackCuda,
-            btnCleanTensorRtCache);
+    addActionBlockRow(
+        rows,
+        gbc,
+        createActionBlock(
+            text("AutoSetup.installTensorRt"),
+            createHintText(text("AutoSetup.accelerationTensorRtHint")),
+            createAccelerationPrimaryActions(btnInstallTensorRt, btnEnableTensorRt)));
+    addActionBlockRow(
+        rows,
+        gbc,
+        createActionBlock(
+            text("AutoSetup.experimentalBackends"),
+            createHintText(text("AutoSetup.experimentalBackendHint")),
+            createExperimentalBackendActions(cmbExperimentalBackend, btnInstallExperimentalBackend)));
+    addActionBlockRow(
+        rows,
+        gbc,
+        createActionBlock(
+            text("AutoSetup.maintenanceActions"),
+            null,
+            createAccelerationMaintenanceActions(
+                btnInstallNvidiaRuntime, btnSwitchBackCuda, btnCleanTensorRtCache)));
     directedTensorRtBanner.setOpaque(true);
     directedTensorRtBanner.setBackground(new Color(255, 249, 235));
     directedTensorRtBanner.setBorder(
@@ -1243,7 +1259,7 @@ public class KataGoAutoSetupDialog extends JDialog {
         text("AutoSetup.accelerationTitle"),
         text("AutoSetup.accelerationSubtitle"),
         accelerationBody,
-        actions);
+        null);
   }
 
   private JPanel createBenchmarkSection() {
@@ -1353,6 +1369,27 @@ public class KataGoAutoSetupDialog extends JDialog {
     return gbc;
   }
 
+  static JPanel createExperimentalBackendActions(JComponent selector, JComponent install) {
+    JPanel column = new JPanel(new BorderLayout(0, 8));
+    column.setOpaque(false);
+    column.add(selector, BorderLayout.NORTH);
+    column.add(createWrappingActionBar(FlowLayout.LEFT, install), BorderLayout.SOUTH);
+    return column;
+  }
+
+  static JPanel createAccelerationPrimaryActions(JComponent repair, JComponent enable) {
+    return createWrappingActionBar(FlowLayout.LEFT, repair, enable);
+  }
+
+  static JPanel createAccelerationMaintenanceActions(
+      JComponent nvidiaRuntime, JComponent switchBack, JComponent cleanCache) {
+    return createWrappingActionBar(FlowLayout.LEFT, nvidiaRuntime, switchBack, cleanCache);
+  }
+
+  static JPanel createWrappingActionBar(int alignment, JComponent... actions) {
+    return new WrappingActionRow(alignment, actions);
+  }
+
   static JPanel createActionBar(int alignment, JComponent... actions) {
     int columns = actions.length > 2 ? 2 : Math.max(1, actions.length);
     return createActionBar(alignment, columns, actions);
@@ -1415,23 +1452,322 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
   }
 
-  private JTextArea createHintText(String message) {
-    JTextArea textArea = new JTextArea(message == null ? "" : message);
-    textArea.setEditable(false);
-    textArea.setFocusable(false);
-    textArea.setOpaque(false);
-    textArea.setLineWrap(true);
-    textArea.setWrapStyleWord(true);
+  static final class WrappingHintArea extends JTextArea {
+    private static final int DEFAULT_WIDTH = 360;
+    private boolean relayoutScheduled;
+    private int lastWidth = -1;
+
+    private WrappingHintArea(String message) {
+      super(message);
+      setEditable(false);
+      setFocusable(false);
+      setOpaque(false);
+      setLineWrap(true);
+      setWrapStyleWord(true);
+      setHighlighter(null);
+      setBorder(BorderFactory.createEmptyBorder(2, 0, 4, 0));
+      putClientProperty(WRAPPING_TEXT_KEY, Boolean.TRUE);
+    }
+
+    private int wrapWidth() {
+      if (getWidth() > 0) {
+        return getWidth();
+      }
+      Container parent = getParent();
+      if (parent != null && parent.getWidth() > 0) {
+        Insets insets =
+            parent instanceof JComponent
+                ? ((JComponent) parent).getInsets()
+                : new Insets(0, 0, 0, 0);
+        return Math.max(1, parent.getWidth() - insets.left - insets.right);
+      }
+      return DEFAULT_WIDTH;
+    }
+
+    private int preferredHeightForWidth(int width) {
+      Insets insets = getInsets();
+      int inner = Math.max(1, width - insets.left - insets.right);
+      FontMetrics metrics = getFontMetrics(getFont());
+      int lines = 0;
+      String[] paragraphs = String.valueOf(getText()).split("\\R", -1);
+      for (String paragraph : paragraphs) {
+        lines += Math.max(1, estimateWrappedLineCount(paragraph, metrics, inner));
+      }
+      return insets.top + insets.bottom + lines * metrics.getHeight() + 2;
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+      int width = wrapWidth();
+      return new Dimension(Math.max(120, width), preferredHeightForWidth(width));
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+      Dimension preferred = getPreferredSize();
+      return new Dimension(80, preferred.height);
+    }
+
+    @Override
+    public Dimension getMaximumSize() {
+      return new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public void setBounds(int x, int y, int width, int height) {
+      super.setBounds(x, y, width, height);
+      requestParentRelayout();
+    }
+
+    private void requestParentRelayout() {
+      int width = Math.max(1, getWidth());
+      int needed = preferredHeightForWidth(width);
+      if (width == lastWidth && getHeight() >= needed) {
+        return;
+      }
+      lastWidth = width;
+      if (relayoutScheduled || getParent() == null) {
+        return;
+      }
+      relayoutScheduled = true;
+      SwingUtilities.invokeLater(
+          () -> {
+            relayoutScheduled = false;
+            Container parent = getParent();
+            if (parent == null) {
+              return;
+            }
+            int currentNeeded = preferredHeightForWidth(Math.max(1, getWidth()));
+            if (getHeight() < currentNeeded) {
+              parent.invalidate();
+              parent.revalidate();
+            }
+          });
+    }
+  }
+
+  static JTextArea createWrappingHint(String message) {
+    WrappingHintArea textArea = new WrappingHintArea(message == null ? "" : message);
     textArea.setForeground(TEXT_SECONDARY);
     textArea.setFont(new JFontLabel().getFont());
-    textArea.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
-    textArea.putClientProperty(WRAPPING_TEXT_KEY, Boolean.TRUE);
     return textArea;
+  }
+
+  static final class WrappingStatusChip extends JTextArea {
+    private static final int DEFAULT_WRAP = 200;
+    private static final int EXTRA_HEIGHT = 4;
+    private boolean relayoutScheduled;
+    private int lastWidth = -1;
+
+    private WrappingStatusChip() {
+      setEditable(false);
+      setFocusable(false);
+      setOpaque(true);
+      setBackground(INFO_BG);
+      setLineWrap(true);
+      setWrapStyleWord(true);
+      setHighlighter(null);
+      setMargin(new Insets(0, 0, 0, 0));
+      setBorder(
+          BorderFactory.createCompoundBorder(
+              BorderFactory.createLineBorder(INFO_BORDER),
+              BorderFactory.createEmptyBorder(6, 8, 8, 8)));
+      setFont(new JFontLabel().getFont());
+      putClientProperty(WRAPPING_TEXT_KEY, Boolean.TRUE);
+    }
+
+    private int wrapWidth() {
+      if (getWidth() > 0) {
+        return getWidth();
+      }
+      for (Container parent = getParent(); parent != null; parent = parent.getParent()) {
+        int parentWidth =
+            parent instanceof JViewport
+                ? ((JViewport) parent).getExtentSize().width
+                : parent.getWidth();
+        if (parentWidth > 0) {
+          Insets insets =
+              parent instanceof JComponent
+                  ? ((JComponent) parent).getInsets()
+                  : new Insets(0, 0, 0, 0);
+          int inner = parentWidth - insets.left - insets.right;
+          if (inner > 40) {
+            return inner;
+          }
+        }
+        if (parent instanceof JViewport) {
+          break;
+        }
+      }
+      return DEFAULT_WRAP;
+    }
+
+    private int preferredHeightForWidth(int width) {
+      Insets insets = getInsets();
+      int inner = Math.max(1, width - insets.left - insets.right);
+      FontMetrics metrics = getFontMetrics(getFont());
+      int lines = 0;
+      String[] paragraphs = String.valueOf(getText()).split("\\R", -1);
+      for (String paragraph : paragraphs) {
+        lines += Math.max(1, estimateWrappedLineCount(paragraph, metrics, inner));
+      }
+      return insets.top + insets.bottom + lines * metrics.getHeight() + EXTRA_HEIGHT;
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+      Insets insets = getInsets();
+      FontMetrics metrics = getFontMetrics(getFont());
+      String singleLine = String.valueOf(getText()).replace('\r', ' ').replace('\n', ' ');
+      int textWidth = metrics.stringWidth(singleLine);
+      int wrap = wrapWidth();
+      int inner = Math.max(1, wrap - insets.left - insets.right);
+      if (textWidth <= inner) {
+        return new Dimension(
+            Math.max(24, textWidth + insets.left + insets.right),
+            Math.max(28, metrics.getHeight() + insets.top + insets.bottom + EXTRA_HEIGHT));
+      }
+      return new Dimension(
+          Math.max(160, Math.min(STATUS_CHIP_MAX_WIDTH, wrap)), preferredHeightForWidth(wrap));
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+      Dimension preferred = getPreferredSize();
+      Insets insets = getInsets();
+      FontMetrics metrics = getFontMetrics(getFont());
+      String singleLine = String.valueOf(getText()).replace('\r', ' ').replace('\n', ' ');
+      int textWidth = metrics.stringWidth(singleLine);
+      int inner = Math.max(1, wrapWidth() - insets.left - insets.right);
+      if (textWidth <= inner) {
+        return preferred;
+      }
+      return new Dimension(160, preferredHeightForWidth(160));
+    }
+
+    @Override
+    public Dimension getMaximumSize() {
+      return new Dimension(STATUS_CHIP_MAX_WIDTH, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public void setBounds(int x, int y, int width, int height) {
+      super.setBounds(x, y, width, height);
+      requestParentRelayout();
+    }
+
+    private void requestParentRelayout() {
+      int width = Math.max(1, getWidth());
+      int needed = preferredHeightForWidth(width);
+      if (width == lastWidth && getHeight() >= needed) {
+        return;
+      }
+      lastWidth = width;
+      if (relayoutScheduled || getParent() == null) {
+        return;
+      }
+      relayoutScheduled = true;
+      SwingUtilities.invokeLater(
+          () -> {
+            relayoutScheduled = false;
+            Container parent = getParent();
+            if (parent == null) {
+              return;
+            }
+            int currentNeeded = preferredHeightForWidth(Math.max(1, getWidth()));
+            if (getHeight() < currentNeeded) {
+              parent.invalidate();
+              parent.revalidate();
+            }
+          });
+    }
+  }
+
+  private JTextArea createHintText(String message) {
+    return createWrappingHint(message);
   }
 
   private void addInfoRow(JPanel panel, GridBagConstraints gbc, String title, JLabel valueLabel) {
     styleInfoLabel(valueLabel);
     addComponentRow(panel, gbc, title, valueLabel);
+  }
+
+  private void addStatusChipRow(
+      JPanel panel, GridBagConstraints gbc, String title, JComponent valueLabel) {
+    GridBagConstraints labelConstraints = (GridBagConstraints) gbc.clone();
+    labelConstraints.gridx = 0;
+    labelConstraints.weightx = 0;
+    labelConstraints.fill = GridBagConstraints.HORIZONTAL;
+    labelConstraints.anchor = GridBagConstraints.NORTHWEST;
+    JFontLabel titleLabel = new JFontLabel(title);
+    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setVerticalAlignment(SwingConstants.TOP);
+    int titleWidth = localizedRowLabelWidth(titleLabel);
+    titleLabel.setPreferredSize(new Dimension(titleWidth, 32));
+    titleLabel.setMinimumSize(new Dimension(titleWidth, 32));
+    panel.add(titleLabel, labelConstraints);
+
+    GridBagConstraints valueConstraints = (GridBagConstraints) gbc.clone();
+    valueConstraints.gridx = 1;
+    valueConstraints.weightx = 1;
+    valueConstraints.fill = GridBagConstraints.BOTH;
+    valueConstraints.anchor = GridBagConstraints.NORTHWEST;
+    panel.add(valueLabel, valueConstraints);
+
+    gbc.gridy += 1;
+  }
+
+  private void addActionBlockRow(JPanel panel, GridBagConstraints gbc, JComponent component) {
+    GridBagConstraints constraints = (GridBagConstraints) gbc.clone();
+    constraints.gridx = 0;
+    constraints.gridwidth = 2;
+    constraints.weightx = 1;
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+    constraints.anchor = GridBagConstraints.WEST;
+    constraints.insets = new Insets(14, 0, 4, 0);
+    panel.add(component, constraints);
+    gbc.gridy += 1;
+  }
+
+  private JPanel createActionBlock(String title, JComponent hint, JComponent actions) {
+    JPanel block = new JPanel(new GridBagLayout());
+    block.setOpaque(false);
+    GridBagConstraints constraints = new GridBagConstraints();
+    constraints.gridx = 0;
+    constraints.weightx = 1;
+    constraints.anchor = GridBagConstraints.WEST;
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+
+    JFontLabel titleLabel = new JFontLabel(title);
+    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
+    constraints.gridy = 0;
+    constraints.insets = new Insets(0, 0, hint == null ? 8 : 4, 0);
+    block.add(titleLabel, constraints);
+
+    if (hint != null) {
+      constraints.gridy += 1;
+      constraints.insets = new Insets(0, 0, 8, 0);
+      constraints.fill = GridBagConstraints.BOTH;
+      constraints.weighty = 0;
+      prepareFullWidthHint(hint);
+      block.add(hint, constraints);
+    }
+
+    if (actions != null) {
+      constraints.gridy += 1;
+      constraints.insets = new Insets(0, 0, 0, 0);
+      constraints.fill = GridBagConstraints.HORIZONTAL;
+      constraints.weighty = 0;
+      block.add(actions, constraints);
+    }
+    return block;
+  }
+
+  private void prepareFullWidthHint(JComponent hint) {
+    hint.setPreferredSize(null);
+    hint.setMinimumSize(null);
+    hint.setMaximumSize(null);
   }
 
   private void addComponentRow(
@@ -1483,7 +1819,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     valueComponent.setMinimumSize(new Dimension(260, height));
   }
 
-  private int estimateWrappedTextHeight(String text, FontMetrics metrics, int width) {
+  static int estimateWrappedTextHeight(String text, FontMetrics metrics, int width) {
     if (metrics == null) {
       return 64;
     }
@@ -1496,7 +1832,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     return lineCount * metrics.getHeight() + 8;
   }
 
-  private int estimateWrappedLineCount(String text, FontMetrics metrics, int availableWidth) {
+  static int estimateWrappedLineCount(String text, FontMetrics metrics, int availableWidth) {
     if (text == null || text.trim().isEmpty()) {
       return 1;
     }
@@ -2120,14 +2456,14 @@ public class KataGoAutoSetupDialog extends JDialog {
     KataGoRuntimeHelper.NvidiaRuntimeStatus status =
         snapshot == null ? null : KataGoRuntimeHelper.inspectNvidiaRuntime(snapshot);
     if (status == null || !status.applicable) {
-      setWrappedInfoText(lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntimeNotApplicable"));
+      setCompactStatusText(lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntimeNotApplicable"));
       lblNvidiaRuntimeValue.setToolTipText(null);
       lblNvidiaRuntimeValue.setForeground(Color.DARK_GRAY);
       btnInstallNvidiaRuntime.setEnabled(false);
       updateTensorRtInfo();
       return;
     }
-    setWrappedInfoText(lblNvidiaRuntimeValue, status.detailText);
+    setCompactStatusText(lblNvidiaRuntimeValue, status.detailText);
     lblNvidiaRuntimeValue.setToolTipText(status.detailText);
     lblNvidiaRuntimeValue.setForeground(status.ready ? OK_COLOR : WARN_COLOR);
     btnInstallNvidiaRuntime.setEnabled(activeDownloadSession == null && !status.ready);
@@ -2279,14 +2615,14 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void makeTensorRtStatusRowsKeyboardReachable() {
-    JLabel[] labels = {
+    JComponent[] labels = {
       lblNvidiaGpuValue,
       lblTensorRtRuntimeValue,
       lblTensorRtCompanionValue,
       lblTensorRtEngineValue,
       lblTensorRtActivationValue
     };
-    for (JLabel label : labels) {
+    for (JComponent label : labels) {
       label.setFocusable(true);
     }
   }
@@ -2304,7 +2640,10 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void updateExperimentalBackendInfo() {
     Backend backend = (Backend) cmbExperimentalBackend.getSelectedItem();
     if (backend == null || snapshot == null) {
-      setInfoValue(lblExperimentalBackendValue, false, text("AutoSetup.notFound"));
+      String missing = text("AutoSetup.notFound");
+      setCompactStatusText(lblExperimentalBackendValue, missing);
+      lblExperimentalBackendValue.setToolTipText(missing);
+      lblExperimentalBackendValue.setForeground(ERROR_COLOR);
       btnInstallExperimentalBackend.setEnabled(false);
       return;
     }
@@ -2316,11 +2655,19 @@ public class KataGoAutoSetupDialog extends JDialog {
             : status.installed()
                 ? text("AutoSetup.experimentalBackendInstalled")
                 : text("AutoSetup.experimentalBackendNotInstalled");
-    setInfoValue(lblExperimentalBackendValue, status.installed(), backend.displayName() + " · " + state);
+    String visible = backend.displayName() + " · " + state;
+    setCompactStatusText(lblExperimentalBackendValue, visible);
+    lblExperimentalBackendValue.setToolTipText(visible);
+    lblExperimentalBackendValue.setForeground(status.installed() ? OK_COLOR : ERROR_COLOR);
     btnInstallExperimentalBackend.setText(
         status.installed()
             ? text("AutoSetup.enableExperimentalBackend")
             : text("AutoSetup.installExperimentalBackend"));
+    resizeStyledButton(btnInstallExperimentalBackend, false);
+    if (btnInstallExperimentalBackend.getParent() != null) {
+      btnInstallExperimentalBackend.getParent().revalidate();
+      btnInstallExperimentalBackend.getParent().repaint();
+    }
     btnInstallExperimentalBackend.setEnabled(
         activeDownloadSession == null
             && activeWorkerThread == null
@@ -2329,10 +2676,32 @@ public class KataGoAutoSetupDialog extends JDialog {
             && !status.active());
   }
 
-  private void setTensorRtLabel(JLabel label, String value, Color color, String tooltip) {
-    setWrappedInfoText(label, value);
+  private void setTensorRtLabel(JComponent label, String value, Color color, String tooltip) {
+    setCompactStatusText(label, value);
     label.setForeground(color);
     label.setToolTipText(tooltip);
+  }
+
+  static WrappingStatusChip createStatusChip() {
+    return new WrappingStatusChip();
+  }
+
+  static void setCompactStatusText(JComponent label, String value) {
+    String plainText = value == null ? "" : value;
+    if (label instanceof JTextArea) {
+      JTextArea area = (JTextArea) label;
+      if (!plainText.equals(area.getText())) {
+        area.setText(plainText);
+      }
+    } else if (label instanceof JLabel) {
+      ((JLabel) label).setText(plainText);
+    }
+    label.putClientProperty(STATUS_CHIP_TEXT_KEY, plainText);
+    if (label.getAccessibleContext() != null) {
+      label.getAccessibleContext().setAccessibleName(plainText);
+    }
+    label.revalidate();
+    label.repaint();
   }
 
   static void setWrappedInfoText(JLabel label, String value) {
@@ -6435,6 +6804,162 @@ public class KataGoAutoSetupDialog extends JDialog {
     TEAL
   }
 
+  static final class WrappingActionRow extends JPanel {
+    private static final int GAP = 8;
+    private static final int DEFAULT_WIDTH = 640;
+    private final int alignment;
+    private final JComponent[] actions;
+    private boolean relayoutScheduled;
+
+    private WrappingActionRow(int alignment, JComponent... actions) {
+      this.alignment = alignment;
+      this.actions = actions.clone();
+      setOpaque(false);
+      setLayout(null);
+      for (JComponent action : this.actions) {
+        add(action);
+      }
+    }
+
+    private int rowHeight() {
+      int height = 0;
+      for (JComponent action : actions) {
+        height = Math.max(height, action.getPreferredSize().height);
+      }
+      return height;
+    }
+
+    private int widestAction() {
+      int width = 0;
+      for (JComponent action : actions) {
+        width = Math.max(width, action.getPreferredSize().width);
+      }
+      return width;
+    }
+
+    private int singleRowWidth() {
+      int width = -GAP;
+      for (JComponent action : actions) {
+        width += GAP + action.getPreferredSize().width;
+      }
+      return Math.max(widestAction(), width);
+    }
+
+    private int constrainedWidth() {
+      int width = getWidth() > 0 ? getWidth() : Integer.MAX_VALUE;
+      for (Container parent = getParent(); parent != null; parent = parent.getParent()) {
+        int parentWidth =
+            parent instanceof JViewport
+                ? ((JViewport) parent).getExtentSize().width
+                : parent.getWidth();
+        if (parentWidth > 0) {
+          Insets insets =
+              parent instanceof JComponent
+                  ? ((JComponent) parent).getInsets()
+                  : new Insets(0, 0, 0, 0);
+          int inner = parentWidth - insets.left - insets.right;
+          if (inner > 0) {
+            width = Math.min(width, inner);
+          }
+        }
+        if (parent instanceof JViewport) {
+          break;
+        }
+      }
+      if (width == Integer.MAX_VALUE) {
+        return DEFAULT_WIDTH;
+      }
+      return Math.max(1, width);
+    }
+
+    private List<List<JComponent>> rowsForWidth(int width) {
+      List<List<JComponent>> rows = new ArrayList<List<JComponent>>();
+      List<JComponent> current = new ArrayList<JComponent>();
+      int used = 0;
+      int limit = Math.max(1, width);
+      for (JComponent action : actions) {
+        int actionWidth = Math.max(1, action.getPreferredSize().width);
+        if (!current.isEmpty() && used + GAP + actionWidth > limit) {
+          rows.add(current);
+          current = new ArrayList<JComponent>();
+          used = 0;
+        }
+        current.add(action);
+        used += (used == 0 ? 0 : GAP) + actionWidth;
+      }
+      if (!current.isEmpty()) {
+        rows.add(current);
+      }
+      return rows;
+    }
+
+    private int preferredHeightFor(int width) {
+      int rows = Math.max(1, rowsForWidth(width).size());
+      return rows * rowHeight() + Math.max(0, rows - 1) * GAP;
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+      int width = constrainedWidth();
+      return new Dimension(
+          Math.max(widestAction(), Math.min(singleRowWidth(), width)), preferredHeightFor(width));
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+      return new Dimension(1, preferredHeightFor(constrainedWidth()));
+    }
+
+    @Override
+    public void setBounds(int x, int y, int width, int height) {
+      super.setBounds(x, y, width, height);
+      requestParentRelayoutIfHeightWrong(height);
+    }
+
+    private void requestParentRelayoutIfHeightWrong(int height) {
+      int needed = preferredHeightFor(constrainedWidth());
+      if (height == needed || getParent() == null || relayoutScheduled) {
+        return;
+      }
+      relayoutScheduled = true;
+      SwingUtilities.invokeLater(
+          () -> {
+            relayoutScheduled = false;
+            Container parent = getParent();
+            if (parent != null && getHeight() != preferredHeightFor(constrainedWidth())) {
+              parent.revalidate();
+            }
+          });
+    }
+
+    @Override
+    public void doLayout() {
+      int width = constrainedWidth();
+      int y = 0;
+      int height = rowHeight();
+      for (List<JComponent> row : rowsForWidth(width)) {
+        int rowWidth = -GAP;
+        for (JComponent action : row) {
+          rowWidth += GAP + action.getPreferredSize().width;
+        }
+        int x =
+            alignment == FlowLayout.RIGHT
+                ? Math.max(0, width - Math.min(width, Math.max(0, rowWidth)))
+                : 0;
+        for (JComponent action : row) {
+          Dimension size = action.getPreferredSize();
+          int actionWidth = size.width;
+          if (row.size() == 1 && actionWidth > width) {
+            actionWidth = width;
+          }
+          action.setBounds(x, y + (height - size.height) / 2, actionWidth, size.height);
+          x += actionWidth + GAP;
+        }
+        y += height + GAP;
+      }
+    }
+  }
+
   static final class ResponsiveActionRow extends JPanel {
     private static final int GAP = 7;
     private static final int MIN_MAIN_WIDTH = 220;
@@ -6490,13 +7015,9 @@ public class KataGoAutoSetupDialog extends JDialog {
       int width = getWidth() > 0 ? getWidth() : DEFAULT_LAYOUT_WIDTH;
       Dimension main = mainComponent.getPreferredSize();
       if (horizontal(width)) {
-        return new Dimension(
-            Math.max(main.width + GAP + actionWidth(), width),
-            Math.max(main.height, tallestAction()));
+        return new Dimension(width, Math.max(main.height, tallestAction()));
       }
-      return new Dimension(
-          Math.max(main.width, actionWidth()),
-          main.height + GAP + wrappedActionHeight(Math.max(1, width)));
+      return new Dimension(width, main.height + GAP + wrappedActionHeight(Math.max(1, width)));
     }
 
     private int wrappedActionHeight(int width) {
@@ -6515,15 +7036,20 @@ public class KataGoAutoSetupDialog extends JDialog {
 
     @Override
     public void doLayout() {
-      int width = getWidth();
+      int width = Math.max(1, getWidth());
       Dimension main = mainComponent.getPreferredSize();
       if (horizontal(width)) {
         int actionX = width;
         int rowHeight = Math.max(main.height, tallestAction());
         for (int index = actions.length - 1; index >= 0; index--) {
           Dimension size = actions[index].getPreferredSize();
-          actionX -= size.width;
-          actions[index].setBounds(actionX, (rowHeight - size.height) / 2, size.width, size.height);
+          int actionWidth = Math.min(size.width, width);
+          actionX -= actionWidth;
+          actions[index].setBounds(
+              Math.max(0, actionX),
+              (rowHeight - size.height) / 2,
+              actionWidth,
+              size.height);
           actionX -= GAP;
         }
         mainComponent.setBounds(
@@ -6537,12 +7063,13 @@ public class KataGoAutoSetupDialog extends JDialog {
       int rowHeight = tallestAction();
       for (int index = actions.length - 1; index >= 0; index--) {
         Dimension size = actions[index].getPreferredSize();
-        if (x < width && x - GAP - size.width < 0) {
+        int actionWidth = Math.min(size.width, width);
+        if (x < width && x - GAP - actionWidth < 0) {
           x = width;
           y += rowHeight + GAP;
         }
-        x -= size.width;
-        actions[index].setBounds(x, y, size.width, size.height);
+        x -= actionWidth;
+        actions[index].setBounds(Math.max(0, x), y, actionWidth, size.height);
         x -= GAP;
       }
     }

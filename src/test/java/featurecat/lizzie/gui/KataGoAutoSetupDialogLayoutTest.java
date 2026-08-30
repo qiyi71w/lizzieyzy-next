@@ -10,10 +10,14 @@ import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.SetupSnapshot;
 import java.awt.CardLayout;
+import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.Insets;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -27,6 +31,7 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -208,6 +213,62 @@ class KataGoAutoSetupDialogLayoutTest {
   }
 
   @Test
+  void tensorRtPrimaryActionsStayOnOneRow() {
+    JButton repair = new JButton("修复 TensorRT");
+    JButton enable = new JButton("启用 TensorRT 加速");
+
+    JPanel actionBar = KataGoAutoSetupDialog.createAccelerationPrimaryActions(repair, enable);
+    actionBar.setSize(actionBar.getPreferredSize());
+    actionBar.doLayout();
+    Dimension size = actionBar.getPreferredSize();
+    int tallest = Math.max(repair.getPreferredSize().height, enable.getPreferredSize().height);
+    int combinedWidth = repair.getPreferredSize().width + enable.getPreferredSize().width;
+
+    assertEquals(2, actionBar.getComponentCount());
+    assertTrue(size.height <= tallest + 8, "primary TensorRT actions must stay on one row");
+    assertTrue(size.width >= combinedWidth, "primary TensorRT actions must sit side by side");
+    assertEquals(0, repair.getX(), "primary TensorRT actions stay left-aligned");
+    assertTrue(enable.getX() > repair.getX());
+    assertEquals(repair.getY(), enable.getY());
+  }
+
+  @Test
+  void accelerationMaintenanceActionsStaySeparateFromTensorRt() {
+    JButton nvidia = new JButton("检查英伟达整合包");
+    JButton switchCuda = new JButton("切回 CUDA");
+    JButton clean = new JButton("清理 TensorRT 缓存");
+    JPanel primary =
+        KataGoAutoSetupDialog.createAccelerationPrimaryActions(
+            new JButton("修复 TensorRT"), new JButton("启用 TensorRT 加速"));
+    JPanel maintenance =
+        KataGoAutoSetupDialog.createAccelerationMaintenanceActions(nvidia, switchCuda, clean);
+
+    assertEquals(2, primary.getComponentCount());
+    assertEquals(3, maintenance.getComponentCount());
+    maintenance.setSize(900, 80);
+    maintenance.doLayout();
+    assertEquals(nvidia.getY(), switchCuda.getY(), "wide maintenance actions stay on one row");
+    assertTrue(switchCuda.getX() > nvidia.getX());
+    assertTrue(clean.getX() > switchCuda.getX());
+  }
+
+  @Test
+  void accelerationMaintenanceActionsWrapWithoutClippingWhenNarrow() {
+    JButton nvidia = new JButton("检查英伟达整合包");
+    JButton switchCuda = new JButton("切回 CUDA");
+    JButton clean = new JButton("清理 TensorRT 缓存");
+    JPanel maintenance =
+        KataGoAutoSetupDialog.createAccelerationMaintenanceActions(nvidia, switchCuda, clean);
+    maintenance.setSize(240, 200);
+    maintenance.doLayout();
+
+    assertTrue(clean.getY() > nvidia.getY(), "narrow maintenance actions wrap to another row");
+    assertTrue(nvidia.getX() >= 0 && nvidia.getX() + nvidia.getWidth() <= 240);
+    assertTrue(switchCuda.getX() >= 0 && switchCuda.getX() + switchCuda.getWidth() <= 240);
+    assertTrue(clean.getX() >= 0 && clean.getX() + clean.getWidth() <= 240);
+  }
+
+  @Test
   void weightActionsStayInlineAtTheDefaultDialogWidth() {
     JComboBox<String> selector = new JComboBox<String>();
     selector.setPreferredSize(new Dimension(390, 36));
@@ -260,6 +321,100 @@ class KataGoAutoSetupDialogLayoutTest {
     assertTrue(install.getY() >= selector.getHeight());
     assertTrue(install.getX() >= 0 && install.getX() + install.getWidth() <= row.getWidth());
     assertTrue(row.getPreferredSize().height >= install.getY() + install.getHeight());
+  }
+
+  @Test
+  void experimentalBackendEnableButtonStaysUnclippedAtNvidiaPageWidth() {
+    JComboBox<String> selector =
+        new JComboBox<String>(new String[] {"DirectML（DirectX 12 显卡）"});
+    selector.setPreferredSize(new Dimension(390, 36));
+    JButton enable = new JButton("启用已安装后端");
+    enable.setPreferredSize(KataGoAutoSetupDialog.localizedButtonSize(enable, 90, 32));
+    enable.setMinimumSize(enable.getPreferredSize());
+
+    JPanel column =
+        KataGoAutoSetupDialog.createExperimentalBackendActions(selector, enable);
+    column.setSize(560, 160);
+    layoutComponentTree(column);
+
+    Rectangle enableBounds =
+        SwingUtilities.convertRectangle(enable.getParent(), enable.getBounds(), column);
+    Rectangle selectorBounds =
+        SwingUtilities.convertRectangle(selector.getParent(), selector.getBounds(), column);
+    assertTrue(enableBounds.y >= selectorBounds.y + selectorBounds.height);
+    assertTrue(enableBounds.x >= 0);
+    assertTrue(enableBounds.x + enableBounds.width <= column.getWidth());
+    assertTrue(enableBounds.width >= enable.getPreferredSize().width);
+    assertTrue(
+        enable.getPreferredSize().width
+            > KataGoAutoSetupDialog.localizedButtonSize(new JButton("安装并启用"), 90, 32)
+                .width);
+  }
+
+  @Test
+  void wrappingActionRowDoesNotClipALongLocalizedButton() {
+    JButton enable = new JButton("ติดตั้งและใช้แบ็กเอนด์ทดลองที่เลือก");
+    enable.setPreferredSize(KataGoAutoSetupDialog.localizedButtonSize(enable, 90, 32));
+    JPanel row = KataGoAutoSetupDialog.createWrappingActionBar(FlowLayout.LEFT, enable);
+    row.setSize(240, 80);
+    row.doLayout();
+    assertTrue(enable.getPreferredSize().width > row.getWidth());
+    assertTrue(enable.getX() >= 0);
+    assertTrue(enable.getX() + enable.getWidth() <= row.getWidth());
+  }
+
+  @Test
+  void tensorRtPrimaryActionsWrapWithoutClippingWhenNarrow() {
+    JButton repair = new JButton("修复 TensorRT");
+    JButton enable = new JButton("启用 TensorRT 加速");
+    JPanel actionBar = KataGoAutoSetupDialog.createAccelerationPrimaryActions(repair, enable);
+    int together = repair.getPreferredSize().width + 8 + enable.getPreferredSize().width;
+    int widest = Math.max(repair.getPreferredSize().width, enable.getPreferredSize().width);
+    int narrow = Math.max(widest, together / 2 + 8);
+    assertTrue(together > narrow, "precondition: both actions cannot share the narrow row");
+
+    actionBar.setSize(narrow, 200);
+    actionBar.doLayout();
+
+    assertTrue(enable.getY() > repair.getY(), "narrow primary TensorRT actions wrap to another row");
+    assertEquals(repair.getPreferredSize().width, repair.getWidth());
+    assertEquals(enable.getPreferredSize().width, enable.getWidth());
+    assertTrue(repair.getX() >= 0 && repair.getX() + repair.getWidth() <= narrow);
+    assertTrue(enable.getX() >= 0 && enable.getX() + enable.getWidth() <= narrow);
+  }
+
+  @Test
+  void wrappingActionsFollowANarrowerAncestorInsteadOfClipping() {
+    JButton repair = new JButton("修复 TensorRT");
+    JButton enable = new JButton("启用 TensorRT 加速");
+    JPanel actions = KataGoAutoSetupDialog.createAccelerationPrimaryActions(repair, enable);
+    int together = repair.getPreferredSize().width + 8 + enable.getPreferredSize().width;
+    int ancestorWidth =
+        Math.max(repair.getPreferredSize().width, enable.getPreferredSize().width) + 12;
+    assertTrue(together > ancestorWidth, "precondition: the pair overflows the ancestor");
+
+    JPanel ancestor = new JPanel(null);
+    ancestor.setSize(ancestorWidth, 200);
+    ancestor.add(actions);
+    actions.setBounds(0, 0, Math.max(720, together + 80), 40);
+    actions.doLayout();
+
+    assertTrue(enable.getY() > repair.getY(), "overflowing actions wrap inside the visible ancestor");
+    assertEquals(repair.getPreferredSize().width, repair.getWidth());
+    assertEquals(enable.getPreferredSize().width, enable.getWidth());
+    assertTrue(repair.getX() + repair.getWidth() <= ancestorWidth);
+    assertTrue(enable.getX() + enable.getWidth() <= ancestorWidth);
+  }
+
+  private static void layoutComponentTree(JPanel root) {
+    root.doLayout();
+    for (java.awt.Component child : root.getComponents()) {
+      if (child instanceof JPanel) {
+        layoutComponentTree((JPanel) child);
+      } else if (child instanceof javax.swing.JComponent) {
+        ((javax.swing.JComponent) child).doLayout();
+      }
+    }
   }
 
   @Test
@@ -322,6 +477,167 @@ class KataGoAutoSetupDialogLayoutTest {
     assertTrue(label.getText().startsWith("<html>"));
     assertTrue(label.getPreferredSize().height > 30);
     assertTrue(label.getAccessibleContext().getAccessibleName().equals(status));
+  }
+
+  @Test
+  void shortStatusChipDoesNotStretchToValueColumn() {
+    JTextArea label = KataGoAutoSetupDialog.createStatusChip();
+    KataGoAutoSetupDialog.setCompactStatusText(label, "NVIDIA 运行库已就绪");
+
+    assertFalse(label.getText().startsWith("<html>"));
+    assertFalse(label.getText().contains("..."));
+    assertTrue(label.getPreferredSize().width < 390);
+    assertEquals(label.getPreferredSize().width, label.getMinimumSize().width);
+    assertEquals("NVIDIA 运行库已就绪", label.getAccessibleContext().getAccessibleName());
+  }
+
+  @Test
+  void compactStatusKeepsTheEntireMessageWithoutEllipsis() {
+    JTextArea label = KataGoAutoSetupDialog.createStatusChip();
+    String status = "不支持：TensorRT 10.x 需要 SM 7.5+；这张显卡请使用 CUDA/OpenCL。";
+    KataGoAutoSetupDialog.setCompactStatusText(label, status);
+
+    assertFalse(label.getText().contains("..."));
+    assertEquals(status, label.getText());
+    assertEquals(status, label.getAccessibleContext().getAccessibleName());
+    assertTrue(label.getMinimumSize().width >= 160);
+  }
+
+  @Test
+  void longStatusChipCanShrinkInsteadOfForcingThePageWider() {
+    JTextArea label = KataGoAutoSetupDialog.createStatusChip();
+    String status =
+        "Not supported: TensorRT 10.x requires SM 7.5+; please use CUDA/OpenCL for this GPU";
+
+    KataGoAutoSetupDialog.setCompactStatusText(label, status);
+
+    assertFalse(label.getText().startsWith("<html>"));
+    assertTrue(label.getMinimumSize().width < label.getPreferredSize().width);
+    assertTrue(label.getMinimumSize().width >= 160);
+  }
+
+  @Test
+  void longStatusChipWrapsAndKeepsPlainAccessibleName() {
+    JTextArea label = KataGoAutoSetupDialog.createStatusChip();
+    String status =
+        "Not supported: TensorRT 10.x requires SM 7.5+; please use CUDA/OpenCL for this GPU";
+
+    KataGoAutoSetupDialog.setCompactStatusText(label, status);
+
+    assertFalse(label.getText().startsWith("<html>"));
+    assertTrue(label.getPreferredSize().height > 30);
+    assertEquals(status, label.getAccessibleContext().getAccessibleName());
+  }
+
+  @Test
+  void statusChipWrapsToAllocatedWidthInsteadOfEllipsizing() {
+    JTextArea label = KataGoAutoSetupDialog.createStatusChip();
+    String status =
+        "尚未启用 TensorRT profile — NVIDIA 运行库, HumanSL CUDA companion, TensorRT 引擎尚未就绪";
+    label.setSize(280, 32);
+
+    KataGoAutoSetupDialog.setCompactStatusText(label, status);
+
+    assertFalse(label.getText().contains("..."));
+    assertEquals(status, label.getText());
+    assertTrue(
+        label.getPreferredSize().height
+            > label.getFontMetrics(label.getFont()).getHeight() + 8);
+    assertEquals(status, label.getAccessibleContext().getAccessibleName());
+  }
+
+  @Test
+  void nvidiaGpuChipKeepsOpenClVisibleInANarrowValueColumn() {
+    String status = "不支持：TensorRT 10.x 需要 SM 7.5+；这张显卡请使用 CUDA/OpenCL。";
+    assertStatusChipShowsCompleteTextInNarrowColumn(status, 280);
+  }
+
+  @Test
+  void tensorRtProfileChipKeepsCompanionAndEngineVisibleInANarrowValueColumn() {
+    String status =
+        "尚未启用 TensorRT profile — NVIDIA 运行库, HumanSL CUDA companion, TensorRT 引擎尚未就绪";
+    assertStatusChipShowsCompleteTextInNarrowColumn(status, 280);
+  }
+
+  private static void assertStatusChipShowsCompleteTextInNarrowColumn(String status, int width) {
+    JTextArea chip = KataGoAutoSetupDialog.createStatusChip();
+    KataGoAutoSetupDialog.setCompactStatusText(chip, status);
+
+    JPanel row = new JPanel(new GridBagLayout());
+    GridBagConstraints constraints = new GridBagConstraints();
+    constraints.gridx = 1;
+    constraints.weightx = 1;
+    constraints.fill = GridBagConstraints.BOTH;
+    constraints.anchor = GridBagConstraints.NORTHWEST;
+    row.add(chip, constraints);
+
+    JPanel host = new JPanel(new BorderLayout());
+    host.add(row, BorderLayout.NORTH);
+    host.setSize(width, 800);
+    layoutComponentTree(host);
+
+    FontMetrics metrics = chip.getFontMetrics(chip.getFont());
+    Insets insets = chip.getInsets();
+    int inner = Math.max(1, chip.getWidth() - insets.left - insets.right);
+    int minHeight =
+        insets.top
+            + insets.bottom
+            + KataGoAutoSetupDialog.estimateWrappedLineCount(status, metrics, inner)
+                * metrics.getHeight();
+
+    assertEquals(status, chip.getText());
+    assertFalse(chip.getText().contains("..."));
+    assertTrue(chip.getWidth() > 0 && chip.getWidth() <= width);
+    assertTrue(
+        chip.getHeight() >= minHeight,
+        "chip height was " + chip.getHeight() + " but needed " + minHeight);
+    assertTrue(chip.getPreferredSize().height >= minHeight);
+  }
+
+  @Test
+  void accelerationHintKeepsEveryWrappedLineVisible() {
+    String hint =
+        "KataGo 1.18 的 Transformer 模型在许多较新 NVIDIA 显卡上使用 CUDA 更快。默认请使用统一 CUDA 包，尤其是 RTX 40/50；TensorRT 作为 RTX 30 系及以下显卡的可选方案。下载支持断点续传，首次启动可能需要数分钟生成缓存。";
+    JTextArea area = KataGoAutoSetupDialog.createWrappingHint(hint);
+    area.setSize(360, 16);
+
+    Dimension preferred = area.getPreferredSize();
+    FontMetrics metrics = area.getFontMetrics(area.getFont());
+    int minHeight =
+        metrics.getHeight() * 3 + area.getInsets().top + area.getInsets().bottom;
+
+    assertTrue(preferred.height >= minHeight, "the NVIDIA hint must keep every wrapped line");
+    assertEquals(preferred.height, area.getMinimumSize().height);
+    assertTrue(area.getMinimumSize().height > 24);
+  }
+
+  @Test
+  void accelerationHintIsNotVerticallyClippedInANarrowActionBlock() {
+    String hint =
+        "KataGo 1.18 的 Transformer 模型在许多较新 NVIDIA 显卡上使用 CUDA 更快。默认请使用统一 CUDA 包，尤其是 RTX 40/50；TensorRT 作为 RTX 30 系及以下显卡的可选方案。下载支持断点续传，首次启动可能需要数分钟生成缓存。";
+    JTextArea area = KataGoAutoSetupDialog.createWrappingHint(hint);
+    JPanel block = new JPanel(new GridBagLayout());
+    GridBagConstraints constraints = new GridBagConstraints();
+    constraints.gridx = 0;
+    constraints.gridy = 0;
+    constraints.weightx = 1;
+    constraints.fill = GridBagConstraints.BOTH;
+    constraints.anchor = GridBagConstraints.NORTHWEST;
+    block.add(area, constraints);
+
+    JPanel host = new JPanel(new BorderLayout());
+    host.add(block, BorderLayout.NORTH);
+    host.setSize(360, 800);
+    layoutComponentTree(host);
+
+    FontMetrics metrics = area.getFontMetrics(area.getFont());
+    int minHeight = metrics.getHeight() * 3 + area.getInsets().top + area.getInsets().bottom;
+    assertTrue(area.getWidth() > 0 && area.getWidth() <= 360);
+    assertTrue(
+        area.getHeight() >= minHeight,
+        "laid-out NVIDIA hint height was " + area.getHeight() + " but needed " + minHeight);
+    assertTrue(area.getPreferredSize().height >= minHeight);
+    assertFalse(area.getText().contains("..."));
   }
 
   @Test
