@@ -1,5 +1,6 @@
 package featurecat.lizzie.gui;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -347,6 +348,28 @@ class WinrateGraphEnginePkModeHitTest {
     }
   }
 
+
+  @Test
+  void engineGameInterleavedWinrateLinesDoNotUseSingleCurveAreaFill() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      RenderFixture fixture = modeZeroFixture();
+      fixture.board.isPkBoard = false;
+      EngineGameSnapshotFixtures.publishPlaying();
+
+      Lizzie.config.showWinrateGraphFill = true;
+      BufferedImage fillOn = renderLayers(fixture.graph).background;
+      Lizzie.config.showWinrateGraphFill = false;
+      BufferedImage fillOff = renderLayers(fixture.graph).background;
+
+      assertArrayEquals(
+          fillOff.getRGB(0, 0, RENDER_WIDTH, RENDER_HEIGHT, null, 0, RENDER_WIDTH),
+          fillOn.getRGB(0, 0, RENDER_WIDTH, RENDER_HEIGHT, null, 0, RENDER_WIDTH),
+          "two interleaved engine polylines should stay unfilled.");
+    } finally {
+      env.close();
+    }
+  }
 
   @Test
   void showBlunderBarFalseLeavesBlunderLayerEmpty() throws Exception {

@@ -608,8 +608,10 @@ public class WinrateGraph {
       gBackground.drawLine(posx, y, posx + width, y);
     }
     if (suppressGraphContent) return;
+    boolean engineOrPkBoard = engineGamePlaying() || Lizzie.board.isPkBoard;
     boolean fillEnabled =
-        Lizzie.config != null
+        !engineOrPkBoard
+            && Lizzie.config != null
             && renderableMetrics.areaFillEligible(Lizzie.config.showWinrateGraphFill);
     int baselineY = posy + height / 2;
     List<Rectangle> graphTextBoxes = new ArrayList<>();
@@ -683,7 +685,7 @@ public class WinrateGraph {
     double drawmSoreMean = 0;
     int currentScoreMarkerMoveIndex = -1;
     double currentScoreMarkerMean = 0;
-    if (engineGamePlaying() || Lizzie.board.isPkBoard) {
+    if (engineOrPkBoard) {
       int saveCurMovenum = 0;
       double saveCurWr = 0;
       if (numMoves < 2) {
@@ -740,7 +742,7 @@ public class WinrateGraph {
               gBackground,
               fillPath,
               fillEnabled,
-              !blackSegment,
+              false,
               x1,
               y1,
               x2,
