@@ -404,6 +404,13 @@ public class WinrateGraph {
     return prefix + magnitude;
   }
 
+  static double blackPerspectiveScoreMean(BoardData data) {
+    if (data.scoreMeanIsBlackPerspective) {
+      return data.scoreMean;
+    }
+    return data.blackToPlay ? data.scoreMean : -data.scoreMean;
+  }
+
   static String baselineMark(RenderableMetrics metrics) {
     if (metrics == null || metrics.renderableCount != 1) {
       return null;
@@ -1161,7 +1168,7 @@ public class WinrateGraph {
           if (node.getData().blackToPlay && node.previous().isPresent()) {
             double curscoreMean = 0;
             try {
-              curscoreMean = node.previous().get().getData().scoreMean;
+              curscoreMean = blackPerspectiveScoreMean(node.previous().get().getData());
             } catch (Exception ex) {
             }
             if (engineGamePlaying()) {
@@ -1174,7 +1181,7 @@ public class WinrateGraph {
           }
           while (node.previous().isPresent() && node.previous().get().previous().isPresent()) {
             if (node.getData().getPlayouts() > 0) {
-              double curscoreMean = node.getData().scoreMean;
+              double curscoreMean = blackPerspectiveScoreMean(node.getData());
               //              if (Math.abs(curscoreMean) > maxcoreMean)
               //            	  maxcoreMean = Math.abs(curscoreMean);
 
@@ -1216,7 +1223,8 @@ public class WinrateGraph {
               if (engineGamePlaying()
                   && (!node.next().isPresent() || !node.next().get().next().isPresent())) {
                 curmovenum = movenum;
-                drawcurscoreMean = node.previous().get().previous().get().getData().scoreMean;
+                drawcurscoreMean =
+                    blackPerspectiveScoreMean(node.previous().get().previous().get().getData());
               }
             }
             if (node.previous().isPresent() && node.previous().get().previous().isPresent())
@@ -1279,7 +1287,7 @@ public class WinrateGraph {
           if (!node.getData().blackToPlay && node.previous().isPresent()) {
             double curscoreMean = 0;
             try {
-              curscoreMean = node.previous().get().getData().scoreMean;
+              curscoreMean = blackPerspectiveScoreMean(node.previous().get().getData());
             } catch (Exception ex) {
             }
             if (engineGamePlaying()) {
@@ -1295,7 +1303,7 @@ public class WinrateGraph {
           while (node.previous().isPresent() && node.previous().get().previous().isPresent()) {
             if (node.getData().getPlayouts() > 0) {
 
-              double curscoreMean = node.getData().scoreMean;
+              double curscoreMean = blackPerspectiveScoreMean(node.getData());
               //              if (Math.abs(curscoreMean) > maxcoreMean)
               //            	  maxcoreMean = Math.abs(curscoreMean);
 
@@ -1337,7 +1345,8 @@ public class WinrateGraph {
               if (engineGamePlaying()
                   && (!node.next().isPresent() || !node.next().get().next().isPresent())) {
                 curmovenum = movenum;
-                drawcurscoreMean = node.previous().get().previous().get().getData().scoreMean;
+                drawcurscoreMean =
+                    blackPerspectiveScoreMean(node.previous().get().previous().get().getData());
               }
             }
             if (node.previous().isPresent() && node.previous().get().previous().isPresent())
@@ -1396,14 +1405,11 @@ public class WinrateGraph {
       } else if (Lizzie.leelaz.isSai || Lizzie.leelaz.isKatago || Lizzie.board.isKataBoard) {
         setMaxScoreLead(node);
         double lastscoreMean = -500;
+        lastNodeOk = false;
         while (node.previous().isPresent()) {
           if (node.getData().getPlayouts() > 0) {
 
-            double curscoreMean = node.getData().scoreMean;
-
-            if (!node.getData().blackToPlay) {
-              curscoreMean = -curscoreMean;
-            }
+            double curscoreMean = blackPerspectiveScoreMean(node.getData());
             if (Lizzie.config.showKataGoScoreLeadWithKomi)
               curscoreMean = curscoreMean + Lizzie.board.getHistory().getGameInfo().getKomi();
             //            if (Math.abs(curscoreMean) > maxcoreMean)
@@ -1437,7 +1443,7 @@ public class WinrateGraph {
                     gBackground,
                     fillPath,
                     fillEnabled,
-                    false,
+                    !lastNodeOk,
                     posx + (lastOkMove * width / numMoves),
                     posy
                         + height / 2
@@ -1455,6 +1461,9 @@ public class WinrateGraph {
 
             lastscoreMean = curscoreMean;
             lastOkMove = movenum;
+            lastNodeOk = true;
+          } else {
+            lastNodeOk = false;
           }
 
           node = node.previous().get();
