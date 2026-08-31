@@ -9,6 +9,7 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.SetupSnapshot;
+import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -355,6 +357,73 @@ class KataGoAutoSetupDialogLayoutTest {
     assertFalse(textArea.isEditable());
     assertTrue(textArea.getPreferredSize().width < 900);
     assertEquals(summary, textArea.getAccessibleContext().getAccessibleName());
+  }
+
+  @Test
+  void benchmarkSpeedsUseReadableOneDecimalFormatting() {
+    assertEquals("1,850.3", KataGoAutoSetupDialog.formatBenchmarkSpeed(1850.25, Locale.US));
+    assertEquals("1.850,3", KataGoAutoSetupDialog.formatBenchmarkSpeed(1850.25, Locale.GERMANY));
+    assertEquals("\u2014", KataGoAutoSetupDialog.formatBenchmarkSpeed(0.0, Locale.US));
+    assertEquals("\u2014", KataGoAutoSetupDialog.formatBenchmarkSpeed(Double.NaN, Locale.US));
+  }
+
+  @Test
+  void benchmarkReportUsesThreeColumnsAtTheDefaultWidth() {
+    JPanel nnMetric = new JPanel();
+    JPanel visitsMetric = new JPanel();
+    JPanel metadata = new JPanel();
+    KataGoAutoSetupDialog.BenchmarkReportBody report =
+        new KataGoAutoSetupDialog.BenchmarkReportBody(nnMetric, visitsMetric, metadata);
+
+    report.setSize(840, 214);
+    report.doLayout();
+
+    assertFalse(KataGoAutoSetupDialog.BenchmarkReportBody.useCompactLayout(report.getWidth()));
+    assertEquals(0, nnMetric.getX());
+    assertTrue(visitsMetric.getX() > nnMetric.getX() + nnMetric.getWidth());
+    assertTrue(metadata.getX() > visitsMetric.getX() + visitsMetric.getWidth());
+    assertEquals(report.getWidth(), metadata.getX() + metadata.getWidth());
+    assertEquals(report.getHeight(), nnMetric.getHeight());
+    assertEquals(report.getHeight(), metadata.getHeight());
+  }
+
+  @Test
+  void benchmarkReportStacksMetadataWithoutClippingOnNarrowWindows() {
+    JPanel nnMetric = new JPanel();
+    JPanel visitsMetric = new JPanel();
+    JPanel metadata = new JPanel();
+    KataGoAutoSetupDialog.BenchmarkReportBody report =
+        new KataGoAutoSetupDialog.BenchmarkReportBody(nnMetric, visitsMetric, metadata);
+
+    report.setSize(620, 300);
+    report.doLayout();
+
+    assertTrue(KataGoAutoSetupDialog.BenchmarkReportBody.useCompactLayout(report.getWidth()));
+    assertTrue(nnMetric.getWidth() > 0);
+    assertEquals(nnMetric.getWidth(), visitsMetric.getWidth());
+    assertTrue(visitsMetric.getX() > nnMetric.getX() + nnMetric.getWidth());
+    assertTrue(metadata.getY() > nnMetric.getY() + nnMetric.getHeight());
+    assertEquals(report.getWidth(), metadata.getWidth());
+    assertEquals(report.getHeight(), metadata.getY() + metadata.getHeight());
+  }
+
+  @Test
+  void benchmarkReportAvoidsTallEmptyCardsOnWideWindows() {
+    assertEquals(214, KataGoAutoSetupDialog.BenchmarkReportBody.preferredHeightForWidth(840));
+    assertEquals(292, KataGoAutoSetupDialog.BenchmarkReportBody.preferredHeightForWidth(620));
+  }
+
+  @Test
+  void benchmarkReportUsesCompactPreferredAndMinimumHeightInsideNarrowParent() {
+    JPanel parent = new JPanel(new BorderLayout());
+    KataGoAutoSetupDialog.BenchmarkReportBody report =
+        new KataGoAutoSetupDialog.BenchmarkReportBody(
+            new JPanel(), new JPanel(), new JPanel());
+    parent.add(report, BorderLayout.CENTER);
+    parent.setSize(620, 420);
+
+    assertEquals(292, report.getPreferredSize().height);
+    assertEquals(292, report.getMinimumSize().height);
   }
 
   @Test
