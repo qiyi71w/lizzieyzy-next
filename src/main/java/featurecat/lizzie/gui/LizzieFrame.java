@@ -12616,6 +12616,10 @@ public class LizzieFrame extends JFrame {
         || loadedGameQuickAnalysisActive;
   }
 
+  public boolean isUserAnalysisPaused() {
+    return userAnalysisPaused;
+  }
+
   private void pauseFromAnalysisControl() {
     userAnalysisPaused = true;
     pendingForegroundResumeAfterCleanup = false;

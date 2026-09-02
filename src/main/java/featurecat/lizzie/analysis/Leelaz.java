@@ -15333,7 +15333,8 @@ public class Leelaz {
         && !isThinking
         && !EngineManager.occupiesEngineGameAdmission()
         && (Lizzie.frame == null
-            || (!Lizzie.frame.isPlayingAgainstLeelaz
+            || (!Lizzie.frame.isUserAnalysisPaused()
+                && !Lizzie.frame.isPlayingAgainstLeelaz
                 && !Lizzie.frame.isAnaPlayingAgainstLeelaz
                 && !Lizzie.frame.isContributing
                 && (Lizzie.frame.humanSlGame == null || Lizzie.frame.humanSlGame.isFinished())
