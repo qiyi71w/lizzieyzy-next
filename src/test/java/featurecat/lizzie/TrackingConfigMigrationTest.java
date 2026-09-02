@@ -129,4 +129,55 @@ class TrackingConfigMigrationTest {
             .contains("txtTrackingAnalysisMaxVisits"),
         "综合设置的引擎与分析 section 应显示追踪选点计算量");
   }
+
+  @Test
+  void modernEngineSettingsExposeLiveAnalysisDurationAndVisitLimits() throws Exception {
+    String dialog =
+        Files.readString(Path.of("src/main/java/featurecat/lizzie/gui/ConfigDialog2.java"));
+    int engineSectionStart = dialog.indexOf("case MODERN_NAV_ENGINE:");
+    int engineSectionEnd = dialog.indexOf("return content;", engineSectionStart);
+
+    assertTrue(engineSectionStart >= 0);
+    assertTrue(engineSectionEnd > engineSectionStart);
+    String engineSection = dialog.substring(engineSectionStart, engineSectionEnd);
+    assertTrue(
+        containsToggleInputRow(engineSection, "chkLimitTime", "txtMaxAnalyzeTime"),
+        "综合设置的引擎与分析 section 应显示实况分析时长限制");
+    assertTrue(
+        containsToggleInputRow(engineSection, "chkLimitPlayouts", "txtLimitPlayouts"),
+        "综合设置的引擎与分析 section 应显示实况分析计算量限制");
+  }
+
+  private static boolean containsToggleInputRow(String section, String toggle, String field) {
+    int from = 0;
+    while (true) {
+      int call = section.indexOf("addToggleInputRow(", from);
+      if (call < 0) {
+        return false;
+      }
+      int open = section.indexOf('(', call);
+      int depth = 0;
+      int end = -1;
+      for (int i = open; i < section.length(); i++) {
+        char ch = section.charAt(i);
+        if (ch == '(') {
+          depth++;
+        } else if (ch == ')') {
+          depth--;
+          if (depth == 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+      if (end < 0) {
+        return false;
+      }
+      String args = section.substring(open, end);
+      if (args.contains(toggle) && args.contains(field)) {
+        return true;
+      }
+      from = call + 1;
+    }
+  }
 }
