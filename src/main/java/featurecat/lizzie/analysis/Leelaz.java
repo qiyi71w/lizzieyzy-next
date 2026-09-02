@@ -4076,7 +4076,8 @@ public class Leelaz {
               || foregroundRestoreInProgress
               || normalCommandSendInProgress
               || !commandQueue().isEmpty()
-              || !foregroundRestoreCommandQueue().isEmpty()) {
+              || !foregroundRestoreCommandQueue().isEmpty()
+              || (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused())) {
             return false;
           }
           claimed = true;
