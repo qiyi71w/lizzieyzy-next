@@ -546,6 +546,10 @@ public class LizzieFrame extends JFrame {
   private volatile boolean loadedGameQuickAnalysisRunning;
   private volatile long loadedGameQuickAnalysisDispatchStartedAt;
   private int loadedGameQuickAnalysisFailureCount;
+  private volatile boolean userAnalysisPaused;
+  private volatile BoardHistoryNode userCancelledQuickAnalysisRoot;
+  private volatile boolean pendingForegroundResumeAfterCleanup;
+  private volatile boolean analysisControlCleanupInProgress;
   private boolean kifuOpenWaitingForQuickAnalysisRestore;
   private DeferredKifuOpen pendingKifuOpen;
   private static final int LOADED_GAME_QUICK_ANALYSIS_RETRY_MS = 1800;
@@ -5250,6 +5254,7 @@ public class LizzieFrame extends JFrame {
     canGoAfterload = true;
     pendingKifuEngineSyncRoot = root;
     stopLoadedGameQuickAnalysisRetry();
+    clearUserAnalysisPauseForNewKifuLoadContext();
     Runnable submit = () -> submitKifuEngineSync(root, delayMillis, action);
     if (stopBusyQuickAnalysisEngineBeforeLoadedKifuAnalysis(
         () -> SwingUtilities.invokeLater(submit))) {
@@ -12599,6 +12604,35 @@ public class LizzieFrame extends JFrame {
     if (stopAiPlayingAndPolicy()) {
       return;
     }
+    if (shouldPauseFromAnalysisControl()) {
+      pauseFromAnalysisControl();
+      return;
+    }
+    resumeFromAnalysisControl();
+  }
+
+  private boolean shouldPauseFromAnalysisControl() {
+    return (Lizzie.leelaz != null && Lizzie.leelaz.isPondering())
+        || loadedGameQuickAnalysisActive;
+  }
+
+  private void pauseFromAnalysisControl() {
+    userAnalysisPaused = true;
+    pendingForegroundResumeAfterCleanup = false;
+    userCancelledQuickAnalysisRoot = currentHistoryRoot();
+    if (Lizzie.leelaz != null && Lizzie.leelaz.isPondering()) {
+      Lizzie.leelaz.togglePonder();
+    }
+    cancelLoadedGameQuickAnalysisForUserPause();
+  }
+
+  private void resumeFromAnalysisControl() {
+    userAnalysisPaused = false;
+    if (analysisControlCleanupInProgress) {
+      pendingForegroundResumeAfterCleanup = true;
+      return;
+    }
+    pendingForegroundResumeAfterCleanup = false;
     if (!Lizzie.leelaz.isPondering()) {
       if (!syncCurrentPositionToPrimaryEngineForAnalysis()) {
         return;
@@ -19838,6 +19872,14 @@ public class LizzieFrame extends JFrame {
     if (EngineGamePresentation.current().startingOrPlaying() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
       return false;
     }
+    if (userCancelledQuickAnalysisRoot != null
+        && userCancelledQuickAnalysisRoot != currentHistoryRoot()) {
+      clearUserAnalysisPauseForNewKifuLoadContext();
+    }
+    if (userAnalysisPaused) {
+      cancelLoadedGameQuickAnalysisForUserPause();
+      return false;
+    }
     if (shouldAutoQuickAnalyzeLoadedGame()) {
       long generation = beginLoadedGameQuickAnalysis();
       QuickAnalysisWarmupAction action = currentQuickAnalysisWarmupAction(true);
@@ -19862,7 +19904,10 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean resumeForegroundAnalysisForCurrentPosition() {
-    if (isWholeGameAnalysisStartingOrRunning() || Lizzie.leelaz == null || EngineManager.isEmpty) {
+    if (userAnalysisPaused
+        || isWholeGameAnalysisStartingOrRunning()
+        || Lizzie.leelaz == null
+        || EngineManager.isEmpty) {
       return false;
     }
     if (!syncCurrentPositionToPrimaryEngineForAnalysis()) {
@@ -20007,6 +20052,43 @@ public class LizzieFrame extends JFrame {
     }
   }
 
+  private void cancelLoadedGameQuickAnalysisForUserPause() {
+    if (quickAnalysisEngineGeneration != null) {
+      quickAnalysisEngineGeneration.incrementAndGet();
+    }
+    stopQuickAnalysisWarmupTimer();
+    stopQuickAnalysisNavigationResumeTimer();
+    stopLoadedGameQuickAnalysisRetry();
+    clearPendingQuickAnalysisCallback();
+    AnalysisEngine currentEngine = analysisEngine;
+    if (currentEngine == null || !currentEngine.isAutomaticBackgroundTask()) {
+      analysisControlCleanupInProgress = false;
+      return;
+    }
+    analysisControlCleanupInProgress = true;
+    analysisEngine = null;
+    currentEngine.clearRequestCallbacks();
+    currentEngine.normalQuit(
+        () ->
+            SwingUtilities.invokeLater(this::finishUserAnalysisPauseCleanup));
+  }
+
+  private void finishUserAnalysisPauseCleanup() {
+    analysisControlCleanupInProgress = false;
+    if (!pendingForegroundResumeAfterCleanup || userAnalysisPaused) {
+      return;
+    }
+    pendingForegroundResumeAfterCleanup = false;
+    resumeForegroundAnalysisForCurrentPosition();
+  }
+
+  private void clearUserAnalysisPauseForNewKifuLoadContext() {
+    userAnalysisPaused = false;
+    pendingForegroundResumeAfterCleanup = false;
+    analysisControlCleanupInProgress = false;
+    userCancelledQuickAnalysisRoot = null;
+  }
+
   public void preloadQuickAnalysisEngineForKifuBrowsing() {
     if (!SwingUtilities.isEventDispatchThread()) {
       SwingUtilities.invokeLater(this::preloadQuickAnalysisEngineForKifuBrowsing);
@@ -20079,9 +20161,9 @@ public class LizzieFrame extends JFrame {
     }
   }
 
-
   private boolean isQuickAnalysisWarmupContextEligible(boolean requiresAutoAnalyze) {
     return Lizzie.config != null
+        && !userAnalysisPaused
         && (!requiresAutoAnalyze || Lizzie.config.autoQuickAnalyzeOnLoad)
         && !isWholeGameAnalysisStartingOrRunning()
         && !EngineGamePresentation.current().startingOrPlaying()
@@ -20259,7 +20341,7 @@ public class LizzieFrame extends JFrame {
       }
     } finally {
       quickAnalysisEngineStarting.set(false);
-      if (invalidated) {
+      if (invalidated && !userAnalysisPaused) {
         scheduleQuickAnalysisWarmupWhenPrimaryReady(1200, false);
       }
     }
@@ -20415,6 +20497,10 @@ public class LizzieFrame extends JFrame {
       return false;
     }
     if (!Lizzie.config.autoQuickAnalyzeOnLoad || isBatchAna || isEnginePKSgfStart || isTrying) {
+      return false;
+    }
+    if (userCancelledQuickAnalysisRoot != null
+        && userCancelledQuickAnalysisRoot == currentHistoryRoot()) {
       return false;
     }
     BoardHistoryNode node = Lizzie.board.getHistory().getStart();
