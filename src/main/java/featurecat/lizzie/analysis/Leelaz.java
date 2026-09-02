@@ -371,6 +371,7 @@ public class Leelaz {
   private Process process;
   private transient EngineTransport remoteTransport;
   private volatile Object engineArbitrationLock = new Object();
+  private volatile Object analysisControlPonderLock = new Object();
   /** Admission generations keep delayed local state publication from overwriting a newer command. */
   private volatile long komiAdmissionGeneration;
   private volatile long boardSizeAdmissionGeneration;
@@ -4081,7 +4082,9 @@ public class Leelaz {
           }
           claimed = true;
           int commandNumberBeforePonder = cmdNumber;
-          ponder();
+          if (!ponderAfterTrackingIfAnalysisControlAllows()) {
+            return false;
+          }
           if (cmdNumber > commandNumberBeforePonder) {
             settleTrackingPonderResponseWatermark();
           }
@@ -12273,6 +12276,19 @@ public class Leelaz {
     }
   }
 
+  private Object analysisControlPonderLock() {
+    Object lock = analysisControlPonderLock;
+    if (lock != null) {
+      return lock;
+    }
+    synchronized (this) {
+      if (analysisControlPonderLock == null) {
+        analysisControlPonderLock = new Object();
+      }
+      return analysisControlPonderLock;
+    }
+  }
+
   private Object statefulOrdinaryPublicationLock() {
     Object lock = statefulOrdinaryPublicationLock;
     if (lock != null) {
@@ -15031,7 +15047,6 @@ public class Leelaz {
       runForegroundRestoreFailure(session);
       return;
     }
-    boolean resumePonder = false;
     try {
       synchronized (commandQueue()) {
         foregroundRestoreCommandQueue().clear();
@@ -15041,19 +15056,15 @@ public class Leelaz {
       } catch (RuntimeException ex) {
         ex.printStackTrace();
       }
-      resumePonder =
-          session.wasPondering
-              && Lizzie.leelaz == this
-              && canResumePonderAfterForegroundLease();
     } finally {
       finishForegroundRestoreLifecycle();
-    }
-    if (resumePonder) {
-      ponder();
     }
     if (releaseStopFailed) {
       runForegroundRestoreFailure(session);
     } else {
+      if (session.wasPondering) {
+        resumePonderAfterForegroundLeaseIfAllowed();
+      }
       runForegroundRestoreCompletion(session);
     }
   }
@@ -15333,12 +15344,33 @@ public class Leelaz {
         && !isThinking
         && !EngineManager.occupiesEngineGameAdmission()
         && (Lizzie.frame == null
-            || (!Lizzie.frame.isPlayingAgainstLeelaz
+            || (!Lizzie.frame.isUserAnalysisPaused()
+                && !Lizzie.frame.isPlayingAgainstLeelaz
                 && !Lizzie.frame.isAnaPlayingAgainstLeelaz
                 && !Lizzie.frame.isContributing
                 && (Lizzie.frame.humanSlGame == null || Lizzie.frame.humanSlGame.isFinished())
                 && (Lizzie.frame.readBoard == null
                     || !Lizzie.frame.readBoard.isReadBoardGmaEngineBusy())));
+  }
+
+  private boolean resumePonderAfterForegroundLeaseIfAllowed() {
+    synchronized (analysisControlPonderLock()) {
+      if (Lizzie.leelaz != this || !canResumePonderAfterForegroundLease()) {
+        return false;
+      }
+      ponder();
+      return true;
+    }
+  }
+
+  private boolean ponderAfterTrackingIfAnalysisControlAllows() {
+    synchronized (analysisControlPonderLock()) {
+      if (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused()) {
+        return false;
+      }
+      ponder();
+      return true;
+    }
   }
 
   private boolean writeExclusiveGtpCommand(
@@ -21265,6 +21297,23 @@ public class Leelaz {
       nameCmd();
     }
     YikeSyncDebugLog.log("Leelaz togglePonder after isPondering=" + isPondering);
+  }
+
+  /**
+   * Linearizes the analysis-control pause with tracking and ExclusiveGtp ponder handback.
+   *
+   * <p>The pause state must be recorded while holding the same lock used by both restore paths;
+   * otherwise a restore can pass its pause check, then send ponder after the pause latch is set.
+   */
+  public void pauseForAnalysisControl(Runnable recordPause) {
+    synchronized (analysisControlPonderLock()) {
+      if (recordPause != null) {
+        recordPause.run();
+      }
+    }
+    if (Lizzie.leelaz == this && isPondering()) {
+      togglePonder();
+    }
   }
 
   private String buildPonderCallerTrace() {

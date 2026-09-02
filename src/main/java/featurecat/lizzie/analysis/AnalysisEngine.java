@@ -166,6 +166,9 @@ public class AnalysisEngine {
   private boolean sharedForegroundLeaseActive;
   private Leelaz.ForegroundAnalysisLease sharedForegroundLease;
   private ForegroundRequestTarget sharedForegroundHandoffOwner;
+  private boolean sharedForegroundRestoreInProgress;
+  private Runnable sharedForegroundRestoreCompletion;
+  private Runnable sharedForegroundRestoreFailure;
   private ForegroundRequestTarget pendingForegroundRequest;
   private boolean sharedForegroundRulesCapturePending;
   private long foregroundRequestGeneration;
@@ -1117,16 +1120,24 @@ public class AnalysisEngine {
 
   /** Stops this worker and runs {@code afterRestore} once any shared foreground lease is restored. */
   public void normalQuit(Runnable afterRestore) {
+    normalQuit(afterRestore, afterRestore);
+  }
+
+  /**
+   * Stops this worker and reports whether a pending shared foreground lease restore succeeded.
+   * Dedicated workers have no restore boundary and therefore use {@code afterRestore}.
+   */
+  public void normalQuit(Runnable afterRestore, Runnable afterRestoreFailure) {
     requestShutdown();
     isNormalEnd = true;
     AnalysisResourceCoordinator.processStopped(this, purpose, process);
     shutdownRemoteGtpSetupAckTimeoutExecutor();
     if (sharedForegroundEngine != null) {
       requestDispatchFailed = true;
-      finishFailedRequestDispatch(false, afterRestore);
+      finishFailedRequestDispatch(false, afterRestore, afterRestoreFailure);
     } else {
       boolean restorePending =
-          releaseSharedForegroundLease(afterRestore, afterRestore);
+          releaseSharedForegroundLease(afterRestore, afterRestoreFailure);
       if (!restorePending && afterRestore != null) {
         afterRestore.run();
       }
@@ -1658,6 +1669,14 @@ public class AnalysisEngine {
 
   private void finishFailedRequestDispatch(
       boolean showProgressDialog, Runnable afterForegroundRestore) {
+    finishFailedRequestDispatch(
+        showProgressDialog, afterForegroundRestore, afterForegroundRestore);
+  }
+
+  private void finishFailedRequestDispatch(
+      boolean showProgressDialog,
+      Runnable afterForegroundRestore,
+      Runnable afterForegroundRestoreFailure) {
     Runnable failedRequestCallback = failureCallback;
     analyzeMap.clear();
     remoteGtpQueue().clear();
@@ -1684,7 +1703,10 @@ public class AnalysisEngine {
             ? null
             : () -> javax.swing.SwingUtilities.invokeLater(failedRequestCallback);
     Runnable finishRestore = chainCallbacks(deliverFailure, afterForegroundRestore);
-    boolean restorePending = releaseSharedForegroundLease(finishRestore, finishRestore);
+    Runnable finishRestoreFailure =
+        chainCallbacks(deliverFailure, afterForegroundRestoreFailure);
+    boolean restorePending =
+        releaseSharedForegroundLease(finishRestore, finishRestoreFailure);
     resumeForegroundAnalysisIfRequested();
     if (Lizzie.frame.isBatchAnalysisMode) Lizzie.frame.isBatchAnalysisMode = false;
     if (waitFrame != null || showProgressDialog) {
@@ -2122,6 +2144,13 @@ public class AnalysisEngine {
 
   private synchronized boolean releaseSharedForegroundLease(
       Runnable afterRestore, Runnable afterRestoreFailure) {
+    if (sharedForegroundRestoreInProgress) {
+      sharedForegroundRestoreCompletion =
+          chainCallbacks(sharedForegroundRestoreCompletion, afterRestore);
+      sharedForegroundRestoreFailure =
+          chainCallbacks(sharedForegroundRestoreFailure, afterRestoreFailure);
+      return true;
+    }
     Leelaz.ForegroundAnalysisLease lease = sharedForegroundLease;
     ForegroundRequestTarget handoffOwner = sharedForegroundHandoffOwner;
     sharedForegroundLeaseStarting = false;
@@ -2129,14 +2158,43 @@ public class AnalysisEngine {
     sharedForegroundLease = null;
     sharedForegroundHandoffOwner = null;
     sharedForegroundRulesCapturePending = false;
-    if (lease != null) {
-      return lease.release(afterRestore, afterRestoreFailure);
+    if (lease == null && handoffOwner == null) {
+      return false;
     }
-    if (handoffOwner != null) {
-      return sharedForegroundEngine.endForegroundAnalysisLease(
-          handoffOwner, afterRestore, afterRestoreFailure);
+    sharedForegroundRestoreInProgress = true;
+    sharedForegroundRestoreCompletion = afterRestore;
+    sharedForegroundRestoreFailure = afterRestoreFailure;
+    boolean restorePending =
+        lease != null
+            ? lease.release(
+                () -> finishTrackedSharedForegroundRestore(true),
+                () -> finishTrackedSharedForegroundRestore(false))
+            : sharedForegroundEngine.endForegroundAnalysisLease(
+                handoffOwner,
+                () -> finishTrackedSharedForegroundRestore(true),
+                () -> finishTrackedSharedForegroundRestore(false));
+    if (!restorePending && sharedForegroundRestoreInProgress) {
+      sharedForegroundRestoreInProgress = false;
+      sharedForegroundRestoreCompletion = null;
+      sharedForegroundRestoreFailure = null;
     }
-    return false;
+    return restorePending;
+  }
+
+  private void finishTrackedSharedForegroundRestore(boolean successful) {
+    Runnable callback;
+    synchronized (this) {
+      if (!sharedForegroundRestoreInProgress) {
+        return;
+      }
+      callback = successful ? sharedForegroundRestoreCompletion : sharedForegroundRestoreFailure;
+      sharedForegroundRestoreInProgress = false;
+      sharedForegroundRestoreCompletion = null;
+      sharedForegroundRestoreFailure = null;
+    }
+    if (callback != null) {
+      callback.run();
+    }
   }
 
   private synchronized void finishSharedForegroundRestoreFailure() {

@@ -244,6 +244,10 @@ public class AnalysisTable {
   }
 
   protected void verifyCurrentKifu() {
+    if (Lizzie.frame.deferKifuOpenUntilAutomaticQuickAnalysisRestored(
+        this::verifyCurrentKifu)) {
+      return;
+    }
     // TODO Auto-generated method stub
     String firstFileName = Lizzie.frame.Batchfiles.get(Lizzie.frame.BatchAnaNum).getName();
     if (!LizzieFrame.fileNameTitle.equals(firstFileName)) {

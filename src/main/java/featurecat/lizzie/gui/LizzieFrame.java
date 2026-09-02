@@ -544,8 +544,15 @@ public class LizzieFrame extends JFrame {
   private volatile BoardHistoryNode loadedGameQuickAnalysisRoot;
   private volatile boolean loadedGameQuickAnalysisActive;
   private volatile boolean loadedGameQuickAnalysisRunning;
+  private volatile AnalysisEngine loadedGameQuickAnalysisEngine;
+  private volatile long loadedGameQuickAnalysisEngineGeneration = -1;
   private volatile long loadedGameQuickAnalysisDispatchStartedAt;
   private int loadedGameQuickAnalysisFailureCount;
+  private volatile boolean userAnalysisPaused;
+  private volatile BoardHistoryNode userCancelledQuickAnalysisRoot;
+  private volatile boolean pendingForegroundResumeAfterCleanup;
+  private volatile boolean analysisControlCleanupInProgress;
+  private volatile long analysisControlCleanupGeneration;
   private boolean kifuOpenWaitingForQuickAnalysisRestore;
   private DeferredKifuOpen pendingKifuOpen;
   private static final int LOADED_GAME_QUICK_ANALYSIS_RETRY_MS = 1800;
@@ -1276,62 +1283,7 @@ public class LizzieFrame extends JFrame {
         new TransferHandler() {
           @Override
           public boolean importData(JComponent comp, Transferable t) {
-            try {
-              Object o = t.getTransferData(DataFlavor.javaFileListFlavor);
-              String filepath = o.toString();
-              if (filepath.startsWith("[")) {
-                filepath = filepath.substring(1);
-              }
-              if (filepath.endsWith("]")) {
-                filepath = filepath.substring(0, filepath.length() - 1);
-              }
-              String[] filePaths = filepath.split(", ");
-              if (filePaths.length == 1) {
-                boolean ponder = Lizzie.leelaz.isPondering() || !Lizzie.leelaz.isLoaded;
-                File file = new File(filepath);
-                File files[] = new File[1];
-                files[0] = file;
-                loadFile(file, true, true);
-                curFile = file;
-                if (Lizzie.frame.analysisTable != null
-                    && Lizzie.frame.analysisTable.frame.isVisible()) {
-                  Lizzie.frame.analysisTable.refreshTable();
-                }
-                if (ponder) {
-                  Lizzie.leelaz.ponder();
-                }
-                refresh();
-                return true;
-              } else if (filePaths.length > 1) {
-                File files[] = new File[filePaths.length];
-                for (int i = 0; i < filePaths.length; i++) {
-                  files[i] = new File(filePaths[i]);
-                }
-                isBatchAna = true;
-                BatchAnaNum = 0;
-                Batchfiles = new ArrayList<File>();
-                for (int i = 0; i < files.length; i++) {
-                  Batchfiles.add(files[i]);
-                }
-                loadFile(files[0], true, true);
-                // 打开分析界面
-                StartAnaDialog newgame = new StartAnaDialog(false, Lizzie.frame);
-                newgame.setVisible(true);
-                if (newgame.isCancelled()) {
-                  isBatchAna = false;
-                  toolbar.resetAutoAna();
-                  if (Lizzie.frame.analysisTable != null
-                      && Lizzie.frame.analysisTable.frame.isVisible()) {
-                    Lizzie.frame.analysisTable.refreshTable();
-                  }
-                  Lizzie.frame.refresh();
-                  return true;
-                }
-              }
-            } catch (Exception e) {
-              e.printStackTrace();
-            }
-            return false;
+            return importDroppedKifuFiles(t);
           }
 
           @Override
@@ -4363,13 +4315,80 @@ public class LizzieFrame extends JFrame {
     refresh();
   }
 
-  private boolean deferKifuOpenUntilAutomaticQuickAnalysisRestored(Runnable continuation) {
+  boolean importDroppedKifuFiles(Transferable transferable) {
+    List<File> capturedFiles = new ArrayList<>();
+    try {
+      Object transferData = transferable.getTransferData(DataFlavor.javaFileListFlavor);
+      if (!(transferData instanceof List<?>)) {
+        return false;
+      }
+      for (Object entry : (List<?>) transferData) {
+        if (!(entry instanceof File)) {
+          return false;
+        }
+        capturedFiles.add((File) entry);
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+      return false;
+    }
+    if (capturedFiles.isEmpty()) {
+      return false;
+    }
+    if (deferKifuOpenUntilAutomaticQuickAnalysisRestored(
+        () -> finishDroppedKifuImport(capturedFiles))) {
+      return true;
+    }
+    return finishDroppedKifuImport(capturedFiles);
+  }
+
+  private boolean finishDroppedKifuImport(List<File> files) {
+    try {
+      if (files.size() == 1) {
+        boolean ponder = Lizzie.leelaz.isPondering() || !Lizzie.leelaz.isLoaded;
+        File file = files.get(0);
+        loadFile(file, true, true);
+        curFile = file;
+        if (Lizzie.frame.analysisTable != null && Lizzie.frame.analysisTable.frame.isVisible()) {
+          Lizzie.frame.analysisTable.refreshTable();
+        }
+        if (ponder) {
+          Lizzie.leelaz.ponder();
+        }
+        refresh();
+        return true;
+      }
+
+      isBatchAna = true;
+      BatchAnaNum = 0;
+      Batchfiles = new ArrayList<File>(files);
+      loadFile(files.get(0), true, true);
+      // 打开分析界面
+      StartAnaDialog newgame = new StartAnaDialog(false, Lizzie.frame);
+      newgame.setVisible(true);
+      if (newgame.isCancelled()) {
+        isBatchAna = false;
+        toolbar.resetAutoAna();
+        if (Lizzie.frame.analysisTable != null && Lizzie.frame.analysisTable.frame.isVisible()) {
+          Lizzie.frame.analysisTable.refreshTable();
+        }
+        Lizzie.frame.refresh();
+      }
+      return true;
+    } catch (Exception e) {
+      e.printStackTrace();
+      return false;
+    }
+  }
+
+  boolean deferKifuOpenUntilAutomaticQuickAnalysisRestored(Runnable continuation) {
     return deferKifuOpenUntilAutomaticQuickAnalysisRestored(continuation, null);
   }
 
   private boolean deferKifuOpenUntilAutomaticQuickAnalysisRestored(
       Runnable continuation, Runnable superseded) {
-    if (kifuOpenWaitingForQuickAnalysisRestore) {
+    if (kifuOpenWaitingForQuickAnalysisRestore || analysisControlCleanupInProgress) {
+      kifuOpenWaitingForQuickAnalysisRestore = true;
       DeferredKifuOpen previous = pendingKifuOpen;
       pendingKifuOpen = new DeferredKifuOpen(continuation, superseded);
       if (previous != null) {
@@ -4391,16 +4410,20 @@ public class LizzieFrame extends JFrame {
     analysisEngine = null;
     currentEngine.clearRequestCallbacks();
     currentEngine.normalQuit(
-        () ->
-            SwingUtilities.invokeLater(
-                () -> {
-                  kifuOpenWaitingForQuickAnalysisRestore = false;
-                  DeferredKifuOpen deferred = pendingKifuOpen;
-                  pendingKifuOpen = null;
-                  if (deferred != null) {
-                    deferred.run();
-                  }
-                }));
+        () -> SwingUtilities.invokeLater(this::finishDeferredKifuOpenAfterQuickAnalysisRestore));
+    return true;
+  }
+
+  private boolean finishDeferredKifuOpenAfterQuickAnalysisRestore() {
+    if (!kifuOpenWaitingForQuickAnalysisRestore) {
+      return false;
+    }
+    kifuOpenWaitingForQuickAnalysisRestore = false;
+    DeferredKifuOpen deferred = pendingKifuOpen;
+    pendingKifuOpen = null;
+    if (deferred != null) {
+      deferred.run();
+    }
     return true;
   }
 
@@ -4497,6 +4520,9 @@ public class LizzieFrame extends JFrame {
   }
 
   public void openSgfStart() {
+    if (deferKifuOpenUntilAutomaticQuickAnalysisRestored(this::openSgfStart)) {
+      return;
+    }
     if (Lizzie.leelaz.isPondering()) {
       Lizzie.leelaz.togglePonder();
     }
@@ -4534,6 +4560,9 @@ public class LizzieFrame extends JFrame {
   }
 
   public void openFileWithAna(boolean isFlashMode) {
+    if (deferKifuOpenUntilAutomaticQuickAnalysisRestored(() -> openFileWithAna(isFlashMode))) {
+      return;
+    }
     //   boolean ponder = false;
     //  double komi = Lizzie.board.getHistory().getGameInfo().getKomi();
     //    if (Lizzie.leelaz.isPondering()) {
@@ -4625,6 +4654,9 @@ public class LizzieFrame extends JFrame {
   }
 
   public void resumeFile() {
+    if (deferKifuOpenUntilAutomaticQuickAnalysisRestored(this::resumeFile)) {
+      return;
+    }
     File file = resolveAutoSaveFile(1, "sgf");
     if (file.exists()) loadFile(file, true, true);
     else {
@@ -5160,6 +5192,7 @@ public class LizzieFrame extends JFrame {
     fileNameTitle = file.getName();
     updateTitle();
     if (file.getPath().toLowerCase().endsWith(".gib")) {
+      startNewKifuAnalysisContextAfterSuccessfulLoad();
       scheduleResumeAnalysisAfterLoad(0);
     } else {
       // SGFParser finalizes last-move navigation on the next EDT turn. Queue the immutable
@@ -5250,6 +5283,7 @@ public class LizzieFrame extends JFrame {
     canGoAfterload = true;
     pendingKifuEngineSyncRoot = root;
     stopLoadedGameQuickAnalysisRetry();
+    startNewKifuAnalysisContextAfterSuccessfulLoad();
     Runnable submit = () -> submitKifuEngineSync(root, delayMillis, action);
     if (stopBusyQuickAnalysisEngineBeforeLoadedKifuAnalysis(
         () -> SwingUtilities.invokeLater(submit))) {
@@ -12591,7 +12625,9 @@ public class LizzieFrame extends JFrame {
 
   public void togglePonderMannul() {
     if (Lizzie.leelaz == null) {
-      if (Lizzie.engineManager != null) {
+      if (loadedGameQuickAnalysisActive) {
+        pauseFromAnalysisControl();
+      } else if (Lizzie.engineManager != null) {
         Lizzie.engineManager.retryUnavailablePrimaryEngine();
       }
       return;
@@ -12599,6 +12635,46 @@ public class LizzieFrame extends JFrame {
     if (stopAiPlayingAndPolicy()) {
       return;
     }
+    if (shouldPauseFromAnalysisControl()) {
+      pauseFromAnalysisControl();
+      return;
+    }
+    resumeFromAnalysisControl();
+  }
+
+  private boolean shouldPauseFromAnalysisControl() {
+    return (Lizzie.leelaz != null && Lizzie.leelaz.isPondering())
+        || loadedGameQuickAnalysisActive;
+  }
+
+  public boolean isUserAnalysisPaused() {
+    return userAnalysisPaused;
+  }
+
+  private void pauseFromAnalysisControl() {
+    BoardHistoryNode cancelledRoot = currentHistoryRoot();
+    Leelaz primaryEngine = Lizzie.leelaz;
+    if (primaryEngine == null) {
+      recordUserAnalysisPause(cancelledRoot);
+    } else {
+      primaryEngine.pauseForAnalysisControl(() -> recordUserAnalysisPause(cancelledRoot));
+    }
+    cancelLoadedGameQuickAnalysisForUserPause();
+  }
+
+  private void recordUserAnalysisPause(BoardHistoryNode cancelledRoot) {
+    userAnalysisPaused = true;
+    pendingForegroundResumeAfterCleanup = false;
+    userCancelledQuickAnalysisRoot = cancelledRoot;
+  }
+
+  private void resumeFromAnalysisControl() {
+    userAnalysisPaused = false;
+    if (analysisControlCleanupInProgress) {
+      pendingForegroundResumeAfterCleanup = true;
+      return;
+    }
+    pendingForegroundResumeAfterCleanup = false;
     if (!Lizzie.leelaz.isPondering()) {
       if (!syncCurrentPositionToPrimaryEngineForAnalysis()) {
         return;
@@ -13899,6 +13975,9 @@ public class LizzieFrame extends JFrame {
         new ActionListener() {
           @Override
           public void actionPerformed(ActionEvent e) {
+            if (deferKifuOpenUntilAutomaticQuickAnalysisRestored(() -> actionPerformed(e))) {
+              return;
+            }
             // TBD未完成
             canShowBigBoardImage = false;
             loadFile(
@@ -14451,6 +14530,9 @@ public class LizzieFrame extends JFrame {
     tempGamePanelMoveLis =
         new MouseAdapter() {
           public void mouseClicked(MouseEvent e) {
+            if (deferKifuOpenUntilAutomaticQuickAnalysisRestored(() -> mouseClicked(e))) {
+              return;
+            }
             int x = e.getX();
             int y = e.getY();
             for (TempGameData data : tempGameList) {
@@ -14521,6 +14603,9 @@ public class LizzieFrame extends JFrame {
     bigBoardPanelLis =
         new MouseAdapter() {
           public void mouseClicked(MouseEvent e) {
+            if (deferKifuOpenUntilAutomaticQuickAnalysisRestored(() -> mouseClicked(e))) {
+              return;
+            }
             if (e.getX() == 0 && e.getY() == 0) {
               canShowBigBoardImage = false;
               loadFile(
@@ -15505,6 +15590,7 @@ public class LizzieFrame extends JFrame {
       return;
     }
     if (!silentAnalyze) {
+      prepareForManualFlashAnalysis();
       releaseDedicatedLightweightQuickAnalysisEngine();
     }
     boolean hasAutomaticQuickAnalysisCommand =
@@ -15634,6 +15720,8 @@ public class LizzieFrame extends JFrame {
                       return;
                     }
                     AnalysisEngine targetEngine = analysisEngine;
+                    loadedGameQuickAnalysisEngine = targetEngine;
+                    loadedGameQuickAnalysisEngineGeneration = generation;
                     targetEngine.setCompletionCallback(
                         () -> finishLoadedGameQuickAnalysisAttempt(generation, root, false));
                     targetEngine.setFailureCallback(
@@ -15683,6 +15771,7 @@ public class LizzieFrame extends JFrame {
     if (!isCurrentLoadedGameQuickAnalysis(generation, root)) {
       return;
     }
+    clearLoadedGameQuickAnalysisEngine(generation);
     loadedGameQuickAnalysisRunning = false;
     loadedGameQuickAnalysisDispatchStartedAt = 0;
     if (failed) {
@@ -19838,6 +19927,10 @@ public class LizzieFrame extends JFrame {
     if (EngineGamePresentation.current().startingOrPlaying() || isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) {
       return false;
     }
+    if (userAnalysisPaused) {
+      cancelLoadedGameQuickAnalysisForUserPause();
+      return false;
+    }
     if (shouldAutoQuickAnalyzeLoadedGame()) {
       long generation = beginLoadedGameQuickAnalysis();
       QuickAnalysisWarmupAction action = currentQuickAnalysisWarmupAction(true);
@@ -19862,7 +19955,10 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean resumeForegroundAnalysisForCurrentPosition() {
-    if (isWholeGameAnalysisStartingOrRunning() || Lizzie.leelaz == null || EngineManager.isEmpty) {
+    if (userAnalysisPaused
+        || isWholeGameAnalysisStartingOrRunning()
+        || Lizzie.leelaz == null
+        || EngineManager.isEmpty) {
       return false;
     }
     if (!syncCurrentPositionToPrimaryEngineForAnalysis()) {
@@ -19894,6 +19990,8 @@ public class LizzieFrame extends JFrame {
       loadedGameQuickAnalysisRoot = root;
       loadedGameQuickAnalysisActive = true;
       loadedGameQuickAnalysisRunning = false;
+      loadedGameQuickAnalysisEngine = null;
+      loadedGameQuickAnalysisEngineGeneration = -1;
       loadedGameQuickAnalysisFailureCount = 0;
       clearPendingQuickAnalysisCallback();
     }
@@ -19999,12 +20097,106 @@ public class LizzieFrame extends JFrame {
     loadedGameQuickAnalysisRoot = null;
     loadedGameQuickAnalysisActive = false;
     loadedGameQuickAnalysisRunning = false;
+    loadedGameQuickAnalysisEngine = null;
+    loadedGameQuickAnalysisEngineGeneration = -1;
     loadedGameQuickAnalysisDispatchStartedAt = 0;
     loadedGameQuickAnalysisFailureCount = 0;
     clearPendingQuickAnalysisCallback();
     if (quickAnalysisLoadRetryTimer != null) {
       quickAnalysisLoadRetryTimer.stop();
     }
+  }
+
+  void prepareForManualFlashAnalysis() {
+    if (!loadedGameQuickAnalysisActive) {
+      return;
+    }
+    AnalysisEngine automaticEngine = loadedGameQuickAnalysisEngine;
+    if (quickAnalysisEngineGeneration != null) {
+      quickAnalysisEngineGeneration.incrementAndGet();
+    }
+    stopQuickAnalysisWarmupTimer();
+    stopQuickAnalysisNavigationResumeTimer();
+    stopLoadedGameQuickAnalysisRetry();
+    if (automaticEngine != null) {
+      automaticEngine.clearRequestCallbacks();
+    }
+  }
+
+  private void cancelLoadedGameQuickAnalysisForUserPause() {
+    boolean hadLoadedGameQuickAnalysis = loadedGameQuickAnalysisActive;
+    AnalysisEngine currentEngine = analysisEngine;
+    boolean currentEngineOwnsLoadedGameQuickAnalysis =
+        currentEngine != null
+            && currentEngine == loadedGameQuickAnalysisEngine
+            && loadedGameQuickAnalysisEngineGeneration == loadedGameQuickAnalysisGeneration;
+    if (quickAnalysisEngineGeneration != null) {
+      quickAnalysisEngineGeneration.incrementAndGet();
+    }
+    stopQuickAnalysisWarmupTimer();
+    stopQuickAnalysisNavigationResumeTimer();
+    stopLoadedGameQuickAnalysisRetry();
+    clearPendingQuickAnalysisCallback();
+    if (!hadLoadedGameQuickAnalysis
+        || currentEngine == null
+        || (!currentEngineOwnsLoadedGameQuickAnalysis
+            && !currentEngine.isAutomaticBackgroundTask())) {
+      return;
+    }
+    analysisControlCleanupInProgress = true;
+    long cleanupGeneration = ++analysisControlCleanupGeneration;
+    analysisEngine = null;
+    currentEngine.clearRequestCallbacks();
+    currentEngine.normalQuit(
+        () ->
+            SwingUtilities.invokeLater(
+                () -> finishUserAnalysisPauseCleanup(cleanupGeneration, true)),
+        () ->
+            SwingUtilities.invokeLater(
+                () -> finishUserAnalysisPauseCleanup(cleanupGeneration, false)));
+  }
+
+  private void finishUserAnalysisPauseCleanup(long cleanupGeneration, boolean restoreSucceeded) {
+    if (cleanupGeneration != analysisControlCleanupGeneration) {
+      return;
+    }
+    analysisControlCleanupInProgress = false;
+    if (!restoreSucceeded) {
+      pendingForegroundResumeAfterCleanup = false;
+      userAnalysisPaused = true;
+      finishDeferredKifuOpenAfterQuickAnalysisRestore();
+      return;
+    }
+    if (kifuOpenWaitingForQuickAnalysisRestore) {
+      pendingForegroundResumeAfterCleanup = false;
+      finishDeferredKifuOpenAfterQuickAnalysisRestore();
+      return;
+    }
+    if (!pendingForegroundResumeAfterCleanup || userAnalysisPaused) {
+      return;
+    }
+    pendingForegroundResumeAfterCleanup = false;
+    resumeForegroundAnalysisForCurrentPosition();
+  }
+
+  void startNewKifuAnalysisContextAfterSuccessfulLoad() {
+    clearUserAnalysisPauseForNewKifuLoadContext();
+  }
+
+  private void clearLoadedGameQuickAnalysisEngine(long generation) {
+    if (loadedGameQuickAnalysisEngineGeneration != generation) {
+      return;
+    }
+    loadedGameQuickAnalysisEngine = null;
+    loadedGameQuickAnalysisEngineGeneration = -1;
+  }
+
+  private void clearUserAnalysisPauseForNewKifuLoadContext() {
+    analysisControlCleanupGeneration++;
+    userAnalysisPaused = false;
+    pendingForegroundResumeAfterCleanup = false;
+    analysisControlCleanupInProgress = false;
+    userCancelledQuickAnalysisRoot = null;
   }
 
   public void preloadQuickAnalysisEngineForKifuBrowsing() {
@@ -20079,9 +20271,9 @@ public class LizzieFrame extends JFrame {
     }
   }
 
-
   private boolean isQuickAnalysisWarmupContextEligible(boolean requiresAutoAnalyze) {
     return Lizzie.config != null
+        && !userAnalysisPaused
         && (!requiresAutoAnalyze || Lizzie.config.autoQuickAnalyzeOnLoad)
         && !isWholeGameAnalysisStartingOrRunning()
         && !EngineGamePresentation.current().startingOrPlaying()
@@ -20259,7 +20451,7 @@ public class LizzieFrame extends JFrame {
       }
     } finally {
       quickAnalysisEngineStarting.set(false);
-      if (invalidated) {
+      if (invalidated && !userAnalysisPaused) {
         scheduleQuickAnalysisWarmupWhenPrimaryReady(1200, false);
       }
     }
@@ -20415,6 +20607,10 @@ public class LizzieFrame extends JFrame {
       return false;
     }
     if (!Lizzie.config.autoQuickAnalyzeOnLoad || isBatchAna || isEnginePKSgfStart || isTrying) {
+      return false;
+    }
+    if (userCancelledQuickAnalysisRoot != null
+        && userCancelledQuickAnalysisRoot == currentHistoryRoot()) {
       return false;
     }
     BoardHistoryNode node = Lizzie.board.getHistory().getStart();

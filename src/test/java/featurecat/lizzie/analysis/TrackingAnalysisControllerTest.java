@@ -196,6 +196,32 @@ class TrackingAnalysisControllerTest {
   }
 
   @Test
+  void analysisControlPauseKeepsTrackingRestoreFromResumingPonder() throws Exception {
+    RecordingPonderLeelaz engine = new RecordingPonderLeelaz();
+    try (TestState state = TestState.open(engine)) {
+      engine.Pondering();
+      TrackingAnalysisController controller =
+          new TrackingAnalysisController(new ManualTimeoutScheduler());
+
+      assertEquals(
+          TrackingAnalysisController.AddResult.ADDED, controller.addPoint("D4", state.context()));
+      completeInitialFence(engine, 800000000);
+
+      Method pause = LizzieFrame.class.getDeclaredMethod("pauseFromAnalysisControl");
+      pause.setAccessible(true);
+      pause.invoke(Lizzie.frame);
+
+      assertTrue(dispatch(engine, "info move D4 visits 100 winrate 0.55 pv D4"));
+      completeFinalFence(engine, 800000002);
+
+      assertEquals(
+          0,
+          engine.ponderCount.get(),
+          "analysis-control pause must keep tracking restore from sending ponder.");
+    }
+  }
+
+  @Test
   void safeOrdinaryReleaseFreezesThenOrdinaryUpgradeClearsWithoutReacquire() throws Exception {
     RecordingPonderLeelaz engine = new RecordingPonderLeelaz();
     try (TestState state = TestState.open(engine)) {

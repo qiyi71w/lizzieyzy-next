@@ -29,6 +29,8 @@ import featurecat.lizzie.teacher.TeacherCommentCodec;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.GraphicsConfiguration;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
 import java.awt.GraphicsDevice;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
@@ -2000,6 +2002,624 @@ class LizzieFrameRegressionTest {
   }
 
   @Test
+  void analysisControlPauseCancelsRunningAutomaticQuickAnalysisAndDoesNotPonder()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.localDedicated = true;
+      engine.analysisInProgress = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      BoardHistoryNode root = Lizzie.board.getHistory().getStart();
+      setField(frame, "loadedGameQuickAnalysisGeneration", 17L);
+      setField(frame, "loadedGameQuickAnalysisRoot", root);
+      setField(frame, "loadedGameQuickAnalysisActive", true);
+      setField(frame, "loadedGameQuickAnalysisRunning", true);
+      setField(frame, "quickAnalysisEngineGeneration", new AtomicLong(3L));
+      setField(frame, "quickAnalysisEngineStarting", new AtomicBoolean(false));
+      BoardHistoryNode viewed = Lizzie.board.getHistory().getCurrentHistoryNode();
+
+      frame.togglePonderMannul();
+      engine.completeExit();
+      drainEdt();
+
+      assertFalse(
+          (boolean) getField(frame, "loadedGameQuickAnalysisActive"),
+          "analysis control pause must cancel the current automatic kifu quick analysis.");
+      assertEquals(1, engine.normalQuitCount);
+      assertEquals(
+          0,
+          leelaz.ponderCount,
+          "pausing while automatic quick analysis occupies the control must not start ponder.");
+      assertFalse(leelaz.isPondering());
+      assertSame(viewed, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertEquals(0, frame.flashAnalyzeGameCount);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlPauseCancelsAutomaticRequestOnReusablePreloadedWorker()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = false;
+      engine.analysisInProgress = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+
+      assertEquals(
+          1,
+          engine.normalQuitCount,
+          "the automatic request must stop even when it reused a preloaded worker.");
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+      assertEquals(0, leelaz.ponderCount);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlPauseWithoutPrimaryCancelsWaitingAutomaticQuickAnalysis()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      Lizzie.leelaz = null;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), false);
+
+      frame.togglePonderMannul();
+      invokeRetryLoadedGameQuickAnalysisIfMissing(frame);
+
+      assertTrue(frame.isUserAnalysisPaused());
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+      assertEquals(0, frame.flashAnalyzeGameCount);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlPauseWithoutPrimaryStopsRunningDedicatedAutomaticWorker()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      Lizzie.leelaz = null;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.localDedicated = true;
+      engine.analysisInProgress = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+
+      assertTrue(frame.isUserAnalysisPaused());
+      assertEquals(1, engine.normalQuitCount);
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlPauseWhileWaitingForResourcesBlocksLaterDispatch() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), false);
+
+      frame.togglePonderMannul();
+      invokeRetryLoadedGameQuickAnalysisIfMissing(frame);
+
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+      assertEquals(0, frame.flashAnalyzeGameCount);
+      assertEquals(0, leelaz.ponderCount);
+      assertTrue(Lizzie.config.autoQuickAnalyzeOnLoad);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlPauseDiscardsLateAutomaticEngineWarmup() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+      setField(frame, "quickAnalysisEngineStarting", new AtomicBoolean(true));
+      setField(frame, "quickAnalysisEngineGeneration", new AtomicLong(7L));
+      ResourceTrackingAnalysisEngine warmed = allocate(ResourceTrackingAnalysisEngine.class);
+      warmed.automatic = true;
+      warmed.reusable = true;
+
+      frame.togglePonderMannul();
+      invokeFinishQuickAnalysisEngineWarmup(frame, warmed, 7L);
+
+      assertEquals(1, warmed.normalQuitCount);
+      assertNull(frame.analysisEngine);
+      assertEquals(0, leelaz.ponderCount);
+      assertFalse(leelaz.isPondering());
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlPauseReturnsSharedForegroundLeaseWithoutPonderOrProcessExit()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.shared = true;
+      engine.analysisInProgress = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      BoardHistoryNode move =
+          Lizzie.board.getHistory().getStart().next().orElseThrow();
+      move.getData().setPlayouts(10);
+      move.getData().analysisHeaderSlots = 3;
+      BoardHistoryNode viewed = Lizzie.board.getHistory().getCurrentHistoryNode();
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+      assertEquals(1, engine.normalQuitCount);
+      assertEquals(0, leelaz.ponderCount);
+      engine.completeExit();
+      drainEdt();
+
+      assertTrue(leelaz.isStarted());
+      assertFalse(leelaz.isPondering());
+      assertEquals(0, leelaz.ponderCount);
+      assertSame(viewed, Lizzie.board.getHistory().getCurrentHistoryNode());
+      assertEquals(10, move.getData().getPlayouts());
+      assertEquals(3, move.getData().analysisHeaderSlots);
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void staleAutomaticQuickAnalysisEventsAfterPauseDoNotPonderOrRestart() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.localDedicated = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      BoardHistoryNode root = Lizzie.board.getHistory().getStart();
+      armLoadedGameQuickAnalysis(frame, root, true);
+
+      frame.togglePonderMannul();
+      engine.completeExit();
+      drainEdt();
+
+      invokeFinishLoadedGameQuickAnalysisAttempt(frame, 17L, root, false);
+      invokeFinishLoadedGameQuickAnalysisAttempt(frame, 17L, root, true);
+      setField(
+          frame,
+          "loadedGameQuickAnalysisDispatchStartedAt",
+          System.currentTimeMillis() - 60_000L);
+      invokeRetryLoadedGameQuickAnalysisIfMissing(frame);
+      SwingUtilities.invokeAndWait(frame::scheduleQuickAnalysisContinuationAfterHistoryNavigation);
+      SwingUtilities.invokeAndWait(frame::resumeForegroundAnalysisAfterQuickAnalysisComplete);
+
+      assertEquals(0, frame.flashAnalyzeGameCount);
+      assertEquals(0, leelaz.ponderCount);
+      assertFalse(leelaz.isPondering());
+      assertNull(getField(frame, "quickAnalysisNavigationResumeTimer"));
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlResumeAfterPauseStartsOnlyCurrentPositionForegroundAnalysis()
+      throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      board.events = leelaz.commands();
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.localDedicated = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+      assertFalse(frame.ensureAnalysisResumedAfterLoad());
+      assertTrue((boolean) getField(frame, "analysisControlCleanupInProgress"));
+      frame.togglePonderMannul();
+      assertEquals(0, leelaz.ponderCount);
+      engine.completeExit();
+      drainEdt();
+
+      assertEquals(List.of("sync", "ponder"), leelaz.commands());
+      assertEquals(1, leelaz.ponderCount);
+      assertEquals(0, frame.flashAnalyzeGameCount);
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlResumeAfterFailedSharedCleanupStaysPaused() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      board.events = leelaz.commands();
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+      frame.togglePonderMannul();
+      engine.failExit();
+      drainEdt();
+
+      assertTrue(frame.isUserAnalysisPaused());
+      assertFalse((boolean) getField(frame, "analysisControlCleanupInProgress"));
+      assertEquals(0, leelaz.ponderCount);
+      assertTrue(leelaz.commands().isEmpty());
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void newKifuLoadWaitsForSharedCleanupBeforeStartingFreshContext() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+      AtomicInteger newContexts = new AtomicInteger();
+
+      frame.togglePonderMannul();
+      Method defer =
+          LizzieFrame.class.getDeclaredMethod(
+              "deferKifuOpenUntilAutomaticQuickAnalysisRestored", Runnable.class);
+      defer.setAccessible(true);
+      assertTrue(
+          (boolean)
+              defer.invoke(
+                  frame,
+                  (Runnable)
+                      () -> {
+                        frame.startNewKifuAnalysisContextAfterSuccessfulLoad();
+                        newContexts.incrementAndGet();
+                      }));
+
+      assertEquals(0, newContexts.get());
+      assertTrue(frame.isUserAnalysisPaused());
+      assertTrue((boolean) getField(frame, "analysisControlCleanupInProgress"));
+
+      engine.completeExit();
+      drainEdt();
+
+      assertEquals(1, newContexts.get());
+      assertFalse(frame.isUserAnalysisPaused());
+      assertFalse((boolean) getField(frame, "analysisControlCleanupInProgress"));
+      assertEquals(0, leelaz.ponderCount);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void dragDropCapturesFilesBeforeWaitingForSharedCleanup(@TempDir Path tempDir) throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      frame.interceptFileLoads = true;
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+      File droppedFile = tempDir.resolve("captured-before-cleanup.sgf").toFile();
+      AtomicInteger transferReads = new AtomicInteger();
+      Transferable transferable =
+          new Transferable() {
+            @Override
+            public DataFlavor[] getTransferDataFlavors() {
+              return new DataFlavor[] {DataFlavor.javaFileListFlavor};
+            }
+
+            @Override
+            public boolean isDataFlavorSupported(DataFlavor flavor) {
+              return DataFlavor.javaFileListFlavor.equals(flavor);
+            }
+
+            @Override
+            public Object getTransferData(DataFlavor flavor) {
+              if (!isDataFlavorSupported(flavor) || transferReads.incrementAndGet() != 1) {
+                throw new IllegalStateException("drop transferable is no longer live");
+              }
+              return Collections.singletonList(droppedFile);
+            }
+          };
+
+      frame.togglePonderMannul();
+      assertTrue(frame.importDroppedKifuFiles(transferable));
+
+      assertEquals(1, transferReads.get());
+      assertEquals(0, frame.loadFileCount);
+      assertNull(frame.curFile);
+
+      engine.completeExit();
+      drainEdt();
+
+      assertEquals(1, transferReads.get());
+      assertEquals(1, frame.loadFileCount);
+      assertSame(droppedFile, frame.loadedFile);
+      assertSame(droppedFile, frame.curFile);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void manualFlashAnalysisTakeoverIsNotCancelledByAnalysisControl() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      leelaz.pondering = true;
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      ManualPonderTrackingFrame frame = allocate(ManualPonderTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.analysisInProgress = true;
+      engine.reusable = true;
+      engine.waitFrame = allocate(WaitForAnalysis.class);
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.flashAnalyzeGame(true, false);
+      assertTrue(engine.awaitManualRequestStarted());
+      frame.togglePonderMannul();
+
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+      assertEquals(0, engine.normalQuitCount);
+      assertFalse(leelaz.isPondering());
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void analysisControlPauseDoesNotCancelManualOrWholeGameAnalysis() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      leelaz.pondering = true;
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.analysisInProgress = true;
+      frame.analysisEngine = engine;
+      WholeGameAnalysisSession session = allocate(WholeGameAnalysisSession.class);
+      setDeclaredField(
+          WholeGameAnalysisSession.class,
+          session,
+          "state",
+          WholeGameAnalysisSession.State.BASELINE);
+      setField(frame, "wholeGameAnalysisSession", session);
+      Lizzie.frame = frame;
+
+      frame.togglePonderMannul();
+
+      assertFalse(leelaz.isPondering());
+      assertEquals(0, engine.normalQuitCount);
+      assertSame(engine, frame.analysisEngine);
+      assertSame(session, getField(frame, "wholeGameAnalysisSession"));
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void historyReplacementWithinCurrentLoadContextKeepsUserAnalysisPaused() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+      engine.completeExit();
+      drainEdt();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+
+      assertFalse(frame.ensureAnalysisResumedAfterLoad());
+      assertTrue(frame.isUserAnalysisPaused());
+      assertEquals(0, frame.flashAnalyzeGameCount);
+      assertEquals(0, leelaz.ponderCount);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void loadingANewKifuAfterPauseCanStartAFreshAutomaticQuickAnalysis() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+      engine.completeExit();
+      drainEdt();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      frame.startNewKifuAnalysisContextAfterSuccessfulLoad();
+
+      assertTrue(frame.ensureAnalysisResumedAfterLoad());
+      assertEquals(1, frame.flashAnalyzeGameCount);
+      assertTrue(frame.lastSilentAnalyze);
+      assertTrue(Lizzie.config.autoQuickAnalyzeOnLoad);
+      invokeStopLoadedGameQuickAnalysisRetry(frame);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void placingMovesAfterPauseDoesNotReviveCancelledAutomaticQuickAnalysis() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      armLoadedGameQuickAnalysis(frame, Lizzie.board.getHistory().getStart(), true);
+
+      frame.togglePonderMannul();
+      engine.completeExit();
+      drainEdt();
+      SwingUtilities.invokeAndWait(frame::scheduleQuickAnalysisContinuationAfterHistoryNavigation);
+
+      assertEquals(0, frame.flashAnalyzeGameCount);
+      assertEquals(0, leelaz.ponderCount);
+      assertFalse((boolean) getField(frame, "loadedGameQuickAnalysisActive"));
+    } finally {
+      env.close();
+    }
+  }
+
+
+  @Test
   void finishKifuLoadDoesNotRefreshAgainBeforeHidingOverlay() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
@@ -2407,6 +3027,21 @@ class LizzieFrameRegressionTest {
     }
   }
 
+
+
+  private static void armLoadedGameQuickAnalysis(
+      LizzieFrame frame, BoardHistoryNode root, boolean running) throws Exception {
+    setField(frame, "loadedGameQuickAnalysisGeneration", 17L);
+    setField(frame, "loadedGameQuickAnalysisRoot", root);
+    setField(frame, "loadedGameQuickAnalysisActive", true);
+    setField(frame, "loadedGameQuickAnalysisRunning", running);
+    if (running && frame.analysisEngine != null) {
+      setField(frame, "loadedGameQuickAnalysisEngine", frame.analysisEngine);
+      setField(frame, "loadedGameQuickAnalysisEngineGeneration", 17L);
+    }
+    setField(frame, "quickAnalysisEngineGeneration", new AtomicLong(3L));
+    setField(frame, "quickAnalysisEngineStarting", new AtomicBoolean(false));
+  }
 
   private static boolean invokeShouldAutoQuickAnalyze(LizzieFrame frame) throws Exception {
     Method method = LizzieFrame.class.getDeclaredMethod("shouldAutoQuickAnalyzeLoadedGame");
@@ -2939,9 +3574,22 @@ class LizzieFrameRegressionTest {
   private static final class AnalysisResumeTrackingFrame extends LizzieFrame {
     private int flashAnalyzeGameCount;
     private int refreshCount;
+    private boolean interceptFileLoads;
+    private int loadFileCount;
+    private File loadedFile;
     private boolean lastIsAllGame;
     private boolean lastIsAllBranches;
     private boolean lastSilentAnalyze;
+
+    @Override
+    public boolean loadFile(File file, boolean fromTemp, boolean showHint) {
+      if (!interceptFileLoads) {
+        return super.loadFile(file, fromTemp, showHint);
+      }
+      loadFileCount++;
+      loadedFile = file;
+      return true;
+    }
 
     @Override
     public void flashAnalyzeGame(boolean isAllGame, boolean isAllBranches, boolean silentAnalyze) {
@@ -2955,7 +3603,13 @@ class LizzieFrameRegressionTest {
     public void refresh() {
       refreshCount++;
     }
+
+    @Override
+    public boolean stopAiPlayingAndPolicy() {
+      return false;
+    }
   }
+
 
   private static final class QuickAnalysisResumeFrame extends LizzieFrame {
     private int refreshCount;
@@ -2973,8 +3627,10 @@ class LizzieFrameRegressionTest {
     private boolean automatic;
     private boolean reusable;
     private boolean requestLifecycleInProgress;
+    private CountDownLatch manualRequestStarted;
     private int normalQuitCount;
     private Runnable exitContinuation;
+    private Runnable exitFailureContinuation;
 
     @SuppressWarnings("unused")
     private ResourceTrackingAnalysisEngine() throws java.io.IOException {
@@ -3022,6 +3678,23 @@ class LizzieFrameRegressionTest {
     }
 
     @Override
+    public void startRequest(int startMove, int endMove, boolean showProgressDialog) {
+      analysisInProgress = true;
+      manualRequestStartedLatch().countDown();
+    }
+
+    private boolean awaitManualRequestStarted() throws InterruptedException {
+      return manualRequestStartedLatch().await(2, TimeUnit.SECONDS);
+    }
+
+    private synchronized CountDownLatch manualRequestStartedLatch() {
+      if (manualRequestStarted == null) {
+        manualRequestStarted = new CountDownLatch(1);
+      }
+      return manualRequestStarted;
+    }
+
+    @Override
     public void clearRequestCallbacks() {}
 
     @Override
@@ -3033,11 +3706,29 @@ class LizzieFrameRegressionTest {
     public void normalQuit(Runnable afterRestore) {
       normalQuitCount++;
       exitContinuation = afterRestore;
+      exitFailureContinuation = afterRestore;
+    }
+
+    @Override
+    public void normalQuit(Runnable afterRestore, Runnable afterRestoreFailure) {
+      normalQuitCount++;
+      exitContinuation = afterRestore;
+      exitFailureContinuation = afterRestoreFailure;
     }
 
     private void completeExit() {
       Runnable continuation = exitContinuation;
       exitContinuation = null;
+      exitFailureContinuation = null;
+      if (continuation != null) {
+        continuation.run();
+      }
+    }
+
+    private void failExit() {
+      Runnable continuation = exitFailureContinuation;
+      exitContinuation = null;
+      exitFailureContinuation = null;
       if (continuation != null) {
         continuation.run();
       }
@@ -3217,6 +3908,16 @@ class LizzieFrameRegressionTest {
       } else {
         ponder();
       }
+    }
+
+    @Override
+    public void notPondering() {
+      pondering = false;
+    }
+
+    @Override
+    public void nameCmd() {
+      commands().add("name");
     }
   }
 

@@ -31,6 +31,8 @@ final class RulesLayerTestHarness implements AutoCloseable {
   private final boolean previousEngineEmpty;
   private final boolean previousSavingRaw;
   private final boolean previousUrlSgf;
+  private final boolean previousCanGoAfterload;
+  private final String previousFileNameTitle;
   private final featurecat.lizzie.analysis.EngineFollowController previousEngineFollowController;
 
   private RulesLayerTestHarness(
@@ -46,6 +48,8 @@ final class RulesLayerTestHarness implements AutoCloseable {
       boolean previousEngineEmpty,
       boolean previousSavingRaw,
       boolean previousUrlSgf,
+      boolean previousCanGoAfterload,
+      String previousFileNameTitle,
       featurecat.lizzie.analysis.EngineFollowController previousEngineFollowController) {
     this.previousBoardWidth = previousBoardWidth;
     this.previousBoardHeight = previousBoardHeight;
@@ -59,6 +63,8 @@ final class RulesLayerTestHarness implements AutoCloseable {
     this.previousEngineEmpty = previousEngineEmpty;
     this.previousSavingRaw = previousSavingRaw;
     this.previousUrlSgf = previousUrlSgf;
+    this.previousCanGoAfterload = previousCanGoAfterload;
+    this.previousFileNameTitle = previousFileNameTitle;
     this.previousEngineFollowController = previousEngineFollowController;
   }
 
@@ -79,6 +85,8 @@ final class RulesLayerTestHarness implements AutoCloseable {
     boolean previousEngineEmpty = EngineManager.isEmpty;
     boolean previousSavingRaw = LizzieFrame.isSavingRaw;
     boolean previousUrlSgf = LizzieFrame.urlSgf;
+    boolean previousCanGoAfterload = LizzieFrame.canGoAfterload;
+    String previousFileNameTitle = LizzieFrame.fileNameTitle;
     featurecat.lizzie.analysis.EngineFollowController previousEngineFollowController =
         Lizzie.engineFollowController;
 
@@ -131,6 +139,8 @@ final class RulesLayerTestHarness implements AutoCloseable {
         previousEngineEmpty,
         previousSavingRaw,
         previousUrlSgf,
+        previousCanGoAfterload,
+        previousFileNameTitle,
         previousEngineFollowController);
   }
 
@@ -161,6 +171,8 @@ final class RulesLayerTestHarness implements AutoCloseable {
     EngineManager.isEmpty = previousEngineEmpty;
     LizzieFrame.isSavingRaw = previousSavingRaw;
     LizzieFrame.urlSgf = previousUrlSgf;
+    LizzieFrame.canGoAfterload = previousCanGoAfterload;
+    LizzieFrame.fileNameTitle = previousFileNameTitle;
     Lizzie.engineFollowController = previousEngineFollowController;
   }
 

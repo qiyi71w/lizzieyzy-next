@@ -140,6 +140,27 @@ class GIBParserTest {
     }
   }
 
+  @Test
+  void successfulGibLoadStartsFreshAnalysisControlContext() throws Exception {
+    try (RulesLayerTestHarness env = openSizedHarness()) {
+      Lizzie.config.autoQuickAnalyzeOnLoad = true;
+      Lizzie.config.persisted =
+          new org.json.JSONObject().put("filesystem", new org.json.JSONObject());
+      Lizzie.config.loadSgfLast = false;
+      EngineManager.isEmpty = false;
+      LoadTrackingFrame frame = RulesLayerTestHarness.allocate(LoadTrackingFrame.class);
+      Lizzie.frame = frame;
+      setFrameField(frame, "loadedGameQuickAnalysisActive", true);
+
+      frame.togglePonderMannul();
+      assertTrue(frame.isUserAnalysisPaused());
+
+      assertTrue(frame.loadFile(writeGib("fresh-context.gib", MINIMAL_GIB).toFile(), true, false));
+      assertFalse(frame.isUserAnalysisPaused());
+      assertEquals(1, frame.scheduledResumeCount);
+    }
+  }
+
   private static RulesLayerTestHarness openSizedHarness() throws Exception {
     RulesLayerTestHarness env = RulesLayerTestHarness.open(SIZE);
     LizzieFrame.boardRenderer.setBoardLength(400, 400);
@@ -180,6 +201,42 @@ class GIBParserTest {
     assertFalse(pass.next().isPresent());
     assertEquals(Stone.BLACK, pass.getData().stones[Board.getIndex(BLACK_X, BLACK_Y)]);
     assertEquals(Stone.WHITE, pass.getData().stones[Board.getIndex(WHITE_X, WHITE_Y)]);
+  }
+
+  private static void setFrameField(LizzieFrame frame, String name, Object value)
+      throws ReflectiveOperationException {
+    java.lang.reflect.Field field = LizzieFrame.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(frame, value);
+  }
+
+  private static final class LoadTrackingFrame extends LizzieFrame {
+    private int scheduledResumeCount;
+
+    @Override
+    public void scheduleResumeAnalysisAfterLoad(int delayMillis) {
+      scheduledResumeCount++;
+    }
+
+    @Override
+    protected void scheduleMovelistRefreshAfterKifuLoad() {}
+
+    @Override
+    public void requestProblemListRefresh() {}
+
+    @Override
+    public void setPlayers(String whitePlayer, String blackPlayer) {}
+
+    @Override
+    public void updateTitle() {}
+
+    @Override
+    public void refresh() {}
+
+    @Override
+    public boolean stopAiPlayingAndPolicy() {
+      return false;
+    }
   }
 
   private static BoardHistoryNode lastRealAction(BoardHistoryNode root) {
