@@ -1269,6 +1269,59 @@ class AnalysisEngineRequestTest {
   }
 
   @Test
+  void normalQuitContinuationJoinsAlreadyPendingSharedForegroundRestore() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      boardWithHistory(new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE)));
+      TrackingAnalysisEngine engine = TrackingAnalysisEngine.create();
+      DeferredRestoreLeelaz foreground = new DeferredRestoreLeelaz();
+      AtomicInteger continuations = new AtomicInteger();
+      setField(AnalysisEngine.class, engine, "sharedForegroundEngine", foreground);
+      setField(AnalysisEngine.class, engine, "sharedForegroundLease", foregroundLease(foreground));
+      setField(
+          AnalysisEngine.class,
+          engine,
+          "analyzeMap",
+          new java.util.HashMap<Integer, BoardHistoryNode>(
+              java.util.Map.of(1, Lizzie.board.getHistory().getCurrentHistoryNode())));
+
+      invokeAnalysisEngineSetResult(engine);
+      engine.normalQuit(continuations::incrementAndGet);
+
+      assertEquals(0, continuations.get());
+      foreground.completeRestore();
+      assertEquals(1, continuations.get());
+    }
+  }
+
+  @Test
+  void normalQuitContinuationJoinsAlreadyPendingSharedForegroundRestoreFailure() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      boardWithHistory(new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE)));
+      TrackingAnalysisEngine engine = TrackingAnalysisEngine.create();
+      DeferredRestoreLeelaz foreground = new DeferredRestoreLeelaz();
+      AtomicInteger completions = new AtomicInteger();
+      AtomicInteger failures = new AtomicInteger();
+      setField(AnalysisEngine.class, engine, "sharedForegroundEngine", foreground);
+      setField(AnalysisEngine.class, engine, "sharedForegroundLease", foregroundLease(foreground));
+      setField(
+          AnalysisEngine.class,
+          engine,
+          "analyzeMap",
+          new java.util.HashMap<Integer, BoardHistoryNode>(
+              java.util.Map.of(1, Lizzie.board.getHistory().getCurrentHistoryNode())));
+
+      invokeAnalysisEngineSetResult(engine);
+      engine.normalQuit(completions::incrementAndGet, failures::incrementAndGet);
+
+      assertEquals(0, completions.get());
+      assertEquals(0, failures.get());
+      foreground.failRestore();
+      assertEquals(0, completions.get());
+      assertEquals(1, failures.get());
+    }
+  }
+
+  @Test
   void normalQuitContinuationWaitsForSharedForegroundRestore() throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       TrackingAnalysisEngine engine = TrackingAnalysisEngine.create();

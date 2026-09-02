@@ -1825,6 +1825,65 @@ class LeelazExclusiveRemoteGtpSessionTest {
   }
 
   @Test
+  void failedSharedLeaseRestoreAfterRapidResumeDoesNotPonder() throws Exception {
+    RestoreHarness harness = RestoreHarness.open(true, false);
+    AtomicInteger failures = new AtomicInteger();
+    try {
+      Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");
+      paused.setAccessible(true);
+      paused.setBoolean(Lizzie.frame, true);
+      Field cleanup = LizzieFrame.class.getDeclaredField("analysisControlCleanupInProgress");
+      cleanup.setAccessible(true);
+      cleanup.setBoolean(Lizzie.frame, true);
+      Field cleanupGeneration =
+          LizzieFrame.class.getDeclaredField("analysisControlCleanupGeneration");
+      cleanupGeneration.setAccessible(true);
+      cleanupGeneration.setLong(Lizzie.frame, 7L);
+
+      Method resume = LizzieFrame.class.getDeclaredMethod("resumeFromAnalysisControl");
+      resume.setAccessible(true);
+      resume.invoke(Lizzie.frame);
+      assertFalse(Lizzie.frame.isUserAnalysisPaused());
+
+      assertTrue(
+          harness.engine.endForegroundAnalysisLease(
+              harness.owner,
+              harness.completions::incrementAndGet,
+              () -> {
+                failures.incrementAndGet();
+                try {
+                  Method finish =
+                      LizzieFrame.class.getDeclaredMethod(
+                          "finishUserAnalysisPauseCleanup", long.class, boolean.class);
+                  finish.setAccessible(true);
+                  finish.invoke(Lizzie.frame, 7L, false);
+                } catch (ReflectiveOperationException failure) {
+                  throw new AssertionError(failure);
+                }
+              }));
+      assertTrue(dispatch(harness.engine, "=800000001"));
+      assertTrue(dispatch(harness.engine, ""));
+      waitUntil(() -> harness.board.resendCount == 1);
+
+      Field sessionField = Leelaz.class.getDeclaredField("foregroundRestoreSession");
+      sessionField.setAccessible(true);
+      Object session = sessionField.get(harness.engine);
+      Field releaseStopFailed = session.getClass().getDeclaredField("releaseStopFailed");
+      releaseStopFailed.setAccessible(true);
+      releaseStopFailed.setBoolean(session, true);
+      completeForegroundRestore(harness.engine);
+
+      assertEquals(0, harness.engine.ponderCount);
+      assertFalse(harness.engine.isPondering());
+      assertEquals(0, harness.completions.get());
+      assertEquals(1, failures.get());
+      assertTrue(Lizzie.frame.isUserAnalysisPaused());
+    } finally {
+      harness.close();
+    }
+  }
+
+  @Test
   void foregroundLeaseDoesNotRestoreOrPonderAfterForegroundEngineSwitch() throws Exception {
     RestoreHarness harness = RestoreHarness.open(true, false);
     try {

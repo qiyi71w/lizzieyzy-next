@@ -181,6 +181,10 @@ public class BatchShareFrame extends JDialog {
     btnApply.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
+            if (Lizzie.frame.deferKifuOpenUntilAutomaticQuickAnalysisRestored(
+                () -> actionPerformed(e))) {
+              return;
+            }
             String up = formatStr(txtUploader.getText());
             if (up.equals("")) {
               Message msg = new Message();

@@ -6719,6 +6719,10 @@ public class Menu extends JMenuBar {
                   new ActionListener() {
                     @Override
                     public void actionPerformed(ActionEvent e) {
+                      if (Lizzie.frame.deferKifuOpenUntilAutomaticQuickAnalysisRestored(
+                          () -> actionPerformed(e))) {
+                        return;
+                      }
                       Lizzie.frame.loadFile(recentF, true, false);
                     }
                   });

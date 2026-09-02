@@ -2858,6 +2858,10 @@ public class BottomToolbar extends JPanel {
   }
 
   public void loadAutoBatchFile() {
+    if (Lizzie.frame.deferKifuOpenUntilAutomaticQuickAnalysisRestored(
+        this::loadAutoBatchFile)) {
+      return;
+    }
     Lizzie.frame.BatchAnaNum = Lizzie.frame.BatchAnaNum + 1;
     try {
       if (Lizzie.frame.analysisTable != null && Lizzie.frame.analysisTable.frame.isVisible()) {
