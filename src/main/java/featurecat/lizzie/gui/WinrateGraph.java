@@ -123,6 +123,16 @@ public class WinrateGraph {
     }
   }
 
+  private static class GraphNavigationTarget {
+    final BoardHistoryNode node;
+    final int x;
+
+    GraphNavigationTarget(BoardHistoryNode node, int x) {
+      this.node = node;
+      this.x = x;
+    }
+  }
+
   private int DOT_RADIUS = 3;
   private static final int GRAPH_ANCHOR_HIT_HALF_SIZE = 2;
   private static final int CURRENT_MOVE_MARKER_RADIUS = 4;
@@ -145,6 +155,7 @@ public class WinrateGraph {
   private Color whiteColor = new Color(240, 240, 240);
   private boolean noC = false;
   private List<GraphPoint> renderedGraphPoints = Collections.emptyList();
+  private List<GraphNavigationTarget> renderedGraphNavigationTargets = Collections.emptyList();
   private QuickOverviewLayout renderedQuickOverviewLayout;
   private int[] renderedOrigParams = {0, 0, 0, 0};
   private int[] renderedParams = {0, 0, 0, 0, 0};
@@ -2195,14 +2206,14 @@ public class WinrateGraph {
       return null;
     }
     List<GraphPoint> points = currentGraphPoints();
-    if (points.isEmpty()) {
-      return null;
-    }
     GraphPoint point = directGraphPointHit(points, x, y);
     if (point == null) {
       point = columnGraphPointHit(points, x, y);
     }
-    return point == null ? null : point.node;
+    if (point != null) {
+      return point.node;
+    }
+    return resolveSemanticGraphNavigationTarget(x);
   }
 
   public int moveNumber(int x, int y) {
@@ -2657,28 +2668,60 @@ public class WinrateGraph {
   }
 
   private GraphPoint columnGraphPointHit(List<GraphPoint> points, int targetX, int targetY) {
-    Integer targetColumnX = targetGraphColumnX(targetX);
-    if (targetColumnX != null) {
-      GraphPoint point = graphPointHitOnColumn(points, targetColumnX.intValue(), targetX, targetY);
-      if (point != null || hasGraphPointOnColumn(points, targetColumnX.intValue())) {
-        return point;
-      }
-    }
-    int fallbackColumnX = nearestVisibleGraphColumnX(points, targetX);
-    if (fallbackColumnX == Integer.MIN_VALUE) {
+    Integer targetMoveNumber = targetGraphMoveNumber(targetX);
+    if (targetMoveNumber == null) {
       return null;
     }
-    return graphPointHitOnColumn(points, fallbackColumnX, targetX, targetY);
+    return graphPointHitOnMoveNumber(points, targetMoveNumber.intValue(), targetX, targetY);
   }
 
-  private GraphPoint graphPointHitOnColumn(
-      List<GraphPoint> points, int columnX, int targetX, int targetY) {
-    GraphPoint bestPoint = null;
+  private BoardHistoryNode resolveSemanticGraphNavigationTarget(int targetX) {
+    List<GraphNavigationTarget> targets = currentGraphNavigationTargets();
+    if (targets.isEmpty()) {
+      return null;
+    }
+    Integer targetMoveNumber = targetGraphMoveNumber(targetX);
+    if (targetMoveNumber == null) {
+      return null;
+    }
+    BoardHistoryNode match =
+        firstGraphNavigationTargetAtMoveNumber(targets, targetMoveNumber.intValue());
+    if (match != null) {
+      return match;
+    }
+    return nearestGraphNavigationTargetByMoveNumber(targets, targetMoveNumber.intValue());
+  }
+
+  private BoardHistoryNode firstGraphNavigationTargetAtMoveNumber(
+      List<GraphNavigationTarget> targets, int moveNumber) {
+    for (GraphNavigationTarget target : targets) {
+      if (target.node.getData().moveNumber == moveNumber) {
+        return target.node;
+      }
+    }
+    return null;
+  }
+
+  private BoardHistoryNode nearestGraphNavigationTargetByMoveNumber(
+      List<GraphNavigationTarget> targets, int moveNumber) {
+    BoardHistoryNode nearest = null;
     long bestDistance = Long.MAX_VALUE;
+    for (GraphNavigationTarget target : targets) {
+      long distance = Math.abs((long) target.node.getData().moveNumber - moveNumber);
+      if (distance < bestDistance) {
+        nearest = target.node;
+        bestDistance = distance;
+      }
+    }
+    return nearest;
+  }
+
+  private GraphPoint graphPointHitOnMoveNumber(
+      List<GraphPoint> points, int moveNumber, int targetX, int targetY) {
     BoardHistoryNode firstNode = null;
     boolean hasDifferentNodes = false;
     for (GraphPoint point : points) {
-      if (point.x != columnX) {
+      if (point.node.getData().moveNumber != moveNumber) {
         continue;
       }
       if (firstNode == null) {
@@ -2687,11 +2730,16 @@ public class WinrateGraph {
         hasDifferentNodes = true;
       }
     }
+    if (!hasDifferentNodes) {
+      return null;
+    }
+    GraphPoint bestPoint = null;
+    long bestDistance = Long.MAX_VALUE;
     for (GraphPoint point : points) {
-      if (point.x != columnX) {
+      if (point.node.getData().moveNumber != moveNumber) {
         continue;
       }
-      if (hasDifferentNodes && !isInsideNodeRenderedYRange(points, point.node, targetY)) {
+      if (!isInsideNodeRenderedYRange(points, point.node, targetY)) {
         continue;
       }
       long distance = graphDistanceSquared(point, targetX, targetY);
@@ -2703,36 +2751,14 @@ public class WinrateGraph {
     return bestPoint;
   }
 
-  private boolean hasGraphPointOnColumn(List<GraphPoint> points, int columnX) {
-    for (GraphPoint point : points) {
-      if (point.x == columnX) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private Integer targetGraphColumnX(int targetX) {
+  private Integer targetGraphMoveNumber(int targetX) {
     if (params[2] <= 0 || params[4] <= 0) {
       return null;
     }
     double scaledMoveIndex = (double) (targetX - params[0]) * params[4] / params[2];
     int moveIndex = (int) Math.round(scaledMoveIndex);
     moveIndex = Math.max(0, Math.min(params[4] - 1, moveIndex));
-    return Integer.valueOf(graphPointXByMoveIndex(moveIndex));
-  }
-
-  private int nearestVisibleGraphColumnX(List<GraphPoint> points, int targetX) {
-    int bestColumnX = Integer.MIN_VALUE;
-    long bestDistance = Long.MAX_VALUE;
-    for (GraphPoint point : points) {
-      long distance = Math.abs((long) point.x - targetX);
-      if (distance < bestDistance) {
-        bestColumnX = point.x;
-        bestDistance = distance;
-      }
-    }
-    return bestColumnX;
+    return Integer.valueOf(moveIndex + 1);
   }
 
   private boolean isInsideNodeRenderedYRange(
@@ -2817,6 +2843,7 @@ public class WinrateGraph {
       QuickOverviewLayout quickOverviewLayout, List<GraphPoint> renderedAnchors) {
     renderedGraphPoints =
         renderedAnchors == null ? Collections.emptyList() : new ArrayList<>(renderedAnchors);
+    renderedGraphNavigationTargets = buildGraphNavigationTargets(currentGraphNode());
     renderedQuickOverviewLayout = quickOverviewLayout;
     renderedOrigParams = origParams.clone();
     renderedParams = params.clone();
@@ -2825,6 +2852,7 @@ public class WinrateGraph {
 
   private void clearRenderedPointSources() {
     renderedGraphPoints = Collections.emptyList();
+    renderedGraphNavigationTargets = Collections.emptyList();
     renderedQuickOverviewLayout = null;
     renderedOrigParams = new int[] {0, 0, 0, 0};
     renderedParams = new int[] {0, 0, 0, 0, 0};
@@ -2841,6 +2869,29 @@ public class WinrateGraph {
       return Collections.emptyList();
     }
     return renderedGraphPoints;
+  }
+
+  private List<GraphNavigationTarget> currentGraphNavigationTargets() {
+    if (!hasFreshRenderedSources()) {
+      return Collections.emptyList();
+    }
+    return renderedGraphNavigationTargets;
+  }
+
+  private List<GraphNavigationTarget> buildGraphNavigationTargets(BoardHistoryNode currentNode) {
+    if (params[2] <= 0 || params[4] <= 0 || currentNode == null) {
+      return Collections.emptyList();
+    }
+    ArrayList<GraphNavigationTarget> targets = new ArrayList<>();
+    for (BoardHistoryNode node : buildGraphPath(currentNode)) {
+      if (!node.previous().isPresent()
+          || node.getData() == null
+          || !isGraphAnchorNode(node.getData())) {
+        continue;
+      }
+      targets.add(new GraphNavigationTarget(node, graphPointX(node.getData().moveNumber)));
+    }
+    return targets;
   }
 
   private QuickOverviewLayout currentQuickOverviewLayout() {
@@ -2879,11 +2930,17 @@ public class WinrateGraph {
       return false;
     }
     return hasFreshRenderedGraphPoints(renderedCurrentGraphNode)
+        && hasFreshRenderedGraphNavigationTargets(renderedCurrentGraphNode)
         && hasFreshRenderedQuickOverviewLayout(renderedCurrentGraphNode);
   }
 
   private boolean hasFreshRenderedGraphPoints(BoardHistoryNode currentNode) {
     return sameGraphPoints(renderedGraphPoints, buildGraphAnchorPoints(currentNode));
+  }
+
+  private boolean hasFreshRenderedGraphNavigationTargets(BoardHistoryNode currentNode) {
+    return sameGraphNavigationTargets(
+        renderedGraphNavigationTargets, buildGraphNavigationTargets(currentNode));
   }
 
   private boolean hasFreshRenderedQuickOverviewLayout(BoardHistoryNode currentNode) {
@@ -2902,6 +2959,21 @@ public class WinrateGraph {
       if (renderedPoint.node != currentPoint.node
           || renderedPoint.x != currentPoint.x
           || renderedPoint.y != currentPoint.y) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean sameGraphNavigationTargets(
+      List<GraphNavigationTarget> renderedTargets, List<GraphNavigationTarget> currentTargets) {
+    if (renderedTargets.size() != currentTargets.size()) {
+      return false;
+    }
+    for (int i = 0; i < renderedTargets.size(); i++) {
+      GraphNavigationTarget renderedTarget = renderedTargets.get(i);
+      GraphNavigationTarget currentTarget = currentTargets.get(i);
+      if (renderedTarget.node != currentTarget.node || renderedTarget.x != currentTarget.x) {
         return false;
       }
     }
