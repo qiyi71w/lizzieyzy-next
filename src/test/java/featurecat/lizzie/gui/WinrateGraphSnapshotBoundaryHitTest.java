@@ -484,6 +484,56 @@ class WinrateGraphSnapshotBoundaryHitTest {
     }
   }
 
+  @Test
+  void missingSnapshotIndexXResolvesToExistingBoundaryNode() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      TrackingBoard board = boardWithSnapshotGapHistory();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+      renderGraphLayer(graph);
+
+      BoardHistoryNode snapshot = snapshotBoundaryNode(board);
+      BoardHistoryNode preGap = snapshot.previous().get();
+      BoardHistoryNode postGap = snapshot.next().get();
+      int[] params = (int[]) getField(graph, "params");
+      int[] origParams = (int[]) getField(graph, "origParams");
+      // History is MOVE#1, SNAPSHOT#4, MOVE#5. Move numbers 2 and 3 do not exist.
+      int missingMoveNumber = 2;
+      int clickX = graphCenterX(params, missingMoveNumber);
+      int clickY = origParams[1] + origParams[3] / 2;
+
+      graph.clearMouseOverNode();
+      assertTrue(
+          frame.processMouseMoveOnWinrateGraph(clickX, clickY),
+          "missing-index snapshot gap X should still resolve a real history node.");
+      BoardHistoryNode hoverTarget = graph.mouseOverNode;
+      assertTrue(
+          hoverTarget == preGap || hoverTarget == snapshot || hoverTarget == postGap,
+          "missing-index X should resolve to a real adjacent boundary node.");
+      int hoverMove = hoverTarget.getData().moveNumber;
+      assertTrue(
+          hoverMove == 1 || hoverMove == 4 || hoverMove == 5,
+          "missing-index X must land on MOVE#1, SNAPSHOT#4, or MOVE#5.");
+
+      board.getHistory().setHead(preGap);
+      frame.onClickedWinrateOnly(clickX, clickY);
+      BoardHistoryNode clickTarget = board.getHistory().getCurrentHistoryNode();
+      assertTrue(
+          clickTarget == preGap || clickTarget == snapshot || clickTarget == postGap,
+          "missing-index click should land on a real adjacent boundary node.");
+      int clickMove = clickTarget.getData().moveNumber;
+      assertTrue(
+          clickMove == 1 || clickMove == 4 || clickMove == 5,
+          "missing-index click must land on MOVE#1, SNAPSHOT#4, or MOVE#5.");
+    } finally {
+      env.close();
+    }
+  }
+
   private static WinrateGraph configuredGraph() throws Exception {
     return configuredGraph(GRAPH_WIDTH, GRAPH_HEIGHT, GRAPH_NUM_MOVES);
   }

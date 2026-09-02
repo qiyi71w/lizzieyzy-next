@@ -1,5 +1,6 @@
 package featurecat.lizzie.gui;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -34,6 +35,10 @@ class WinrateGraphVariationHitTest {
   private static final int GRAPH_NUM_MOVES = 4;
   private static final int RENDER_WIDTH = 240;
   private static final int RENDER_HEIGHT = 120;
+  private static final int DENSE_RENDER_WIDTH = 40;
+  private static final int DENSE_RENDER_HEIGHT = 40;
+  private static final int DENSE_CLICK_X = 1;
+  private static final int DENSE_ROUNDED_MOVE_NUMBER = 3;
 
   @Test
   void hoverKeepsVariationCurrentNodeReachable() throws Exception {
@@ -407,10 +412,10 @@ class WinrateGraphVariationHitTest {
   }
 
   @Test
-  void hoverIgnoresVariationCurrentColumnWhenWinrateLineIsHidden() throws Exception {
+  void hiddenWinrateSharedMoveNumberSelectsCurrentVariation() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
-      VariationFixture fixture = boardWithFallbackVariationCurrent();
+      VariationFixture fixture = boardWithVisibleMainContinuation();
       WinrateGraph graph = new WinrateGraph();
       TrackingFrame frame = allocate(TrackingFrame.class);
       Lizzie.board = fixture.board;
@@ -418,36 +423,211 @@ class WinrateGraphVariationHitTest {
       LizzieFrame.winrateGraph = graph;
       Lizzie.config.showWinrateLine = false;
 
-      BufferedImage winrateLayer = renderGraph(graph);
-      int[] graphParams = (int[]) getField(graph, "params");
-      int[] point =
-          new int[] {
-            graphParams[0]
-                + (fixture.variationCurrent.getData().moveNumber - 1)
-                    * graphParams[2]
-                    / graphParams[4],
-            graphParams[1] + graphParams[3] / 2
-          };
+      renderGraph(graph);
+      assertTrue(
+          currentGraphPoints(graph).isEmpty(),
+          "hiding the winrate line should leave shared move-number columns without winrate anchors.");
 
-      assertEquals(
-          0,
-          new Color(winrateLayer.getRGB(point[0], point[1]), true).getAlpha(),
-          "hiding the winrate line should leave the current column free of marker pixels.");
-
-      graph.clearMouseOverNode();
-      boolean handled = frame.processMouseMoveOnWinrateGraph(point[0], point[1]);
-
-      assertFalse(
-          handled,
-          "hover should ignore fallback curve pixels when no rendered anchor exists for the node.");
-      assertSame(null, graph.mouseOverNode, "hover target should stay empty for fallback pixel.");
+      assertSharedMoveNumberColumnSelectsCurrentVariation(
+          fixture, graph, frame, "hidden winrate");
     } finally {
       env.close();
     }
   }
 
   @Test
-  void showWinrateLineDisabledRemovesMainGraphAnchorsAndHitTargets() throws Exception {
+  void scoreLeadOnlySharedMoveNumberSelectsCurrentVariation() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      VariationFixture fixture = boardWithVisibleMainContinuation();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = fixture.board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+      Lizzie.config.showWinrateLine = false;
+      Lizzie.config.showScoreLeadLine = true;
+      Lizzie.config.scoreMeanLineColor = new Color(220, 70, 190);
+      Lizzie.config.scoreLeadStrokeWidth = 2.0f;
+      Lizzie.leelaz.isKatago = true;
+      fixture.board.isKataBoard = true;
+
+      renderGraph(graph);
+      assertTrue(
+          currentGraphPoints(graph).isEmpty(),
+          "score-lead-only should keep winrate anchors hidden on a shared move-number column.");
+
+      assertSharedMoveNumberColumnSelectsCurrentVariation(
+          fixture, graph, frame, "score-lead-only");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void sharedMoveNumberNonAnchorYSelectsUnanalyzedCurrentBranch() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      VariationFixture fixture = boardWithUnanalyzedCurrentVariationAtSharedMoveNumber();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = fixture.board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+
+      renderGraph(graph);
+      assertNotNull(
+          optionalRenderedGraphPoint(graph, fixture.mainFourth),
+          "analyzed sibling at the shared move number should keep a rendered winrate anchor.");
+
+      int[] origParams = (int[]) getField(graph, "origParams");
+      int[] top = uniqueColumnPixel(graph, fixture.variationCurrent, origParams[1]);
+      int[] bottom =
+          uniqueColumnPixel(
+              graph, fixture.variationCurrent, origParams[1] + origParams[3] - 1);
+      assertPixelAwayFromRenderedAnchors(
+          graph, top, fixture.mainFourth, fixture.variationCurrent);
+      assertPixelAwayFromRenderedAnchors(
+          graph, bottom, fixture.mainFourth, fixture.variationCurrent);
+
+      assertHoverClickDragResolveSameNode(
+          fixture.board,
+          fixture.variationStart,
+          graph,
+          frame,
+          top,
+          fixture.variationCurrent,
+          "shared move-number non-anchor top");
+      assertHoverClickDragResolveSameNode(
+          fixture.board,
+          fixture.variationStart,
+          graph,
+          frame,
+          bottom,
+          fixture.variationCurrent,
+          "shared move-number non-anchor bottom");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void sharedMoveNumberDirectRenderedAnchorMaySelectAnalyzedSibling() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      VariationFixture fixture = boardWithUnanalyzedCurrentVariationAtSharedMoveNumber();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = fixture.board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+
+      renderGraph(graph);
+      int[] anchor = renderedGraphPoint(graph, fixture.mainFourth);
+
+      assertSame(
+          fixture.mainFourth,
+          graph.resolveMoveTargetNode(anchor[0], anchor[1]),
+          "direct rendered-anchor hit may still select the analyzed sibling.");
+
+      fixture.board.getHistory().setHead(fixture.variationCurrent);
+      graph.clearMouseOverNode();
+      assertTrue(
+          frame.processMouseMoveOnWinrateGraph(anchor[0], anchor[1]),
+          "direct rendered-anchor hover should hit the analyzed sibling.");
+      assertSame(
+          fixture.mainFourth,
+          graph.mouseOverNode,
+          "direct rendered-anchor hover should select the analyzed sibling.");
+
+      fixture.board.getHistory().setHead(fixture.variationCurrent);
+      frame.onClickedWinrateOnly(anchor[0], anchor[1]);
+      assertSame(
+          fixture.mainFourth,
+          fixture.board.getHistory().getCurrentHistoryNode(),
+          "direct rendered-anchor click should select the analyzed sibling.");
+
+      fixture.board.getHistory().setHead(fixture.variationCurrent);
+      frame.onMouseDragged(anchor[0], anchor[1]);
+      assertSame(
+          fixture.variationCurrent,
+          fixture.board.getHistory().getCurrentHistoryNode(),
+          "direct rendered-anchor drag should stay on the current variation at the shared move number.");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void denseWidthRoundedUnanalyzedMoveWinsOverCollidingAnalyzedNeighbor() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      LinearFixture fixture = boardWithUnanalyzedInteriorMove();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = fixture.board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+
+      renderGraph(graph, DENSE_RENDER_WIDTH, DENSE_RENDER_HEIGHT);
+      int[] origParams = (int[]) getField(graph, "origParams");
+      int[] params = (int[]) getField(graph, "params");
+      assertArrayEquals(
+          new int[] {0, 0, DENSE_RENDER_WIDTH, DENSE_RENDER_HEIGHT},
+          origParams,
+          "dense-width fixture should keep the 40x40 origin box.");
+      assertArrayEquals(
+          new int[] {0, 2, 33, 36, 50},
+          params,
+          "dense-width fixture should keep params[2] < params[4] after a 40x40 draw.");
+      assertTrue(params[2] < params[4], "dense-width fixture requires width < numMoves.");
+
+      // Worked click: X=1, params=[0, 2, 33, 36, 50].
+      // (1 - 0) * 50 / 33 = 1.515... rounds to move index 2 → move number 3.
+      // Pixel of move 3: 2 * 33 / 50 = 1. Pixel of move 4: 3 * 33 / 50 = 1.
+      assertEquals(
+          2,
+          (int) Math.round((DENSE_CLICK_X - 0) * 50 / 33.0),
+          "dense-width X=1 should round to move index 2.");
+      assertEquals(1, 2 * 33 / 50, "move 3 should occupy pixel X=1.");
+      assertEquals(1, 3 * 33 / 50, "move 4 should share pixel X=1 with move 3.");
+      assertEquals(
+          DENSE_ROUNDED_MOVE_NUMBER,
+          fixture.unanalyzed.getData().moveNumber,
+          "dense-width rounded target should be the unanalyzed interior move.");
+      assertEquals(
+          DENSE_ROUNDED_MOVE_NUMBER + 1,
+          fixture.current.getData().moveNumber,
+          "dense-width colliding neighbor should be the analyzed current move.");
+      assertNull(
+          optionalRenderedGraphPoint(graph, fixture.unanalyzed),
+          "rounded dense-width target should have no winrate anchor.");
+      int[] neighborAnchor = renderedGraphPoint(graph, fixture.current);
+      assertEquals(
+          DENSE_CLICK_X,
+          neighborAnchor[0],
+          "analyzed neighbor should occupy the same pixel X as the rounded target.");
+
+      int[] top = new int[] {DENSE_CLICK_X, origParams[1]};
+      int[] bottom = new int[] {DENSE_CLICK_X, origParams[1] + origParams[3] - 1};
+      assertTrue(
+          Math.abs(top[1] - neighborAnchor[1]) > 2,
+          "dense-width top Y should sit away from the colliding neighbor anchor.");
+      assertTrue(
+          Math.abs(bottom[1] - neighborAnchor[1]) > 2,
+          "dense-width bottom Y should sit away from the colliding neighbor anchor.");
+
+      assertDenseRoundedMoveHoverClickDrag(
+          fixture, graph, frame, top, "dense-width rounded unanalyzed move top");
+      assertDenseRoundedMoveHoverClickDrag(
+          fixture, graph, frame, bottom, "dense-width rounded unanalyzed move bottom");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void showWinrateLineDisabledRemovesMainGraphAnchors() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
       VariationFixture fixture = boardWithVisibleMainContinuation();
@@ -462,9 +642,125 @@ class WinrateGraphVariationHitTest {
       assertTrue(
           currentGraphPoints(graph).isEmpty(),
           "showWinrateLine=false should suppress all main-graph anchor points.");
-      assertFalse(
-          hasAnyMainGraphHit(graph),
-          "showWinrateLine=false should suppress all main-graph hit targets.");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void scoreLeadOnlyHiddenWinrateNavigatesUniqueSemanticColumn() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      LinearFixture fixture = boardWithLinearAnalyzedMoves();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = fixture.board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+      Lizzie.config.showWinrateLine = false;
+      Lizzie.config.showScoreLeadLine = true;
+      Lizzie.config.scoreMeanLineColor = new Color(220, 70, 190);
+      Lizzie.config.scoreLeadStrokeWidth = 2.0f;
+      Lizzie.leelaz.isKatago = true;
+      fixture.board.isKataBoard = true;
+
+      renderGraph(graph);
+      assertTrue(
+          currentGraphPoints(graph).isEmpty(),
+          "score-lead-only should keep winrate anchors hidden.");
+
+      int[] origParams = (int[]) getField(graph, "origParams");
+      int[] top = uniqueColumnPixel(graph, fixture.second, origParams[1]);
+      int[] bottom =
+          uniqueColumnPixel(graph, fixture.second, origParams[1] + origParams[3] - 1);
+
+      assertHoverClickDragResolveSameNode(
+          fixture.board,
+          fixture.current,
+          graph,
+          frame,
+          top,
+          fixture.second,
+          "score-lead-only top of unique column");
+      assertHoverClickDragResolveSameNode(
+          fixture.board,
+          fixture.current,
+          graph,
+          frame,
+          bottom,
+          fixture.second,
+          "score-lead-only bottom of unique column");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void unanalyzedSgfMoveNavigatesBySemanticColumn() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      LinearFixture fixture = boardWithUnanalyzedInteriorMove();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = fixture.board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+
+      renderGraph(graph);
+      assertNull(
+          optionalRenderedGraphPoint(graph, fixture.unanalyzed),
+          "an SGF move without primary analysis should not require a winrate anchor.");
+
+      int[] origParams = (int[]) getField(graph, "origParams");
+      int[] pixel =
+          uniqueColumnPixel(graph, fixture.unanalyzed, origParams[1] + origParams[3] / 2);
+
+      assertHoverClickDragResolveSameNode(
+          fixture.board,
+          fixture.current,
+          graph,
+          frame,
+          pixel,
+          fixture.unanalyzed,
+          "unanalyzed SGF move column");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void uniqueSemanticColumnIsYIndependentForHoverClickAndDrag() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      LinearFixture fixture = boardWithUnanalyzedInteriorMove();
+      WinrateGraph graph = new WinrateGraph();
+      TrackingFrame frame = allocate(TrackingFrame.class);
+      Lizzie.board = fixture.board;
+      Lizzie.frame = frame;
+      LizzieFrame.winrateGraph = graph;
+
+      renderGraph(graph);
+      assertNull(
+          optionalRenderedGraphPoint(graph, fixture.unanalyzed),
+          "unique semantic column should not require a rendered winrate anchor.");
+
+      int[] origParams = (int[]) getField(graph, "origParams");
+      int[] mid =
+          uniqueColumnPixel(graph, fixture.unanalyzed, origParams[1] + origParams[3] / 2);
+      int[] top = uniqueColumnPixel(graph, fixture.unanalyzed, origParams[1]);
+
+      assertSame(
+          graph.resolveMoveTargetNode(mid[0], mid[1]),
+          graph.resolveMoveTargetNode(top[0], top[1]),
+          "unique semantic columns should resolve the same node independent of Y.");
+      assertHoverClickDragResolveSameNode(
+          fixture.board,
+          fixture.current,
+          graph,
+          frame,
+          top,
+          fixture.unanalyzed,
+          "unique semantic column far from mid-graph Y");
     } finally {
       env.close();
     }
@@ -518,7 +814,8 @@ class WinrateGraphVariationHitTest {
     return new VariationFixture(board, variationStart, variationCurrent, null, null, mainFuture);
   }
 
-  private static VariationFixture boardWithFallbackVariationCurrent() throws Exception {
+  private static VariationFixture boardWithUnanalyzedCurrentVariationAtSharedMoveNumber()
+      throws Exception {
     TrackingBoard board = allocate(TrackingBoard.class);
     board.startStonelist = new ArrayList<>();
     board.hasStartStone = false;
@@ -536,11 +833,43 @@ class WinrateGraphVariationHitTest {
     history.setHead(fork);
     BoardHistoryNode variationStart = fork.addAtLast(moveNode(2, 1, Stone.BLACK, false, 3, 41));
     BoardHistoryNode variationCurrent =
-        variationStart.addAtLast(moveNode(0, 2, Stone.WHITE, true, 4, -1));
+        variationStart.addAtLast(moveNode(0, 2, Stone.WHITE, true, 4, -1, 0));
     history.setHead(variationCurrent);
     board.setHistory(history);
     return new VariationFixture(
         board, variationStart, variationCurrent, mainThird, mainFourth, mainFuture);
+  }
+
+  private static LinearFixture boardWithLinearAnalyzedMoves() throws Exception {
+    TrackingBoard board = allocate(TrackingBoard.class);
+    board.startStonelist = new ArrayList<>();
+    board.hasStartStone = false;
+    BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+    history.add(moveNode(0, 0, Stone.BLACK, false, 1, 60, 1, 2.0));
+    history.add(moveNode(1, 0, Stone.WHITE, true, 2, 55, 1, -1.5));
+    BoardHistoryNode second = history.getCurrentHistoryNode();
+    history.add(moveNode(2, 0, Stone.BLACK, false, 3, 52, 1, 3.0));
+    history.add(moveNode(0, 1, Stone.WHITE, true, 4, 48, 1, -2.5));
+    BoardHistoryNode current = history.getCurrentHistoryNode();
+    history.setHead(current);
+    board.setHistory(history);
+    return new LinearFixture(board, second, null, current);
+  }
+
+  private static LinearFixture boardWithUnanalyzedInteriorMove() throws Exception {
+    TrackingBoard board = allocate(TrackingBoard.class);
+    board.startStonelist = new ArrayList<>();
+    board.hasStartStone = false;
+    BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+    history.add(moveNode(0, 0, Stone.BLACK, false, 1, 60, 1));
+    history.add(moveNode(1, 0, Stone.WHITE, true, 2, 55, 1));
+    history.add(moveNode(2, 0, Stone.BLACK, false, 3, 50, 0));
+    BoardHistoryNode unanalyzed = history.getCurrentHistoryNode();
+    history.add(moveNode(0, 1, Stone.WHITE, true, 4, 48, 1));
+    BoardHistoryNode current = history.getCurrentHistoryNode();
+    history.setHead(current);
+    board.setHistory(history);
+    return new LinearFixture(board, null, unanalyzed, current);
   }
 
   private static WinrateGraph configuredGraph() throws Exception {
@@ -655,18 +984,18 @@ class WinrateGraphVariationHitTest {
   }
 
   private static BufferedImage renderGraph(WinrateGraph graph) {
-    BufferedImage winrateLayer =
-        new BufferedImage(RENDER_WIDTH, RENDER_HEIGHT, BufferedImage.TYPE_INT_ARGB);
-    BufferedImage blunderLayer =
-        new BufferedImage(RENDER_WIDTH, RENDER_HEIGHT, BufferedImage.TYPE_INT_ARGB);
-    BufferedImage backgroundLayer =
-        new BufferedImage(RENDER_WIDTH, RENDER_HEIGHT, BufferedImage.TYPE_INT_ARGB);
+    return renderGraph(graph, RENDER_WIDTH, RENDER_HEIGHT);
+  }
+
+  private static BufferedImage renderGraph(WinrateGraph graph, int width, int height) {
+    BufferedImage winrateLayer = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+    BufferedImage blunderLayer = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+    BufferedImage backgroundLayer = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
     Graphics2D winrateGraphics = winrateLayer.createGraphics();
     Graphics2D blunderGraphics = blunderLayer.createGraphics();
     Graphics2D backgroundGraphics = backgroundLayer.createGraphics();
     try {
-      graph.draw(
-          winrateGraphics, blunderGraphics, backgroundGraphics, 0, 0, RENDER_WIDTH, RENDER_HEIGHT);
+      graph.draw(winrateGraphics, blunderGraphics, backgroundGraphics, 0, 0, width, height);
       return winrateLayer;
     } finally {
       winrateGraphics.dispose();
@@ -681,15 +1010,139 @@ class WinrateGraphVariationHitTest {
     return (List<?>) method.invoke(graph);
   }
 
-  private static boolean hasAnyMainGraphHit(WinrateGraph graph) {
-    for (int y = 0; y < GRAPH_HEIGHT; y++) {
-      for (int x = 0; x < GRAPH_WIDTH; x++) {
-        if (graph.resolveMoveTargetNode(x, y) != null) {
-          return true;
-        }
+  private static int[] uniqueColumnPixel(WinrateGraph graph, BoardHistoryNode node, int y)
+      throws Exception {
+    int[] params = (int[]) getField(graph, "params");
+    int x = params[0] + (node.getData().moveNumber - 1) * params[2] / params[4];
+    return new int[] {x, y};
+  }
+
+  private static int[] optionalRenderedGraphPoint(WinrateGraph graph, BoardHistoryNode node)
+      throws Exception {
+    Method method =
+        WinrateGraph.class.getDeclaredMethod("renderedGraphPoint", BoardHistoryNode.class);
+    method.setAccessible(true);
+    return (int[]) method.invoke(graph, node);
+  }
+
+  private static void assertPixelAwayFromRenderedAnchors(
+      WinrateGraph graph, int[] pixel, BoardHistoryNode... nodes) throws Exception {
+    for (BoardHistoryNode node : nodes) {
+      int[] point = optionalRenderedGraphPoint(graph, node);
+      if (point == null) {
+        continue;
       }
+      assertTrue(
+          Math.abs(pixel[1] - point[1]) > 2,
+          "click Y should sit away from a rendered identity at the shared move number.");
     }
-    return false;
+  }
+
+  private static void assertSharedMoveNumberColumnSelectsCurrentVariation(
+      VariationFixture fixture, WinrateGraph graph, TrackingFrame frame, String label)
+      throws Exception {
+    int[] origParams = (int[]) getField(graph, "origParams");
+    int[] top = uniqueColumnPixel(graph, fixture.variationCurrent, origParams[1]);
+    int[] bottom =
+        uniqueColumnPixel(
+            graph, fixture.variationCurrent, origParams[1] + origParams[3] - 1);
+    assertHoverClickDragResolveSameNode(
+        fixture.board,
+        fixture.variationStart,
+        graph,
+        frame,
+        top,
+        fixture.variationCurrent,
+        label + " top");
+    assertHoverClickDragResolveSameNode(
+        fixture.board,
+        fixture.variationStart,
+        graph,
+        frame,
+        bottom,
+        fixture.variationCurrent,
+        label + " bottom");
+  }
+
+  private static void assertDenseRoundedMoveHoverClickDrag(
+      LinearFixture fixture,
+      WinrateGraph graph,
+      TrackingFrame frame,
+      int[] pixel,
+      String label) {
+    BoardHistoryNode resolved = graph.resolveMoveTargetNode(pixel[0], pixel[1]);
+    assertNotNull(resolved, label + " should resolve a history node.");
+    assertEquals(
+        DENSE_ROUNDED_MOVE_NUMBER,
+        resolved.getData().moveNumber,
+        label + " should keep rounded move number 3.");
+    assertSame(fixture.unanalyzed, resolved, label + " resolver mismatch.");
+
+    fixture.board.getHistory().setHead(fixture.current);
+    graph.clearMouseOverNode();
+    boolean handled = frame.processMouseMoveOnWinrateGraph(pixel[0], pixel[1]);
+    assertTrue(handled, label + " should be hover-hit.");
+    assertSame(fixture.unanalyzed, graph.mouseOverNode, label + " hover target mismatch.");
+    assertEquals(
+        DENSE_ROUNDED_MOVE_NUMBER,
+        graph.mouseOverNode.getData().moveNumber,
+        label + " hover should keep rounded move number 3.");
+
+    fixture.board.getHistory().setHead(fixture.current);
+    frame.onClickedWinrateOnly(pixel[0], pixel[1]);
+    assertSame(
+        fixture.unanalyzed,
+        fixture.board.getHistory().getCurrentHistoryNode(),
+        label + " click target mismatch.");
+    assertEquals(
+        DENSE_ROUNDED_MOVE_NUMBER,
+        fixture.board.getHistory().getCurrentHistoryNode().getData().moveNumber,
+        label + " click should keep rounded move number 3.");
+
+    fixture.board.getHistory().setHead(fixture.current);
+    frame.onMouseDragged(pixel[0], pixel[1]);
+    assertSame(
+        fixture.unanalyzed,
+        fixture.board.getHistory().getCurrentHistoryNode(),
+        label + " drag target mismatch.");
+    assertEquals(
+        DENSE_ROUNDED_MOVE_NUMBER,
+        fixture.board.getHistory().getCurrentHistoryNode().getData().moveNumber,
+        label + " drag should keep rounded move number 3.");
+  }
+
+  private static void assertHoverClickDragResolveSameNode(
+      TrackingBoard board,
+      BoardHistoryNode startNode,
+      WinrateGraph graph,
+      TrackingFrame frame,
+      int[] pixel,
+      BoardHistoryNode expectedNode,
+      String label) {
+    assertSame(
+        expectedNode,
+        graph.resolveMoveTargetNode(pixel[0], pixel[1]),
+        label + " resolver mismatch.");
+
+    board.getHistory().setHead(startNode);
+    graph.clearMouseOverNode();
+    boolean handled = frame.processMouseMoveOnWinrateGraph(pixel[0], pixel[1]);
+    assertTrue(handled, label + " should be hover-hit.");
+    assertSame(expectedNode, graph.mouseOverNode, label + " hover target mismatch.");
+
+    board.getHistory().setHead(startNode);
+    frame.onClickedWinrateOnly(pixel[0], pixel[1]);
+    assertSame(
+        expectedNode,
+        board.getHistory().getCurrentHistoryNode(),
+        label + " click target mismatch.");
+
+    board.getHistory().setHead(startNode);
+    frame.onMouseDragged(pixel[0], pixel[1]);
+    assertSame(
+        expectedNode,
+        board.getHistory().getCurrentHistoryNode(),
+        label + " drag target mismatch.");
   }
 
   private static void assertHoverClickDragResolveSameTarget(
@@ -777,20 +1230,46 @@ class WinrateGraphVariationHitTest {
 
   private static BoardData moveNode(
       int x, int y, Stone color, boolean blackToPlay, int moveNumber, double winrate) {
+    return moveNode(x, y, color, blackToPlay, moveNumber, winrate, 1);
+  }
+
+  private static BoardData moveNode(
+      int x,
+      int y,
+      Stone color,
+      boolean blackToPlay,
+      int moveNumber,
+      double winrate,
+      int playouts) {
+    return moveNode(x, y, color, blackToPlay, moveNumber, winrate, playouts, 0.0);
+  }
+
+  private static BoardData moveNode(
+      int x,
+      int y,
+      Stone color,
+      boolean blackToPlay,
+      int moveNumber,
+      double winrate,
+      int playouts,
+      double scoreMean) {
     Stone[] stones = emptyStones();
     stones[Board.getIndex(x, y)] = color;
-    return BoardData.move(
-        stones,
-        new int[] {x, y},
-        color,
-        blackToPlay,
-        zobrist(stones),
-        moveNumber,
-        new int[BOARD_AREA],
-        0,
-        0,
-        winrate,
-        1);
+    BoardData data =
+        BoardData.move(
+            stones,
+            new int[] {x, y},
+            color,
+            blackToPlay,
+            zobrist(stones),
+            moveNumber,
+            new int[BOARD_AREA],
+            0,
+            0,
+            winrate,
+            playouts);
+    data.setScoreMean(scoreMean);
+    return data;
   }
 
   private static BoardData snapshotNode(
@@ -857,6 +1336,24 @@ class WinrateGraphVariationHitTest {
   @SuppressWarnings("unchecked")
   private static <T> T allocate(Class<T> type) throws Exception {
     return (T) UnsafeHolder.UNSAFE.allocateInstance(type);
+  }
+
+  private static final class LinearFixture {
+    private final TrackingBoard board;
+    private final BoardHistoryNode second;
+    private final BoardHistoryNode unanalyzed;
+    private final BoardHistoryNode current;
+
+    private LinearFixture(
+        TrackingBoard board,
+        BoardHistoryNode second,
+        BoardHistoryNode unanalyzed,
+        BoardHistoryNode current) {
+      this.board = board;
+      this.second = second;
+      this.unanalyzed = unanalyzed;
+      this.current = current;
+    }
   }
 
   private static final class VariationFixture {
