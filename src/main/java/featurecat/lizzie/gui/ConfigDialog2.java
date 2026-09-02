@@ -2803,6 +2803,31 @@ public class ConfigDialog2 extends JDialog {
             txtLimitBranchLength,
             configText("ConfigDialog2.modern.unit.moves", "手"));
         addModernCard(content, analysis);
+        JPanel liveLimits =
+            createDesignSettingsCard(
+                configText("ConfigDialog2.modern.analysis.liveLimits", "实况分析限制"),
+                configText(
+                    "ConfigDialog2.modern.analysis.liveLimitsSub",
+                    "当前思考达到时长或计算量后暂停实况分析。"));
+        addToggleInputRow(
+            liveLimits,
+            configText("ConfigDialog2.modern.analysis.limitTime", "限制分析时长"),
+            configText(
+                "ConfigDialog2.modern.analysis.limitTimeSub",
+                "当前思考达到该秒数后暂停。取消勾选或填 0 表示不限制。"),
+            chkLimitTime,
+            txtMaxAnalyzeTime,
+            configText("ConfigDialog2.modern.unit.seconds", "秒"));
+        addToggleInputRow(
+            liveLimits,
+            configText("ConfigDialog2.modern.analysis.limitVisits", "限制分析计算量"),
+            configText(
+                "ConfigDialog2.modern.analysis.limitVisitsSub",
+                "当前局面达到该计算量后暂停。取消勾选表示不限制。"),
+            chkLimitPlayouts,
+            txtLimitPlayouts,
+            configText("ConfigDialog2.modern.unit.visits", "次"));
+        addModernCard(content, liveLimits);
         JPanel candidates =
             createDesignSettingsCard(
                 configText("ConfigDialog2.modern.candidates.title", "候选点外观与过滤"),
@@ -3649,18 +3674,40 @@ public class ConfigDialog2 extends JDialog {
   }
 
   private void addToggleInputRow(
+      JPanel card,
+      String title,
+      String subtitle,
+      JCheckBox toggle,
+      JTextField field,
+      String suffixText) {
+    JPanel input = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+    input.setOpaque(false);
+    JTextField detached = (JTextField) detachComponent(field);
+    detached.setColumns(5);
+    detached.setPreferredSize(new Dimension(66, 30));
+    JLabel suffix = new JLabel(suffixText);
+    suffix.putClientProperty(CLIENT_SKIP_TEXT_STYLE, Boolean.TRUE);
+    suffix.setForeground(SETTINGS_MUTED);
+    suffix.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, 12));
+    input.add(detached);
+    input.add(suffix);
+    addToggleInputRow(card, title, subtitle, toggle, input);
+  }
+
+  private void addToggleInputRow(
       JPanel card, String title, String subtitle, JCheckBox toggle, Component input) {
     JPanel row = createDesignRow(title, subtitle);
     AccessibilitySupport.button(toggle, title, subtitle);
     nameInteractiveComponents(input, title, subtitle);
     JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
     controls.setOpaque(false);
-    controls.setPreferredSize(new Dimension(220, 30));
-    controls.setMinimumSize(new Dimension(220, 30));
     Component detachedInput = detachComponent(input);
     if (detachedInput instanceof JSpinner) {
       detachedInput.setPreferredSize(new Dimension(76, 30));
     }
+    int controlWidth = detachedInput instanceof JPanel ? 280 : 220;
+    controls.setPreferredSize(new Dimension(controlWidth, 30));
+    controls.setMinimumSize(new Dimension(controlWidth, 30));
     controls.add(prepareDesignSwitch(toggle));
     controls.add(detachedInput);
     addDesignRowControl(row, controls);
