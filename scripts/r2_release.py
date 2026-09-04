@@ -374,7 +374,11 @@ def catalog_label(asset: Asset) -> tuple[str, str, bool]:
         "with-katago": ("Windows CPU / 通用版", "Windows CPU / universal", False),
         "nvidia": ("Windows NVIDIA", "Windows NVIDIA", False),
         "without.engine": ("Windows 无引擎版", "Windows without engine", False),
-        "nvidia-tensorrt": ("RTX 30 系及以下可选 TensorRT", "Optional TensorRT for RTX 30 and earlier", True),
+        "nvidia-tensorrt": (
+            "RTX 20 / GTX 16 可选 TensorRT",
+            "Optional TensorRT for RTX 20 / GTX 16",
+            True,
+        ),
         "rocm-gfx120x": ("AMD RX 9000 ROCm 实验版", "AMD RX 9000 ROCm experimental", True),
     }
     if asset.category == "macos-dmg":
@@ -565,14 +569,15 @@ def render_index(catalog: dict[str, Any], *, maintenance: bool = False) -> str:
                 '<div class="download-main">'
                 f'{decorative_icon("speedometer")}'
                 '<div class="download-copy">'
-                '<div class="download-title">RTX 30 系及以下可选 TensorRT</div>'
-                '<div class="download-description">RTX 40 / 50 请使用 CUDA · 两个分卷都要下载</div>'
+                '<div class="download-title">TensorRT 可选版</div>'
+                '<div class="download-description">RTX 30 / 40 / 50 优先使用 CUDA，通常更快 · '
+                'TensorRT 仅建议 RTX 20 / GTX 16 使用 · GTX 10 不支持 · 两个分卷都要下载</div>'
                 "</div>"
                 "</div>"
                 f'<span class="download-size">{format_size(sum(int(entry["sizeBytes"]) for entry in trt_parts))}</span>'
                 '<div class="volume-actions">'
-                f'{download_action(trt_parts[0], "分卷 1", "RTX 30 系及以下可选 TensorRT")}'
-                f'{download_action(trt_parts[1], "分卷 2", "RTX 30 系及以下可选 TensorRT")}'
+                f'{download_action(trt_parts[0], "分卷 1", "RTX 20 / GTX 16 可选 TensorRT")}'
+                f'{download_action(trt_parts[1], "分卷 2", "RTX 20 / GTX 16 可选 TensorRT")}'
                 "</div>"
                 "</li>"
             ),
