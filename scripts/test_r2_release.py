@@ -197,6 +197,14 @@ class R2ReleaseTest(unittest.TestCase):
         self.assertEqual("x64", amd["arch"])
         self.assertTrue(amd["advanced"])
         self.assertEqual("AMD RX 9000 ROCm 实验版", amd["labelZh"])
+        tensorrt = next(
+            entry for entry in stable["assets"] if entry["flavor"] == "nvidia-tensorrt"
+        )
+        self.assertEqual("RTX 20 / GTX 16 可选 TensorRT", tensorrt["labelZh"])
+        self.assertEqual(
+            "Optional TensorRT for RTX 20 / GTX 16", tensorrt["labelEn"]
+        )
+        self.assertNotIn("RTX 30", tensorrt["labelZh"])
         self.assertTrue(
             all(entry["mirrorUrls"] == [] for entry in maintenance["assets"])
         )
