@@ -3,6 +3,7 @@ package featurecat.lizzie.gui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
@@ -12,6 +13,7 @@ import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.rules.Board;
+import java.awt.GraphicsEnvironment;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -78,6 +80,27 @@ class SetKataRulesWindowTest {
       assertTrue(fixture.engine.engineRulesResult().isConfirmed());
       assertEquals("TERRITORY", fixture.engine.engineRulesResult().observed().string("scoring"));
       assertTrue(KataGoRules.parse(POSITIONAL_CHINESE).orElseThrow().hasField("experimentalKo"));
+      closeDialog(dialog);
+    }
+  }
+
+  @Test
+  void delayedQueryStaysPendingUntilProtocolSettlesThenAppliesRadios() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    try (Fixture fixture = Fixture.ordinary()) {
+      SetKataRules dialog = new SetKataRules(fixture.engine);
+      Thread.sleep(250L);
+      SwingUtilities.invokeAndWait(() -> {});
+      assertTrue(dialog.statusText().contains("Confirming engine rules"));
+      assertFalse(dialog.hasRulesResponse());
+      assertFalse(dialog.rdoPositionKo.isSelected());
+
+      int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+      dispatch(fixture.engine, "=" + queryId + " " + POSITIONAL_CHINESE);
+      awaitStatus(dialog, "Engine rules confirmed");
+      assertTrue(dialog.hasRulesResponse());
+      assertTrue(dialog.rdoPositionKo.isSelected());
+      assertFalse(dialog.statusText().contains("Failed to read engine rules"));
       closeDialog(dialog);
     }
   }

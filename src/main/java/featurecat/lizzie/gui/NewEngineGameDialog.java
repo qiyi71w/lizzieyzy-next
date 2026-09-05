@@ -1174,15 +1174,10 @@ public class NewEngineGameDialog extends JDialog {
                     setVisible(false);
                     return;
                   }
-                  if (failure instanceof StartFailure.MatchRulesFailed matchRulesFailed) {
-                    Utils.showMsg(
-                        MatchRulesTexts.failureMessage(
-                            matchRulesFailed.detail(), Lizzie.resourceBundle),
-                        NewEngineGameDialog.this);
-                  } else if (!(failure instanceof StartFailure.CancelledByUser)) {
-                    Utils.showMsg(
-                        Lizzie.resourceBundle.getString("EngineManager.engineGameStartFailed"),
-                        NewEngineGameDialog.this);
+                  String message =
+                      MatchRulesTexts.startFailureMessage(failure, Lizzie.resourceBundle);
+                  if (message != null) {
+                    Utils.showMsg(message, NewEngineGameDialog.this);
                   }
                 }
               });

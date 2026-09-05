@@ -12320,42 +12320,6 @@ public class LizzieFrame extends JFrame {
     SetKataRules rulesDialog = new SetKataRules(rulesEngine);
     setkatarules = rulesDialog;
     setkatarules.setVisible(true);
-    Runnable runnable =
-        new Runnable() {
-          public void run() {
-            boolean success = false;
-            for (int i = 0; i < 10; i++) {
-              try {
-                Thread.sleep(200);
-                if (rulesDialog.hasRulesResponse()) {
-                  success = true;
-                  break;
-                }
-
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-              }
-            }
-            rulesEngine.cancelParameterRead();
-            boolean responseReceived = success;
-            SwingUtilities.invokeLater(
-                () -> {
-                  if (!rulesDialog.isVisible() || rulesEngine != Lizzie.leelaz) {
-                    return;
-                  }
-                  if (responseReceived) {
-                    rulesDialog.getRules();
-                  } else {
-                    JOptionPane.showMessageDialog(
-                        rulesDialog, Lizzie.resourceBundle.getString("LizzieFrame.ruleWarning"));
-                  }
-                });
-          }
-        };
-    Thread thread = new Thread(runnable, "lizzie-katago-rules-loader");
-    thread.setDaemon(true);
-    thread.start();
   }
 
   static boolean isRulesEngineReady(Leelaz engine) {

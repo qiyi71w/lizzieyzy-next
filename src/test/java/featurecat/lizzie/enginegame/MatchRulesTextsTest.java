@@ -35,6 +35,24 @@ class MatchRulesTextsTest {
   }
 
   @Test
+  void startFailureMessageMatchesDialogForRejectAndConsentRefuse() {
+    ResourceBundle bundle = Lizzie.resourceBundle;
+    assertEquals(
+        MatchRulesTexts.failureMessage("mismatch", bundle),
+        MatchRulesTexts.startFailureMessage(
+            new StartFailure.MatchRulesFailed("mismatch"), bundle));
+    assertEquals(
+        MatchRulesTexts.failureMessage("unverified-consent-refused", bundle),
+        MatchRulesTexts.startFailureMessage(
+            new StartFailure.MatchRulesFailed("unverified-consent-refused"), bundle));
+    assertEquals(
+        null, MatchRulesTexts.startFailureMessage(new StartFailure.CancelledByUser(), bundle));
+    assertEquals(
+        bundle.getString("EngineManager.engineGameStartFailed"),
+        MatchRulesTexts.startFailureMessage(new StartFailure.Timeout(), bundle));
+  }
+
+  @Test
   void detailsShowsFieldDifferencesWhenChineseNamesMatch() {
     ResourceBundle bundle = Lizzie.resourceBundle;
     KataGoRules simpleChinese = CHINESE;

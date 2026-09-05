@@ -8,6 +8,8 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.enginegame.EngineGameMatchRulesSelection;
+import featurecat.lizzie.enginegame.MatchRulesTexts;
+import featurecat.lizzie.enginegame.StartFailure;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.IdentityHashMap;
@@ -66,6 +68,25 @@ class EngineGameMatchRulesToolbarGateTest {
     assertEquals(1, DIALOG_OPENS.get(frame).get());
   }
 
+  @Test
+  void matchRulesRejectAndConsentRefuseSurfaceSameLocalizedReasonAsDialog() throws Exception {
+    RecordingToolbar toolbar = allocate(RecordingToolbar.class);
+
+    toolbar.notifyEngineGameStartFailed(new StartFailure.MatchRulesFailed("mismatch"));
+    assertEquals(
+        MatchRulesTexts.failureMessage("mismatch", Lizzie.resourceBundle), toolbar.lastMessage);
+
+    toolbar.notifyEngineGameStartFailed(
+        new StartFailure.MatchRulesFailed("unverified-consent-refused"));
+    assertEquals(
+        MatchRulesTexts.failureMessage("unverified-consent-refused", Lizzie.resourceBundle),
+        toolbar.lastMessage);
+
+    toolbar.lastMessage = "keep";
+    toolbar.notifyEngineGameStartFailed(new StartFailure.CancelledByUser());
+    assertEquals("keep", toolbar.lastMessage);
+  }
+
   private static final class RecordingFrame extends LizzieFrame {
     @Override
     public void startEngineGameDialog() {
@@ -77,6 +98,15 @@ class EngineGameMatchRulesToolbarGateTest {
   }
 
   private static final class SilentToolbar extends BottomToolbar {}
+
+  private static final class RecordingToolbar extends BottomToolbar {
+    String lastMessage;
+
+    @Override
+    void showEngineGameStartFailure(String message) {
+      lastMessage = message;
+    }
+  }
 
   @SuppressWarnings("unchecked")
   private static <T> T allocate(Class<T> type) throws Exception {

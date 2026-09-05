@@ -7,6 +7,7 @@ import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.Acceptance;
 import featurecat.lizzie.enginegame.EngineGameMatchRulesSelection;
+import featurecat.lizzie.enginegame.MatchRulesTexts;
 import featurecat.lizzie.enginegame.StartFailure;
 import featurecat.lizzie.enginegame.StartObserver;
 import featurecat.lizzie.enginegame.EngineGamePresentation;
@@ -4069,9 +4070,22 @@ public class BottomToolbar extends JPanel {
               public void playing() {}
 
               @Override
-              public void startFailed(StartFailure failure) {}
+              public void startFailed(StartFailure failure) {
+                notifyEngineGameStartFailed(failure);
+              }
             });
     return acceptance instanceof Acceptance.Accepted;
+  }
+
+  void notifyEngineGameStartFailed(StartFailure failure) {
+    String message = MatchRulesTexts.startFailureMessage(failure, Lizzie.resourceBundle);
+    if (message != null) {
+      showEngineGameStartFailure(message);
+    }
+  }
+
+  void showEngineGameStartFailure(String message) {
+    Utils.showMsg(message);
   }
 
   private void applyLiveBatchLimit() {

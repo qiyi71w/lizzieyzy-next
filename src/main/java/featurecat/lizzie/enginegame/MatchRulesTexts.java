@@ -30,6 +30,17 @@ public final class MatchRulesTexts {
     return bundle.getString(key);
   }
 
+  public static String startFailureMessage(StartFailure failure, ResourceBundle bundle) {
+    Objects.requireNonNull(bundle, "bundle");
+    if (failure instanceof StartFailure.MatchRulesFailed matchRulesFailed) {
+      return failureMessage(matchRulesFailed.detail(), bundle);
+    }
+    if (failure == null || failure instanceof StartFailure.CancelledByUser) {
+      return null;
+    }
+    return bundle.getString("EngineManager.engineGameStartFailed");
+  }
+
   public static String consentMessage(
       MatchRulesAdmission.Decision decision, ResourceBundle bundle) {
     Objects.requireNonNull(decision, "decision");
