@@ -44,8 +44,6 @@ public final class CommandLaunchHelper {
     "--model",
     "-config",
     "--config",
-    "-override-config",
-    "--override-config",
     "-human-model",
     "--human-model",
     "-analysis-model",
@@ -56,7 +54,25 @@ public final class CommandLaunchHelper {
     "--cacerts"
   };
 
+  public enum EngineCommandPurpose {
+    GTP,
+    BENCHMARK
+  }
+
   private CommandLaunchHelper() {}
+
+  public static EngineCommandPurpose classifyCommand(List<String> tokens) {
+    if (tokens == null || tokens.size() < 2) {
+      return EngineCommandPurpose.GTP;
+    }
+    if (!KataGoAutoSetupHelper.looksLikeKataGoExecutable(tokens.get(0))) {
+      return EngineCommandPurpose.GTP;
+    }
+    if (!"benchmark".equals(tokens.get(1))) {
+      return EngineCommandPurpose.GTP;
+    }
+    return EngineCommandPurpose.BENCHMARK;
+  }
 
   public static LaunchSpec prepare(List<String> commandParts) {
     List<String> resolvedCommand = new ArrayList<String>();

@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Run custom local KataGo `benchmark` commands as slot-owned, cancellable tasks with streamed output and exit-code results (#423).
 - Prevented KataGo rules dialogs from interrupting engine games while their participants remain occupied (#421).
 - Added CI to build the shaded jar on push and pull request.
 - Added Dependabot configuration for Maven dependencies and GitHub Actions.

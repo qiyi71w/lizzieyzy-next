@@ -330,6 +330,10 @@ public class GtpConsolePane extends JDialog {
     if (txtCommand.getText() == null || txtCommand.getText().trim().isEmpty()) {
       return;
     }
+    if (Lizzie.leelaz != null && !Lizzie.leelaz.hasGtpCapability()) {
+      addLine(resourceBundle.getString("Benchmark.gtpUnavailable") + "\n");
+      return;
+    }
     String command = txtCommand.getText().trim();
     String commandToLower = command.toLowerCase();
     txtCommand.setText("");
