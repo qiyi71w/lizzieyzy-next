@@ -2261,7 +2261,7 @@ class EngineManagerInitialStartupSynchronizationTest {
           assertEquals("EXACT_RETIRED", previous.analysisOutputRouteForTest());
           unexpectedLease =
               EngineManager.claimTransactionlessAnalysisWrite(
-                  previous, failedBinding, failedRecoveryToken);
+                  previous, failedBinding, failedRecoveryToken, null);
           assertNull(
               unexpectedLease,
               "a failed recovery capability must reject ordinary ownership after barrier clear");

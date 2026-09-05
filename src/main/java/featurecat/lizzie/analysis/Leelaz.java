@@ -4788,6 +4788,25 @@ public class Leelaz {
       // Analyze-style genmove streams ACK with an empty numbered "=" and finish on unnumbered "play".
       return;
     }
+    if (moveResponseHandler != null
+        && moveResponseHandler.isAnalyzeStream()
+        && line.startsWith("=")
+        && parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID
+        && gtpResponsePayload(line).isEmpty()) {
+      // A numbered empty ACK opens the stream, even after its game has stopped.
+      isCommandLine = false;
+      return;
+    }
+    String analyzeTerminal = null;
+    if (moveResponseHandler != null && moveResponseHandler.acceptsUnnumberedAnalyzePlay(line)) {
+      String[] terminalParts = line.trim().split("\\s+");
+      if (terminalParts.length == 2
+          && (terminalParts[1].equalsIgnoreCase("pass")
+              || terminalParts[1].equalsIgnoreCase("resign")
+              || Board.asCoordinates(terminalParts[1]).isPresent())) {
+        analyzeTerminal = terminalParts[1];
+      }
+    }
     EngineManager.EngineGameMoveResponseContext moveResponseContext =
         moveResponseHandler == null ? null : moveResponseHandler.context;
     long startupPrimaryGenerationAtParse =
@@ -4795,13 +4814,18 @@ public class Leelaz {
     EngineManager.EngineGameMoveResponseLease responseLease =
         EngineManager.claimEngineGameMoveResponse(moveResponseContext);
     if (responseLease == null) {
-      // A numbered response from a retired transaction still owns its exact pending handler.
-      // Drain that handler so its WRITE_CLAIMED carrier cannot block a successor, but perform no
-      // board, UI, or engine-game side effects.
+      // Retired responses retain their exact pending handler but have no game side effects.
       if (moveResponseHandler != null
           && parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID) {
         processCommandResponseLine(line, sourceEngineIncarnation);
         isCommandLine = false;
+      } else if (analyzeTerminal != null) {
+        int pendingId = pendingResponseCommandIdFor(moveResponseHandler);
+        if (pendingId != NO_RESPONSE_COMMAND_ID) {
+          processCommandResponseLine(
+              "=" + pendingId + " " + analyzeTerminal, sourceEngineIncarnation);
+          isCommandLine = false;
+        }
       } else if (moveResponseHandler != null
           && moveResponseHandler.awaitingPassingCoordinate
           && !line.startsWith("info")) {
@@ -4945,15 +4969,6 @@ public class Leelaz {
               : line.trim().split(" ");
       // currentCmdNum = Integer.parseInt(params[0].substring(1).trim());
       if (params.length <= 1) {
-        if (moveResponseHandler != null
-            && moveResponseHandler.isAnalyzeStream()
-            && line.startsWith("=")
-            && parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID) {
-          // kata-genmove_analyze / lz-genmove_analyze ACK. Keep the numbered carrier in flight
-          // until the later unnumbered play/resign/pass terminal.
-          isCommandLine = false;
-          return;
-        }
         if (parseResponseCommandId(line) != NO_RESPONSE_COMMAND_ID) {
           processCommandResponseLine(line, sourceEngineIncarnation);
           afterEngineGameResponseSettledForTest();
@@ -11330,9 +11345,10 @@ public class Leelaz {
     final boolean[] sent = new boolean[1];
     boolean ownerCurrent =
         admission.runIfCurrentBoardSyncPrimary(
-            () ->
-                sent[0] =
-                    sendExactSnapshotRestoreCommandAdmitted(command, onResponse, onSendFailure, admission));
+            () -> withExactSnapshotRestoreAdmission(
+                admission,
+                () -> sent[0] =
+                    sendExactSnapshotRestoreCommandAdmitted(command, onResponse, onSendFailure, admission)));
     return ownerCurrent && sent[0];
   }
 
@@ -11779,7 +11795,8 @@ public class Leelaz {
               EngineManager.claimTransactionlessAnalysisWrite(
                   this,
                   outputBinding,
-                  outputBinding == null ? null : outputBinding.analysisOutputRecoveryToken);
+                  outputBinding == null ? null : outputBinding.analysisOutputRecoveryToken,
+                  queuedCommand.restoreAdmission == null ? null : queuedCommand.restoreAdmission.ownerIdentity);
           if (transactionlessAnalysisWrite == null) {
             throw new AnalysisOutputAdmissionFailure(
                 "analysis/state output is blocked by an unrelated game or recovery owner");
@@ -18349,6 +18366,7 @@ public class Leelaz {
     private final RestartBootstrapReceipt restartBootstrapReceipt;
     private final ReaderStreamBinding readBoardGmaResponseBinding;
     private final Object expectedLeela0110StateToken;
+    private final ExactSnapshotRestoreAdmission restoreAdmission = exactSnapshotRestoreAdmissionContext.get();
     private boolean foregroundRestoreCommand;
     private RuntimeException cancellationFailure;
     private boolean outputWriteStarted;
