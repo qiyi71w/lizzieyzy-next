@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Prevented KataGo rules dialogs from interrupting engine games while their participants remain occupied (#421).
 - Added CI to build the shaded jar on push and pull request.
 - Added Dependabot configuration for Maven dependencies and GitHub Actions.
 - Added installation, troubleshooting, maintenance, and release-process docs.
