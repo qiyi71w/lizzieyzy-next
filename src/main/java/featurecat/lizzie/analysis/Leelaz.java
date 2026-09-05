@@ -5767,6 +5767,11 @@ public class Leelaz {
     }
 
     private void sendCommand(String command) {
+      sendCommand(command, null, null);
+    }
+
+    private void sendCommand(
+        String command, Runnable onResponse, CommandSendFailureHandler onSendFailure) {
       if (settled.get()) {
         throw new IllegalStateException("startup post-action is no longer current");
       }
@@ -5774,7 +5779,7 @@ public class Leelaz {
           && !EngineManager.isCurrentEngineGameTransaction(action.engineGameTransaction)) {
         throw new IllegalStateException("engine-game startup transaction is no longer current");
       }
-      sendStartupPostActionCommand(command, binding);
+      sendStartupPostActionCommand(command, binding, onResponse, onSendFailure);
       if (settled.get()) {
         throw new IllegalStateException("startup post-action was retired during command delivery");
       }
@@ -9818,6 +9823,14 @@ public class Leelaz {
   }
 
   private void sendStartupPostActionCommand(String command, ReaderStreamBinding binding) {
+    sendStartupPostActionCommand(command, binding, null, null);
+  }
+
+  private void sendStartupPostActionCommand(
+      String command,
+      ReaderStreamBinding binding,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure) {
     EngineManager.EngineGameOwnerTransaction transaction = engineGameStartupCommandContext.get();
     if (transaction != null && !EngineManager.isCurrentEngineGameTransaction(transaction)) {
       throw new IllegalStateException("engine-game startup transaction is no longer current");
@@ -9833,8 +9846,8 @@ public class Leelaz {
       accepted =
           sendCommand(
               command,
-              null,
-              null,
+              onResponse,
+              onSendFailure,
               true,
               false,
               TrackingReleaseReason.ORDINARY_OPERATION,
@@ -22508,17 +22521,14 @@ public class Leelaz {
   private void sendEngineRulesCommand(String command, boolean setCommand) {
     EngineRulesResponseHandler handler =
         new EngineRulesResponseHandler(engineRulesGeneration, setCommand);
-    sendCommand(
-        command,
-        handler,
+    CommandSendFailureHandler onFailure =
         failure ->
             failEngineRules(
                 setCommand
                     ? EngineRulesResult.Status.SET_FAILED
                     : EngineRulesResult.Status.QUERY_FAILED,
-                EngineRulesResult.Reason.SEND_FAILED),
-        false,
-        true);
+                EngineRulesResult.Reason.SEND_FAILED);
+    sendEngineRulesCommandInCurrentContext(command, handler, onFailure);
     synchronized (engineRulesLock) {
       if (handler.generation != engineRulesGeneration) {
         return;
@@ -22530,6 +22540,28 @@ public class Leelaz {
         engineRulesResult =
             engineRulesResult.withCommandIds(engineRulesResult.setCommandId(), handler.commandId);
       }
+    }
+  }
+
+  private void sendEngineRulesCommandInCurrentContext(
+      String command,
+      EngineRulesResponseHandler handler,
+      CommandSendFailureHandler onFailure) {
+    Object startupContext = startupPostActionCommandContext.get();
+    if (startupContext instanceof StartupPostActionLease) {
+      ((StartupPostActionLease) startupContext).sendCommand(command, handler, onFailure);
+      return;
+    }
+    if (startupContext instanceof ReaderStreamBinding) {
+      sendStartupPostActionCommand(
+          command, (ReaderStreamBinding) startupContext, handler, onFailure);
+      return;
+    }
+    boolean failClosedStartupCommand = startupContext != null;
+    boolean sent =
+        sendCommand(command, handler, onFailure, failClosedStartupCommand, false);
+    if (failClosedStartupCommand && !sent) {
+      throw new IllegalStateException("startup command was rejected: " + command);
     }
   }
 

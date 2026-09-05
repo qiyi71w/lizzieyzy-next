@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
+import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.gui.LizzieFrame;
@@ -182,6 +183,27 @@ class LeelazEngineRulesProtocolTest {
       assertEquals(EngineRulesResult.Status.SET_FAILED, fixture.engine.engineRulesResult().status());
       assertEquals(EngineRulesResult.Reason.OCCUPIED, fixture.engine.engineRulesResult().reason());
       assertFalse(fixture.output.toString().contains("kata-set-rules"));
+    }
+  }
+
+  @Test
+  void rulesCommandsAreNotMirroredToTheSecondEngine() throws Exception {
+    try (Fixture fixture = Fixture.ordinary()) {
+      ExtraMode previousMode = Lizzie.config.extraMode;
+      Leelaz previousSecond = Lizzie.leelaz2;
+      Leelaz second = fixture.secondEngine();
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Lizzie.leelaz2 = second;
+      try {
+        fixture.engine.applyEngineRules(KataGoRules.parse("chinese").orElseThrow());
+        assertTrue(fixture.output.toString().contains("kata-set-rules"));
+        assertFalse(
+            fixture.secondOutput.toString().contains("kata-set-rules"),
+            fixture.secondOutput.toString());
+      } finally {
+        Lizzie.config.extraMode = previousMode;
+        Lizzie.leelaz2 = previousSecond;
+      }
     }
   }
 
