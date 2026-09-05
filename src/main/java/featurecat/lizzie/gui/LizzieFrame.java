@@ -12225,6 +12225,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void setRules() {
+    if (SetKataRules.rejectEngineGameInteraction()) return;
     if (isWholeGameAnalysisStartingOrRunning()) {
       Utils.showMsg(Lizzie.resourceBundle.getString("WholeGameAnalysis.conflict.analysis"));
       return;

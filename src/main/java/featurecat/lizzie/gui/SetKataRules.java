@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.util.Utils;
 import java.awt.Dimension;
@@ -309,6 +310,7 @@ public class SetKataRules extends JDialog {
     btnApply.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
+            if (rejectEngineGameInteraction()) return;
             if (!isCurrentEngine() || !engine.isLoaded() || !engine.isStarted()) {
               Utils.showMsg(resourceBundle.getString("LizzieFrame.setParamNoEngineHint"));
               setVisible(false);
@@ -461,6 +463,7 @@ public class SetKataRules extends JDialog {
       //      msg.setVisible(true);
       Utils.showMsg(resourceBundle.getString("SetKataRules.notKataGoHint"));
     }
+    if (rejectEngineGameInteraction()) return;
     engine.recentRulesLine = "";
     engine.getParameterScadule(false);
     engine.nameCmd();
@@ -468,7 +471,7 @@ public class SetKataRules extends JDialog {
   }
 
   private void closeDialog() {
-    if (isCurrentEngine() && engine.isPondering()) {
+    if (!rejectEngineGameInteraction() && isCurrentEngine() && engine.isPondering()) {
       engine.ponder();
     }
     setVisible(false);
@@ -517,6 +520,12 @@ public class SetKataRules extends JDialog {
 
       return true;
     }
+  }
+
+  static boolean rejectEngineGameInteraction() {
+    if (!EngineManager.occupiesEngineGameAdmission()) return false;
+    Utils.showMsg(Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.engine_game"));
+    return true;
   }
 
   private boolean isCurrentEngine() {
