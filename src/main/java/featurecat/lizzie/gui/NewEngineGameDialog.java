@@ -1014,6 +1014,7 @@ public class NewEngineGameDialog extends JDialog {
   }
 
   public void apply() {
+    if (!Lizzie.frame.reserveEngineGameDialog()) return;
     try {
       // validate data
       if (Lizzie.config.chkEngineSgfStart) {
@@ -1135,6 +1136,9 @@ public class NewEngineGameDialog extends JDialog {
       EngineGameBatchSpec spec =
           EngineGameBatchSpecFactory.from(
               EngineGameBatchSpecCapture.fromToolbar(LizzieFrame.toolbar, Utils.getEngineData()));
+      // The exact game owner must acquire its own lifecycle before its worker emits genmove.
+      // Keeping the modal dialog's EDT reservation until playing() would reject that first move.
+      Lizzie.frame.releaseEngineGameDialog();
       Acceptance acceptance =
           Lizzie.engineGame.accept(
               spec,
@@ -1150,6 +1154,10 @@ public class NewEngineGameDialog extends JDialog {
                   pendingEngineGameStart = false;
                   cancelled = true;
                   okButton.setEnabled(true);
+                  if (!Lizzie.frame.reserveEngineGameDialog()) {
+                    setVisible(false);
+                    return;
+                  }
                   if (!(failure instanceof StartFailure.CancelledByUser)) {
                     Utils.showMsg(
                         Lizzie.resourceBundle.getString("EngineManager.engineGameStartFailed"),
@@ -1161,6 +1169,7 @@ public class NewEngineGameDialog extends JDialog {
         pendingEngineGameStart = false;
         cancelled = true;
         okButton.setEnabled(true);
+        if (!Lizzie.frame.reserveEngineGameDialog()) setVisible(false);
       }
 
     } catch (ParseException e) {

@@ -12390,11 +12390,34 @@ public class LizzieFrame extends JFrame {
     }
   }
 
+  private Leelaz.EngineModeReservation engineGameDialogReservation;
+
+  boolean reserveEngineGameDialog() {
+    if (engineGameDialogReservation != null) return true;
+    Leelaz engine = Lizzie.leelaz;
+    if (engine == null) return true;
+    engineGameDialogReservation = engine.beginEngineModeReservation();
+    if (engineGameDialogReservation != null) return true;
+    showForegroundEngineModeReservationConflict();
+    return false;
+  }
+
+  void releaseEngineGameDialog() {
+    Leelaz.EngineModeReservation reservation = engineGameDialogReservation;
+    engineGameDialogReservation = null;
+    if (reservation != null) reservation.close();
+  }
+
   public void startEngineGameDialog() {
     if (deferUntilHumanSlExit(this::startEngineGameDialog)) {
       return;
     }
-    runWithForegroundEngineModeReservation(this::startEngineGameDialogReserved);
+    if (!reserveEngineGameDialog()) return;
+    try {
+      startEngineGameDialogReserved();
+    } finally {
+      releaseEngineGameDialog();
+    }
   }
 
   protected void startEngineGameDialogReserved() {
