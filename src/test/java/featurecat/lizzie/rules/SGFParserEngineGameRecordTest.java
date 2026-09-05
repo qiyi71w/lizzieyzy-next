@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.GameInfo;
+import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.enginegame.EngineGameCompletionFacts;
 import featurecat.lizzie.enginegame.EngineGameParticipantDescriptor;
 import featurecat.lizzie.enginegame.EngineGameRecord;
@@ -12,7 +14,11 @@ import featurecat.lizzie.enginegame.EngineGameRecordContext;
 import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.enginegame.EngineParticipantIdentity;
 import featurecat.lizzie.enginegame.GameOutcome;
+import featurecat.lizzie.enginegame.MatchRulesAdmission;
+import featurecat.lizzie.enginegame.MatchRulesSnapshot;
+import featurecat.lizzie.enginegame.MatchRulesTexts;
 import featurecat.lizzie.gui.LizzieFrame;
+import java.util.ResourceBundle;
 import org.junit.jupiter.api.Test;
 
 class SGFParserEngineGameRecordTest {
@@ -65,5 +71,70 @@ class SGFParserEngineGameRecordTest {
 
       assertTrue(sgf.contains("DZ[KB]"), sgf);
     }
+  }
+
+  @Test
+  void saveWritesFrozenMatchRulesNotLiveEngineClassification() throws Exception {
+    try (RulesLayerTestHarness env = RulesLayerTestHarness.open()) {
+      ResourceBundle bundle = Lizzie.resourceBundle;
+      KataGoRules chinese = KataGoRules.parse("chinese").orElseThrow();
+      KataGoRules positional = KataGoRules.parse("chinese-ogs").orElseThrow();
+      MatchRulesSnapshot snapshot =
+          MatchRulesSnapshot.of(
+              MatchRulesSnapshot.Phase.COMPLETED,
+              chinese,
+              side(new EngineParticipantIdentity("b", "BlackEngine"), chinese),
+              side(new EngineParticipantIdentity("w", "WhiteEngine"), positional),
+              MatchRulesAdmission.Outcome.REJECT);
+      GameInfo info = Lizzie.board.getHistory().getGameInfo();
+      EngineGameRecordContext context =
+          new EngineGameRecordContext(
+              null,
+              new EngineGameParticipantDescriptor(
+                  new EngineParticipantIdentity("b", "BlackEngine"), "BlackEngine", true, false, 1),
+              new EngineGameParticipantDescriptor(
+                  new EngineParticipantIdentity("w", "WhiteEngine"), "WhiteEngine", true, false, 1),
+              snapshot);
+      info.attachEngineGameRecordContext(context);
+      info.freezeEngineGameRecord(
+          new EngineGameRecord(
+              context,
+              new EngineGameCompletionFacts(
+                  new GameOutcome.Resign(EngineGameSide.BLACK), 1, 1, true, 0, 0, 0, 0),
+              "BlackEngine",
+              "WhiteEngine",
+              snapshot));
+      if (Lizzie.leelaz != null) {
+        Lizzie.leelaz.usingSpecificRules = 3;
+      }
+
+      String first = SGFParser.saveToString(false);
+      assertTrue(first.contains(bundle.getString("MatchRules.sgf.begin")), first);
+      assertTrue(first.contains("ko=SIMPLE"), first);
+      assertTrue(first.contains("ko=POSITIONAL"), first);
+      assertFalse(first.contains(bundle.getString("LizzieFrame.currentRules.japanese")), first);
+
+      String second = SGFParser.saveToString(false);
+      int firstIndex = first.indexOf(bundle.getString("MatchRules.sgf.begin"));
+      int secondBegin = second.indexOf(bundle.getString("MatchRules.sgf.begin"));
+      int thirdBegin =
+          second.indexOf(bundle.getString("MatchRules.sgf.begin"), secondBegin + 1);
+      assertTrue(firstIndex >= 0, first);
+      assertTrue(secondBegin >= 0, second);
+      assertTrue(thirdBegin < 0, second);
+    }
+  }
+
+  private static MatchRulesAdmission.SideResult side(
+      EngineParticipantIdentity identity, KataGoRules rules) {
+    return new MatchRulesAdmission.SideResult(
+        identity,
+        true,
+        true,
+        rules,
+        rules,
+        EngineRulesResult.Status.CONFIRMED,
+        EngineRulesResult.Reason.NONE,
+        false);
   }
 }

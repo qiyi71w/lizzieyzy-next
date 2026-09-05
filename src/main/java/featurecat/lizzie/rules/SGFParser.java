@@ -6,9 +6,12 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.MoveData;
 import featurecat.lizzie.enginegame.EngineGameParticipantDescriptor;
+import featurecat.lizzie.enginegame.EngineGamePresentation;
 import featurecat.lizzie.enginegame.EngineGameRecord;
 import featurecat.lizzie.enginegame.EngineGameRecordContext;
 import featurecat.lizzie.enginegame.EngineGameSaveSnapshot;
+import featurecat.lizzie.enginegame.MatchRulesSnapshot;
+import featurecat.lizzie.enginegame.MatchRulesTexts;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.logging.SgfObservation;
 import featurecat.lizzie.util.EncodingDetector;
@@ -1086,6 +1089,22 @@ public class SGFParser {
     return new long[] {blackPlayouts, whitePlayouts};
   }
 
+  private static void appendMatchRulesComment(
+      BoardHistoryList history, GameInfo gameInfo, EngineGameRecordContext engineContext) {
+    MatchRulesSnapshot snapshot = EngineGamePresentation.historyMatchRules(gameInfo);
+    if (snapshot != null && Lizzie.resourceBundle != null) {
+      BoardHistoryNode start = history.getStart();
+      start.getData().comment =
+          MatchRulesTexts.replaceSgfComment(
+              start.getData().comment, snapshot, Lizzie.resourceBundle);
+      return;
+    }
+    if (engineContext != null) {
+      appendEngineGameSideRules(history, engineContext.black(), "SGFParse.blackRules");
+      appendEngineGameSideRules(history, engineContext.white(), "SGFParse.whiteRules");
+    }
+  }
+
   private static void appendEngineGameSideRules(
       BoardHistoryList history, EngineGameParticipantDescriptor side, String resourceKey) {
     if (side == null || !side.katago() || Lizzie.resourceBundle == null) {
@@ -1257,10 +1276,7 @@ public class SGFParser {
         if (engineGameHistory) {
           Lizzie.board.updateWinrate();
           appendTime(gameInfo);
-          if (engineContext != null) {
-            appendEngineGameSideRules(history, engineContext.black(), "SGFParse.blackRules");
-            appendEngineGameSideRules(history, engineContext.white(), "SGFParse.whiteRules");
-          }
+          appendMatchRulesComment(history, gameInfo, engineContext);
         } else {
           if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && !fromAutoSave) {
             String rules = "";

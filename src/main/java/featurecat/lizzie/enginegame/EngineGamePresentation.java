@@ -197,25 +197,44 @@ public final class EngineGamePresentation {
     if (bundle == null) {
       return "";
     }
-    if (info != null) {
-      if (info.engineGameRecord() != null && info.engineGameRecord().matchRules() != null) {
-        return info.engineGameRecord().matchRules().mainSummary(bundle);
-      }
-      if (info.engineGameRecordContext() != null
-          && info.engineGameRecordContext().matchRules() != null) {
-        return info.engineGameRecordContext().matchRules().mainSummary(bundle);
-      }
+    MatchRulesSnapshot inspectable = inspectableMatchRules(snapshot, live, info);
+    return inspectable == null ? "" : inspectable.mainSummary(bundle);
+  }
+
+  public static MatchRulesSnapshot historyMatchRules(GameInfo info) {
+    if (info == null) {
+      return null;
+    }
+    if (info.engineGameRecord() != null && info.engineGameRecord().matchRules() != null) {
+      return info.engineGameRecord().matchRules();
+    }
+    if (info.engineGameRecordContext() != null
+        && info.engineGameRecordContext().matchRules() != null) {
+      return info.engineGameRecordContext().matchRules();
+    }
+    if (info.engineGameSaveSnapshot() != null
+        && info.engineGameSaveSnapshot().context() != null
+        && info.engineGameSaveSnapshot().context().matchRules() != null) {
+      return info.engineGameSaveSnapshot().context().matchRules();
+    }
+    return null;
+  }
+
+  public static MatchRulesSnapshot inspectableMatchRules(
+      EngineGameSnapshot snapshot, MatchRulesSnapshot live, GameInfo info) {
+    MatchRulesSnapshot history = historyMatchRules(info);
+    if (history != null) {
+      return history;
     }
     if (live == null) {
-      return "";
+      return null;
     }
     boolean idle = snapshot instanceof EngineGameSnapshot.Idle;
     if (!idle
         || live.phase() == MatchRulesSnapshot.Phase.FAILED
         || live.phase() == MatchRulesSnapshot.Phase.PREPARING) {
-      return live.mainSummary(bundle);
+      return live;
     }
-    return "";
+    return null;
   }
-
 }

@@ -114,6 +114,29 @@ public final class KataGoRules {
     return value instanceof Boolean ? (Boolean) value : false;
   }
 
+  public String fieldSummary() {
+    StringBuilder text = new StringBuilder();
+    for (String key : REQUIRED_FIELDS) {
+      Object value = fields.get(key);
+      if (value != null) {
+        if (text.length() > 0) {
+          text.append(", ");
+        }
+        text.append(key).append('=').append(value);
+      }
+    }
+    for (Map.Entry<String, Object> entry : fields.entrySet()) {
+      if (REQUIRED_FIELDS.contains(entry.getKey()) || entry.getValue() == null) {
+        continue;
+      }
+      if (text.length() > 0) {
+        text.append(", ");
+      }
+      text.append(entry.getKey()).append('=').append(entry.getValue());
+    }
+    return text.toString();
+  }
+
   public KataGoRules overlayEditor(
       String scoring,
       String ko,
