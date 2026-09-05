@@ -2191,6 +2191,22 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   @Test
+  void rulesEntryDuringEngineGameDoesNotInterruptAutomaticMoves() {
+    EngineManager.EngineGameOwnerTransaction transaction = startExactAnalysisGame();
+    startExactAnalyze(black, transaction, "B");
+    playExactAnalysisMove(black, "D4", 1);
+    playExactAnalysisMove(white, "Q16", 2);
+    Lizzie.setPrimaryEngine(black);
+    String before = black.commandText();
+
+    Lizzie.frame.setRules();
+
+    assertEquals(before, black.commandText());
+    playExactAnalysisMove(black, "C3", 3);
+    assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
+  }
+
+  @Test
   void exactAnalysisParticipantsAlternateFourMovesAndRefreshCurrentOutput() {
     EngineManager.EngineGameOwnerTransaction transaction = startExactAnalysisGame();
     startExactAnalyze(black, transaction, "B");
