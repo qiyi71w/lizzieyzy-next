@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Fixed stopped streaming-genmove requests to keep the initial ACK separate from the final move, drain late results without changing client history, and restore the foreground engine position before reuse.
 - Added CI to build the shaded jar on push and pull request.
 - Added Dependabot configuration for Maven dependencies and GitHub Actions.
 - Added installation, troubleshooting, maintenance, and release-process docs.

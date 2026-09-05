@@ -222,6 +222,8 @@ public class EngineManager {
     private final AtomicBoolean rollbackFinished = new AtomicBoolean();
     private final AtomicBoolean retirementCompletionClaimed = new AtomicBoolean();
     private final AtomicBoolean retirementFinished = new AtomicBoolean();
+    private Runnable foregroundHandback;
+    private volatile InitialEngineStartupSynchronization foregroundSynchronization;
     private final AtomicReference<EngineGameRetirementContinuation> retirementContinuation =
         new AtomicReference<>();
     /** Guarded by {@link #ENGINE_SELECTION_STATE_LOCK}. */
@@ -236,6 +238,7 @@ public class EngineManager {
     private volatile EngineCountDown whiteCountDown;
     private volatile boolean gameWasActiveBeforeTerminal;
     private volatile boolean gameWasStartingBeforeTerminal;
+    private volatile boolean gameHadUnfinishedWork;
     private volatile Throwable terminalFailure;
     private volatile boolean externalTerminalOwner;
     private volatile long inactiveEpoch = -1L;
@@ -2266,6 +2269,21 @@ public class EngineManager {
       throw stopFailure;
     } finally {
       if (stoppedTransaction != null) {
+        if (mannul && stopClaim.wasActive && plan != null && plan.genmove()
+            && stoppedTransaction.gameHadUnfinishedWork) {
+          Leelaz target = Lizzie.leelaz;
+          Board board = Lizzie.board;
+          Object incarnation =
+              target == stoppedTransaction.blackEngine
+                  ? stoppedTransaction.blackIncarnation
+                  : target == stoppedTransaction.whiteEngine
+                      ? stoppedTransaction.whiteIncarnation
+                      : null;
+          if (target != null && incarnation != null) {
+            stoppedTransaction.foregroundHandback =
+                () -> restoreStoppedEngineGameForeground(stoppedTransaction, target, incarnation, board);
+          }
+        }
         finishEngineGameTransactionRetirement(stoppedTransaction, restoreOnFailure);
       }
     }
@@ -7318,7 +7336,7 @@ public class EngineManager {
    * authorize a quarantine write.
    */
   static TransactionlessAnalysisWriteLease claimTransactionlessAnalysisWrite(
-      Leelaz engine, Object expectedIncarnation, Object recoveryToken) {
+      Leelaz engine, Object expectedIncarnation, Object recoveryToken, Object restoreOwner) {
     if (engine == null || expectedIncarnation == null) {
       return null;
     }
@@ -7342,7 +7360,17 @@ public class EngineManager {
           }
           kind = TransactionlessAnalysisWriteKind.RECOVERY_TOMBSTONE;
         } else if (hasBarrier) {
-          return null;
+          EngineGameOwnerTransaction retiring = retiringEngineGameTransaction;
+          InitialEngineStartupSynchronization handback =
+              retiring == null ? null : retiring.foregroundSynchronization;
+          if (handback == null || restoreOwner != handback.lifecycleOwner
+              || handback.targetEngine != engine || Lizzie.board != handback.board
+              || Lizzie.leelaz != engine
+              || (engine == retiring.blackEngine ? retiring.blackIncarnation : retiring.whiteIncarnation)
+                  != expectedIncarnation) {
+            return null;
+          }
+          kind = TransactionlessAnalysisWriteKind.ORDINARY;
         } else {
           kind = TransactionlessAnalysisWriteKind.ORDINARY;
         }
@@ -7689,6 +7717,7 @@ public class EngineManager {
           transaction.gameWasStartingBeforeTerminal =
               transaction.phase == EngineGamePhase.PREPARING
                   || transaction.phase == EngineGamePhase.DISPATCHED;
+          transaction.gameHadUnfinishedWork = transaction.operationsInFlight.get() != 0;
           transaction.phase = terminalPhase;
           transaction.terminalFailure = failure;
           transaction.externalTerminalOwner = externalTerminalOwner;
@@ -8002,7 +8031,69 @@ public class EngineManager {
       transaction.terminalFailure =
           appendEngineGameFailure(transaction.terminalFailure, cleanupFailure);
     }
-    completeEngineGameTransactionRetirement(transaction);
+    if (transaction.foregroundHandback != null) {
+      try {
+        Thread worker =
+            transaction.manager.createEngineGameRetirementContinuationWorker(
+                transaction.foregroundHandback, "engine-game-handback-" + transaction.epoch);
+        worker.setDaemon(true);
+        worker.start();
+      } catch (RuntimeException | Error failure) {
+        transaction.terminalFailure = appendEngineGameFailure(transaction.terminalFailure, failure);
+        transaction.blackEngine.runIfCurrentEngineIncarnation(
+            transaction.blackIncarnation, () -> transaction.blackEngine.isLoaded = false);
+        transaction.whiteEngine.runIfCurrentEngineIncarnation(
+            transaction.whiteIncarnation, () -> transaction.whiteEngine.isLoaded = false);
+        completeEngineGameTransactionRetirement(transaction);
+      }
+    } else {
+      completeEngineGameTransactionRetirement(transaction);
+    }
+  }
+
+  private static void restoreStoppedEngineGameForeground(
+      EngineGameOwnerTransaction transaction, Leelaz target, Object incarnation, Board board) {
+    InitialEngineStartupSynchronization synchronization = null;
+    try {
+      if (!target.isCurrentLiveEngineIncarnation(incarnation)) {
+        completeEngineGameTransactionRetirement(transaction);
+        return;
+      }
+      synchronization =
+          InitialEngineStartupSynchronization.capturePrepared(null, target, null, board, false, false);
+      InitialEngineStartupSynchronization handback = synchronization;
+      transaction.foregroundSynchronization = handback;
+      handback.beforeRestore =
+          () -> {
+            if (Lizzie.board != board || Lizzie.leelaz != target
+                || !target.isCurrentLiveEngineIncarnation(incarnation)) {
+              throw new IllegalStateException("Stopped game foreground context changed before restore");
+            }
+          };
+      handback.acquireReservation();
+      handback.beginLifecycleCompletionClaim();
+      handback.runAfterCompletionRelease(() -> completeEngineGameTransactionRetirement(transaction));
+      handback.runUntilStable();
+      handback.confirmFinalBoardSynchronization(
+          handback::close,
+          detail -> {
+            try {
+              target.runIfCurrentEngineIncarnation(incarnation, () -> target.isLoaded = false);
+              transaction.terminalFailure =
+                  appendEngineGameFailure(transaction.terminalFailure, new IllegalStateException(detail));
+            } finally {
+              handback.close();
+            }
+          });
+    } catch (RuntimeException | Error failure) {
+      transaction.terminalFailure = appendEngineGameFailure(transaction.terminalFailure, failure);
+      target.runIfCurrentEngineIncarnation(incarnation, () -> target.isLoaded = false);
+      try {
+        if (synchronization != null) synchronization.close();
+      } finally {
+        completeEngineGameTransactionRetirement(transaction);
+      }
+    }
   }
 
   private static void completeEngineGameTransactionRetirement(EngineGameOwnerTransaction transaction) {

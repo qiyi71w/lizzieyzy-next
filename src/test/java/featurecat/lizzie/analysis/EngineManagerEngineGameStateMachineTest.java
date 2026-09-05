@@ -45,6 +45,8 @@ import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class EngineManagerEngineGameStateMachineTest {
   private EngineManager previousManager;
@@ -1051,6 +1053,113 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
     assertTrue(EngineManager.isCurrentEngineGameTransaction(transaction));
     assertEquals(EngineManager.EngineGamePhase.ACTIVE, transaction.phase());
+  }
+
+  @Test
+  void retiredAnalyzeTerminalAfterInitialAckDrainsWithoutLateMoveOrForce() throws Exception {
+    WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
+    black.isKatago = true;
+    EngineManager.EngineGameOwnerTransaction transaction =
+        activeTransaction(manager, EngineGamePlans.harness(0, 1, true), black, 0);
+    assertTrue(black.genmoveForPk("B", transaction));
+    int commandId = firstCommandId(black.commandText());
+    black.parseEngineGameLineForTest("=" + commandId);
+
+    manager.clearEngineGame();
+    assertNull(EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true));
+    black.parseEngineGameLineForTest("play D4");
+
+    assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(EngineManager.EngineGamePhase.CANCELLED, transaction.phase());
+    assertEquals(0, transaction.openPhysicalRequestsForTest());
+    assertEquals(0, transaction.operationsInFlightForTest());
+    manager.runWatchdog();
+    assertEquals(0, black.forceQuitAttempts.get());
+    assertTrue(black.isStarted());
+    assertTrue(black.isLoaded());
+    assertNotNull(EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true));
+  }
+
+  @Test
+  void retiredAnalyzeInitialAckKeepsSuccessorBlockedUntilTerminal() throws Exception {
+    WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
+    black.isKatago = true;
+    EngineManager.EngineGameOwnerTransaction transaction =
+        activeTransaction(manager, EngineGamePlans.harness(0, 1, true), black, 0);
+    assertTrue(black.genmoveForPk("B", transaction));
+    int commandId = firstCommandId(black.commandText());
+    manager.clearEngineGame();
+
+    black.parseEngineGameLineForTest("=" + commandId);
+    assertEquals(1, transaction.openPhysicalRequestsForTest());
+    assertNull(EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true));
+    black.parseEngineGameLineForTest(kataAnalysisInfo());
+    black.parseEngineGameLineForTest("play");
+    black.parseEngineGameLineForTest("play not-a-coordinate");
+    assertEquals(1, transaction.openPhysicalRequestsForTest());
+    black.parseEngineGameLineForTest("play pass");
+
+    assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(EngineManager.EngineGamePhase.CANCELLED, transaction.phase());
+    assertEquals(0, transaction.openPhysicalRequestsForTest());
+    assertEquals(0, transaction.operationsInFlightForTest());
+    manager.runWatchdog();
+    assertEquals(0, black.forceQuitAttempts.get());
+    assertTrue(black.isStarted());
+    assertTrue(black.isLoaded());
+    assertNotNull(EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true));
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void manualStopRestoresPositionBeforeSuccessfulOrFailedForegroundFence(boolean failFence)
+      throws Exception {
+    WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
+    Field wrnControl = Menu.class.getDeclaredField("chkWRN");
+    wrnControl.setAccessible(true);
+    wrnControl.set(LizzieFrame.menu, new featurecat.lizzie.gui.JFontCheckBox());
+    LizzieFrame.menu.txtWRN = new featurecat.lizzie.gui.JFontTextField();
+    black.isKatago = true;
+    AtomicBoolean engineHasLateStone = new AtomicBoolean();
+    AtomicBoolean engineBlackToPlay = new AtomicBoolean(true);
+    AtomicBoolean restoring = new AtomicBoolean();
+    ExactSnapshotRestoreProtocolFixture.Transport protocol =
+        ExactSnapshotRestoreProtocolFixture.install(
+            black,
+            command -> {
+              if (command.startsWith("kata-genmove_analyze")) return null;
+              if (command.equals("clear_board") || command.startsWith("boardsize ")) {
+                engineHasLateStone.set(false);
+                engineBlackToPlay.set(true);
+                restoring.set(true);
+              }
+              if (command.equals("name") && restoring.get()) return null;
+              return ExactSnapshotRestoreProtocolFixture.Response.success();
+            });
+    EngineManager.EngineGameOwnerTransaction transaction =
+        activeTransaction(manager, EngineGamePlans.harness(0, 1, true), black, 0);
+    assertTrue(black.genmoveForPk("B", transaction));
+    manager.stopEngineGame(0, true);
+    engineHasLateStone.set(true);
+    engineBlackToPlay.set(false);
+    black.parseEngineGameLineForTest("play D4");
+    assertNotNull(manager.retirementWorker);
+    manager.retirementWorker.join(2_000L);
+    assertFalse(manager.retirementWorker.isAlive());
+
+    assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+    assertFalse(engineHasLateStone.get(), "foreground engine must not retain the late D4 stone");
+    assertEquals(Lizzie.board.getHistory().isBlacksTurn(), engineBlackToPlay.get());
+    assertFalse(black.isPondering());
+    assertNull(EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true));
+    assertNull(black.beginExclusiveGtpLifecycleReservation());
+    List<String> commands = protocol.rawCommands();
+    int fenceId = firstCommandId(commands.get(commands.size() - 1));
+    black.processCommandResponseLineForTest((failFence ? "?" : "=") + fenceId);
+    assertEquals(!failFence, black.isLoaded());
+    assertTrue(black.isStarted());
+    assertFalse(black.isPondering());
+    assertNotNull(EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true));
   }
 
   @Test
@@ -4858,6 +4967,13 @@ class EngineManagerEngineGameStateMachineTest {
   private static final class WatchdogEngineManager extends ImmediateUiEngineManager {
     private final AtomicReference<Runnable> pendingWatchdog = new AtomicReference<>();
     private volatile RuntimeException graceFailure;
+    private volatile Thread retirementWorker;
+
+    @Override
+    protected Thread createEngineGameRetirementContinuationWorker(Runnable task, String name) {
+      retirementWorker = super.createEngineGameRetirementContinuationWorker(task, name);
+      return retirementWorker;
+    }
 
     private WatchdogEngineManager(List<Leelaz> engines) {
       super(engines);
