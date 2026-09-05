@@ -2,6 +2,7 @@ package featurecat.lizzie.enginegame;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.DesktopTimeControl;
@@ -31,6 +32,9 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   private BatchSummary lastSummary;
   private EngineGameCompletionFacts lastCompletion;
   private EngineGameChrome chrome = SwingEngineGameChrome.INSTANCE;
+  private MatchRulesSnapshot matchRulesSnapshot;
+  private MatchRulesAdmission.ConsentKey grantedMatchRulesConsent;
+  private MatchRulesConsent matchRulesConsent = featurecat.lizzie.gui.SwingMatchRulesConsent.INSTANCE;
 
   @Override
   public Acceptance accept(EngineGameBatchSpec spec, StartObserver observer) {
@@ -70,6 +74,9 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       this.observerCompleted = false;
       this.pendingSuccessor = false;
       this.lastCompletion = null;
+      matchRulesSnapshot =
+          MatchRulesSnapshot.preparing(
+              acceptedPlan.matchRules(), acceptedPlan.black(), acceptedPlan.white());
       publishLocked(
           new EngineGameSnapshot.BatchActive(
               acceptedBatch.summary(), new GameActivity.Starting(acceptedPlan.view())));
@@ -82,6 +89,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         observerCompleted = false;
         clearAcceptedLocked();
         publishLocked(new EngineGameSnapshot.Idle());
+        // Keep a failed snapshot only after a started prepare, not a refused owner start.
       }
       return new Acceptance.Rejected(ownerRejection(manager, acceptedPlan));
     }
@@ -428,6 +436,24 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       if (!starting) {
         return;
       }
+      if (matchRulesSnapshot != null
+          && (matchRulesSnapshot.phase() == MatchRulesSnapshot.Phase.PREPARING
+              || matchRulesSnapshot.phase() == MatchRulesSnapshot.Phase.PLAYING)) {
+        // Keep the last prepare observations. A failed start must not create a Playing/Completed
+        // record.
+        if (matchRulesSnapshot.black().status() != EngineRulesResult.Status.PENDING
+            || matchRulesSnapshot.white().status() != EngineRulesResult.Status.PENDING) {
+          matchRulesSnapshot =
+              MatchRulesSnapshot.of(
+                  MatchRulesSnapshot.Phase.FAILED,
+                  matchRulesSnapshot.target(),
+                  toSideResult(matchRulesSnapshot.black()),
+                  toSideResult(matchRulesSnapshot.white()),
+                  matchRulesSnapshot.outcome() == null
+                      ? MatchRulesAdmission.Outcome.REJECT
+                      : matchRulesSnapshot.outcome());
+        }
+      }
       if (observer != null && !observerCompleted) {
         observerCompleted = true;
         pending = observer;
@@ -456,6 +482,9 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       lastSummary = null;
       lastCompletion = null;
       chrome = SwingEngineGameChrome.INSTANCE;
+      matchRulesConsent = featurecat.lizzie.gui.SwingMatchRulesConsent.INSTANCE;
+      matchRulesSnapshot = null;
+      grantedMatchRulesConsent = null;
       clearAcceptedLocked();
       snapshot = new EngineGameSnapshot.Idle();
     }
@@ -661,7 +690,8 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         batch.batchLimit(),
         spec.maxMoveLimitEnabled(),
         spec.maxMoves(),
-        spec.output());
+        spec.output(),
+        spec.matchRules());
   }
 
   private void attachRecordContextToCurrentHistoryLocked() {
@@ -676,14 +706,21 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   }
 
   private void freezeRecordOnCurrentHistoryLocked(EngineGameCompletionFacts facts) {
+    if (matchRulesSnapshot != null
+        && (matchRulesSnapshot.phase() == MatchRulesSnapshot.Phase.PLAYING
+            || matchRulesSnapshot.phase() == MatchRulesSnapshot.Phase.COMPLETED)) {
+      matchRulesSnapshot = matchRulesSnapshot.completed();
+    }
     GameInfo info = currentGameInfo();
     if (info == null || facts == null) {
       return;
     }
-    EngineGameRecordContext context = info.engineGameRecordContext();
-    if (context == null && plan != null) {
+    EngineGameRecordContext context = null;
+    if (plan != null) {
       context = contextFromPlan(plan);
       info.attachEngineGameRecordContext(context);
+    } else {
+      context = info.engineGameRecordContext();
     }
     if (context == null) {
       return;
@@ -693,14 +730,16 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
             context,
             facts,
             displayName(context.black(), context.blackIndex()),
-            displayName(context.white(), context.whiteIndex())));
+            displayName(context.white(), context.whiteIndex()),
+            matchRulesSnapshot));
   }
 
   private EngineGameRecordContext contextFromPlan(EngineGamePlan current) {
     return new EngineGameRecordContext(
         current,
         descriptor(current.black(), current.blackIndex()),
-        descriptor(current.white(), current.whiteIndex()));
+        descriptor(current.white(), current.whiteIndex()),
+        matchRulesSnapshot);
   }
 
   private static EngineGameParticipantDescriptor descriptor(
@@ -804,10 +843,78 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   }
 
   private static StartFailure startFailureFrom(Throwable cause) {
+    if (cause instanceof MatchRulesPrepareException) {
+      return new StartFailure.MatchRulesFailed(cause.getMessage());
+    }
     String detail = cause == null || cause.getMessage() == null ? "" : cause.getMessage();
     if (detail.contains("deadline expired")) {
       return new StartFailure.Timeout();
     }
+    if (detail.contains("Match rules") || detail.contains("match-rules")) {
+      return new StartFailure.MatchRulesFailed(detail);
+    }
     return new StartFailure.ParticipantStartupFailed();
+  }
+
+  public MatchRulesSnapshot matchRulesSnapshot() {
+    synchronized (lock) {
+      return matchRulesSnapshot;
+    }
+  }
+
+  public void publishMatchRulesSnapshot(MatchRulesSnapshot snapshot) {
+    synchronized (lock) {
+      this.matchRulesSnapshot = snapshot;
+    }
+  }
+
+  public MatchRulesAdmission.ConsentKey grantedMatchRulesConsent() {
+    synchronized (lock) {
+      return grantedMatchRulesConsent;
+    }
+  }
+
+  public void grantMatchRulesConsent(MatchRulesAdmission.ConsentKey key) {
+    synchronized (lock) {
+      grantedMatchRulesConsent = key;
+    }
+  }
+
+  public void installMatchRulesConsentForTest(MatchRulesConsent consent) {
+    synchronized (lock) {
+      matchRulesConsent = consent;
+    }
+  }
+
+  public boolean requestUnverifiedConsent(MatchRulesAdmission.Decision decision) {
+    MatchRulesConsent consent;
+    synchronized (lock) {
+      consent = matchRulesConsent;
+    }
+    return consent != null && consent.confirmUnverified(decision);
+  }
+
+  public void cancelSuccessorAfterRestoreFailure() {
+    synchronized (lock) {
+      pendingSuccessor = false;
+      if (snapshot instanceof EngineGameSnapshot.BatchActive active
+          && active.activity() instanceof GameActivity.BetweenGames) {
+        plan = null;
+        transaction = null;
+        publishLocked(new EngineGameSnapshot.Idle());
+      }
+    }
+  }
+
+  private static MatchRulesAdmission.SideResult toSideResult(MatchRulesSnapshot.Side side) {
+    return new MatchRulesAdmission.SideResult(
+        side.identity(),
+        side.canSet(),
+        side.canQuery(),
+        side.original(),
+        side.observed(),
+        side.status(),
+        side.reason(),
+        false);
   }
 }

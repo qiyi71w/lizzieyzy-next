@@ -1021,6 +1021,7 @@ class EngineGameModuleContractTest {
       isLoaded = true;
       width = 19;
       height = 19;
+      enableAutoSettleMatchRulesForTest();
     }
 
     @Override

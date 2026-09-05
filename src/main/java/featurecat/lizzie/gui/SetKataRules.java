@@ -44,14 +44,32 @@ public class SetKataRules extends JDialog {
   private JFontRadioButton rdoNoButtonGo;
   private JFontLabel lblStatus;
   private final Leelaz engine;
+  private final boolean composeOnly;
+  private KataGoRules composed;
   private volatile long statusWatchGeneration;
 
   public SetKataRules() {
-    this(Lizzie.leelaz);
+    this(Lizzie.leelaz, false, null);
   }
 
   SetKataRules(Leelaz engine) {
+    this(engine, false, null);
+  }
+
+  static java.util.Optional<KataGoRules> composeMatchRules(
+      java.awt.Window owner, KataGoRules initial) {
+    SetKataRules dialog = new SetKataRules(Lizzie.leelaz, true, initial);
+    dialog.setModal(true);
+    if (owner != null) {
+      dialog.setLocationRelativeTo(owner);
+    }
+    dialog.setVisible(true);
+    return java.util.Optional.ofNullable(dialog.composed);
+  }
+
+  private SetKataRules(Leelaz engine, boolean composeOnly, KataGoRules initial) {
     this.engine = engine;
+    this.composeOnly = composeOnly;
     // this.setModal(true);
     // setType(Type.POPUP);
     setResizable(false);
@@ -388,27 +406,40 @@ public class SetKataRules extends JDialog {
       // TODO Auto-generated catch block
       e1.printStackTrace();
     }
-    if (!engine.isKatago) {
+    if (!composeOnly && engine != null && !engine.isKatago) {
       Utils.showMsg(resourceBundle.getString("SetKataRules.notKataGoHint"));
     }
     lblStatus = new JFontLabel("");
     lblStatus.setBounds(18, 288, 897, 23);
     getContentPane().add(lblStatus);
-    if (rejectEngineGameInteraction()) return;
-    engine.queryEngineRules();
-    refreshStatus();
-    watchEngineRulesStatus();
+    if (composeOnly) {
+      chkbxAutoLoadRules.setVisible(false);
+      lblStatus.setVisible(false);
+      if (initial != null) {
+        applyJsonToEditor(initial.toJson());
+      }
+    } else {
+      if (rejectEngineGameInteraction()) return;
+      engine.queryEngineRules();
+      refreshStatus();
+      watchEngineRulesStatus();
+    }
   }
 
   private void closeDialog() {
     statusWatchGeneration++;
-    if (!rejectEngineGameInteraction() && isCurrentEngine() && engine.isPondering()) {
+    if (!composeOnly && !rejectEngineGameInteraction() && isCurrentEngine() && engine.isPondering()) {
       engine.ponder();
     }
     setVisible(false);
   }
 
   void applySelectedRules() {
+    if (composeOnly) {
+      composed = rulesFromEditor();
+      setVisible(false);
+      return;
+    }
     if (rejectEngineGameInteraction()) return;
     if (!isCurrentEngine() || !engine.isLoaded() || !engine.isStarted()) {
       Utils.showMsg(resourceBundle.getString("LizzieFrame.setParamNoEngineHint"));
@@ -451,9 +482,12 @@ public class SetKataRules extends JDialog {
             ? "0"
             : rdoHandicapKomiN.isSelected() ? "N" : rdoHandicapKomiN1.isSelected() ? "N-1" : "";
     boolean hasButton = rdoButtonGo.isSelected();
-    KataGoRules base = engine.engineRulesResult().observed();
-    if (base == null) {
-      base = KataGoRules.parse(engine.recentRulesLine).orElse(null);
+    KataGoRules base = null;
+    if (!composeOnly && engine != null) {
+      base = engine.engineRulesResult().observed();
+      if (base == null) {
+        base = KataGoRules.parse(engine.recentRulesLine).orElse(null);
+      }
     }
     if (base != null) {
       return base.overlayEditor(scoring, ko, suicide, tax, whiteHandicapBonus, hasButton);
@@ -490,6 +524,15 @@ public class SetKataRules extends JDialog {
       return false;
     }
     jo = rules.toJson();
+    applyJsonToEditor(jo);
+    return true;
+  }
+
+  private void applyJsonToEditor(JSONObject jo) {
+    this.jo = jo;
+    if (jo == null) {
+      return;
+    }
     if (jo.optBoolean("hasButton", false)) rdoButtonGo.setSelected(true);
     else rdoNoButtonGo.setSelected(true);
     if (jo.optBoolean("suicide", false)) rdoSuicide.setSelected(true);
@@ -519,7 +562,6 @@ public class SetKataRules extends JDialog {
     if (jo.optString("tax", "").contentEquals("NONE")) rdoNoTax.setSelected(true);
     if (jo.optString("tax", "").contentEquals("ALL")) rdoAllTax.setSelected(true);
     if (jo.optString("tax", "").contentEquals("SEKI")) rdoSeKiTax.setSelected(true);
-    return true;
   }
 
   String statusText() {

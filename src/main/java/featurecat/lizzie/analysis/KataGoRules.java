@@ -44,6 +44,22 @@ public final class KataGoRules {
     this.fields = Collections.unmodifiableMap(new TreeMap<>(fields));
   }
 
+  public static List<String> officialPresetNames() {
+    return List.copyOf(PRESETS.keySet());
+  }
+
+  public static Optional<String> officialNameOf(KataGoRules rules) {
+    if (rules == null) {
+      return Optional.empty();
+    }
+    for (Map.Entry<String, KataGoRules> entry : PRESETS.entrySet()) {
+      if (entry.getValue().semanticallyEquals(rules)) {
+        return Optional.of(entry.getKey());
+      }
+    }
+    return Optional.empty();
+  }
+
   public static Optional<KataGoRules> parse(String raw) {
     if (raw == null) {
       return Optional.empty();

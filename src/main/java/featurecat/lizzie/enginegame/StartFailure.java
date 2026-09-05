@@ -6,4 +6,10 @@ public sealed interface StartFailure {
   record ParticipantStartupFailed() implements StartFailure {}
 
   record Timeout() implements StartFailure {}
+
+  record MatchRulesFailed(String detail) implements StartFailure {
+    public MatchRulesFailed {
+      detail = detail == null ? "" : detail;
+    }
+  }
 }

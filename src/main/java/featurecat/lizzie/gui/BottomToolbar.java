@@ -6,6 +6,7 @@ import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.Acceptance;
+import featurecat.lizzie.enginegame.EngineGameMatchRulesSelection;
 import featurecat.lizzie.enginegame.StartFailure;
 import featurecat.lizzie.enginegame.StartObserver;
 import featurecat.lizzie.enginegame.EngineGamePresentation;
@@ -4046,6 +4047,19 @@ public class BottomToolbar extends JPanel {
   }
 
   public boolean startEngineGame() {
+    if (EngineGameMatchRulesSelection.storedIsCorrupt(Lizzie.config)) {
+      Utils.showMsg(Lizzie.resourceBundle.getString("NewEngineGameDialog.matchRulesCorrupt"));
+      if (Lizzie.frame != null) {
+        Lizzie.frame.startEngineGameDialog();
+      }
+      return false;
+    }
+    if (EngineGameMatchRulesSelection.stored(Lizzie.config).isEmpty()) {
+      if (Lizzie.frame != null) {
+        Lizzie.frame.startEngineGameDialog();
+      }
+      return false;
+    }
     List<EngineData> engines = Utils.getEngineData();
     Acceptance acceptance =
         Lizzie.engineGame.accept(

@@ -8,6 +8,9 @@ import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.gui.EnginePkIdentity;
 import featurecat.lizzie.enginegame.EngineParticipantIdentity;
 import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.MatchRulesAdmission;
+import featurecat.lizzie.enginegame.MatchRulesPrepareException;
+import featurecat.lizzie.enginegame.MatchRulesSnapshot;
 import featurecat.lizzie.enginegame.BatchSummary;
 import featurecat.lizzie.enginegame.EngineGamePlayMode;
 import featurecat.lizzie.enginegame.OpeningStanding;
@@ -234,6 +237,12 @@ public class EngineManager {
     private volatile Object whiteStartupIncarnation;
     private volatile Object blackIncarnation;
     private volatile Object whiteIncarnation;
+    private volatile MatchRulesPrepareState matchRules;
+    private final java.util.concurrent.atomic.AtomicBoolean matchRulesRestoreStarted =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    private final java.util.concurrent.atomic.AtomicBoolean matchRulesRestoreFinished =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    private volatile boolean matchRulesRestoreFailed;
     private volatile EngineCountDown blackCountDown;
     private volatile EngineCountDown whiteCountDown;
     private volatile boolean gameWasActiveBeforeTerminal;
@@ -372,6 +381,41 @@ public class EngineManager {
         }
       }
       return open;
+    }
+  }
+
+  static final class MatchRulesPrepareState {
+    private final KataGoRules target;
+    private Side black;
+    private Side white;
+
+    private MatchRulesPrepareState(KataGoRules target) {
+      this.target = target;
+    }
+
+    static final class Side {
+      private EngineParticipantIdentity identity;
+      private Leelaz engine;
+      private Object incarnation;
+      private KataGoRules original;
+      private KataGoRules observed;
+      private boolean canSet;
+      private boolean canQuery;
+      private EngineRulesResult.Status status = EngineRulesResult.Status.IDLE;
+      private EngineRulesResult.Reason reason = EngineRulesResult.Reason.NONE;
+      private boolean modifiedOrUncertain;
+
+      private MatchRulesAdmission.SideResult toSideResult() {
+        return new MatchRulesAdmission.SideResult(
+            identity,
+            canSet,
+            canQuery,
+            original,
+            observed,
+            status,
+            reason,
+            modifiedOrUncertain);
+      }
     }
   }
 
@@ -2523,9 +2567,8 @@ public class EngineManager {
                     gameTransaction, () -> whiteEngine.sendCommand("clear_cache"))) {
                   return;
                 }
-                if (firstTime
-                    && !runEngineGameIoStep(
-                        gameTransaction, () -> appendEngineGameRules(gameTransaction))) {
+                if (!runEngineGameIoStep(
+                    gameTransaction, () -> prepareMatchRulesForEngineGame(gameTransaction))) {
                   return;
                 }
                 if (!isCurrentEngineGameTransaction(gameTransaction)) {
@@ -2646,9 +2689,8 @@ public class EngineManager {
                   selectedEngine = blackEngine;
                   selectedIndex = gameTransaction.blackIndex;
                 }
-                if (firstTime
-                    && !runEngineGameIoStep(
-                        gameTransaction, () -> appendEngineGameRules(gameTransaction))) return;
+                if (!runEngineGameIoStep(
+                    gameTransaction, () -> prepareMatchRulesForEngineGame(gameTransaction))) return;
                 if (!activateEngineGameTransaction(
                     gameTransaction,
                     selectedEngine,
@@ -2903,8 +2945,280 @@ public class EngineManager {
     return installEngineGameCountDowns(transaction, blackClock, whiteClock);
   }
 
+  private void prepareMatchRulesForEngineGame(EngineGameOwnerTransaction transaction) {
+    EngineGamePlan plan = transaction.plan;
+    if (plan == null || plan.matchRules() == null) {
+      return;
+    }
+    KataGoRules target = plan.matchRules();
+    if (Lizzie.engineGame != null) {
+      Lizzie.engineGame.publishMatchRulesSnapshot(
+          MatchRulesSnapshot.preparing(target, plan.black(), plan.white()));
+    }
+    MatchRulesPrepareState state = new MatchRulesPrepareState(target);
+    transaction.matchRules = state;
+    state.black =
+        captureMatchRulesOriginal(
+            transaction,
+            transaction.blackEngine(),
+            plan.black(),
+            transaction.blackIncarnation);
+    if (!isCurrentEngineGameTransaction(transaction)) {
+      return;
+    }
+    state.white =
+        captureMatchRulesOriginal(
+            transaction,
+            transaction.whiteEngine(),
+            plan.white(),
+            transaction.whiteIncarnation);
+    if (!isCurrentEngineGameTransaction(transaction)) {
+      return;
+    }
+    boolean originalCaptureFailed =
+        MatchRulesAdmission.isHardFailure(state.black.toSideResult())
+            || MatchRulesAdmission.isHardFailure(state.white.toSideResult());
+    if (!originalCaptureFailed) {
+      overlayMatchRulesTarget(transaction, state.black, target);
+      if (!isCurrentEngineGameTransaction(transaction)) {
+        return;
+      }
+      overlayMatchRulesTarget(transaction, state.white, target);
+      if (!isCurrentEngineGameTransaction(transaction)) {
+        return;
+      }
+    }
+    EngineParticipantIdentity batchFirst = plan.firstIsBlack() ? plan.black() : plan.white();
+    EngineParticipantIdentity batchSecond = plan.firstIsBlack() ? plan.white() : plan.black();
+    MatchRulesAdmission.ConsentKey existing =
+        Lizzie.engineGame == null ? null : Lizzie.engineGame.grantedMatchRulesConsent();
+    MatchRulesAdmission.Decision decision =
+        MatchRulesAdmission.decide(
+            target,
+            batchFirst,
+            batchSecond,
+            state.black.toSideResult(),
+            state.white.toSideResult(),
+            existing);
+    if (!decision.admitted()) {
+      publishFailedMatchRules(target, state, decision);
+      if (isCurrentEngineGameTransaction(transaction)) {
+        restoreMatchRulesBeforeRelease(transaction);
+        throw new MatchRulesPrepareException(
+            decision.rejectReason() == null || decision.rejectReason().isEmpty()
+                ? "mismatch"
+                : decision.rejectReason());
+      }
+      return;
+    }
+    if (decision.outcome() == MatchRulesAdmission.Outcome.ADMIT_UNVERIFIED) {
+      if (existing == null || !existing.sameConsent(decision.consentKey())) {
+        boolean accepted =
+            Lizzie.engineGame != null
+                && Lizzie.engineGame.requestUnverifiedConsent(decision);
+        if (!accepted) {
+          publishFailedMatchRules(target, state, decision);
+          if (isCurrentEngineGameTransaction(transaction)) {
+            restoreMatchRulesBeforeRelease(transaction);
+            throw new MatchRulesPrepareException("unverified-consent-refused");
+          }
+          return;
+        }
+        Lizzie.engineGame.grantMatchRulesConsent(decision.consentKey());
+      }
+    }
+    if (Lizzie.engineGame != null) {
+      Lizzie.engineGame.publishMatchRulesSnapshot(
+          MatchRulesSnapshot.of(
+              MatchRulesSnapshot.Phase.PLAYING,
+              target,
+              state.black.toSideResult(),
+              state.white.toSideResult(),
+              decision.outcome()));
+    }
+    appendEngineGameRules(transaction);
+  }
+
+  private static void publishFailedMatchRules(
+      KataGoRules target,
+      MatchRulesPrepareState state,
+      MatchRulesAdmission.Decision decision) {
+    if (Lizzie.engineGame == null || state.black == null || state.white == null) {
+      return;
+    }
+    Lizzie.engineGame.publishMatchRulesSnapshot(
+        MatchRulesSnapshot.of(
+            MatchRulesSnapshot.Phase.FAILED,
+            target,
+            state.black.toSideResult(),
+            state.white.toSideResult(),
+            decision.outcome()));
+  }
+
+  private MatchRulesPrepareState.Side captureMatchRulesOriginal(
+      EngineGameOwnerTransaction transaction,
+      Leelaz engine,
+      EngineParticipantIdentity identity,
+      Object incarnation) {
+    MatchRulesPrepareState.Side side = new MatchRulesPrepareState.Side();
+    side.identity = identity;
+    side.engine = engine;
+    side.incarnation = incarnation;
+    if (engine == null) {
+      side.status = EngineRulesResult.Status.CAPABILITY_FAILED;
+      side.reason = EngineRulesResult.Reason.LIST_COMMANDS_FAILED;
+      return side;
+    }
+    if (incarnation != null && !engine.isCurrentEngineIncarnation(incarnation)) {
+      side.status = EngineRulesResult.Status.CAPABILITY_FAILED;
+      side.reason = EngineRulesResult.Reason.LIST_COMMANDS_FAILED;
+      return side;
+    }
+    engine.queryEngineRulesForMatchOwner();
+    if (!waitForMatchRulesSettlement(transaction, engine)) {
+      copyEngineRulesResult(side, engine.engineRulesResult());
+      if (side.reason == EngineRulesResult.Reason.SET_TIMEOUT
+          || side.status == EngineRulesResult.Status.SET_FAILED) {
+        side.modifiedOrUncertain = true;
+      }
+      return side;
+    }
+    EngineRulesResult queried = engine.engineRulesResult();
+    copyEngineRulesResult(side, queried);
+    if (queried.isFailed()) {
+      return side;
+    }
+    if (side.canQuery) {
+      if (!queried.isConfirmed() || queried.observed() == null) {
+        if (!queried.isUnconfirmed()) {
+          side.status = EngineRulesResult.Status.QUERY_FAILED;
+        }
+        return side;
+      }
+      side.original = queried.observed();
+      side.observed = queried.observed();
+      return side;
+    }
+    side.status = EngineRulesResult.Status.UNCONFIRMED;
+    side.reason = EngineRulesResult.Reason.QUERY_UNSUPPORTED;
+    return side;
+  }
+
+  private void overlayMatchRulesTarget(
+      EngineGameOwnerTransaction transaction,
+      MatchRulesPrepareState.Side side,
+      KataGoRules target) {
+    if (side == null || side.engine == null || !side.canSet || !side.canQuery) {
+      return;
+    }
+    side.modifiedOrUncertain = true;
+    side.engine.applyEngineRulesForMatchOwner(target);
+    if (!waitForMatchRulesSettlement(transaction, side.engine)) {
+      copyEngineRulesResult(side, side.engine.engineRulesResult());
+      return;
+    }
+    copyEngineRulesResult(side, side.engine.engineRulesResult());
+  }
+
+  private static void copyEngineRulesResult(
+      MatchRulesPrepareState.Side side, EngineRulesResult result) {
+    if (result == null) {
+      return;
+    }
+    side.canSet = result.canSet();
+    side.canQuery = result.canQuery();
+    side.status = result.status();
+    side.reason = result.reason();
+    if (result.observed() != null) {
+      side.observed = result.observed();
+    }
+  }
+
+  private boolean waitForMatchRulesSettlement(
+      EngineGameOwnerTransaction transaction, Leelaz engine) {
+    if (engine.engineRulesResult().isSettled()) {
+      return true;
+    }
+    return waitForEngineGameCondition(
+        transaction,
+        () -> engine.engineRulesResult().isSettled(),
+        "Match-rules command timed out");
+  }
+
+  private static void restoreMatchRulesBeforeRelease(EngineGameOwnerTransaction transaction) {
+    if (transaction == null) {
+      return;
+    }
+    MatchRulesPrepareState state = transaction.matchRules;
+    if (state == null) {
+      return;
+    }
+    boolean restored = true;
+    restored &= restoreMatchRulesSide(transaction, state.black);
+    restored &= restoreMatchRulesSide(transaction, state.white);
+    transaction.matchRulesRestoreFailed = !restored;
+    if (!restored && Lizzie.engineGame != null) {
+      Lizzie.engineGame.cancelSuccessorAfterRestoreFailure();
+      if (state.black != null && state.black.modifiedOrUncertain) {
+        recoverMatchRulesRestoreFailure(transaction, state.black);
+      }
+      if (state.white != null && state.white.modifiedOrUncertain) {
+        recoverMatchRulesRestoreFailure(transaction, state.white);
+      }
+    }
+  }
+
+  private static boolean restoreMatchRulesSide(
+      EngineGameOwnerTransaction transaction, MatchRulesPrepareState.Side side) {
+    if (side == null || !side.modifiedOrUncertain || side.original == null || side.engine == null) {
+      return true;
+    }
+    if (side.incarnation != null && !side.engine.isCurrentEngineIncarnation(side.incarnation)) {
+      return false;
+    }
+    side.engine.applyEngineRulesForMatchOwner(side.original);
+    if (!side.engine.waitUntilEngineRulesSettled(TimeUnit.SECONDS.toMillis(30))) {
+      return false;
+    }
+    EngineRulesResult result = side.engine.engineRulesResult();
+    return result.isConfirmed()
+        && result.observed() != null
+        && result.observed().semanticallyEquals(side.original);
+  }
+
+  private static void recoverMatchRulesRestoreFailure(
+      EngineGameOwnerTransaction transaction, MatchRulesPrepareState.Side side) {
+    if (side == null || side.engine == null) {
+      return;
+    }
+    Object incarnation =
+        side.incarnation != null ? side.incarnation : side.engine.captureEngineIncarnationFence();
+    if (incarnation == null) {
+      return;
+    }
+    requestEngineGameParticipantRecovery(
+        transaction.manager,
+        side.engine,
+        incarnation,
+        EngineGameRecoveryCause.PROCESS_EXIT);
+  }
+
   private void appendEngineGameRules(EngineGameOwnerTransaction transaction) {
     EngineGamePlan plan = transaction.plan;
+    if (Lizzie.engineGame != null && Lizzie.engineGame.matchRulesSnapshot() != null) {
+      MatchRulesSnapshot snapshot = Lizzie.engineGame.matchRulesSnapshot();
+      transaction.settingFirst +=
+          "\r\n"
+              + resourceBundle.getString("EngineGameInfo.rules")
+              + ": "
+              + MatchRulesSnapshot.ruleName(snapshot.target(), resourceBundle);
+      transaction.settingSecond +=
+          "\r\n"
+              + resourceBundle.getString("EngineGameInfo.rules")
+              + ": "
+              + MatchRulesSnapshot.ruleName(snapshot.target(), resourceBundle);
+      return;
+    }
     Leelaz firstEngine = exactEngineGameParticipant(transaction, plan.firstIndex());
     if (firstEngine == null) {
       throw new IllegalStateException("Engine-game first participant left its frozen catalog slot");
@@ -7524,6 +7838,10 @@ public class EngineManager {
       }
       Leelaz.runWithEngineGameStartupCommandContext(transaction, operation);
       return lease.isCurrent();
+    } catch (MatchRulesPrepareException expected) {
+      logEngineGameStartRefused("match-rules-prepare-rejected");
+      failEngineGameTransaction(transaction, expected);
+      return false;
     } catch (RuntimeException | Error failure) {
       logEngineGameStartRefused("startup-command-rejected");
       failEngineGameTransaction(transaction, failure);
@@ -7980,6 +8298,35 @@ public class EngineManager {
   private static void finishEngineGameTransactionRetirement(
       EngineGameOwnerTransaction transaction, boolean restoreUi) {
     if (transaction == null) {
+      return;
+    }
+    if (transaction.matchRulesRestoreStarted.compareAndSet(false, true)) {
+      EngineManager manager = transaction.manager;
+      Runnable restoreThenFinish =
+          () -> {
+            try {
+              restoreMatchRulesBeforeRelease(transaction);
+            } finally {
+              transaction.matchRulesRestoreFinished.set(true);
+              if (restoreUi) {
+                beginEngineGameRollback(transaction);
+              } else {
+                transaction.rollbackFinished.set(true);
+                completeEngineGameTransactionRetirementIfQuiescent(transaction);
+              }
+            }
+          };
+      if (manager == null) {
+        restoreThenFinish.run();
+        return;
+      }
+      Thread worker =
+          manager.createEngineGameWorker(restoreThenFinish, "engine-game-match-rules-restore");
+      worker.setDaemon(true);
+      worker.start();
+      return;
+    }
+    if (!transaction.matchRulesRestoreFinished.get()) {
       return;
     }
     if (restoreUi) {

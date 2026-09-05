@@ -1,5 +1,6 @@
 package featurecat.lizzie.enginegame;
 
+import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.rules.Movelist;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,7 @@ public final class EngineGamePlan {
   private final boolean maxMoveLimitEnabled;
   private final int maxMoves;
   private final EngineGameOutputChoices output;
+  private final KataGoRules matchRules;
 
   EngineGamePlan(
       EngineParticipantIdentity black,
@@ -51,7 +53,8 @@ public final class EngineGamePlan {
       int batchLimit,
       boolean maxMoveLimitEnabled,
       int maxMoves,
-      EngineGameOutputChoices output) {
+      EngineGameOutputChoices output,
+      KataGoRules matchRules) {
 
     this.black = Objects.requireNonNull(black, "black");
     this.white = Objects.requireNonNull(white, "white");
@@ -75,6 +78,7 @@ public final class EngineGamePlan {
     this.maxMoveLimitEnabled = maxMoveLimitEnabled;
     this.maxMoves = maxMoves;
     this.output = Objects.requireNonNull(output, "output");
+    this.matchRules = Objects.requireNonNull(matchRules, "matchRules");
   }
 
   public EngineParticipantIdentity black() {
@@ -159,6 +163,10 @@ public final class EngineGamePlan {
 
   public EngineGameOutputChoices output() {
     return output;
+  }
+
+  public KataGoRules matchRules() {
+    return matchRules;
   }
 
   public boolean genmove() {

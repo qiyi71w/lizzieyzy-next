@@ -2,12 +2,14 @@ package featurecat.lizzie.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.rules.Board;
@@ -171,6 +173,32 @@ class LeelazEngineRulesProtocolTest {
         Thread.sleep(20L);
       }
       assertTrue(fixture.output.toString().contains("kata-get-rules"));
+    }
+  }
+
+  @Test
+  void matchOwnerAppliesRulesDuringEngineGameOccupancy() throws Exception {
+    try (Fixture fixture = Fixture.ordinary()) {
+      EngineManager.resetEngineGameTransactionStateForTest();
+      EngineManager manager = new EngineManager(List.of(fixture.engine, fixture.secondEngine()));
+      Lizzie.engineManager = manager;
+      assertNotNull(
+          EngineManager.beginEngineGameTransaction(
+              manager, EngineGamePlans.harness(0, 1, true), null, true));
+      try {
+        assertTrue(EngineManager.occupiesEngineGameAdmission());
+        assertFalse(fixture.engine.applyEngineRules(KataGoRules.parse("japanese").orElseThrow()));
+        assertEquals(EngineRulesResult.Reason.OCCUPIED, fixture.engine.engineRulesResult().reason());
+        fixture.engine.enableAutoSettleMatchRulesForTest();
+        assertTrue(
+            fixture.engine.applyEngineRulesForMatchOwner(
+                KataGoRules.parse("japanese").orElseThrow()));
+        assertTrue(fixture.engine.engineRulesResult().isConfirmed());
+        assertEquals(
+            "TERRITORY", fixture.engine.engineRulesResult().observed().string("scoring"));
+      } finally {
+        EngineManager.resetEngineGameTransactionStateForTest();
+      }
     }
   }
 

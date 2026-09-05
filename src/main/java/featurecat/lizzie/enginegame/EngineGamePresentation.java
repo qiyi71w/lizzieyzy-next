@@ -4,6 +4,7 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.analysis.Leelaz;
+import java.util.ResourceBundle;
 
 /**
  * Single presentation mapping from sealed State or exact history record. Readers do not copy
@@ -187,4 +188,34 @@ public final class EngineGamePresentation {
     }
     return Lizzie.board.getHistory().getGameInfo();
   }
+
+  public static String matchRulesCaption(
+      EngineGameSnapshot snapshot,
+      MatchRulesSnapshot live,
+      GameInfo info,
+      ResourceBundle bundle) {
+    if (bundle == null) {
+      return "";
+    }
+    if (info != null) {
+      if (info.engineGameRecord() != null && info.engineGameRecord().matchRules() != null) {
+        return info.engineGameRecord().matchRules().mainSummary(bundle);
+      }
+      if (info.engineGameRecordContext() != null
+          && info.engineGameRecordContext().matchRules() != null) {
+        return info.engineGameRecordContext().matchRules().mainSummary(bundle);
+      }
+    }
+    if (live == null) {
+      return "";
+    }
+    boolean idle = snapshot instanceof EngineGameSnapshot.Idle;
+    if (!idle
+        || live.phase() == MatchRulesSnapshot.Phase.FAILED
+        || live.phase() == MatchRulesSnapshot.Phase.PREPARING) {
+      return live.mainSummary(bundle);
+    }
+    return "";
+  }
+
 }

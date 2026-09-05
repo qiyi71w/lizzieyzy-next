@@ -455,6 +455,8 @@ public class Leelaz {
   private volatile EngineRulesResult engineRulesResult = EngineRulesResult.idle();
   private boolean engineRulesIsolated;
   private boolean engineRulesAwaitingSet;
+  private volatile boolean autoSettleMatchRulesForTest;
+  private volatile MatchRulesTestHook matchRulesTestHook;
   public boolean preload = false;
   public volatile boolean started = false;
   public volatile boolean isDownWithError = false;
@@ -22351,15 +22353,26 @@ public class Leelaz {
   }
 
   public boolean applyEngineRules(KataGoRules rules) {
-    return applyEngineRules(rules, TimeUnit.SECONDS.toMillis(30));
+    return applyEngineRules(rules, TimeUnit.SECONDS.toMillis(30), false);
   }
 
   boolean applyEngineRules(KataGoRules rules, long timeoutMillis) {
+    return applyEngineRules(rules, timeoutMillis, false);
+  }
+
+  public boolean applyEngineRulesForMatchOwner(KataGoRules rules) {
+    return applyEngineRules(rules, TimeUnit.SECONDS.toMillis(30), true);
+  }
+
+  boolean applyEngineRules(KataGoRules rules, long timeoutMillis, boolean matchOwner) {
     Objects.requireNonNull(rules, "rules");
-    if (isRulesMutationOccupied()) {
+    if (!matchOwner && isRulesMutationOccupied()) {
       beginEngineRulesOperation(false, rules, lastObservedRules(), false);
       failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.OCCUPIED);
       return false;
+    }
+    if (autoSettleMatchRulesForTest) {
+      return settleMatchRulesForTest(rules, true);
     }
     if (!waitForCommandList(timeoutMillis)) {
       beginEngineRulesOperation(false, rules, lastObservedRules(), false);
@@ -22388,7 +22401,14 @@ public class Leelaz {
     return queryEngineRules(TimeUnit.SECONDS.toMillis(30));
   }
 
+  public boolean queryEngineRulesForMatchOwner() {
+    return queryEngineRules(TimeUnit.SECONDS.toMillis(30));
+  }
+
   boolean queryEngineRules(long timeoutMillis) {
+    if (autoSettleMatchRulesForTest) {
+      return settleMatchRulesForTest(null, false);
+    }
     if (!waitForCommandList(timeoutMillis)) {
       beginEngineRulesOperation(false, null, lastObservedRules(), false);
       failEngineRules(
@@ -22658,6 +22678,95 @@ public class Leelaz {
             "lizzie-engine-rules-timeout");
     timeoutThread.setDaemon(true);
     timeoutThread.start();
+  }
+
+  public void enableAutoSettleMatchRulesForTest() {
+    autoSettleMatchRulesForTest = true;
+    endGetCommandList = true;
+    isKatago = true;
+    if (!commandLists.contains("kata-set-rules")) {
+      commandLists.add("kata-set-rules");
+    }
+    if (!commandLists.contains("kata-get-rules")) {
+      commandLists.add("kata-get-rules");
+    }
+  }
+
+  public void installMatchRulesTestHook(MatchRulesTestHook hook) {
+    enableAutoSettleMatchRulesForTest();
+    matchRulesTestHook = hook;
+  }
+
+  public void confirmEngineRulesForTest(KataGoRules observed) {
+    confirmEngineRules(observed);
+  }
+
+  public void failEngineRulesForTest(
+      EngineRulesResult.Status status, EngineRulesResult.Reason reason) {
+    failEngineRules(status, reason);
+  }
+
+  public void unconfirmEngineRulesForTest(EngineRulesResult.Reason reason) {
+    unconfirmEngineRules(reason);
+  }
+
+  boolean waitUntilEngineRulesSettled(long timeoutMillis) {
+    long deadline =
+        System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(1L, timeoutMillis));
+    while (!engineRulesResult.isSettled()) {
+      if (System.nanoTime() >= deadline) {
+        failEngineRules(
+            engineRulesAwaitingSet
+                ? EngineRulesResult.Status.SET_FAILED
+                : EngineRulesResult.Status.QUERY_FAILED,
+            engineRulesAwaitingSet
+                ? EngineRulesResult.Reason.SET_TIMEOUT
+                : EngineRulesResult.Reason.QUERY_TIMEOUT);
+        return false;
+      }
+      try {
+        Thread.sleep(20L);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean settleMatchRulesForTest(KataGoRules requested, boolean setCommand) {
+    boolean canSet = commandLists.contains("kata-set-rules");
+    boolean canQuery = commandLists.contains("kata-get-rules");
+    beginEngineRulesOperation(false, requested, lastObservedRules(), true);
+    updateEngineRulesCapabilities(canSet, canQuery);
+    if (setCommand && !canSet) {
+      failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.SET_UNSUPPORTED);
+      return false;
+    }
+    if (!setCommand && !canQuery) {
+      unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      return false;
+    }
+    MatchRulesTestHook hook = matchRulesTestHook;
+    if (hook != null) {
+      if (setCommand) {
+        hook.apply(this, requested);
+      } else {
+        hook.query(this);
+      }
+      EngineRulesResult result = engineRulesResult;
+      return result.isSettled() && !result.isFailed();
+    }
+    if (setCommand) {
+      confirmEngineRules(requested);
+      return true;
+    }
+    KataGoRules observed = lastObservedRules();
+    if (observed == null) {
+      observed = KataGoRules.parse("chinese").orElseThrow();
+    }
+    confirmEngineRules(observed);
+    return true;
   }
 
   private boolean waitForCommandList(long waitMillis) {

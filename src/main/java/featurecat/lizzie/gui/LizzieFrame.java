@@ -8282,6 +8282,9 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean shouldDrawMoveNumberDown() {
+    if (!matchRulesCaption().isEmpty()) {
+      return true;
+    }
     EngineGameSnapshot snapshot = EngineGamePresentation.current();
     if (snapshot.playing()) {
       Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
@@ -8296,6 +8299,14 @@ public class LizzieFrame extends JFrame {
     if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && Lizzie.leelaz.usingSpecificRules > 0)
       return true;
     return false;
+  }
+
+  private String matchRulesCaption() {
+    return EngineGamePresentation.matchRulesCaption(
+        EngineGamePresentation.current(),
+        Lizzie.engineGame == null ? null : Lizzie.engineGame.matchRulesSnapshot(),
+        EngineGamePresentation.currentHistoryInfo(),
+        Lizzie.resourceBundle);
   }
 
   private void drawCaptured(
@@ -8527,14 +8538,19 @@ public class LizzieFrame extends JFrame {
     // Move or rules
     String moveOrRules = "";
     boolean usingSpecificRues = false;
+    String matchCaption = matchRulesCaption();
+    if (!matchCaption.isEmpty()) {
+      moveOrRules = matchCaption;
+      usingSpecificRues = true;
+    }
     Leelaz leela = null;
     EngineGameSnapshot snapshot = EngineGamePresentation.current();
-    if (snapshot.playingGenmove())
+    if (!usingSpecificRues && snapshot.playingGenmove())
       leela =
           EngineGamePresentation.sideToMoveEngine(
               snapshot, Lizzie.board.getHistory().isBlacksTurn());
-    else leela = Lizzie.leelaz;
-    if (leela != null && leela.isKatago && !EngineManager.isEmpty) {
+    else if (!usingSpecificRues) leela = Lizzie.leelaz;
+    if (!usingSpecificRues && leela != null && leela.isKatago && !EngineManager.isEmpty) {
       switch (leela.usingSpecificRules) {
         case 1:
           moveOrRules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");

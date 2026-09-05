@@ -1,5 +1,6 @@
 package featurecat.lizzie.enginegame;
 
+import featurecat.lizzie.analysis.KataGoRules;
 import java.util.List;
 import java.util.Objects;
 
@@ -38,6 +39,7 @@ public final class EngineGameParsedStart {
   private final boolean autosave;
   private final boolean saveWinrateImage;
   private final String batchName;
+  private final KataGoRules matchRules;
 
   private EngineGameParsedStart(Builder builder) {
     this.first = Objects.requireNonNull(builder.first, "first");
@@ -79,6 +81,10 @@ public final class EngineGameParsedStart {
     this.autosave = builder.autosave;
     this.saveWinrateImage = builder.saveWinrateImage;
     this.batchName = builder.batchName == null ? "" : builder.batchName;
+    this.matchRules =
+        builder.matchRules == null
+            ? KataGoRules.parse("chinese").orElseThrow()
+            : builder.matchRules;
   }
 
   public static Builder builder() {
@@ -217,6 +223,10 @@ public final class EngineGameParsedStart {
     return batchName;
   }
 
+  public KataGoRules matchRules() {
+    return matchRules;
+  }
+
   public static final class Builder {
     private EngineParticipantIdentity first;
     private EngineParticipantIdentity second;
@@ -251,6 +261,7 @@ public final class EngineGameParsedStart {
     private boolean autosave = true;
     private boolean saveWinrateImage;
     private String batchName = "";
+    private KataGoRules matchRules = KataGoRules.parse("chinese").orElseThrow();
 
     public Builder first(EngineParticipantIdentity first) {
       this.first = first;
@@ -414,6 +425,11 @@ public final class EngineGameParsedStart {
 
     public Builder batchName(String batchName) {
       this.batchName = batchName;
+      return this;
+    }
+
+    public Builder matchRules(KataGoRules matchRules) {
+      this.matchRules = matchRules;
       return this;
     }
 

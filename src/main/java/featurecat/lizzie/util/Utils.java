@@ -996,6 +996,9 @@ public class Utils {
   }
 
   public static void showMsgNoModal(String message) {
+    if (GraphicsEnvironment.isHeadless() || Lizzie.frame == null || !Lizzie.frame.isDisplayable()) {
+      return;
+    }
     Message msg = new Message();
     msg.setMessageNoModal(message);
   }

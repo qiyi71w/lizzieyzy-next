@@ -17,7 +17,8 @@ public record EngineGameBatchSpec(
     int initialBatchLimit,
     boolean maxMoveLimitEnabled,
     int maxMoves,
-    EngineGameOutputChoices output) {
+    EngineGameOutputChoices output,
+    featurecat.lizzie.analysis.KataGoRules matchRules) {
   public EngineGameBatchSpec {
     first = Objects.requireNonNull(first, "first");
     second = Objects.requireNonNull(second, "second");
@@ -26,5 +27,6 @@ public record EngineGameBatchSpec(
     secondLimits = Objects.requireNonNull(secondLimits, "secondLimits");
     opening = Objects.requireNonNull(opening, "opening");
     output = Objects.requireNonNull(output, "output");
+    matchRules = Objects.requireNonNull(matchRules, "matchRules");
   }
 }
