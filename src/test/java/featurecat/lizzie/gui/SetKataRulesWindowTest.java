@@ -39,6 +39,7 @@ class SetKataRulesWindowTest {
 
   @Test
   void windowShowsPendingThenActualConfirmedRulesNotTheRequest() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
     try (Fixture fixture = Fixture.ordinary()) {
       SetKataRules dialog = new SetKataRules(fixture.engine);
       assertTrue(dialog.statusText().contains("Confirming engine rules"));
@@ -107,6 +108,7 @@ class SetKataRulesWindowTest {
 
   @Test
   void windowShowsQueryFailureWithoutTreatingLastKnownAsSuccess() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
     try (Fixture fixture = Fixture.ordinary()) {
       SetKataRules dialog = new SetKataRules(fixture.engine);
       int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
