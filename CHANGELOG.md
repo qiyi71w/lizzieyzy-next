@@ -6,7 +6,7 @@ All notable maintenance updates to this fork are documented here.
 
 - Preserved diagnostic log record boundaries and stack-trace whitespace during export without weakening privacy redaction (#431).
 - Made diagnostic export estimates describe approximate uncompressed content, pruned proven irrelevant archives before reading using native Windows file identities where needed, and displayed publication success independently of folder opening (#430).
-- Wait for confirmed engine positions before starting ordinary analysis after moves and history navigation, preserving valid node caches (#429).
+- Wait for confirmed engine positions before starting ordinary analysis after moves and history navigation; resume ReadBoard analysis once at the final synchronized position while preserving valid node caches (#429).
 - Preserved complete custom match rules, distinguished official rule presets, clarified unverified participation, and enabled match-rule inspection from independent-board shortcuts (#422).
 - Run custom local KataGo `benchmark` commands as slot-owned, cancellable tasks with streamed output and exit-code results (#423).
 - Prevented KataGo rules dialogs from interrupting engine games while their participants remain occupied (#421).

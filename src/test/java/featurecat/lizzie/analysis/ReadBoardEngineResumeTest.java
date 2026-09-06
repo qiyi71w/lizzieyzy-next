@@ -125,38 +125,6 @@ class ReadBoardEngineResumeTest {
     }
   }
 
-  @Test
-  void forceRebuildStopsPonderBeforeLoadingSnapshot() throws Exception {
-    try (EngineResumeHarness harness =
-        EngineResumeHarness.create(rootHistory(emptyStones(), true))) {
-      harness.leelaz.isKatago = true;
-      harness.leelaz.Pondering();
-      HistoryPath path =
-          buildHistory(harness.board, placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
-      BoardHistoryNode mainEnd = path.nodes.get(path.nodes.size() - 1);
-
-      harness.readBoard.parseLine("forceRebuild");
-      harness.sync(
-          snapshot(
-              mainEnd.getData().stones,
-              mainEnd.getData().lastMove,
-              mainEnd.getData().lastMoveColor));
-
-      assertEquals(
-          0,
-          harness.leelaz.clearCount,
-          "snapshot rebuild should not use clear(), which restarts ponder.");
-      assertEquals("stop", harness.leelaz.sentCommands.get(0));
-      assertEquals("clear_board", harness.leelaz.sentCommands.get(1));
-      assertTrue(harness.leelaz.sentCommands.get(2).startsWith("loadsgf "));
-      assertFalse(
-          harness.leelaz.isPondering(),
-          "analysis should stay stopped until the scheduled resume runs.");
-
-      harness.frame.lastScheduledResumeAction.run();
-      assertEquals(1, harness.leelaz.ponderCount);
-    }
-  }
 
   @Test
   void forceRebuildContinuesPlayingAgainstLeelazGenmove() throws Exception {
@@ -947,43 +915,6 @@ class ReadBoardEngineResumeTest {
     }
   }
 
-  @Test
-  void newerSyncInvalidatesOlderScheduledResumeAction() throws Exception {
-    try (EngineResumeHarness harness =
-        EngineResumeHarness.create(rootHistory(emptyStones(), true))) {
-      HistoryPath firstPath = buildHistory(harness.board, placement(0, 0, Stone.BLACK));
-      BoardHistoryNode moveOne = firstPath.nodes.get(firstPath.nodes.size() - 1);
-
-      harness.readBoard.parseLine("forceRebuild");
-      harness.sync(
-          snapshot(
-              moveOne.getData().stones,
-              moveOne.getData().lastMove,
-              moveOne.getData().lastMoveColor));
-
-      Runnable firstScheduledAction = harness.frame.lastScheduledResumeAction;
-      assertNotNull(firstScheduledAction, "first sync should bind a resume action.");
-
-      HistoryPath secondPath = buildHistory(harness.board, placement(1, 0, Stone.WHITE));
-      BoardHistoryNode moveTwo = secondPath.nodes.get(secondPath.nodes.size() - 1);
-
-      harness.readBoard.parseLine("forceRebuild");
-      harness.sync(
-          snapshot(
-              moveTwo.getData().stones,
-              moveTwo.getData().lastMove,
-              moveTwo.getData().lastMoveColor));
-
-      Runnable secondScheduledAction = harness.frame.lastScheduledResumeAction;
-      assertNotNull(secondScheduledAction, "second sync should replace the resume action.");
-
-      firstScheduledAction.run();
-      assertEquals(0, harness.leelaz.ponderCount, "stale resume action should be ignored.");
-
-      secondScheduledAction.run();
-      assertEquals(1, harness.leelaz.ponderCount, "latest resume action should still run.");
-    }
-  }
 
   @Test
   void syncSpecificResumeSkipsAutoQuickAnalyzeLoadedGame() throws Exception {
@@ -2586,6 +2517,15 @@ class ReadBoardEngineResumeTest {
   private static final class TrackingBoard extends Board {
     private int clearCount;
     private boolean clearCalledOnEdt;
+
+    @Override
+    public java.util.concurrent.CompletableFuture<Void> applyReadBoardSync(
+        Runnable localChanges, java.util.function.BooleanSupplier requiresConfirmation) {
+      // Protocol confirmation is exercised by PositionConfirmedRollbackTest, not this decision
+      // fixture.
+      localChanges.run();
+      return java.util.concurrent.CompletableFuture.completedFuture(null);
+    }
 
     private void initialize(BoardHistoryList history) {
       setHistory(history);

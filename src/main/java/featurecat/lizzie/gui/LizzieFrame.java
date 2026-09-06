@@ -13104,6 +13104,7 @@ public class LizzieFrame extends JFrame {
 
   private void recordUserAnalysisPause(BoardHistoryNode cancelledRoot) {
     userAnalysisPaused = true;
+    if (readBoard != null) readBoard.invalidatePendingSyncAnalysisResume();
     pendingForegroundResumeAfterCleanup = false;
     userCancelledQuickAnalysisRoot = cancelledRoot;
   }
@@ -21133,7 +21134,10 @@ public class LizzieFrame extends JFrame {
   }
 
   public boolean ensureAnalysisResumedAfterSyncLoad() {
-    if (Lizzie.leelaz == null
+    if (isUserAnalysisPaused()
+        || manualAutoAnalysisStarting
+        || isWholeGameAnalysisStartingOrRunning()
+        || Lizzie.leelaz == null
         || EngineManager.isEmpty
         || EngineGamePresentation.current().startingOrPlaying()
         || isPlayingAgainstLeelaz

@@ -21076,11 +21076,20 @@ public class Leelaz {
    * Captures one immutable response lineage and reader identity for a compound position restore.
    */
   public PositionRestore capturePositionRestore(Leelaz capturedMirror) {
+    return capturePositionRestore(capturedMirror, true);
+  }
+
+  /** Captures an incremental transition, retaining the source position's required responses. */
+  public PositionRestore capturePositionTransition(Leelaz capturedMirror) {
+    return capturePositionRestore(capturedMirror, false);
+  }
+
+  private PositionRestore capturePositionRestore(Leelaz capturedMirror, boolean replacesPosition) {
     Leelaz mirror = gtpCapableRestoreMirror(this, capturedMirror);
     if (mirror == null) {
       synchronized (engineArbitrationLock()) {
         synchronized (commandQueue()) {
-          return new PositionRestore(captureNewRestoreDependencyLocked(), null);
+          return new PositionRestore(captureRestoreDependencyLocked(replacesPosition), null);
         }
       }
     }
@@ -21089,13 +21098,14 @@ public class Leelaz {
         mirror,
         () ->
             new PositionRestore(
-                captureNewRestoreDependencyLocked(), mirror.captureNewRestoreDependencyLocked()));
+                captureRestoreDependencyLocked(replacesPosition),
+                mirror.captureRestoreDependencyLocked(replacesPosition)));
   }
 
-  private RestoreEndpointDependency captureNewRestoreDependencyLocked() {
+  private RestoreEndpointDependency captureRestoreDependencyLocked(boolean replacesPosition) {
     ReaderStreamBinding binding = currentReaderStreamBinding();
     AnalysisStateLineage lineage =
-        lifecycleCompletionClaim == null
+        replacesPosition && lifecycleCompletionClaim == null
             ? new AnalysisStateLineage()
             : captureCurrentRestoreDependencyLocked().lineage;
     binding.queuedAnalysisStateLineage = lineage;

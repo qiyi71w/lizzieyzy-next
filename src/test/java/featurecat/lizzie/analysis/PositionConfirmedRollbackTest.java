@@ -36,6 +36,492 @@ class PositionConfirmedRollbackTest {
   private static final long OBSERVATION_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(2);
 
   @Test
+  void acceptedRollbackDelayedResumeStartsOnceWithoutReplayingTheBoard() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.config.autoQuickAnalyzeOnLoad = true;
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.playMoveNoPonder(Stone.BLACK, "Q16");
+      harness.engine.ponder();
+      awaitRawCommand(transport, "kata-analyze", 0);
+      harness.acceptEmptySnapshot();
+      assertNotNull(harness.frame.scheduledResume);
+      harness.frame.scheduledResume.run();
+      awaitRawCommand(transport, "kata-analyze", 1);
+      java.util.concurrent.CountDownLatch drained = new java.util.concurrent.CountDownLatch(1);
+      harness.engine.sendCommandWithResponseForTest("name", drained::countDown);
+      assertTrue(drained.await(2, TimeUnit.SECONDS));
+      assertEquals(2, payloadCount(transport, "kata-analyze"), transport.commands().toString());
+      assertEquals(0, payloadCount(transport, "clear_board"), transport.commands().toString());
+      assertEquals(0, payloadCount(transport, "loadsgf"));
+      assertSame(harness.p0, harness.board.getHistory().getCurrentHistoryNode());
+      assertSame(harness.p1, harness.p0.next().orElseThrow());
+    }
+  }
+
+  @Test
+  void rejectedOrdinaryPredecessorCannotBeForgottenBySyncRollback() throws Exception {
+    try (Harness harness = Harness.open()) {
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("play W D4")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.playMoveNoPonder(Stone.BLACK, "Q16");
+      harness.engine.ponder();
+      awaitRawCommand(transport, "kata-analyze", 0);
+      harness.engine.parseAnalysisLineForTest(info(12_000, 0.615));
+      harness.board.getHistory().place(3, 15, Stone.WHITE, false);
+      harness.engine.playMoveNoPonder(Stone.WHITE, "D4");
+      String predecessor = awaitRawCommand(transport, "play W D4", 0);
+      harness.acceptSnapshot(harness.p1);
+      harness.frame.scheduledResume.run();
+      harness.engine.processCommandResponseLineForTest(
+          "?" + predecessor.substring(0, predecessor.indexOf(' ')) + " rejected play");
+      long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+      while (harness.engine.isLoaded
+          && payloadCount(transport, "kata-analyze") == 1
+          && System.nanoTime() < deadline) Thread.sleep(5L);
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(1, payloadCount(transport, "kata-analyze"), transport.commands().toString());
+      assertFalse(harness.engine.isLoaded);
+      assertSame(harness.p1, harness.board.getHistory().getCurrentHistoryNode());
+      harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+      assertAnalysis(harness.p1.getData(), 12_000, 61.5);
+    }
+  }
+
+  @Test
+  void multiStepRollbackAndForwardResumeOnlyFinalExistingNode() throws Exception {
+    try (Harness harness = Harness.open()) {
+      BoardHistoryList history = harness.board.getHistory();
+      history.place(3, 15, Stone.WHITE, false);
+      BoardHistoryNode p2 = history.getCurrentHistoryNode();
+      history.place(2, 6, Stone.BLACK, false);
+      BoardHistoryNode p3 = history.getCurrentHistoryNode();
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.playMoveNoPonder(Stone.BLACK, "Q16");
+      harness.engine.playMoveNoPonder(Stone.WHITE, "D4");
+      harness.engine.playMoveNoPonder(Stone.BLACK, "C13");
+      harness.engine.ponder();
+      awaitRawCommand(transport, "kata-analyze", 0);
+      harness.acceptEmptySnapshot();
+      awaitRawCommand(transport, "name", 0);
+      assertEquals(1, payloadCount(transport, "kata-analyze"));
+      harness.frame.scheduledResume.run();
+      awaitRawCommand(transport, "kata-analyze", 1);
+      assertEquals(3, payloadCount(transport, "undo"));
+      assertEquals(0, payloadCount(transport, "clear_board"));
+      assertSame(harness.p0, history.getCurrentHistoryNode());
+      harness.acceptSnapshot(p2);
+      harness.frame.scheduledResume.run();
+      awaitRawCommand(transport, "kata-analyze", 2);
+      assertEquals(3, payloadCount(transport, "kata-analyze"), transport.commands().toString());
+      assertEquals(0, payloadCount(transport, "clear_board"));
+      assertSame(p2, history.getCurrentHistoryNode());
+      assertSame(p3, history.getMainEnd());
+      assertSame(harness.p1, harness.p0.next().orElseThrow());
+      assertSame(p2, harness.p1.next().orElseThrow());
+      assertSame(p3, p2.next().orElseThrow());
+      List<String> beforeRepeatedFrame = transport.commands();
+      harness.acceptSnapshot(p2);
+      harness.frame.scheduledResume.run();
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(beforeRepeatedFrame, transport.commands());
+    }
+  }
+
+  @Test
+  void acceptedRootRecoveryWaitsForFinalPassAndDoesNotRestoreTwice() throws Exception {
+    assertAcceptedFullRestore(false);
+  }
+
+  @Test
+  void acceptedStaticRecoveryWaitsForFinalPassAndDoesNotRestoreTwice() throws Exception {
+    assertAcceptedFullRestore(true);
+  }
+
+  private void assertAcceptedFullRestore(boolean exact) throws Exception {
+    try (Harness harness = Harness.open()) {
+      RestoreHistory restored = exact ? exactRestoreHistory() : rootRestoreHistory(BOARD_SIZE);
+      restored.history.place(10, 10, Stone.BLACK, false);
+      BoardHistoryNode successor = restored.history.getCurrentHistoryNode();
+      restored.history.setHead(restored.target);
+      harness.board.setHistory(restored.history);
+      setField(harness.readBoard, "awaitingFirstSyncFrame", true);
+      harness.engine.commandLists.add("loadsgf");
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      harness.acceptSnapshot(restored.target);
+      String lastPass = awaitRawCommand(transport, "play W pass", 0);
+      assertNotNull(harness.frame.scheduledResume);
+      harness.frame.scheduledResume.run();
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(0, payloadCount(transport, "kata-analyze"));
+      harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+      assertNoAnalysis(restored.target.getData());
+      acknowledge(harness.engine, lastPass);
+      awaitRawCommand(transport, "kata-analyze", 0);
+      harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+      assertAnalysis(restored.target.getData(), 4_875, 96.937);
+      assertEquals(1, payloadCount(transport, "kata-analyze"));
+      assertEquals(1, payloadCount(transport, "clear_board"));
+      assertEquals(exact ? 1 : 0, payloadCount(transport, "loadsgf"));
+      assertPosition(enginePosition, restored.target.getData(), BOARD_SIZE, BOARD_SIZE);
+      assertSame(restored.target, restored.history.getCurrentHistoryNode());
+      assertSame(successor, restored.history.getMainEnd());
+      assertTrue(restored.target.getData().blackToPlay);
+    }
+  }
+
+  @Test
+  void pausedSyncKeepsAcceptedHistoryWithoutStartingAnalysis() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.userAnalysisPaused = true;
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.acceptEmptySnapshot();
+      awaitRawCommand(transport, "name", 0);
+      harness.frame.scheduledResume.run();
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertSame(harness.p0, harness.board.getHistory().getCurrentHistoryNode());
+      assertEquals(0, payloadCount(transport, "kata-analyze"));
+      assertTrue(harness.frame.isUserAnalysisPaused());
+    }
+  }
+
+  @Test
+  void syncWithoutEngineStillNavigatesToTheExistingNode() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.setPrimaryEngine(null);
+      EngineManager.isEmpty = true;
+      harness.acceptEmptySnapshot();
+      assertSame(harness.p0, harness.board.getHistory().getCurrentHistoryNode());
+      assertSame(harness.p1, harness.board.getHistory().getMainEnd());
+      assertTrue(harness.transport.commands().isEmpty());
+    }
+  }
+
+  @Test
+  void supersedingPendingRollbackRestoresNewTargetAndRejectsOldCallbacks() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.board.getHistory().place(3, 15, Stone.WHITE, false);
+      BoardHistoryNode p2 = harness.board.getHistory().getCurrentHistoryNode();
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("undo")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.acceptEmptySnapshot();
+      String oldUndo = awaitRawCommand(transport, "undo", 0);
+      Runnable oldResume = harness.frame.scheduledResume;
+      harness.acceptSnapshot(harness.p1);
+      Runnable currentResume = harness.frame.scheduledResume;
+      oldResume.run();
+      currentResume.run();
+      acknowledge(harness.engine, oldUndo);
+      String secondUndo = awaitRawCommand(transport, "undo", 1);
+      acknowledge(harness.engine, secondUndo);
+      awaitRawCommand(transport, "kata-analyze", 0);
+      acknowledge(harness.engine, oldUndo);
+      oldResume.run();
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(1, payloadCount(transport, "kata-analyze"), transport.commands().toString());
+      assertEquals(1, payloadCount(transport, "clear_board"));
+      assertSame(harness.p1, harness.board.getHistory().getCurrentHistoryNode());
+      assertSame(p2, harness.board.getHistory().getMainEnd());
+      harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+      assertAnalysis(harness.p1.getData(), 4_875, 96.937);
+      assertNoAnalysis(harness.p0.getData());
+    }
+  }
+
+  @Test
+  void forcedSnapshotRebuildLoadsAndAnalyzesOnlyOnce() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.engine.commandLists.add("loadsgf");
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.ponder();
+      awaitRawCommand(transport, "kata-analyze", 0);
+      harness.readBoard.parseLine("forceRebuild");
+      harness.acceptSnapshot(harness.p1);
+      harness.frame.scheduledResume.run();
+      awaitRawCommand(transport, "kata-analyze", 1);
+      assertEquals(2, payloadCount(transport, "kata-analyze"));
+      assertEquals(1, payloadCount(transport, "clear_board"), transport.commands().toString());
+      assertEquals(1, payloadCount(transport, "loadsgf"));
+      BoardData target = harness.board.getHistory().getData();
+      assertTrue(target.isSnapshotNode());
+      assertArrayEquals(harness.p1.getData().stones, target.stones);
+      harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+      assertAnalysis(target, 4_875, 96.937);
+    }
+  }
+
+  @Test
+  void acceptedCaptureResumesOnlyAfterItsFinalMove() throws Exception {
+    BoardRenderer previousRenderer = LizzieFrame.boardRenderer;
+    try (Harness harness = Harness.open()) {
+      LizzieFrame.boardRenderer = allocate(SilentBoardRenderer.class);
+      Stone[] before = emptyStones(BOARD_SIZE, BOARD_SIZE);
+      before[Board.getIndex(0, 1)] = Stone.BLACK;
+      before[Board.getIndex(1, 0)] = Stone.BLACK;
+      before[Board.getIndex(2, 1)] = Stone.BLACK;
+      before[Board.getIndex(1, 1)] = Stone.WHITE;
+      BoardData setup =
+          BoardData.snapshot(
+              before,
+              java.util.Optional.empty(),
+              Stone.EMPTY,
+              true,
+              zobrist(before, BOARD_SIZE, BOARD_SIZE),
+              0,
+              new int[before.length],
+              0,
+              0,
+              50,
+              0);
+      BoardHistoryList history = new BoardHistoryList(setup);
+      harness.board.setHistory(history);
+      Stone[] after = before.clone();
+      after[Board.getIndex(1, 1)] = Stone.EMPTY;
+      after[Board.getIndex(1, 2)] = Stone.BLACK;
+      BoardData expected =
+          BoardData.move(
+              after,
+              new int[] {1, 2},
+              Stone.BLACK,
+              false,
+              zobrist(after, BOARD_SIZE, BOARD_SIZE),
+              1,
+              new int[after.length],
+              1,
+              0,
+              50,
+              0);
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.ponder();
+      awaitRawCommand(transport, "kata-analyze", 0);
+      harness.acceptSnapshot(new BoardHistoryNode(expected));
+      harness.frame.scheduledResume.run();
+      awaitRawCommand(transport, "kata-analyze", 1);
+      assertEquals(List.of("play B B17"), commandsWithPrefix(transport, "play "));
+      assertEquals(2, payloadCount(transport, "kata-analyze"));
+      assertEquals(0, payloadCount(transport, "clear_board"));
+      assertEquals(0, payloadCount(transport, "loadsgf"));
+      BoardData actual = history.getData();
+      assertTrue(actual.isMoveNode());
+      assertArrayEquals(after, actual.stones);
+      assertEquals(1, actual.blackCaptures);
+      assertFalse(actual.blackToPlay);
+    } finally {
+      LizzieFrame.boardRenderer = previousRenderer;
+    }
+  }
+
+  @Test
+  void rejectedUndoCannotResumeEvenAfterTheFinalFenceSucceeds() throws Exception {
+    assertFailedSyncDoesNotResume("error");
+  }
+
+  @Test
+  void failedUndoWriteCannotResumeAnalysis() throws Exception {
+    assertFailedSyncDoesNotResume("write");
+  }
+
+  @Test
+  void timedOutUndoCannotBeRevivedByLateAckOrDelayedResume() throws Exception {
+    assertFailedSyncDoesNotResume("timeout");
+  }
+
+  private void assertFailedSyncDoesNotResume(String failure) throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.engine.requireResponseBeforeSend = false;
+      ((PublicationControlledLeelaz) harness.engine).responseTimeoutMillis = 50;
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command -> {
+                if (command.equals("undo")) {
+                  if (failure.equals("write"))
+                    throw new java.io.IOException("controlled undo write failure");
+                  if (failure.equals("error"))
+                    return ExactSnapshotRestoreProtocolFixture.Response.error("illegal undo");
+                  return null;
+                }
+                return ExactSnapshotRestoreProtocolFixture.Response.success();
+              });
+      harness.acceptEmptySnapshot();
+      String undo = awaitRawCommand(transport, "undo", 0);
+      harness.frame.scheduledResume.run();
+      long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+      while (harness.engine.isLoaded && System.nanoTime() < deadline) Thread.sleep(5L);
+      assertFalse(harness.engine.isLoaded, "failed sync must retire its unavailable engine target");
+      acknowledge(harness.engine, undo);
+      harness.frame.scheduledResume.run();
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(0, payloadCount(transport, "kata-analyze"));
+      harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+      assertNoAnalysis(harness.p0.getData());
+      assertSame(harness.p0, harness.board.getHistory().getCurrentHistoryNode());
+      assertSame(harness.p1, harness.board.getHistory().getMainEnd());
+    }
+  }
+
+  @Test
+  void replacingEngineWhileSyncIsPendingCannotResumeTheReplacement() throws Exception {
+    assertReplacedSyncDoesNotResume(true);
+  }
+
+  @Test
+  void overwritingHistoryWhileSyncIsPendingCannotResumeTheReplacementHistory() throws Exception {
+    assertReplacedSyncDoesNotResume(false);
+  }
+
+  private void assertReplacedSyncDoesNotResume(boolean replaceEngine) throws Exception {
+    try (Harness harness = Harness.open()) {
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("undo")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.acceptEmptySnapshot();
+      String undo = awaitRawCommand(transport, "undo", 0);
+      Runnable oldResume = harness.frame.scheduledResume;
+      Leelaz replacement = new Leelaz("");
+      replacement.started = true;
+      replacement.isLoaded = true;
+      replacement.isKatago = true;
+      ExactSnapshotRestoreProtocolFixture.Transport replacementTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              replacement, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      try {
+        if (replaceEngine) Lizzie.setPrimaryEngine(replacement);
+        else
+          harness.board.setHistory(new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE)));
+        oldResume.run();
+        acknowledge(harness.engine, undo);
+        awaitRawCommand(transport, "name", 0);
+        oldResume.run();
+        javax.swing.SwingUtilities.invokeAndWait(() -> {});
+        assertEquals(0, payloadCount(transport, "kata-analyze"));
+        assertTrue(replacementTransport.commands().isEmpty());
+        harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+        assertNoAnalysis(harness.board.getHistory().getData());
+      } finally {
+        replacement.started = false;
+        replacement.isLoaded = false;
+      }
+    }
+  }
+
+  @Test
+  void disablingReadBoardAnalysisBeforeConfirmationKeepsAcceptedPositionWithoutResume()
+      throws Exception {
+    try (Harness harness = Harness.open()) {
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("undo")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.acceptEmptySnapshot();
+      String undo = awaitRawCommand(transport, "undo", 0);
+      Lizzie.config.readBoardPonder = false;
+      harness.frame.scheduledResume.run();
+      acknowledge(harness.engine, undo);
+      awaitRawCommand(transport, "name", 0);
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertSame(harness.p0, harness.board.getHistory().getCurrentHistoryNode());
+      assertEquals(0, payloadCount(transport, "kata-analyze"));
+    }
+  }
+
+  @Test
+  void userPauseRetiresOldSyncResumeEvenAfterExplicitContinue() throws Exception {
+    try (Harness harness = Harness.open()) {
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("undo")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.acceptEmptySnapshot();
+      String undo = awaitRawCommand(transport, "undo", 0);
+      Runnable oldResume = harness.frame.scheduledResume;
+      Method pause =
+          LizzieFrame.class.getDeclaredMethod("recordUserAnalysisPause", BoardHistoryNode.class);
+      pause.setAccessible(true);
+      harness.engine.pauseForAnalysisControl(
+          () -> {
+            try {
+              pause.invoke(harness.frame, harness.p0);
+            } catch (ReflectiveOperationException failure) {
+              throw new AssertionError(failure);
+            }
+          });
+      acknowledge(harness.engine, undo);
+      awaitRawCommand(transport, "name", 0);
+      harness.engine.ponder();
+      awaitRawCommand(transport, "kata-analyze", 0);
+      oldResume.run();
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      java.util.concurrent.CountDownLatch drained = new java.util.concurrent.CountDownLatch(1);
+      harness.engine.sendCommandWithResponseForTest("name", drained::countDown);
+      assertTrue(drained.await(2, TimeUnit.SECONDS));
+      assertEquals(1, payloadCount(transport, "kata-analyze"));
+      harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+      assertAnalysis(harness.p0.getData(), 4_875, 96.937);
+    }
+  }
+
+  @Test
+  void localNavigationWhileSyncIsPendingKeepsOnlyTheManualResume() throws Exception {
+    try (Harness harness = Harness.open()) {
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("undo")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.ponder();
+      awaitRawCommand(transport, "kata-analyze", 0);
+      harness.acceptEmptySnapshot();
+      String undo = awaitRawCommand(transport, "undo", 0);
+      Runnable oldResume = harness.frame.scheduledResume;
+      harness.board.nextMove(false);
+      oldResume.run();
+      acknowledge(harness.engine, undo);
+      awaitRawCommand(transport, "kata-analyze", 1);
+      oldResume.run();
+      javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(2, payloadCount(transport, "kata-analyze"));
+      assertSame(harness.p1, harness.board.getHistory().getCurrentHistoryNode());
+      harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+      assertAnalysis(harness.p1.getData(), 4_875, 96.937);
+      assertNoAnalysis(harness.p0.getData());
+    }
+  }
+
+  @Test
   void exactSnapshotResendWaitsForMovePassTailAndPublishesOnlyConfirmedTarget() throws Exception {
     try (Harness harness = Harness.open()) {
       harness.frame.readBoard = null;
@@ -415,6 +901,7 @@ class PositionConfirmedRollbackTest {
           harness.frame.scheduledResume,
           "ReadBoard should offer its delayed resume to the scheduler seam");
       assertEquals(1, harness.frame.scheduledResumeCount);
+      harness.frame.scheduledResume.run();
 
       harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
       assertNoAnalysis(harness.p0.getData());
@@ -432,6 +919,7 @@ class PositionConfirmedRollbackTest {
       assertAnalysis(harness.p1.getData(), 16_768, 33.5525);
 
       acknowledge(harness.engine, undo);
+      acknowledge(harness.engine, awaitRawCommand(harness.transport, "name", 1));
       String confirmedAnalyze = awaitRawCommand(harness.transport, "kata-analyze", 1);
       acknowledge(harness.engine, confirmedAnalyze);
       harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
@@ -443,9 +931,6 @@ class PositionConfirmedRollbackTest {
           2,
           payloadCount(harness.transport, "kata-analyze"),
           "confirmation should produce one physical successor analysis start");
-      assertFalse(
-          harness.frame.scheduledResumeRan,
-          "the delayed scheduler action is deliberately recorded but not executed in this test");
     }
   }
 
@@ -1136,8 +1621,40 @@ class PositionConfirmedRollbackTest {
       invokeSyncBoardStones(readBoard);
     }
 
+    private void acceptSnapshot(BoardHistoryNode node) throws Exception {
+      int[] snapshot = new int[Board.boardWidth * Board.boardHeight];
+      BoardData data = node.getData();
+      for (int y = 0; y < Board.boardHeight; y++) {
+        for (int x = 0; x < Board.boardWidth; x++) {
+          Stone stone = data.stones[Board.getIndex(x, y)];
+          snapshot[y * Board.boardWidth + x] =
+              stone == Stone.BLACK ? 1 : stone == Stone.WHITE ? 2 : 0;
+        }
+      }
+      if (data.lastMove.isPresent()) {
+        int[] point = data.lastMove.get();
+        snapshot[point[1] * Board.boardWidth + point[0]] =
+            data.lastMoveColor == Stone.BLACK ? 3 : 4;
+      }
+      readBoard.parseLine("foxMoveNumber " + data.moveNumber);
+      readBoard.parseLine("liveTitleMove " + data.moveNumber);
+      setPendingSnapshot(readBoard, snapshot);
+      invokeSyncBoardStones(readBoard);
+    }
+
     @Override
     public void close() {
+      try {
+        Field pending = Board.class.getDeclaredField("lastSyncNavigation");
+        pending.setAccessible(true);
+        java.util.concurrent.CompletableFuture<?> confirmation =
+            (java.util.concurrent.CompletableFuture<?>) pending.get(board);
+        if (confirmation != null)
+          confirmation.handle((result, failure) -> null).get(3, TimeUnit.SECONDS);
+        javax.swing.SwingUtilities.invokeAndWait(() -> {});
+      } catch (Exception failure) {
+        throw new AssertionError("sync worker did not finish before fixture teardown", failure);
+      } finally {
       engine.started = false;
       engine.isLoaded = false;
       EngineManager.resetEngineGameTransactionStateForTest();
@@ -1156,11 +1673,18 @@ class PositionConfirmedRollbackTest {
       Board.boardWidth = previousBoardWidth;
       Board.boardHeight = previousBoardHeight;
       Zobrist.init();
+      }
     }
   }
 
   private static final class PublicationControlledLeelaz extends Leelaz {
     private Runnable beforePublication;
+    private long responseTimeoutMillis = 2_000;
+
+    @Override
+    protected long readBoardGmaRestoreResponseTimeoutMillis() {
+      return responseTimeoutMillis;
+    }
 
     private PublicationControlledLeelaz() throws java.io.IOException {
       super("");

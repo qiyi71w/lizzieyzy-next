@@ -167,7 +167,7 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - `undo`、`play`（含真实 PASS）与 `set_position` 使用精确 numbered response identity 和既有 queued/pending retirement。错误、发送失败或超时使所属位置 lineage 失败；迟到响应不能恢复失败来源，也不能结算后继命令。完整替换位置建立新的 lineage，但本身仍需确认。
 - `requireResponseBeforeSend` 的普通队列等待真实已写出的响应义务，不使用包含尚未发送后继命令的计数阻塞自身。Engine-game 的精确 ACK/terminal 与 arbitration 语义独立保留。
 - 解析和最终节点 publication 均复验冻结目标。被退休、目标过期或未确认的位置输出不能进入候选缓存或 ownership-only backfill；有效历史缓存、SGF 已保存分析、同上下文暂停/继续与主副引擎独立槽位保留。显式失效仍由既有 `isChanged/isChanged2` 允许首个合法低 visits 接管。
-- 跨 SNAPSHOT 的复合恢复遵守下节；ReadBoard 单次最终 resume 由 Ticket 03 交付。
+- 跨 SNAPSHOT 的复合恢复及 ReadBoard 单次最终 resume 遵守下列对应 owner 契约。
 
 ## 复合局面恢复确认（Issue #429 / Ticket 02）
 
@@ -181,6 +181,17 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - Board 恢复的 GTP 等待在 EDT 和 Board monitor 外执行。完成时重新检查冻结目标，过期 completion 不恢复分析，也不把替换引擎当作原恢复目标。
 - foreground handback 已冻结的同一 Board/主引擎盘面恢复先按捕获内容完成确认，再由现有 owner 检查稳定性并追赶最新目标；导航发生在 companion close 期间不能提前截断该收敛循环。Board 或主引擎 incarnation 替换仍拒绝旧恢复。
 - 同一合法目标的缓存和已导入 SGF 分析继续保留；主副引擎槽位独立。未确认或已失效来源不得建立新的 visits 高水位。board-only 同步及真实 PASS、dummy PASS、setup 语义保持原合同。
+
+## ReadBoard 单次同步分析恢复（Issue #429 / Ticket 03）
+
+- 普通 ReadBoard 快照接受在 Board monitor 内完成本次本地导航、落子、视图恢复及 history adopt；这段收集期间不转发中间位置命令，也不触发中间分析。Board 从入口节点到最终目标冻结一次增量 undo/play 或完整 root/exact 路线，真实 GTP 执行和确认在 monitor 与 EDT 外完成。
+- 已有节点命中保留原节点 identity 和全部已证明历史，不克隆目标、补造 MOVE/PASS/SNAPSHOT 或删除尾部。前次同步尚未确认或已失败时，新目标使用自己的完整恢复路线，不把未确认的本地起点当作引擎盘面。
+- 增量同步继承起点已有的位置 response lineage，包含本次接受前已排队或已写出的普通位置命令；前置 play/undo 失败不能被新同步 capture 清除。只有完整 root/exact 替换路线可建立独立恢复 lineage，且仍须确认本次全部 required responses。
+- ReadBoard 是本次 final resume disposition owner；延迟回调与 Board 确认两者均已完成后，才允许对同一目标最多启动一次普通分析。回调不再调用棋谱加载恢复，不发第二次 clear/replay/loadsgf，也不启动自动棋谱快析。
+- 最终 resume 重查 sync epoch、confirmed-local-move 保护、Board identity/context revision、目标节点、captured primary generation、引擎可用性和 read-board 分析设置；错误、发送失败、超时及过期目标恢复零次。
+- 用户分析暂停立即失效 pending ReadBoard resume，并继续遵守普通队列及 selected-before-write 取消规则。暂停后用户再次继续分析，也不能使旧同步回调重新取得恢复资格。
+- 一致且无需恢复的重复快照不重新捕获恢复或重启合法分析流。普通首次同步直接采用最终视图，不以先回退再延迟前进触发额外分析。
+- 无引擎时仍完成本地 board/history 更新；GMA 和对局 continuation 保持独立的路由与 ownership exclusion。手动导航、手动分析恢复及普通棋谱加载策略保持原契约。
 
 ## 初始启动导航契约（Issue #223）
 

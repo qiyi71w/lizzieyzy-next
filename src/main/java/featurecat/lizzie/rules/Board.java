@@ -82,6 +82,8 @@ public class Board {
             return thread;
           });
   private ArrayDeque<HistoryNavigationStep> pendingHistoryNavigationSteps = new ArrayDeque<>();
+  private CompletableFuture<Void> lastSyncNavigation;
+  private Thread readBoardSyncThread;
   private boolean historyRestoreInFlight;
   private BoardHistoryList historyNavigationHistory;
   private BoardHistoryList activeHistoryRestoreHistory;
@@ -2062,7 +2064,7 @@ public class Board {
   }
 
   private boolean submitOrdinaryEngineForwarding(Leelaz engine, Supplier<Boolean> action) {
-    if (engine == null) {
+    if (engine == null || isCollectingReadBoardSync()) {
       return false;
     }
     return engine.submitOrdinaryLiveBoardForwarding(
@@ -2736,7 +2738,7 @@ public class Board {
         }
         return;
       }
-      updateWinrate();
+      if (Lizzie.leelaz != null) updateWinrate();
       if (engineGamePlaying()) SGFParser.appendTime();
       // modifyStart();
       if (!forSync
@@ -2802,7 +2804,8 @@ public class Board {
         // this is the next coordinate in history. Just increment history so that we
         // don't erase the
         // redo's
-        history.next();
+        if (isCollectingReadBoardSync()) history.nextVariationWithoutEngineSync(0);
+        else history.next();
         updateIsBest();
         if (Lizzie.config.playSound) Utils.playVoiceFile();
         // should be opposite from the bottom case
@@ -2812,7 +2815,8 @@ public class Board {
             Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y));
             Lizzie.leelaz.genmove((Lizzie.board.getData().blackToPlay ? "b" : "w"));
           }
-        } else if (!Lizzie.frame.isPlayingAgainstLeelaz
+        } else if (!isCollectingReadBoardSync()
+            && !Lizzie.frame.isPlayingAgainstLeelaz
             && !Lizzie.leelaz.isInputCommand
             && !engineGamePlaying()) {
           Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y));
@@ -2908,7 +2912,7 @@ public class Board {
           }
           return;
         }
-        if (Lizzie.leelaz.canSuicidal) {
+        if (Lizzie.leelaz != null && Lizzie.leelaz.canSuicidal) {
           if (isSuicidal == 1) {
             //   modifyEnd();
             if (shouldLogLocalMovePlace) {
@@ -2977,7 +2981,8 @@ public class Board {
           && !isEngineFollowTrialActive()) {
         Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y), true, color.isWhite());
         needGenmove = true;
-      } else if (!Lizzie.frame.isPlayingAgainstLeelaz
+      } else if (!isCollectingReadBoardSync()
+          && !Lizzie.frame.isPlayingAgainstLeelaz
           && !Lizzie.leelaz.isInputCommand
           && !engineGamePlaying()
           && !isEngineFollowTrialActive()) {
@@ -3736,6 +3741,7 @@ public class Board {
         Board owner,
         Leelaz primaryEngine,
         Leelaz capturedMirror,
+        Leelaz.PositionRestore positionRestore,
         boolean rootRestore,
         long primaryEngineGeneration,
         Runnable restore,
@@ -3752,7 +3758,7 @@ public class Board {
       this.boardWidth = Board.boardWidth;
       this.boardHeight = Board.boardHeight;
       this.blackToPlay = targetNode.getData().blackToPlay;
-      this.positionRestore = primaryEngine.capturePositionRestore(capturedMirror);
+      this.positionRestore = positionRestore;
       this.restore = restore;
       this.discard = discard;
       this.successfulDisposition = successfulDisposition;
@@ -4151,10 +4157,18 @@ public class Board {
   }
 
   private boolean shouldForwardHistoryNavigationToPrimaryEngine() {
-    return !isLoadingFile && isPrimaryEngineReady();
+    return !isCollectingReadBoardSync() && !isLoadingFile && isPrimaryEngineReady();
   }
 
   private HistoryNavigationRestore prepareHistoryNavigationRestore(boolean stepIn) {
+    Leelaz engine = Lizzie.leelaz;
+    return prepareHistoryNavigationRestore(
+        stepIn,
+        engine != null && engine.isPonderingOrWasPonderingBeforeTracking() ? engine::ponder : null);
+  }
+
+  private HistoryNavigationRestore prepareHistoryNavigationRestore(
+      boolean stepIn, Runnable successfulDisposition) {
     Leelaz engine = Lizzie.leelaz;
     long primaryEngineGeneration = Lizzie.capturePrimaryEngineGeneration(engine);
     if (primaryEngineGeneration < 0
@@ -4165,20 +4179,19 @@ public class Board {
     if (!stepIn && KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
       return null;
     }
-    boolean resumePonder = engine.isPonderingOrWasPonderingBeforeTracking();
     BoardHistoryNode targetNode = history.getCurrentHistoryNode();
     Leelaz mirrorEngine = captureHistoryNavigationMirrorEngine(engine);
     Leelaz.ExactSnapshotRestoreAdmission admission =
         engine.captureHistoryNavigationExactSnapshotRestoreAdmission(mirrorEngine);
     Optional<ExactSnapshotEngineRestore.PreparedRestore> preparedRestore =
         ExactSnapshotEngineRestore.prepare(admission, targetNode);
-    Runnable successfulDisposition = resumePonder ? engine::ponder : null;
     if (stepIn) {
       ExactSnapshotEngineRestore.PreparedRestore exactRestore = preparedRestore.orElseThrow();
       return new HistoryNavigationRestore(
           this,
           engine,
           mirrorEngine,
+          engine.capturePositionRestore(mirrorEngine),
           false,
           primaryEngineGeneration,
           () -> {
@@ -4197,6 +4210,7 @@ public class Board {
           this,
           engine,
           mirrorEngine,
+          engine.capturePositionRestore(mirrorEngine),
           false,
           primaryEngineGeneration,
           exactRestore::execute,
@@ -4208,6 +4222,7 @@ public class Board {
         this,
         engine,
         mirrorEngine,
+        engine.capturePositionRestore(mirrorEngine),
         true,
         primaryEngineGeneration,
         () ->
@@ -4258,7 +4273,8 @@ public class Board {
       }
       if (Lizzie.config.playSound) Utils.playVoiceFile();
       if (expectedChild == null) {
-        history.next();
+        if (isCollectingReadBoardSync()) history.nextVariationWithoutEngineSync(0);
+        else history.next();
       } else {
         history.nextVariationWithoutEngineSync(childIndex);
       }
@@ -4390,6 +4406,7 @@ public class Board {
               this,
               engine,
               mirror,
+              engine.capturePositionRestore(mirror),
               false,
               Lizzie.capturePrimaryEngineGeneration(engine),
               () -> {
@@ -4444,6 +4461,7 @@ public class Board {
               this,
               engine,
               mirror,
+              engine.capturePositionRestore(mirror),
               exact.isEmpty(),
               Lizzie.capturePrimaryEngineGeneration(engine),
               commands,
@@ -4611,7 +4629,10 @@ public class Board {
       updateWinrate();
       // Don't update winrate here as this is usually called when jumping between
       // variations
-      if (history.nextVariation(idx).isPresent()) {
+      if ((isCollectingReadBoardSync()
+              ? history.nextVariationWithoutEngineSync(idx)
+              : history.nextVariation(idx))
+          .isPresent()) {
         advanceContextRevision();
         // Update leelaz board position, before updating to next node
         updateIsBest();
@@ -4737,8 +4758,61 @@ public class Board {
    * @return void
    */
   public void moveToAnyPosition(BoardHistoryNode targetNode) {
-    if (engineGamePlaying()) return;
-    BoardHistoryNode sourceNode = history.getCurrentHistoryNode();
+    if (isCollectingReadBoardSync()) {
+      synchronized (this) {
+        if (history.getCurrentHistoryNode() == targetNode) return;
+        if (Lizzie.leelaz != null) updateWinrate();
+        history.setHead(targetNode);
+        advanceContextRevision();
+        updateIsBest();
+        notifyReadBoardLocalHistoryNavigation();
+        clearPressStoneInfo(null);
+      }
+      return;
+    }
+    moveToAnyPosition(targetNode, null, history.getCurrentHistoryNode(), false);
+  }
+
+  /** Applies one ordinary ReadBoard sync locally, then confirms only its final engine target. */
+  public synchronized CompletableFuture<Void> applyReadBoardSync(
+      Runnable localChanges, java.util.function.BooleanSupplier requiresConfirmation) {
+    BoardHistoryList sourceHistory = history;
+    BoardHistoryNode source = history.getCurrentHistoryNode();
+    readBoardSyncThread = Thread.currentThread();
+    try {
+      localChanges.run();
+    } finally {
+      readBoardSyncThread = null;
+    }
+    BoardHistoryNode target = history.getCurrentHistoryNode();
+    if (!requiresConfirmation.getAsBoolean() && sourceHistory == history && source == target) {
+      return CompletableFuture.completedFuture(null);
+    }
+    CompletableFuture<Void> confirmed = new CompletableFuture<>();
+    try {
+      moveToAnyPosition(target, confirmed, source, sourceHistory != history);
+    } catch (RuntimeException failure) {
+      confirmed.completeExceptionally(failure);
+    }
+    return confirmed;
+  }
+
+  private boolean isCollectingReadBoardSync() {
+    return readBoardSyncThread == Thread.currentThread();
+  }
+
+  private void moveToAnyPosition(
+      BoardHistoryNode targetNode,
+      CompletableFuture<Void> syncConfirmation,
+      BoardHistoryNode sourceNode,
+      boolean fullRestore) {
+    if (engineGamePlaying()) {
+      if (syncConfirmation != null)
+        syncConfirmation.completeExceptionally(
+            new IllegalStateException("Engine game owns board synchronization"));
+      return;
+    }
+    BoardHistoryNode expectedCurrent = history.getCurrentHistoryNode();
     List<Integer> targetParents = new ArrayList<Integer>();
     List<Integer> sourceParents = new ArrayList<Integer>();
 
@@ -4774,6 +4848,97 @@ public class Board {
       if (sourceParent != targetParent) {
         break;
       }
+    }
+
+    if (syncConfirmation != null) {
+      HistoryNavigationRestore restore;
+      synchronized (this) {
+        if (history.getCurrentHistoryNode() != expectedCurrent) {
+          syncConfirmation.completeExceptionally(
+              new IllegalStateException("Sync target superseded"));
+          return;
+        }
+        markMoveNavigationForMovelistRefresh();
+        if (Lizzie.leelaz != null) {
+          modifyStart();
+          updateWinrate();
+        }
+        history.setHead(targetNode);
+        advanceContextRevision();
+        boolean predecessorUnconfirmed =
+            lastSyncNavigation != null
+                && (!lastSyncNavigation.isDone() || lastSyncNavigation.isCompletedExceptionally());
+        lastSyncNavigation = syncConfirmation;
+        if (!shouldForwardHistoryNavigationToPrimaryEngine()) {
+          restore = null;
+        } else if (fullRestore
+            || predecessorUnconfirmed
+            || sourceNode == targetNode
+            || crossesSnapshotBoundary(sourceNode, sourceDepth - depth)
+            || crossesSnapshotBoundary(targetNode, targetDepth - depth)) {
+          restore = prepareHistoryNavigationRestore(false, null);
+        } else {
+          Leelaz engine = Lizzie.leelaz;
+          Leelaz mirror = captureHistoryNavigationMirrorEngine(engine);
+          List<String> commands = new ArrayList<>();
+          BoardHistoryNode node = sourceNode;
+          for (int index = 0; index < sourceDepth - depth; index++) {
+            if (node.getData().isMoveNode() || isKnownPass(node.getData())) commands.add("undo");
+            node = node.previous().orElseThrow();
+          }
+          for (int index = targetDepth - depth; index > 0; index--) {
+            node = node.getVariation(targetParents.get(index - 1)).orElseThrow();
+            BoardData data = node.getData();
+            if (data.isMoveNode() || isKnownPass(data)) {
+              String coordinate =
+                  data.isMoveNode()
+                      ? convertCoordinatesToName(
+                          data.lastMove.orElseThrow()[0], data.lastMove.orElseThrow()[1])
+                      : "pass";
+              commands.add(
+                  "play " + (data.lastMoveColor == Stone.BLACK ? "B" : "W") + " " + coordinate);
+            }
+          }
+          List<String> capturedCommands = List.copyOf(commands);
+          restore =
+              new HistoryNavigationRestore(
+                  this,
+                  engine,
+                  mirror,
+                  engine.capturePositionTransition(mirror),
+                  false,
+                  Lizzie.capturePrimaryEngineGeneration(engine),
+                  () -> replayCommandsToFrozenRestoreTargets(engine, mirror, capturedCommands),
+                  () -> {},
+                  null);
+        }
+        updateIsBest();
+        notifyReadBoardLocalHistoryNavigation();
+        clearPressStoneInfo(null);
+      }
+      if (Lizzie.leelaz != null) modifyEnd();
+      if (Lizzie.frame != null) Lizzie.frame.refresh();
+      if (restore == null) {
+        syncConfirmation.completeExceptionally(
+            new IllegalStateException("Sync engine unavailable"));
+      } else {
+        HISTORY_RESTORE_EXECUTOR.execute(
+            () -> {
+              try {
+                if (!restore.execute()
+                    && !restore.skipSuccessfulDisposition
+                    && restore.capturedPrimaryIsCurrent()) {
+                  syncConfirmation.complete(null);
+                } else {
+                  syncConfirmation.completeExceptionally(
+                      new IllegalStateException("Sync target superseded"));
+                }
+              } catch (RuntimeException failure) {
+                syncConfirmation.completeExceptionally(failure);
+              }
+            });
+      }
+      return;
     }
 
     if (crossesSnapshotBoundary(sourceNode, sourceDepth - depth)
@@ -5343,7 +5508,8 @@ public class Board {
       runBeforeHistoryOverwriteEngineForward();
       // Engine reset runs first (outside the board monitor) so a failing callback can never
       // skip the required engine clear; board-overwrite notifications follow.
-      if (Lizzie.leelaz != null) {
+      if (Lizzie.leelaz != null
+          && (Lizzie.board == null || !Lizzie.board.isCollectingReadBoardSync())) {
         if (capturedIntent != null) {
           Lizzie.leelaz.submitOrdinaryLiveBoardForwarding(capturedIntent);
         }
