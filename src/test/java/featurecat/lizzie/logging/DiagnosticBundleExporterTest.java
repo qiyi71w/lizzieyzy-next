@@ -1498,6 +1498,49 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
+  void replacementAtPreSessionArchivePathRetainsCurrentEvidence() throws Exception {
+    LoggingRuntime runtime = start();
+    Path archive = runtime.logsDirectory().resolve("archive");
+    Files.createDirectories(archive);
+    Path old = archive.resolve("engine-trace." + java.time.LocalDate.now() + ".0.log.gz");
+    Files.writeString(old, "prior-session archive");
+    FileTime created =
+        Files.readAttributes(old, java.nio.file.attribute.BasicFileAttributes.class).creationTime();
+    runtime.startFullTrace(Set.of(TraceScope.ENGINE_GTP));
+    Files.move(old, archive.resolve("prior-session.held"));
+    String timestamp =
+        runtime.fullTraceStartedAt().atZone(java.time.ZoneId.systemDefault()).format(LOG_TIMESTAMP);
+    try (var gzip = new GZIPOutputStream(Files.newOutputStream(old))) {
+      gzip.write(
+          (timestamp
+                  + " INFO [lizzie.engine.trace] trace="
+                  + runtime.currentTraceSessionId()
+                  + " replacement-current-evidence\n")
+              .getBytes(StandardCharsets.UTF_8));
+    }
+    if (com.sun.jna.Platform.isWindows()) {
+      // NTFS can preserve/tunnel creation time across replacement; it is not a file ID.
+      Files.getFileAttributeView(old, java.nio.file.attribute.BasicFileAttributeView.class)
+          .setTimes(null, null, created);
+      assertEquals(
+          created,
+          Files.readAttributes(old, java.nio.file.attribute.BasicFileAttributes.class)
+              .creationTime());
+    }
+    runtime.awaitIdle();
+    Map<String, byte[]> entries =
+        unzipEntries(
+            new DiagnosticBundleExporter(tempDir.resolve("diagnostics"))
+                .export(request(runtime, Set.of(TraceScope.ENGINE_GTP))));
+    assertTrue(
+        text(entries, "logs/lizzie/engine-trace.log").contains("replacement-current-evidence"));
+    JSONObject source = source(manifest(entries), "lizzie-engine-trace");
+    assertEquals(0, source.getInt("filesPruned"));
+    assertEquals(2, source.getInt("openedFiles"));
+    Files.delete(old);
+  }
+
+  @Test
   void tracePrunesArchivesExistingBeforeSessionButRetainsRotatedCurrentRecords() throws Exception {
     LoggingRuntime runtime = start();
     Path archive = runtime.logsDirectory().resolve("archive");

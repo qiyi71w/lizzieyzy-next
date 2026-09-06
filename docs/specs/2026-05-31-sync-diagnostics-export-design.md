@@ -452,8 +452,13 @@ D:\dev\weiqi\lizzieyzy-next\.tools\apache-maven-3.9.10\bin\mvn.cmd -DskipTests p
 helper snapshot 和配置内容；文件枚举与读取在后台进行。下一次 action 创建新的请求。
 
 `LogArchiveBoundary` 在 host trace identity 创建前、或 helper launch arguments 准备时记录最多
-1024 个归档目录项的文件身份。只有路径、非空 file key 和 creation time 都匹配的旧归档可以
-在 payload 打开前剪枝；未知身份和后来轮转的文件继续进行有界记录筛选。它不依赖 mtime，
+1024 个归档目录项的文件身份。只有路径、非空文件身份和 creation time 都匹配的旧归档可以
+在 payload 打开前剪枝；未知身份和后来轮转的文件继续进行有界记录筛选。文件身份优先使用
+NIO file key；Windows NIO 返回 null 时，通过只读 metadata handle 取得卷号与 128 位 file ID。
+Handle 共享读、写和删除，并在查询后立即关闭，不跟随最终路径的 reparse point。查询失败仍
+保留候选，不以 creation time 单独认定同一文件。这覆盖 NTFS 创建时间被保留或隧道化的替换。
+依据：[GetFileInformationByHandleEx / FileIdInfo](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex)、
+[FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info)。它不依赖 mtime，
 也不将 helper capability 接收时间当作进程出生时间。未带 session 的 capture event 仍采用
 既有 observation-time 规则。
 
