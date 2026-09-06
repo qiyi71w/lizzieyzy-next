@@ -1197,6 +1197,75 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
+  void exportedLogsPreserveRecordBoundariesAndStackTraceWhitespace() throws Exception {
+    LoggingRuntime runtime = start();
+    runtime.awaitIdle();
+    runtime.shutdown();
+    String timestamp = LocalDateTime.now().minusSeconds(1).format(LOG_TIMESTAMP);
+    Files.writeString(
+        tempDir.resolve("logs/app.log"),
+        timestamp
+            + " INFO  [lizzie.app] first password=CANARY_LOG_BOUNDARY\r\n\r\n"
+            + timestamp
+            + " INFO  [lizzie.app] second\r\n",
+        StandardCharsets.UTF_8);
+    Files.writeString(
+        tempDir.resolve("logs/crash.log"),
+        timestamp
+            + " ERROR [lizzie.crash] java.lang.IllegalStateException: failed\n"
+            + "\tat Example.run(Example.java:1)\n\n"
+            + timestamp
+            + " ERROR [lizzie.crash] next failure",
+        StandardCharsets.UTF_8);
+
+    Map<String, String> entries = unzipTextEntries(exportDefault(runtime));
+
+    assertEquals(
+        timestamp
+            + " INFO  [lizzie.app] first password=<redacted>\n\n"
+            + timestamp
+            + " INFO  [lizzie.app] second\n",
+        entries.get("logs/lizzie/app.log"));
+    assertEquals(
+        timestamp
+            + " ERROR [lizzie.crash] java.lang.IllegalStateException: failed\n"
+            + "\tat Example.run(Example.java:1)\n\n"
+            + timestamp
+            + " ERROR [lizzie.crash] next failure\n",
+        entries.get("logs/lizzie/crash.log"));
+  }
+
+  @Test
+  void redactedRecordTerminatorsSeparateEventsAndCountTowardsTheByteCap() throws Exception {
+    LoggingRuntime runtime = start();
+    runtime.awaitIdle();
+    runtime.shutdown();
+    String timestamp = LocalDateTime.now().minusSeconds(1).format(LOG_TIMESTAMP);
+    Files.writeString(
+        tempDir.resolve("logs/app.log"),
+        timestamp
+            + " INFO  [lizzie.app] password=\"CANARY_UNCLOSED_CREDENTIAL\n"
+            + "CANARY_CREDENTIAL_CONTINUATION\n"
+            + timestamp
+            + " INFO  [lizzie.app] 下一条\n",
+        StandardCharsets.UTF_8);
+    String nextRecord = timestamp + " INFO  [lizzie.app] 下一条\n";
+    String expected =
+        timestamp + " INFO  [lizzie.app] password=\"<redacted>\"\n" + nextRecord;
+
+    assertEquals(
+        expected, unzipTextEntries(exportDefault(runtime)).get("logs/lizzie/app.log"));
+
+    long cap = expected.getBytes(StandardCharsets.UTF_8).length - 1L;
+    Path cappedZip =
+        new DiagnosticBundleExporter(
+                DiagnosticBundleExporter.defaultOutputDirectory(tempDir),
+                new DiagnosticBundleLimits(24, cap, 24, 1024, 1024))
+            .export(request(runtime, EnumSet.noneOf(TraceScope.class)));
+    assertEquals(nextRecord, unzipTextEntries(cappedZip).get("logs/lizzie/app.log"));
+  }
+
+  @Test
   void malformedTimestampRecordAndContinuationsAreExcludedFailClosed() throws Exception {
     LoggingRuntime runtime = start();
     runtime.awaitIdle();

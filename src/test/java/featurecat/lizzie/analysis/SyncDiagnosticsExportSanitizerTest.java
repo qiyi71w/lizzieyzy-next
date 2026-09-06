@@ -17,10 +17,21 @@ class SyncDiagnosticsExportSanitizerTest {
         "yike session=(live-room#1), next=unite-board#1.",
         sanitizer.text(
             "yike session=(live-room:private-room_42), next=unite-board:board-7."));
+    assertEquals("live-room#1", sanitizer.sessionAlias(" \tlive-room:private-room_42\r\n"));
     assertEquals(2, sanitizer.aliases().size());
     assertEquals(
         List.of("live-room#1", "unite-board#1"),
         List.copyOf(sanitizer.aliases().values()));
+  }
+
+  @Test
+  void preservesTextWhitespaceWhileRedactingCredentials() {
+    SyncDiagnosticsExportSanitizer sanitizer = new SyncDiagnosticsExportSanitizer();
+
+    assertEquals(" \t\r\n\n", sanitizer.text(" \t\r\n\n"));
+    assertEquals(
+        "\tpassword=<redacted> \r\n\n",
+        sanitizer.text("\tpassword=CANARY_TEXT_WHITESPACE \r\n\n"));
   }
 
   @Test
