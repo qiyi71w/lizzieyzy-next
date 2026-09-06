@@ -6279,8 +6279,10 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
         ReadBoardLoggingProtocol.isAbsoluteLogDirectory(logDir)
             && ReadBoardLoggingProtocol.isOpaqueId(hostSession);
     ReadBoardLoggingControl nextControl =
-        new ReadBoardLoggingControl(
-            ReadBoardLoggingControl.Desired.launchDefaults(diagnostics), contract);
+        ReadBoardLoggingControl.forLaunch(
+            ReadBoardLoggingControl.Desired.launchDefaults(diagnostics),
+            contract,
+            contract ? java.nio.file.Path.of(logDir) : null);
     ReadBoardLoggingControl previousControl;
     boolean launchAlreadyClosed;
     synchronized (loggingTimeoutLifecycleLock()) {
@@ -6350,12 +6352,9 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     }
   }
 
-  private ScheduledExecutorService loggingTimeoutExecutor(
-      ReadBoardLoggingControl expectedControl) {
+  private ScheduledExecutorService loggingTimeoutExecutor(ReadBoardLoggingControl expectedControl) {
     synchronized (loggingTimeoutLifecycleLock()) {
-      if (shutdownStarted
-          || loggingTimeoutExecutorClosed
-          || loggingControl != expectedControl) {
+      if (shutdownStarted || loggingTimeoutExecutorClosed || loggingControl != expectedControl) {
         return null;
       }
       if (loggingTimeoutExecutor == null) {
@@ -6375,8 +6374,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     }
   }
 
-  private boolean scheduleLoggingTimeout(
-      ReadBoardLoggingControl control, long timeoutGeneration) {
+  private boolean scheduleLoggingTimeout(ReadBoardLoggingControl control, long timeoutGeneration) {
     if (control == null
         || timeoutGeneration == ReadBoardLoggingControl.NO_TIMEOUT_GENERATION
         || loggingControl != control) {
@@ -6413,8 +6411,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
           }
         }
       }
-      boolean armed =
-          failLoggingWaitAfterSchedulingFailure(control, timeoutGeneration);
+      boolean armed = failLoggingWaitAfterSchedulingFailure(control, timeoutGeneration);
       try {
         ReadBoardObservation.recordFailure("logging-timeout-schedule", schedulingFailure);
       } catch (RuntimeException | Error ignored) {
@@ -6432,8 +6429,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
 
   private void settleLoggingTimeoutIfCurrent(
       ReadBoardLoggingControl control, long timeoutGeneration) {
-    if (loggingControl == control
-        && control.onCapabilityTimeoutIfCurrent(timeoutGeneration)) {
+    if (loggingControl == control && control.onCapabilityTimeoutIfCurrent(timeoutGeneration)) {
       publishLoggingSnapshot();
     }
   }
@@ -6441,8 +6437,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
   private boolean failLoggingWaitAfterSchedulingFailure(
       ReadBoardLoggingControl control, long timeoutGeneration) {
     boolean failed =
-        loggingControl == control
-            && control.onCapabilityTimeoutIfCurrent(timeoutGeneration);
+        loggingControl == control && control.onCapabilityTimeoutIfCurrent(timeoutGeneration);
     if (failed) {
       return false;
     }
@@ -6453,8 +6448,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
 
   private void failLoggingRequestAfterSendFailure(
       ReadBoardLoggingControl control, long timeoutGeneration, Throwable sendFailure) {
-    if (loggingControl != control
-        || !control.onCapabilityTimeoutIfCurrent(timeoutGeneration)) {
+    if (loggingControl != control || !control.onCapabilityTimeoutIfCurrent(timeoutGeneration)) {
       return;
     }
     try {

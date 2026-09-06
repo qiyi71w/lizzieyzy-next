@@ -1,5 +1,6 @@
 package featurecat.lizzie.analysis;
 
+import featurecat.lizzie.logging.LogArchiveBoundary;
 import java.time.Instant;
 
 public final class ReadBoardLoggingSnapshot {
@@ -20,6 +21,7 @@ public final class ReadBoardLoggingSnapshot {
   private final ReadBoardLoggingControl.Presentation tracePresentation;
   private final String captureSummary;
   private final Instant processSessionObservedAt;
+  private final LogArchiveBoundary archiveBoundary;
 
   private ReadBoardLoggingSnapshot(
       boolean attached,
@@ -38,7 +40,8 @@ public final class ReadBoardLoggingSnapshot {
       ReadBoardLoggingControl.Presentation capturePresentation,
       ReadBoardLoggingControl.Presentation tracePresentation,
       String captureSummary,
-      Instant processSessionObservedAt) {
+      Instant processSessionObservedAt,
+      LogArchiveBoundary archiveBoundary) {
     this.attached = attached;
     this.contractLaunch = contractLaunch;
     this.status = status;
@@ -56,6 +59,7 @@ public final class ReadBoardLoggingSnapshot {
     this.tracePresentation = tracePresentation;
     this.captureSummary = captureSummary;
     this.processSessionObservedAt = processSessionObservedAt;
+    this.archiveBoundary = archiveBoundary;
   }
 
   public static ReadBoardLoggingSnapshot detached() {
@@ -76,7 +80,8 @@ public final class ReadBoardLoggingSnapshot {
         ReadBoardLoggingControl.Presentation.UNKNOWN,
         ReadBoardLoggingControl.Presentation.UNKNOWN,
         "no capture session",
-        null);
+        null,
+        LogArchiveBoundary.empty());
   }
 
   static ReadBoardLoggingSnapshot from(ReadBoardLoggingControl control) {
@@ -92,7 +97,8 @@ public final class ReadBoardLoggingSnapshot {
         observed == null ? ReadBoardLoggingProtocol.Toggle.UNKNOWN : observed.capture;
     ReadBoardLoggingProtocol.Toggle trace =
         observed == null ? ReadBoardLoggingProtocol.Toggle.UNKNOWN : observed.trace;
-    ReadBoardLoggingProtocol.Persistence persistence = observed == null ? null : observed.persistence;
+    ReadBoardLoggingProtocol.Persistence persistence =
+        observed == null ? null : observed.persistence;
     int dropCount = observed == null ? -1 : observed.dropCount;
     ReadBoardLoggingProtocol.Reason reason = observed == null ? null : observed.reason;
     return new ReadBoardLoggingSnapshot(
@@ -112,7 +118,8 @@ public final class ReadBoardLoggingSnapshot {
         control.presentation(desired.capture, capture, persistence),
         control.presentation(desired.trace, trace, persistence),
         captureSummary(processSessionId, desired.capture, capture, persistence),
-        control.processSessionObservedAt());
+        control.processSessionObservedAt(),
+        control.archiveBoundary());
   }
 
   public boolean attached() {
@@ -181,6 +188,10 @@ public final class ReadBoardLoggingSnapshot {
 
   public Instant processSessionObservedAt() {
     return processSessionObservedAt;
+  }
+
+  public LogArchiveBoundary archiveBoundary() {
+    return archiveBoundary;
   }
 
   private static String captureSummary(

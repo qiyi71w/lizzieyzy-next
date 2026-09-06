@@ -5,6 +5,7 @@ All notable maintenance updates to this fork are documented here.
 ## Unreleased
 
 - Preserved diagnostic log record boundaries and stack-trace whitespace during export without weakening privacy redaction (#431).
+- Made diagnostic export estimates describe approximate uncompressed content, pruned proven irrelevant archives before reading, and displayed publication success independently of folder opening (#430).
 - Preserved complete custom match rules, distinguished official rule presets, clarified unverified participation, and enabled match-rule inspection from independent-board shortcuts (#422).
 - Run custom local KataGo `benchmark` commands as slot-owned, cancellable tasks with streamed output and exit-code results (#423).
 - Prevented KataGo rules dialogs from interrupting engine games while their participants remain occupied (#421).

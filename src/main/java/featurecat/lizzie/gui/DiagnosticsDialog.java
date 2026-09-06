@@ -2,11 +2,11 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.SyncDiagnosticsRecorder;
 import featurecat.lizzie.analysis.ReadBoard;
 import featurecat.lizzie.analysis.ReadBoardLoggingControl;
-import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
 import featurecat.lizzie.analysis.ReadBoardLoggingProtocol;
+import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
+import featurecat.lizzie.analysis.SyncDiagnosticsRecorder;
 import featurecat.lizzie.logging.DiagnosticBundleExporter;
 import featurecat.lizzie.logging.DiagnosticBundleRequest;
 import featurecat.lizzie.logging.DiagnosticModule;
@@ -20,9 +20,9 @@ import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.GridLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Window;
 import java.io.IOException;
@@ -45,9 +45,9 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
-import javax.swing.JScrollPane;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -110,6 +110,9 @@ public class DiagnosticsDialog extends JPanel {
   private final AtomicBoolean cancelExport = new AtomicBoolean();
   private final Timer durationClock = new Timer(1000, event -> refreshDuration());
   private volatile Thread exportWorker;
+  private long estimateGeneration;
+  private boolean estimateRunning;
+  private DiagnosticBundleRequest pendingEstimate;
   private static JDialog openDialog;
   private static DiagnosticsDialog openPanel;
 
@@ -254,10 +257,12 @@ public class DiagnosticsDialog extends JPanel {
             false,
             null));
     addSection(
-        host, checkRow(text("DiagnosticsDialog.module.engine", "Engine"), moduleEngine, true, null));
+        host,
+        checkRow(text("DiagnosticsDialog.module.engine", "Engine"), moduleEngine, true, null));
     addSection(
         host,
-        checkRow(text("DiagnosticsDialog.module.gtpSummary", "GTP Summary"), moduleGtp, true, null));
+        checkRow(
+            text("DiagnosticsDialog.module.gtpSummary", "GTP Summary"), moduleGtp, true, null));
     addSection(
         host,
         checkRow(
@@ -362,8 +367,7 @@ public class DiagnosticsDialog extends JPanel {
     page.setOpaque(false);
     page.add(processes, BorderLayout.CENTER);
     page.add(
-        sectionCard(logs, buttonBar(openLogs, cancel, apply, exportDefault)),
-        BorderLayout.SOUTH);
+        sectionCard(logs, buttonBar(openLogs, cancel, apply, exportDefault)), BorderLayout.SOUTH);
     JScrollPane scroll = new JScrollPane(page);
     scroll.setBorder(null);
     scroll.setOpaque(false);
@@ -437,21 +441,12 @@ public class DiagnosticsDialog extends JPanel {
     refreshFromRuntime();
   }
 
-  Path exportSynchronously() throws IOException {
-    cancelExport.set(false);
-    Path zip = exporter.export(currentRequest(), cancelExport::get);
-    folderOpener.accept(zip.getParent());
-    refreshEstimate();
-    return zip;
-  }
-
   DiagnosticBundleRequest currentRequest() {
     LoggingRuntime.TraceSessionSnapshot trace = runtime.traceSessionSnapshot();
     Set<TraceScope> raw = trace.active() ? trace.scopes() : EnumSet.noneOf(TraceScope.class);
     ReadBoardLoggingSnapshot helper = helperLogging.snapshot();
     boolean includeReadBoardTrace =
-        helper.desired().trace
-            || helper.observedTrace() == ReadBoardLoggingProtocol.Toggle.ON;
+        helper.desired().trace || helper.observedTrace() == ReadBoardLoggingProtocol.Toggle.ON;
     return new DiagnosticBundleRequest(
         runtime,
         raw,
@@ -649,8 +644,7 @@ public class DiagnosticsDialog extends JPanel {
       state.setForeground(color);
       streamList.add(state, streamConstraint(1, row, 0));
       JFontLabel dropped =
-          new JFontLabel(
-              format("DiagnosticsDialog.dropped", "dropped {0}", stream.droppedCount()));
+          new JFontLabel(format("DiagnosticsDialog.dropped", "dropped {0}", stream.droppedCount()));
       dropped.setForeground(color);
       streamList.add(dropped, streamConstraint(2, row, 0));
       row++;
@@ -759,6 +753,7 @@ public class DiagnosticsDialog extends JPanel {
         return text("DiagnosticsDialog.presentation.unknown", "Unknown");
     }
   }
+
   private static JPanel helperRow(String name, JCheckBox desired, JLabel observed) {
     JFontLabel label = new JFontLabel(name);
     label.setForeground(INK);
@@ -875,15 +870,57 @@ public class DiagnosticsDialog extends JPanel {
   }
 
   private void refreshEstimate() {
-    try {
-      long bytes = exporter.estimateUncompressedBytes(currentRequest());
-      estimateLabel.setText(
-          text("DiagnosticsDialog.estimate", "Estimated size")
-              + ": "
-              + String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0)));
-    } catch (IOException e) {
-      estimateLabel.setText("");
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(this::refreshEstimate);
+      return;
     }
+    estimateGeneration++;
+    pendingEstimate = currentRequest();
+    if (!estimateRunning) {
+      startEstimate();
+    }
+  }
+
+  private void startEstimate() {
+    DiagnosticBundleRequest request = pendingEstimate;
+    pendingEstimate = null;
+    long generation = estimateGeneration;
+    estimateRunning = true;
+    Thread worker =
+        new Thread(
+            () -> {
+              String result;
+              try {
+                DiagnosticBundleExporter.ContentEstimate estimate = exporter.estimate(request);
+                result =
+                    text("DiagnosticsDialog.estimate", "Approximate uncompressed content")
+                        + ": "
+                        + String.format(
+                            Locale.US, "%.1f MiB", estimate.knownBytes() / (1024.0 * 1024.0))
+                        + (estimate.incomplete()
+                            ? text("DiagnosticsDialog.estimateUnknown", " + unknown content")
+                            : "")
+                        + (estimate.coarse()
+                            ? text("DiagnosticsDialog.estimateCoarse", " (before record filtering)")
+                            : "");
+              } catch (IOException | RuntimeException e) {
+                result = "";
+              }
+              String value = result;
+              SwingUtilities.invokeLater(
+                  () -> {
+                    estimateRunning = false;
+                    if (generation == estimateGeneration) {
+                      estimateLabel.setText(value);
+                    }
+                    if (pendingEstimate != null) {
+                      startEstimate();
+                    }
+                  });
+            },
+            "diagnostic-estimate");
+    worker.setDaemon(true);
+    worker.start();
   }
 
   private Set<DiagnosticModule> selectedModules() {
@@ -953,6 +990,9 @@ public class DiagnosticsDialog extends JPanel {
   }
 
   private void exportPackageOffEdt() {
+    if (exportWorker != null) {
+      return;
+    }
     cancelExport.set(false);
     DiagnosticBundleRequest request = currentRequest();
     exportDefault.setEnabled(false);
@@ -966,11 +1006,14 @@ public class DiagnosticsDialog extends JPanel {
                 Path zip = exporter.export(request, cancelExport::get);
                 SwingUtilities.invokeLater(
                     () -> {
-                      folderOpener.accept(zip.getParent());
+                      Thread opener =
+                          new Thread(() -> openPublishedFolder(zip), "diagnostic-folder");
+                      opener.setDaemon(true);
                       finishExport(
                           text("DiagnosticsDialog.exportSuccess", "Exported to:")
                               + " "
                               + zip.getFileName());
+                      opener.start();
                     });
               } catch (Exception e) {
                 SwingUtilities.invokeLater(
@@ -995,6 +1038,23 @@ public class DiagnosticsDialog extends JPanel {
     setStatus(message);
     refreshEstimate();
     revalidate();
+  }
+
+  private void openPublishedFolder(Path zip) {
+    long started = System.nanoTime();
+    var log =
+        org.slf4j.LoggerFactory.getLogger(featurecat.lizzie.logging.LogCategories.DIAGNOSTICS);
+    log.info("diagnostic stage=folder-opening state=started");
+    try {
+      folderOpener.accept(zip.getParent());
+      log.info(
+          "diagnostic stage=folder-opening state=completed elapsedNanos={}",
+          System.nanoTime() - started);
+    } catch (RuntimeException e) {
+      log.warn(
+          "diagnostic stage=folder-opening state=failed elapsedNanos={}",
+          System.nanoTime() - started);
+    }
   }
 
   private void setModulesEnabled(boolean enabled) {
@@ -1078,6 +1138,7 @@ public class DiagnosticsDialog extends JPanel {
     b.setMargin(new Insets(0, 0, 0, 0));
     return b;
   }
+
   private static JPanel checkRow(String name, JCheckBox box, boolean child, JComponent extra) {
     JFontLabel label = new JFontLabel(name);
     if (!child) {
@@ -1098,6 +1159,7 @@ public class DiagnosticsDialog extends JPanel {
     row.add(east, BorderLayout.EAST);
     return row;
   }
+
   private static JPanel metaRow(String name, JLabel value) {
     JPanel row = new JPanel(new BorderLayout(12, 0));
     row.setOpaque(false);
@@ -1179,7 +1241,6 @@ public class DiagnosticsDialog extends JPanel {
     constraints.insets = new Insets(1, 0, 1, column < 2 ? 24 : 0);
     return constraints;
   }
-
 
   private static String formatCaptureSummary(ReadBoardLoggingSnapshot snapshot) {
     if (snapshot.processSessionId() == null || snapshot.processSessionId().isEmpty()) {

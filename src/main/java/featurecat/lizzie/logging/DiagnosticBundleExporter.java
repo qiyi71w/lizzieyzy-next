@@ -86,8 +86,7 @@ public final class DiagnosticBundleExporter {
   private static final Pattern RECORD_HEADER =
       Pattern.compile("^(\\S{10}\\s+\\S{12})\\s+(?:TRACE|DEBUG|INFO|WARN|ERROR)\\b");
   private static final Pattern TRACE_SESSION_TOKEN = Pattern.compile("(?:^|\\s)trace=([^\\s]+)");
-  private static final Pattern SAFE_CAPTURE_SEGMENT =
-      Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
+  private static final Pattern SAFE_CAPTURE_SEGMENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
   @FunctionalInterface
   interface ThreadSnapshotSource {
@@ -166,8 +165,7 @@ public final class DiagnosticBundleExporter {
       PartialFileCleanupStrategy partialFileCleanupStrategy) {
     this.outputDirectory = Objects.requireNonNull(outputDirectory, "outputDirectory");
     this.limits = Objects.requireNonNull(limits, "limits");
-    this.partialFileObserver =
-        Objects.requireNonNull(partialFileObserver, "partialFileObserver");
+    this.partialFileObserver = Objects.requireNonNull(partialFileObserver, "partialFileObserver");
     this.bundleNameSupplier = Objects.requireNonNull(bundleNameSupplier, "bundleNameSupplier");
     this.partialFileCleanupStrategy =
         Objects.requireNonNull(partialFileCleanupStrategy, "partialFileCleanupStrategy");
@@ -185,59 +183,136 @@ public final class DiagnosticBundleExporter {
     return Objects.requireNonNull(workDirectory, "workDirectory").resolve("diagnostics");
   }
 
-  public long estimateUncompressedBytes(DiagnosticBundleRequest request) throws IOException {
+  /** Candidate bytes before record filtering; snapshots and unsupported metadata stay unknown. */
+  public record ContentEstimate(long knownBytes, boolean incomplete, boolean coarse) {}
+
+  public ContentEstimate estimate(DiagnosticBundleRequest request) throws IOException {
     Objects.requireNonNull(request, "request");
-    LoggingRuntime.TraceSessionSnapshot trace = request.runtime().traceSessionSnapshot();
-    long total = 0;
-    Path logs = request.runtime().logsDirectory();
-    total = saturatingAdd(total, estimateLogBytes(logs, "app", limits.appCapBytes()));
-    total = saturatingAdd(total, estimateLogBytes(logs, "crash", limits.crashCapBytes()));
-    Path readBoardLogs = logs.resolve("readboard");
-    total =
-        saturatingAdd(
-            total, estimateLogBytes(readBoardLogs, "app", limits.appCapBytes()));
-    total =
-        saturatingAdd(
-            total, estimateLogBytes(readBoardLogs, "crash", limits.crashCapBytes()));
+    LoggingRuntime.TraceSessionSnapshot trace = request.traceSession();
+    Instant capture = trace.capturedAt();
+    Path logs = request.logsDirectory();
+    List<ContentEstimate> contributions = new ArrayList<>();
+    for (boolean helper : new boolean[] {false, true}) {
+      Path root = helper ? logs.resolve("readboard") : logs;
+      contributions.add(
+          estimateLogBytes(
+              root,
+              "app",
+              limits.appCapBytes(),
+              capture.minusSeconds(limits.appWindowHours() * 3600),
+              LogArchiveBoundary.empty(),
+              helper));
+      contributions.add(
+          estimateLogBytes(
+              root,
+              "crash",
+              limits.crashCapBytes(),
+              capture.minusSeconds(limits.crashWindowHours() * 3600),
+              LogArchiveBoundary.empty(),
+              helper));
+    }
     if (trace.active()) {
       for (TraceScope scope : request.rawScopes()) {
         if (trace.scopes().contains(scope)) {
-          total =
-              saturatingAdd(
-                  total, estimateLogBytes(logs, stem(scope.fileName()), limits.rawCapBytes()));
+          contributions.add(
+              estimateLogBytes(
+                  logs,
+                  stem(scope.fileName()),
+                  limits.rawCapBytes(),
+                  trace.startedAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS),
+                  trace.archiveBoundary(),
+                  false));
         }
       }
     }
-    if (request.includeReadBoardTrace() && processSession(request) != null) {
-      total =
-          saturatingAdd(
-              total, estimateLogBytes(readBoardLogs, "trace", limits.rawCapBytes()));
+    if (request.includeReadBoardTrace()
+        && request.readBoardLogging().attached()
+        && processSession(request) != null) {
+      contributions.add(
+          estimateLogBytes(
+              logs.resolve("readboard"),
+              "trace",
+              limits.rawCapBytes(),
+              Instant.EPOCH,
+              request.readBoardLogging().archiveBoundary(),
+              true));
     }
-    if (request.includeCapture() && processSession(request) != null) {
-      // Capture enumeration is deliberately deferred to export, where every file is identity
-      // checked. A conservative cap avoids an unsafe or unbounded preflight tree walk.
-      total = saturatingAdd(total, limits.captureCapBytes());
+    long known = 0;
+    // Runtime/thread snapshots are produced during collection, not guessed from their safety caps.
+    boolean incomplete = true;
+    boolean coarse = false;
+    for (ContentEstimate contribution : contributions) {
+      known = saturatingAdd(known, contribution.knownBytes());
+      incomplete |= contribution.incomplete();
+      coarse |= contribution.coarse();
     }
-    return saturatingAdd(total, 64 * 1024);
+    // Capture inclusion needs identity-checked event metadata; it remains an explicit unknown.
+    return new ContentEstimate(known, incomplete, coarse);
   }
 
-  private static long estimateLogBytes(Path logsDirectory, String stem, long cap)
-      throws IOException {
+  private static ContentEstimate estimateLogBytes(
+      Path logsDirectory,
+      String stem,
+      long cap,
+      Instant cutoff,
+      LogArchiveBoundary boundary,
+      boolean helper) {
     long total = 0;
-    LogFileSet files = listLogFiles(logsDirectory, stem, () -> false);
-    if (files.truncated()) {
-      return cap;
-    }
-    for (SourceFile file : files.paths()) {
-      if (isGzip(file.path())) {
-        return cap;
+    boolean incomplete = false;
+    try {
+      LogFileSet files = listLogFiles(logsDirectory, stem, boundary, cutoff, helper, () -> false);
+      incomplete = files.truncated();
+      for (SourceFile file : files.paths()) {
+        long bytes = file.size();
+        if (isGzip(file.path())) {
+          bytes = gzipCandidateBytes(file, stem, helper);
+          // A trailer is only approximate: it cannot establish CRC, member count or retained
+          // fraction.
+          incomplete = true;
+        }
+        if (bytes < 0) {
+          incomplete = true;
+        } else {
+          total = Math.min(cap, saturatingAdd(total, bytes));
+        }
       }
-      total = Math.min(cap, saturatingAdd(total, file.size()));
-      if (total >= cap) {
-        return cap;
-      }
+    } catch (IOException | SecurityException e) {
+      incomplete = true;
     }
-    return total;
+    return new ContentEstimate(total, incomplete, total > 0);
+  }
+
+  private static long gzipCandidateBytes(SourceFile file, String stem, boolean helper)
+      throws IOException {
+    String name = file.path().getFileName().toString();
+    String suffix = name.substring(stem.length() + 1);
+    boolean producerName =
+        helper
+            ? suffix.matches("[0-9]{8}T[0-9]{6}Z(?:-[0-9]+)?\\.log\\.gz")
+            : suffix.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}\\.[0-9]+\\.log\\.gz");
+    // A DEFLATE match emits at most 258 bytes from at least two bits (1032:1).
+    // This conservative compressed-size bound rules out ISIZE wrap without inflating data.
+    if (!producerName || file.size() < 18 || file.size() > 0xffffffffL / 1032) {
+      return -1;
+    }
+    try (FileChannel channel = openVerifiedSource(file)) {
+      java.nio.ByteBuffer header = java.nio.ByteBuffer.allocate(10);
+      while (header.hasRemaining()) {
+        if (channel.read(header) < 0) return -1;
+      }
+      byte[] bytes = header.array();
+      if ((bytes[0] & 255) != 31 || (bytes[1] & 255) != 139 || bytes[2] != 8 || bytes[3] != 0) {
+        return -1;
+      }
+      java.nio.ByteBuffer trailer =
+          java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+      channel.position(file.size() - 4);
+      while (trailer.hasRemaining()) {
+        if (channel.read(trailer) < 0) return -1;
+      }
+      if (channel.size() != file.size()) return -1;
+      return Integer.toUnsignedLong(trailer.flip().getInt());
+    }
   }
 
   public Path export(DiagnosticBundleRequest request) throws IOException {
@@ -248,26 +323,28 @@ public final class DiagnosticBundleExporter {
       throws IOException {
     Objects.requireNonNull(request, "request");
     BooleanSupplier cancel = cancelled == null ? () -> false : cancelled;
-    LoggingRuntime.TraceSessionSnapshot trace = request.runtime().traceSessionSnapshot();
-    LoggingSettings settings = request.runtime().settings();
+    LoggingRuntime.TraceSessionSnapshot trace = request.traceSession();
+    LoggingSettings settings = request.settings();
     Instant captureTime = trace.capturedAt();
     throwIfCancelled(cancel);
     OutputRoot outputRoot = prepareOutputDirectory();
     CreatedPartial partial = createPartial(outputRoot);
     ExportSanitizer sanitizer = new ExportSanitizer();
     JSONObject sources = new JSONObject();
-    Path hostLogs = request.runtime().logsDirectory();
+    Path hostLogs = request.logsDirectory();
     Path readBoardLogs = hostLogs.resolve("readboard");
-    String hostSession = request.runtime().applicationLogSessionId();
+    String hostSession = request.applicationLogSessionId();
     String processSession = processSession(request);
     String processAlias =
         processSession == null ? null : sanitizer.alias("session", processSession);
+    String stage = "collection";
+    long stageStarted = System.nanoTime();
+    LOG.info("diagnostic stage={} state=started", stage);
     try (FileChannel channel = partial.channel();
         FileLock ownershipLock = partial.ownershipLock()) {
       try {
         try (ZipOutputStream out =
-            new ZipOutputStream(
-                new CloseShieldOutputStream(Channels.newOutputStream(channel)))) {
+            new ZipOutputStream(new CloseShieldOutputStream(Channels.newOutputStream(channel)))) {
           copyLogSource(
               out,
               NS_LIZZIE + "app.log",
@@ -276,6 +353,7 @@ public final class DiagnosticBundleExporter {
               hostLogs,
               "app",
               captureTime.minusSeconds(limits.appWindowHours() * 3600),
+              LogArchiveBoundary.empty(),
               captureTime,
               limits.appWindowHours(),
               limits.appCapBytes(),
@@ -296,6 +374,7 @@ public final class DiagnosticBundleExporter {
               hostLogs,
               "crash",
               captureTime.minusSeconds(limits.crashWindowHours() * 3600),
+              LogArchiveBoundary.empty(),
               captureTime,
               limits.crashWindowHours(),
               limits.crashCapBytes(),
@@ -318,6 +397,7 @@ public final class DiagnosticBundleExporter {
               readBoardLogs,
               "app",
               captureTime.minusSeconds(limits.appWindowHours() * 3600),
+              LogArchiveBoundary.empty(),
               captureTime,
               limits.appWindowHours(),
               limits.appCapBytes(),
@@ -338,6 +418,7 @@ public final class DiagnosticBundleExporter {
               readBoardLogs,
               "crash",
               captureTime.minusSeconds(limits.crashWindowHours() * 3600),
+              LogArchiveBoundary.empty(),
               captureTime,
               limits.crashWindowHours(),
               limits.crashCapBytes(),
@@ -351,48 +432,56 @@ public final class DiagnosticBundleExporter {
               cancel);
           throwIfCancelled(cancel);
           copyReadBoardTrace(
-              out,
-              request,
-              sanitizer,
-              sources,
-              processSession,
-              processAlias,
-              captureTime,
-              cancel);
+              out, request, sanitizer, sources, processSession, processAlias, captureTime, cancel);
           throwIfCancelled(cancel);
           copyCapture(
-              out,
-              request,
-              sanitizer,
-              sources,
-              processSession,
-              processAlias,
-              captureTime,
-              cancel);
+              out, request, sanitizer, sources, processSession, processAlias, captureTime, cancel);
           throwIfCancelled(cancel);
-          writeSnapshots(
-              out, request, sanitizer, sources, hostSession, captureTime);
+          writeSnapshots(out, request, sanitizer, sources, hostSession, captureTime);
           throwIfCancelled(cancel);
           JSONObject manifest =
               renderManifest(
-                  request,
-                  trace,
-                  settings,
-                  captureTime,
-                  sanitizer,
-                  sources,
-                  processAlias);
+                  request, trace, settings, captureTime, sanitizer, sources, processAlias);
           writeTextEntry(out, "manifest.json", manifest.toString(2));
+          LOG.info(
+              "diagnostic stage={} state=completed elapsedNanos={}",
+              stage,
+              System.nanoTime() - stageStarted);
+          stage = "zip-finalization";
+          stageStarted = System.nanoTime();
+          LOG.info("diagnostic stage={} state=started", stage);
         }
+        LOG.info(
+            "diagnostic stage={} state=completed elapsedNanos={}",
+            stage,
+            System.nanoTime() - stageStarted);
         // Keep this hook after ZipOutputStream.close(): tests can exercise pathname replacement
         // after real payload bytes and the central directory have reached the still-open channel.
         partialFileObserver.payloadWritten(partial.path());
+        stage = "force";
+        stageStarted = System.nanoTime();
+        LOG.info("diagnostic stage={} state=started", stage);
         channel.force(true);
+        LOG.info(
+            "diagnostic stage={} state=completed elapsedNanos={}",
+            stage,
+            System.nanoTime() - stageStarted);
+        stage = "publication";
+        stageStarted = System.nanoTime();
+        LOG.info("diagnostic stage={} state=started", stage);
         throwIfCancelled(cancel);
         Path target = publishAtomically(partial, outputRoot, captureTime);
+        LOG.info(
+            "diagnostic stage={} state=completed elapsedNanos={}",
+            stage,
+            System.nanoTime() - stageStarted);
         LOG.info("diagnostic package published file={}", target.getFileName());
         return target;
       } catch (IOException | RuntimeException | Error e) {
+        LOG.warn(
+            "diagnostic stage={} state=failed elapsedNanos={}",
+            stage,
+            System.nanoTime() - stageStarted);
         cleanupFailedPartial(partial, e);
         throw e;
       }
@@ -421,7 +510,7 @@ public final class DiagnosticBundleExporter {
                 0,
                 limits.rawCapBytes(),
                 NS_LIZZIE,
-                request.runtime().applicationLogSessionId(),
+                request.applicationLogSessionId(),
                 "not-requested",
                 false));
         continue;
@@ -436,7 +525,7 @@ public final class DiagnosticBundleExporter {
                 0,
                 limits.rawCapBytes(),
                 NS_LIZZIE,
-                request.runtime().applicationLogSessionId(),
+                request.applicationLogSessionId(),
                 "no-active-session",
                 false));
         continue;
@@ -451,7 +540,7 @@ public final class DiagnosticBundleExporter {
                 0,
                 limits.rawCapBytes(),
                 NS_LIZZIE,
-                request.runtime().applicationLogSessionId(),
+                request.applicationLogSessionId(),
                 "scope-not-active-at-capture",
                 false));
         continue;
@@ -462,9 +551,10 @@ public final class DiagnosticBundleExporter {
           NS_LIZZIE + scope.fileName(),
           sourceName,
           NS_LIZZIE,
-          request.runtime().logsDirectory(),
+          request.logsDirectory(),
           stem(scope.fileName()),
-          Instant.EPOCH,
+          trace.startedAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS),
+          trace.archiveBoundary(),
           captureTime,
           0,
           limits.rawCapBytes(),
@@ -473,7 +563,7 @@ public final class DiagnosticBundleExporter {
           trace.sessionId(),
           false,
           true,
-          request.runtime().applicationLogSessionId(),
+          request.applicationLogSessionId(),
           "no-active-session",
           cancel);
     }
@@ -515,9 +605,7 @@ public final class DiagnosticBundleExporter {
               limits.rawCapBytes(),
               NS_READBOARD,
               processAlias,
-              request.readBoardLogging().attached()
-                  ? "no-current-session"
-                  : "helper-not-started",
+              request.readBoardLogging().attached() ? "no-current-session" : "helper-not-started",
               false));
       return;
     }
@@ -527,9 +615,10 @@ public final class DiagnosticBundleExporter {
         NS_READBOARD + "trace.log",
         "readboard-trace",
         NS_READBOARD,
-        request.runtime().logsDirectory().resolve("readboard"),
+        request.logsDirectory().resolve("readboard"),
         "trace",
         Instant.EPOCH,
+        request.readBoardLogging().archiveBoundary(),
         captureTime,
         0,
         limits.rawCapBytes(),
@@ -579,15 +668,12 @@ public final class DiagnosticBundleExporter {
               limits.captureCapBytes(),
               NS_CAPTURE,
               processAlias,
-              request.readBoardLogging().attached()
-                  ? "no-current-session"
-                  : "helper-not-started",
+              request.readBoardLogging().attached() ? "no-current-session" : "helper-not-started",
               false));
       return;
     }
 
-    Path captureRoot =
-        request.runtime().logsDirectory().resolve("readboard").resolve("capture");
+    Path captureRoot = request.logsDirectory().resolve("readboard").resolve("capture");
     if (!Files.isDirectory(captureRoot, LinkOption.NOFOLLOW_LINKS)) {
       sources.put(
           "readboard-capture",
@@ -624,8 +710,7 @@ public final class DiagnosticBundleExporter {
           truncated = true;
           break;
         }
-        List<CapturePayload> payloads =
-            readCaptureEvent(event, sanitizer, remaining, cancel);
+        List<CapturePayload> payloads = readCaptureEvent(event, sanitizer, remaining, cancel);
         if (payloads == null) {
           truncated = true;
           break;
@@ -645,8 +730,7 @@ public final class DiagnosticBundleExporter {
       if (Files.isRegularFile(debugLog, LinkOption.NOFOLLOW_LINKS)) {
         SourceFile debugSource = inspectSourceFile(rootReal, debugLog);
         List<CapturePayload> debug =
-            readCaptureFiles(
-                List.of(debugSource), NS_CAPTURE, sanitizer, remaining, cancel);
+            readCaptureFiles(List.of(debugSource), NS_CAPTURE, sanitizer, remaining, cancel);
         if (debug == null) {
           truncated = true;
         } else {
@@ -724,9 +808,7 @@ public final class DiagnosticBundleExporter {
       throws IOException {
     JSONObject projected = ConfigExportProjection.project(request.config());
     writeTextEntry(
-        out,
-        NS_SNAPSHOTS + "config.json",
-        sanitizer.sanitizeJsonObject(projected).toString(2));
+        out, NS_SNAPSHOTS + "config.json", sanitizer.sanitizeJsonObject(projected).toString(2));
     JSONObject versions = new JSONObject();
     versions.put("host", sanitizer.sanitizeText(request.appVersion()));
     versions.put("readboard", sanitizer.sanitizeText(request.readBoardVersion()));
@@ -745,29 +827,10 @@ public final class DiagnosticBundleExporter {
     SyncDiagnosticsExporter.writeSnapshotEntries(
         out, snapshot, sanitizer.shareTime(), NS_SNAPSHOTS);
     sources.put(
-        "snapshots",
-        sourceRecord(
-            true,
-            "included",
-            0,
-            0,
-            0,
-            NS_SNAPSHOTS,
-            hostSession,
-            "",
-            false));
+        "snapshots", sourceRecord(true, "included", 0, 0, 0, NS_SNAPSHOTS, hostSession, "", false));
     sources.put(
         "environment",
-        sourceRecord(
-            true,
-            "included",
-            0,
-            0,
-            0,
-            NS_SNAPSHOTS,
-            hostSession,
-            "",
-            false));
+        sourceRecord(true, "included", 0, 0, 0, NS_SNAPSHOTS, hostSession, "", false));
   }
 
   private void writeRuntimeSnapshot(
@@ -787,14 +850,14 @@ public final class DiagnosticBundleExporter {
 
   private static Path resolveWorkDirectory(DiagnosticBundleRequest request) {
     try {
-      Path work = request.runtime().workDirectory();
+      Path work = request.workDirectory();
       if (work != null) {
         return work;
       }
     } catch (RuntimeException ignored) {
     }
     try {
-      Path logs = request.runtime().logsDirectory();
+      Path logs = request.logsDirectory();
       return logs == null ? null : logs.getParent();
     } catch (RuntimeException ignored) {
       return null;
@@ -802,10 +865,7 @@ public final class DiagnosticBundleExporter {
   }
 
   private void writeThreadSnapshot(
-      ZipOutputStream out,
-      ExportSanitizer sanitizer,
-      JSONObject sources,
-      String hostSession) {
+      ZipOutputStream out, ExportSanitizer sanitizer, JSONObject sources, String hostSession) {
     String text;
     String status = "included";
     String reason = "";
@@ -840,16 +900,7 @@ public final class DiagnosticBundleExporter {
     } catch (IOException ignoredWrite) {
       sources.put(
           "threads",
-          sourceRecord(
-              true,
-              "failed",
-              0,
-              0,
-              0,
-              NS_SNAPSHOTS,
-              hostSession,
-              "unreadable",
-              false));
+          sourceRecord(true, "failed", 0, 0, 0, NS_SNAPSHOTS, hostSession, "unreadable", false));
     }
   }
 
@@ -862,8 +913,7 @@ public final class DiagnosticBundleExporter {
       throws IOException {
     FileIdentity rootIdentity = captureDirectoryIdentity(captureRoot);
     Path rootReal = rootIdentity.realPath();
-    Comparator<CaptureEventSource> oldestFirst =
-        Comparator.comparing(CaptureEventSource::name);
+    Comparator<CaptureEventSource> oldestFirst = Comparator.comparing(CaptureEventSource::name);
     PriorityQueue<CaptureEventSource> newestEvents = new PriorityQueue<>(oldestFirst);
     boolean truncated = false;
     int visited = 0;
@@ -981,10 +1031,7 @@ public final class DiagnosticBundleExporter {
   }
 
   private static boolean captureEventMatchesSession(
-      JSONObject metadata,
-      String processSession,
-      Instant sessionObservedAt,
-      Instant captureTime) {
+      JSONObject metadata, String processSession, Instant sessionObservedAt, Instant captureTime) {
     String stamped = extractMetadataSession(metadata);
     if (stamped != null && !stamped.isEmpty()) {
       return processSession.equals(stamped);
@@ -998,10 +1045,7 @@ public final class DiagnosticBundleExporter {
   }
 
   private static List<CapturePayload> readCaptureEvent(
-      CaptureEventSource event,
-      ExportSanitizer sanitizer,
-      long remaining,
-      BooleanSupplier cancel)
+      CaptureEventSource event, ExportSanitizer sanitizer, long remaining, BooleanSupplier cancel)
       throws IOException {
     if (event.truncated()) {
       return null;
@@ -1026,8 +1070,7 @@ public final class DiagnosticBundleExporter {
       if (rendered.length > available) {
         return null;
       }
-      payloads.add(
-          new CapturePayload(NS_CAPTURE + event.name() + "/" + fileName, rendered));
+      payloads.add(new CapturePayload(NS_CAPTURE + event.name() + "/" + fileName, rendered));
       available -= rendered.length;
     }
     if (!sameIdentity(event.identity(), captureDirectoryIdentity(event.path()))) {
@@ -1103,8 +1146,7 @@ public final class DiagnosticBundleExporter {
           if (!(parsed instanceof JSONObject) && !(parsed instanceof JSONArray)) {
             throw new IllegalArgumentException("JSONL records must be objects or arrays");
           }
-          sanitized.append(
-              ExportSanitizer.renderJsonValue(sanitizer.sanitizeJsonValue(parsed)));
+          sanitized.append(ExportSanitizer.renderJsonValue(sanitizer.sanitizeJsonValue(parsed)));
         } catch (RuntimeException malformed) {
           // A malformed line is replaced independently; later records remain available without
           // ever copying bytes from the rejected line.
@@ -1126,13 +1168,10 @@ public final class DiagnosticBundleExporter {
 
   private static byte[] readVerifiedBytes(
       SourceFile source, long maximumBytes, BooleanSupplier cancel) throws IOException {
-    if (source.size() < 0
-        || source.size() > maximumBytes
-        || source.size() > Integer.MAX_VALUE) {
+    if (source.size() < 0 || source.size() > maximumBytes || source.size() > Integer.MAX_VALUE) {
       throw new SourceLimitExceededException("capture-cap");
     }
-    ByteArrayOutputStream bytes =
-        new ByteArrayOutputStream((int) Math.min(source.size(), 8192L));
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) Math.min(source.size(), 8192L));
     try (FileChannel channel = openVerifiedSource(source);
         InputStream input = Channels.newInputStream(channel)) {
       byte[] buffer = new byte[8192];
@@ -1181,9 +1220,7 @@ public final class DiagnosticBundleExporter {
       return null;
     }
     String value = path.toString();
-    if (!SAFE_CAPTURE_SEGMENT.matcher(value).matches()
-        || ".".equals(value)
-        || "..".equals(value)) {
+    if (!SAFE_CAPTURE_SEGMENT.matcher(value).matches() || ".".equals(value) || "..".equals(value)) {
       return null;
     }
     try {
@@ -1227,6 +1264,7 @@ public final class DiagnosticBundleExporter {
       Path logsDirectory,
       String stem,
       Instant cutoff,
+      LogArchiveBoundary archiveBoundary,
       Instant captureTime,
       long windowHours,
       long capBytes,
@@ -1250,40 +1288,37 @@ public final class DiagnosticBundleExporter {
             sessionForManifest,
             "",
             false);
+    source.put("candidates", 0);
+    source.put("filesPruned", 0);
+    source.put("openedFiles", 0);
     LogFileSet logFiles;
+    long enumerationStarted = System.nanoTime();
     try {
-      logFiles = listLogFiles(logsDirectory, stem, cancel);
+      logFiles = listLogFiles(logsDirectory, stem, archiveBoundary, cutoff, jsonLines, cancel);
     } catch (ExportCancelledException e) {
       throw e;
     } catch (IOException e) {
-      sources.put(
-          sourceName,
-          sourceRecord(
-              requested,
-              "failed",
-              0,
-              windowHours,
-              capBytes,
-              namespace,
-              sessionForManifest,
-              failureReason(e),
-              false));
+      source.put("enumerationNanos", System.nanoTime() - enumerationStarted);
+      source.put("enumerationState", "failed");
+      source.put("status", "failed");
+      source.put("failed", true);
+      source.put("included", false);
+      source.put("reason", failureReason(e));
+      sources.put(sourceName, source);
       return;
     }
     List<SourceFile> files = logFiles.paths();
+    source.put("enumerationNanos", System.nanoTime() - enumerationStarted);
+    source.put("enumerationState", "completed");
+    source.put("candidates", files.size());
+    source.put("filesPruned", logFiles.pruned());
+    source.put("openedFiles", 0);
     if (files.isEmpty()) {
-      sources.put(
-          sourceName,
-          sourceRecord(
-              requested,
-              "failed",
-              0,
-              windowHours,
-              capBytes,
-              namespace,
-              sessionForManifest,
-              "missing",
-              false));
+      source.put("status", "failed");
+      source.put("failed", true);
+      source.put("included", false);
+      source.put("reason", "missing");
+      sources.put(sourceName, source);
       return;
     }
 
@@ -1297,6 +1332,8 @@ public final class DiagnosticBundleExporter {
     int malformedRecords = 0;
     int readErrors = 0;
     String lastReadError = null;
+    long readingStarted = System.nanoTime();
+    LOG.info("diagnostic source={} stage=read-filter-sanitize state=started", sourceName);
     for (int index = 0; index < files.size(); index++) {
       throwIfCancelled(cancel);
       if (selected.remaining() <= 0) {
@@ -1354,6 +1391,13 @@ public final class DiagnosticBundleExporter {
       }
     }
 
+    source.put("readFilterSanitizeNanos", System.nanoTime() - readingStarted);
+    source.put("sanitizerNanos", budget.sanitizerNanos);
+    source.put("openedFiles", budget.openedFiles);
+    LOG.info(
+        "diagnostic source={} stage=read-filter-sanitize state=completed elapsedNanos={}",
+        sourceName,
+        source.getLong("readFilterSanitizeNanos"));
     source.put("bytes", selected.bytes());
     source.put("truncated", truncated);
     source.put("malformedRecordsExcluded", malformedRecords);
@@ -1383,7 +1427,9 @@ public final class DiagnosticBundleExporter {
       return;
     }
 
+    long writingStarted = System.nanoTime();
     writeTailEntry(out, entryName, selected, cancel);
+    source.put("zipEntryNanos", System.nanoTime() - writingStarted);
     if (truncated) {
       source.put("status", "truncated");
       source.put("truncated", true);
@@ -1418,7 +1464,7 @@ public final class DiagnosticBundleExporter {
         Matcher header = RECORD_HEADER.matcher(line.text());
         if (header.find()) {
           if (current != null) {
-            truncated |= finishRecord(current, records, requiredSession, sanitizer);
+            truncated |= finishRecord(current, records, requiredSession, sanitizer, budget);
           }
           Instant timestamp = parseTimestamp(header.group(1));
           if (timestamp == null) {
@@ -1435,7 +1481,7 @@ public final class DiagnosticBundleExporter {
         }
       }
       if (current != null) {
-        truncated |= finishRecord(current, records, requiredSession, sanitizer);
+        truncated |= finishRecord(current, records, requiredSession, sanitizer, budget);
       }
     }
     return new ReadFileResult(
@@ -1496,9 +1542,11 @@ public final class DiagnosticBundleExporter {
             && !requiredSession.equals(extractProcessSession(value))) {
           continue;
         }
+        long sanitizerStarted = System.nanoTime();
         byte[] sanitized =
             (sanitizer.sanitizeJsonObject(value).toString() + "\n")
                 .getBytes(StandardCharsets.UTF_8);
+        budget.sanitizerNanos += System.nanoTime() - sanitizerStarted;
         records.add(sanitized);
       }
     }
@@ -1513,7 +1561,8 @@ public final class DiagnosticBundleExporter {
       RecordAccumulator record,
       RecordTail records,
       String requiredSession,
-      ExportSanitizer sanitizer) {
+      ExportSanitizer sanitizer,
+      ReadBudget budget) {
     if (!record.eligible()) {
       return record.truncated();
     }
@@ -1523,12 +1572,15 @@ public final class DiagnosticBundleExporter {
         && !hasTraceSession(raw, requiredSession)) {
       return record.truncated();
     }
+    long sanitizerStarted = System.nanoTime();
     String sanitized = sanitizer.sanitizeText(raw);
     // Fail-closed redaction can consume the terminator; restore it before byte accounting.
     if (!sanitized.endsWith("\n")) {
       sanitized += "\n";
     }
-    records.add(sanitized.getBytes(StandardCharsets.UTF_8));
+    byte[] sanitizedBytes = sanitized.getBytes(StandardCharsets.UTF_8);
+    budget.sanitizerNanos += System.nanoTime() - sanitizerStarted;
+    records.add(sanitizedBytes);
     return record.truncated();
   }
 
@@ -1545,6 +1597,7 @@ public final class DiagnosticBundleExporter {
       throw new SourceLimitExceededException("scan-limit");
     }
     FileChannel channel = openVerifiedSource(file);
+    budget.openedFiles++;
     if (isGzip(file.path())) {
       InputStream raw = Channels.newInputStream(channel);
       try {
@@ -1597,12 +1650,18 @@ public final class DiagnosticBundleExporter {
   }
 
   private static LogFileSet listLogFiles(
-      Path logsDirectory, String stem, BooleanSupplier cancel) throws IOException {
+      Path logsDirectory,
+      String stem,
+      LogArchiveBoundary boundary,
+      Instant cutoff,
+      boolean helper,
+      BooleanSupplier cancel)
+      throws IOException {
     BooleanSupplier cancelled = cancel == null ? () -> false : cancel;
     throwIfCancelled(cancelled);
     List<SourceFile> files = new ArrayList<>();
     if (!Files.isDirectory(logsDirectory, LinkOption.NOFOLLOW_LINKS)) {
-      return new LogFileSet(List.of(), false);
+      return new LogFileSet(List.of(), false, 0);
     }
     Path logsRoot = logsDirectory.toRealPath();
     Path active = logsDirectory.resolve(stem + ".log");
@@ -1611,6 +1670,7 @@ public final class DiagnosticBundleExporter {
     }
     Path archive = logsDirectory.resolve("archive");
     boolean truncated = false;
+    int pruned = 0;
     if (Files.isDirectory(archive, LinkOption.NOFOLLOW_LINKS)) {
       Comparator<SourceFile> oldestFirst =
           Comparator.comparing(SourceFile::lastModified)
@@ -1630,7 +1690,14 @@ public final class DiagnosticBundleExporter {
           if (fileName.startsWith(archivePrefix)
               && fileName.endsWith(archiveSuffix)
               && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
-            newestArchives.add(inspectSourceFile(logsRoot, path));
+            SourceFile candidate = inspectSourceFile(logsRoot, path);
+            if (archiveEndsBefore(fileName, stem, cutoff, helper)
+                || boundary.predatesSession(
+                    path, candidate.identity().fileKey(), candidate.identity().creationTime())) {
+              pruned++;
+              continue;
+            }
+            newestArchives.add(candidate);
             if (newestArchives.size() > MAX_ARCHIVE_FILES_PER_SOURCE) {
               newestArchives.remove();
               truncated = true;
@@ -1644,7 +1711,43 @@ public final class DiagnosticBundleExporter {
         Comparator.comparing(SourceFile::lastModified)
             .thenComparing(source -> source.path().getFileName().toString())
             .reversed());
-    return new LogFileSet(List.copyOf(files), truncated);
+    return new LogFileSet(List.copyOf(files), truncated, pruned);
+  }
+
+  private static boolean archiveEndsBefore(
+      String name, String stem, Instant cutoff, boolean helper) {
+    if (cutoff == null || cutoff.equals(Instant.EPOCH)) {
+      return false;
+    }
+    if (name.length() <= stem.length() + 1 + ".log.gz".length()) {
+      return false;
+    }
+    String bucket = name.substring(stem.length() + 1, name.length() - ".log.gz".length());
+    try {
+      Instant end;
+      if (helper) {
+        if (!bucket.matches("[0-9]{8}T[0-9]{6}Z(?:-[0-9]+)?")) {
+          return false;
+        }
+        end =
+            java.time.LocalDateTime.parse(
+                    bucket.substring(0, 15), DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmss"))
+                .toInstant(java.time.ZoneOffset.UTC)
+                .plusSeconds(1);
+      } else {
+        if (!bucket.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}\\.[0-9]+")) {
+          return false;
+        }
+        end =
+            java.time.LocalDate.parse(bucket.substring(0, 10))
+                .plusDays(1)
+                .atStartOfDay(ZoneId.systemDefault())
+                .toInstant();
+      }
+      return !end.isAfter(cutoff);
+    } catch (java.time.DateTimeException e) {
+      return false;
+    }
   }
 
   private static SourceFile inspectSourceFile(Path logsRoot, Path path) throws IOException {
@@ -1672,7 +1775,7 @@ public final class DiagnosticBundleExporter {
       JSONObject sources,
       String processAlias) {
     JSONObject manifest = new JSONObject();
-    manifest.put("applicationSession", request.runtime().applicationLogSessionId());
+    manifest.put("applicationSession", request.applicationLogSessionId());
     manifest.put("traceSession", trace.active() ? trace.sessionId() : JSONObject.NULL);
     manifest.put("processSession", processAlias == null ? JSONObject.NULL : processAlias);
     manifest.put("captureTime", captureTime.toString());
@@ -1746,8 +1849,8 @@ public final class DiagnosticBundleExporter {
     return array;
   }
 
-  private Path publishAtomically(
-      CreatedPartial partial, OutputRoot outputRoot, Instant captureTime) throws IOException {
+  private Path publishAtomically(CreatedPartial partial, OutputRoot outputRoot, Instant captureTime)
+      throws IOException {
     requirePathNamesLockedFile(partial.path(), partial);
     if (!hasDirectoryIdentity(outputRoot)) {
       throw new IOException("diagnostic output directory changed before publication");
@@ -1824,9 +1927,7 @@ public final class DiagnosticBundleExporter {
         throw new IOException("diagnostic output directory changed before temporary creation");
       }
       Path path =
-          outputRoot
-              .path()
-              .resolve(".lizzie-diagnostics-" + UUID.randomUUID() + ".partial");
+          outputRoot.path().resolve(".lizzie-diagnostics-" + UUID.randomUUID() + ".partial");
       FileChannel channel;
       try {
         channel = FileChannel.open(path, options);
@@ -2095,9 +2196,7 @@ public final class DiagnosticBundleExporter {
 
   private static Instant parseTimestamp(String value) {
     try {
-      return LocalDateTime.parse(value, LOG_TIMESTAMP)
-          .atZone(ZoneId.systemDefault())
-          .toInstant();
+      return LocalDateTime.parse(value, LOG_TIMESTAMP).atZone(ZoneId.systemDefault()).toInstant();
     } catch (DateTimeParseException e) {
       return null;
     }
@@ -2220,28 +2319,20 @@ public final class DiagnosticBundleExporter {
 
   private record OutputRoot(Path path, FileIdentity identity) {}
 
-  private record SourceFile(
-      Path path, FileIdentity identity, long size, Instant lastModified) {}
+  private record SourceFile(Path path, FileIdentity identity, long size, Instant lastModified) {}
 
-  private record LogFileSet(List<SourceFile> paths, boolean truncated) {}
+  private record LogFileSet(List<SourceFile> paths, boolean truncated, int pruned) {}
 
   private record CaptureEventSet(
       List<CaptureEventSource> events, boolean truncated, FileIdentity rootIdentity) {}
 
   private record CaptureEventSource(
-      String name,
-      Path path,
-      FileIdentity identity,
-      List<SourceFile> files,
-      boolean truncated) {}
+      String name, Path path, FileIdentity identity, List<SourceFile> files, boolean truncated) {}
 
   private record CapturePayload(String entryName, byte[] bytes) {}
 
   private record ReadFileResult(
-      RecordTail records,
-      int malformedRecords,
-      boolean truncated,
-      boolean newerHistoryOmitted) {}
+      RecordTail records, int malformedRecords, boolean truncated, boolean newerHistoryOmitted) {}
 
   private static final class RecordAccumulator {
     private final boolean eligible;
@@ -2360,6 +2451,8 @@ public final class DiagnosticBundleExporter {
   private static final class ReadBudget {
     private final long limit;
     private long remaining;
+    private int openedFiles;
+    private long sanitizerNanos;
 
     private ReadBudget(long limit) {
       this.limit = Math.max(0L, limit);

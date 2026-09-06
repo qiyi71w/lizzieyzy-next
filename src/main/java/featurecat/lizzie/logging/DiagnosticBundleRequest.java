@@ -2,6 +2,7 @@ package featurecat.lizzie.logging;
 
 import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
 import featurecat.lizzie.analysis.SyncDiagnosticsExportSnapshot;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Objects;
@@ -9,7 +10,11 @@ import java.util.Set;
 import org.json.JSONObject;
 
 public final class DiagnosticBundleRequest {
-  private final LoggingRuntime runtime;
+  private final Path logsDirectory;
+  private final Path workDirectory;
+  private final String applicationLogSessionId;
+  private final LoggingRuntime.TraceSessionSnapshot traceSession;
+  private final LoggingSettings settings;
   private final Set<TraceScope> rawScopes;
   private final boolean includeReadBoardTrace;
   private final boolean includeCapture;
@@ -47,7 +52,14 @@ public final class DiagnosticBundleRequest {
       ReadBoardLoggingSnapshot readBoardLogging,
       String appVersion,
       String readBoardVersion) {
-    this.runtime = Objects.requireNonNull(runtime, "runtime");
+    Objects.requireNonNull(runtime, "runtime");
+    synchronized (runtime) {
+      this.traceSession = runtime.traceSessionSnapshot();
+      this.settings = runtime.settings();
+      this.applicationLogSessionId = runtime.applicationLogSessionId();
+      this.logsDirectory = runtime.logsDirectory();
+      this.workDirectory = runtime.workDirectory();
+    }
     this.rawScopes =
         rawScopes == null || rawScopes.isEmpty()
             ? EnumSet.noneOf(TraceScope.class)
@@ -62,8 +74,24 @@ public final class DiagnosticBundleRequest {
     this.readBoardVersion = readBoardVersion == null ? "unknown" : readBoardVersion;
   }
 
-  public LoggingRuntime runtime() {
-    return runtime;
+  public Path logsDirectory() {
+    return logsDirectory;
+  }
+
+  public Path workDirectory() {
+    return workDirectory;
+  }
+
+  public String applicationLogSessionId() {
+    return applicationLogSessionId;
+  }
+
+  public LoggingRuntime.TraceSessionSnapshot traceSession() {
+    return traceSession;
+  }
+
+  public LoggingSettings settings() {
+    return settings;
   }
 
   public Set<TraceScope> rawScopes() {
@@ -79,7 +107,7 @@ public final class DiagnosticBundleRequest {
   }
 
   public JSONObject config() {
-    return config;
+    return new JSONObject(config.toString());
   }
 
   public SyncDiagnosticsExportSnapshot snapshot() {
