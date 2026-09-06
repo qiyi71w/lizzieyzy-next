@@ -7199,6 +7199,16 @@ public class LizzieFrame extends JFrame {
   }
 
   static String loadingTextResourceKey(Leelaz engine) {
+    if (engine != null && engine.isBenchmark()) {
+      featurecat.lizzie.analysis.BenchmarkExecution execution = engine.benchmarkExecution();
+      if (execution == null) return "Benchmark.runningCompact";
+      return switch (execution.snapshot().state()) {
+        case STARTING, RUNNING -> "Benchmark.runningCompact";
+        case SUCCEEDED -> "Benchmark.succeeded";
+        case FAILED -> "Benchmark.failedCompact";
+        case CANCELLED -> "Benchmark.cancelled";
+      };
+    }
     if (engine == null || engine.isDownWithError) {
       return "LizzieFrame.display.down";
     }
