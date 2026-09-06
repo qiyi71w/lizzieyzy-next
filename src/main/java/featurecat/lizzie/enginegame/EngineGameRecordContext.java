@@ -9,10 +9,18 @@ import java.util.Objects;
 public record EngineGameRecordContext(
     EngineGamePlan plan,
     EngineGameParticipantDescriptor black,
-    EngineGameParticipantDescriptor white) {
+    EngineGameParticipantDescriptor white,
+    MatchRulesSnapshot matchRules) {
   public EngineGameRecordContext {
     black = Objects.requireNonNull(black, "black");
     white = Objects.requireNonNull(white, "white");
+  }
+
+  public EngineGameRecordContext(
+      EngineGamePlan plan,
+      EngineGameParticipantDescriptor black,
+      EngineGameParticipantDescriptor white) {
+    this(plan, black, white, null);
   }
 
   /** Formatting-only marker for engine-save SNAPSHOT serialization tests. */
@@ -20,7 +28,7 @@ public record EngineGameRecordContext(
     EngineParticipantIdentity identity = new EngineParticipantIdentity("", "");
     EngineGameParticipantDescriptor descriptor =
         new EngineGameParticipantDescriptor(identity, "", false, false, 0);
-    return new EngineGameRecordContext(null, descriptor, descriptor);
+    return new EngineGameRecordContext(null, descriptor, descriptor, null);
   }
 
   public int openingIndex() {

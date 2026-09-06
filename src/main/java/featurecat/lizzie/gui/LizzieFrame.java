@@ -32,6 +32,7 @@ import featurecat.lizzie.analysis.WholeGameAnalysisSession;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
 import featurecat.lizzie.enginegame.EngineGamePresentation;
 import featurecat.lizzie.enginegame.EngineGameSnapshot;
+import featurecat.lizzie.enginegame.MatchRulesSnapshot;
 import featurecat.lizzie.logging.SgfObservation;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
@@ -697,6 +698,8 @@ public class LizzieFrame extends JFrame {
   public int staty;
   public int statw;
   public int stath;
+  private Rectangle matchRulesCaptionBounds;
+  private MatchRulesDetailsDialog matchRulesDetailsDialog;
 
   public int boardX;
   public int boardY;
@@ -8292,6 +8295,9 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean shouldDrawMoveNumberDown() {
+    if (!matchRulesCaption().isEmpty()) {
+      return true;
+    }
     EngineGameSnapshot snapshot = EngineGamePresentation.current();
     if (snapshot.playing()) {
       Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
@@ -8306,6 +8312,59 @@ public class LizzieFrame extends JFrame {
     if (Lizzie.leelaz != null && Lizzie.leelaz.isKatago && Lizzie.leelaz.usingSpecificRules > 0)
       return true;
     return false;
+  }
+
+  private String matchRulesCaption() {
+    return EngineGamePresentation.matchRulesCaption(
+        EngineGamePresentation.current(),
+        Lizzie.engineGame == null ? null : Lizzie.engineGame.matchRulesSnapshot(),
+        EngineGamePresentation.currentHistoryInfo(),
+        Lizzie.resourceBundle);
+  }
+
+  static Rectangle matchRulesCaptionHitBox(
+      int posX,
+      int posY,
+      int width,
+      int height,
+      boolean isSmallCap,
+      int stringWidth,
+      int ascent,
+      int descent) {
+    int strokeRadius = 1;
+    int textX = posX - strokeRadius + width / 2 - stringWidth / 2;
+    int baseline = isSmallCap ? posY + height * 5 / 16 : posY + height * 3 / 10;
+    return new Rectangle(textX, baseline - ascent, stringWidth, ascent + descent);
+  }
+
+  public boolean tryInspectMatchRulesAt(int x, int y) {
+    if (matchRulesCaptionBounds == null || !matchRulesCaptionBounds.contains(x, y)) {
+      return false;
+    }
+    return inspectMatchRules();
+  }
+
+  public void inspectMatchRulesOrSetRules() {
+    if (!inspectMatchRules()) {
+      setRules();
+    }
+  }
+
+  public boolean inspectMatchRules() {
+    MatchRulesSnapshot snapshot =
+        EngineGamePresentation.inspectableMatchRules(
+            EngineGamePresentation.current(),
+            Lizzie.engineGame == null ? null : Lizzie.engineGame.matchRulesSnapshot(),
+            EngineGamePresentation.currentHistoryInfo());
+    if (snapshot == null) {
+      return false;
+    }
+    if (matchRulesDetailsDialog != null && matchRulesDetailsDialog.isDisplayable()) {
+      matchRulesDetailsDialog.dispose();
+    }
+    matchRulesDetailsDialog = new MatchRulesDetailsDialog(this, snapshot);
+    matchRulesDetailsDialog.setVisible(true);
+    return true;
   }
 
   private void drawCaptured(
@@ -8537,14 +8596,19 @@ public class LizzieFrame extends JFrame {
     // Move or rules
     String moveOrRules = "";
     boolean usingSpecificRues = false;
+    String matchCaption = matchRulesCaption();
+    if (!matchCaption.isEmpty()) {
+      moveOrRules = matchCaption;
+      usingSpecificRues = true;
+    }
     Leelaz leela = null;
     EngineGameSnapshot snapshot = EngineGamePresentation.current();
-    if (snapshot.playingGenmove())
+    if (!usingSpecificRues && snapshot.playingGenmove())
       leela =
           EngineGamePresentation.sideToMoveEngine(
               snapshot, Lizzie.board.getHistory().isBlacksTurn());
-    else leela = Lizzie.leelaz;
-    if (leela != null && leela.isKatago && !EngineManager.isEmpty) {
+    else if (!usingSpecificRues) leela = Lizzie.leelaz;
+    if (!usingSpecificRues && leela != null && leela.isKatago && !EngineManager.isEmpty) {
       switch (leela.usingSpecificRules) {
         case 1:
           moveOrRules = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chinese");
@@ -8567,16 +8631,24 @@ public class LizzieFrame extends JFrame {
           usingSpecificRues = true;
           break;
       }
-      if (usingSpecificRues)
-        if (isSmallCap) {
-          int mw = g.getFontMetrics().stringWidth(moveOrRules);
-          g.drawString(
-              moveOrRules, posX - strokeRadius + width / 2 - mw / 2, posY + height * 5 / 16);
-        } else {
-          int mw = g.getFontMetrics().stringWidth(moveOrRules);
-          g.drawString(
-              moveOrRules, posX - strokeRadius + width / 2 - mw / 2, posY + height * 3 / 10);
-        }
+    }
+    if (usingSpecificRues && !moveOrRules.isEmpty()) {
+      int mw = g.getFontMetrics().stringWidth(moveOrRules);
+      int textX = posX - strokeRadius + width / 2 - mw / 2;
+      int textY = isSmallCap ? posY + height * 5 / 16 : posY + height * 3 / 10;
+      g.drawString(moveOrRules, textX, textY);
+      matchRulesCaptionBounds =
+          matchRulesCaptionHitBox(
+              posX,
+              posY,
+              width,
+              height,
+              isSmallCap,
+              mw,
+              g.getFontMetrics().getAscent(),
+              g.getFontMetrics().getDescent());
+    } else {
+      matchRulesCaptionBounds = null;
     }
     if (!shouldDrawMoveNumberDown()) {
       moveOrRules =
@@ -8787,6 +8859,9 @@ public class LizzieFrame extends JFrame {
    * @param y y coordinate
    */
   public void onClickedForManul(int x, int y) {
+    if (tryInspectMatchRulesAt(x, y)) {
+      return;
+    }
     if (isTrialActive()) {
       showTrialBlockedHint();
       return;
@@ -8860,6 +8935,9 @@ public class LizzieFrame extends JFrame {
   }
 
   public void onClicked(int x, int y) {
+    if (tryInspectMatchRulesAt(x, y)) {
+      return;
+    }
     clearSuggestionPreviewBeforeBoardClick();
     if (isTrialActive()) {
       showTrialBlockedHint();
@@ -12252,42 +12330,6 @@ public class LizzieFrame extends JFrame {
     SetKataRules rulesDialog = new SetKataRules(rulesEngine);
     setkatarules = rulesDialog;
     setkatarules.setVisible(true);
-    Runnable runnable =
-        new Runnable() {
-          public void run() {
-            boolean success = false;
-            for (int i = 0; i < 10; i++) {
-              try {
-                Thread.sleep(200);
-                if (rulesDialog.hasRulesResponse()) {
-                  success = true;
-                  break;
-                }
-
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-              }
-            }
-            rulesEngine.cancelParameterRead();
-            boolean responseReceived = success;
-            SwingUtilities.invokeLater(
-                () -> {
-                  if (!rulesDialog.isVisible() || rulesEngine != Lizzie.leelaz) {
-                    return;
-                  }
-                  if (responseReceived) {
-                    rulesDialog.getRules();
-                  } else {
-                    JOptionPane.showMessageDialog(
-                        rulesDialog, Lizzie.resourceBundle.getString("LizzieFrame.ruleWarning"));
-                  }
-                });
-          }
-        };
-    Thread thread = new Thread(runnable, "lizzie-katago-rules-loader");
-    thread.setDaemon(true);
-    thread.start();
   }
 
   static boolean isRulesEngineReady(Leelaz engine) {

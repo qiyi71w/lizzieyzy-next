@@ -87,6 +87,9 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
         if (e.getButton() == MouseEvent.BUTTON1) {
           int x = Utils.zoomOut(e.getX());
           int y = Utils.zoomOut(e.getY());
+          if (Lizzie.frame.tryInspectMatchRulesAt(x, y)) {
+            return;
+          }
           if (Lizzie.frame.hasWinrateGraphTargetAt(x, y)) {
             Lizzie.frame.onClickedWinrateOnly(x, y);
           } else {
@@ -96,7 +99,12 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
         return;
       }
       if (Lizzie.config.isFloatBoardMode()) {
-        Lizzie.frame.onClickedWinrateOnly(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
+        int x = Utils.zoomOut(e.getX());
+        int y = Utils.zoomOut(e.getY());
+        if (Lizzie.frame.tryInspectMatchRulesAt(x, y)) {
+          return;
+        }
+        Lizzie.frame.onClickedWinrateOnly(x, y);
         return;
       }
       if (e.getButton() == MouseEvent.BUTTON1) // left click
@@ -735,7 +743,7 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
         if (e.isAltDown()) {
           Lizzie.frame.setLzSaiEngine();
         } else if (e.isShiftDown()) {
-          Lizzie.frame.setRules();
+          Lizzie.frame.inspectMatchRulesOrSetRules();
         }
         // toggleShowDynamicKomi();
 

@@ -1123,6 +1123,7 @@ class EngineManagerEngineGameStateMachineTest {
     AtomicBoolean engineHasLateStone = new AtomicBoolean();
     AtomicBoolean engineBlackToPlay = new AtomicBoolean(true);
     AtomicBoolean restoring = new AtomicBoolean();
+    CountDownLatch restoreFenceReached = new CountDownLatch(1);
     ExactSnapshotRestoreProtocolFixture.Transport protocol =
         ExactSnapshotRestoreProtocolFixture.install(
             black,
@@ -1133,7 +1134,10 @@ class EngineManagerEngineGameStateMachineTest {
                 engineBlackToPlay.set(true);
                 restoring.set(true);
               }
-              if (command.equals("name") && restoring.get()) return null;
+              if (command.equals("name") && restoring.get()) {
+                restoreFenceReached.countDown();
+                return null;
+              }
               return ExactSnapshotRestoreProtocolFixture.Response.success();
             });
     EngineManager.EngineGameOwnerTransaction transaction =
@@ -1143,9 +1147,7 @@ class EngineManagerEngineGameStateMachineTest {
     engineHasLateStone.set(true);
     engineBlackToPlay.set(false);
     black.parseEngineGameLineForTest("play D4");
-    assertNotNull(manager.retirementWorker);
-    manager.retirementWorker.join(2_000L);
-    assertFalse(manager.retirementWorker.isAlive());
+    assertTrue(restoreFenceReached.await(2, TimeUnit.SECONDS));
 
     assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
     assertFalse(engineHasLateStone.get(), "foreground engine must not retain the late D4 stone");
@@ -4983,14 +4985,6 @@ class EngineManagerEngineGameStateMachineTest {
   private static final class WatchdogEngineManager extends ImmediateUiEngineManager {
     private final AtomicReference<Runnable> pendingWatchdog = new AtomicReference<>();
     private volatile RuntimeException graceFailure;
-    private volatile Thread retirementWorker;
-
-    @Override
-    protected Thread createEngineGameRetirementContinuationWorker(Runnable task, String name) {
-      retirementWorker = super.createEngineGameRetirementContinuationWorker(task, name);
-      return retirementWorker;
-    }
-
     private WatchdogEngineManager(List<Leelaz> engines) {
       super(engines);
     }

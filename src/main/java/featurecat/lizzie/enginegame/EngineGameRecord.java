@@ -7,12 +7,26 @@ public record EngineGameRecord(
     EngineGameRecordContext context,
     EngineGameCompletionFacts facts,
     String blackDisplayName,
-    String whiteDisplayName) {
+    String whiteDisplayName,
+    MatchRulesSnapshot matchRules) {
   public EngineGameRecord {
     context = Objects.requireNonNull(context, "context");
     facts = Objects.requireNonNull(facts, "facts");
     blackDisplayName = blackDisplayName == null ? "" : blackDisplayName;
     whiteDisplayName = whiteDisplayName == null ? "" : whiteDisplayName;
+  }
+
+  public EngineGameRecord(
+      EngineGameRecordContext context,
+      EngineGameCompletionFacts facts,
+      String blackDisplayName,
+      String whiteDisplayName) {
+    this(
+        context,
+        facts,
+        blackDisplayName,
+        whiteDisplayName,
+        context == null ? null : context.matchRules());
   }
 
   public int openingIndex() {

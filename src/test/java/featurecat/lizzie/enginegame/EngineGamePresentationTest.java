@@ -2,10 +2,15 @@ package featurecat.lizzie.enginegame;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.GameInfo;
+import featurecat.lizzie.analysis.KataGoRules;
 import java.util.List;
+import java.util.ResourceBundle;
 import org.junit.jupiter.api.Test;
 
 class EngineGamePresentationTest {
@@ -77,6 +82,153 @@ class EngineGamePresentationTest {
     return new EngineGameSnapshot.BatchActive(
         summary(firstWins, secondWins),
         new GameActivity.Playing(view(exchanged), RunState.RUNNING));
+  }
+
+  @Test
+  void idleFailedMatchRulesCaptionUsesSnapshotSummaryNotBlank() {
+    ResourceBundle bundle = Lizzie.resourceBundle;
+    MatchRulesSnapshot failed =
+        MatchRulesSnapshot.of(
+            MatchRulesSnapshot.Phase.FAILED,
+            KataGoRules.parse("chinese").orElseThrow(),
+            new MatchRulesAdmission.SideResult(
+                FIRST,
+                true,
+                true,
+                null,
+                null,
+                EngineRulesResult.Status.QUERY_FAILED,
+                EngineRulesResult.Reason.QUERY_REJECTED,
+                false),
+            new MatchRulesAdmission.SideResult(
+                SECOND,
+                true,
+                true,
+                KataGoRules.parse("chinese").orElseThrow(),
+                KataGoRules.parse("chinese").orElseThrow(),
+                EngineRulesResult.Status.CONFIRMED,
+                EngineRulesResult.Reason.NONE,
+                false),
+            MatchRulesAdmission.Outcome.REJECT);
+    String caption =
+        EngineGamePresentation.matchRulesCaption(
+            new EngineGameSnapshot.Idle(), failed, new GameInfo(), bundle);
+    assertEquals(failed.mainSummary(bundle), caption);
+    assertFalse(caption.isEmpty());
+  }
+
+  @Test
+  void idleCompletedMatchRulesCaptionDoesNotUseStaleLiveSnapshot() {
+    ResourceBundle bundle = Lizzie.resourceBundle;
+    MatchRulesSnapshot completed =
+        MatchRulesSnapshot.of(
+            MatchRulesSnapshot.Phase.COMPLETED,
+            KataGoRules.parse("chinese").orElseThrow(),
+            new MatchRulesAdmission.SideResult(
+                FIRST,
+                true,
+                true,
+                KataGoRules.parse("chinese").orElseThrow(),
+                KataGoRules.parse("chinese").orElseThrow(),
+                EngineRulesResult.Status.CONFIRMED,
+                EngineRulesResult.Reason.NONE,
+                false),
+            new MatchRulesAdmission.SideResult(
+                SECOND,
+                true,
+                true,
+                KataGoRules.parse("chinese").orElseThrow(),
+                KataGoRules.parse("chinese").orElseThrow(),
+                EngineRulesResult.Status.CONFIRMED,
+                EngineRulesResult.Reason.NONE,
+                false),
+            MatchRulesAdmission.Outcome.ADMIT_CONFIRMED);
+    String caption =
+        EngineGamePresentation.matchRulesCaption(
+            new EngineGameSnapshot.Idle(), completed, new GameInfo(), bundle);
+    assertEquals("", caption);
+  }
+
+  @Test
+  void inspectableMatchRulesPrefersFrozenHistoryOverLaterLiveSnapshot() {
+    ResourceBundle bundle = Lizzie.resourceBundle;
+    KataGoRules chinese = KataGoRules.parse("chinese").orElseThrow();
+    KataGoRules positional = KataGoRules.parse("chinese-ogs").orElseThrow();
+    MatchRulesSnapshot frozen =
+        MatchRulesSnapshot.of(
+            MatchRulesSnapshot.Phase.COMPLETED,
+            chinese,
+            confirmed(FIRST, chinese),
+            confirmed(SECOND, positional),
+            MatchRulesAdmission.Outcome.REJECT);
+    GameInfo info = new GameInfo();
+    EngineGameRecordContext context =
+        new EngineGameRecordContext(
+            null,
+            new EngineGameParticipantDescriptor(FIRST, "First", true, false, 1),
+            new EngineGameParticipantDescriptor(SECOND, "Second", true, false, 1),
+            frozen);
+    info.attachEngineGameRecordContext(context);
+    info.freezeEngineGameRecord(
+        new EngineGameRecord(
+            context,
+            new EngineGameCompletionFacts(
+                new GameOutcome.Resign(EngineGameSide.BLACK), 1, 1, true, 0, 0, 0, 0),
+            "First",
+            "Second",
+            frozen));
+    MatchRulesSnapshot laterLive =
+        MatchRulesSnapshot.of(
+            MatchRulesSnapshot.Phase.PLAYING,
+            KataGoRules.parse("japanese").orElseThrow(),
+            confirmed(FIRST, KataGoRules.parse("japanese").orElseThrow()),
+            confirmed(SECOND, KataGoRules.parse("japanese").orElseThrow()),
+            MatchRulesAdmission.Outcome.ADMIT_CONFIRMED);
+    MatchRulesSnapshot inspectable =
+        EngineGamePresentation.inspectableMatchRules(
+            playing(false, 1, 0), laterLive, info);
+    assertEquals(frozen, inspectable);
+    assertTrue(MatchRulesTexts.details(inspectable, bundle).contains("ko=POSITIONAL"));
+    assertFalse(MatchRulesTexts.details(inspectable, bundle).contains("TERRITORY"));
+  }
+
+  @Test
+  void inspectableMatchRulesUsesFailedLiveSnapshotWhenNoGameRecordExists() {
+    MatchRulesSnapshot failed =
+        MatchRulesSnapshot.of(
+            MatchRulesSnapshot.Phase.FAILED,
+            KataGoRules.parse("chinese").orElseThrow(),
+            new MatchRulesAdmission.SideResult(
+                FIRST,
+                true,
+                true,
+                null,
+                null,
+                EngineRulesResult.Status.QUERY_FAILED,
+                EngineRulesResult.Reason.QUERY_REJECTED,
+                false),
+            confirmed(SECOND, KataGoRules.parse("chinese").orElseThrow()),
+            MatchRulesAdmission.Outcome.REJECT);
+    GameInfo info = new GameInfo();
+    assertEquals(
+        failed,
+        EngineGamePresentation.inspectableMatchRules(
+            new EngineGameSnapshot.Idle(), failed, info));
+    assertNull(
+        EngineGamePresentation.historyMatchRules(info));
+  }
+
+  private static MatchRulesAdmission.SideResult confirmed(
+      EngineParticipantIdentity identity, KataGoRules rules) {
+    return new MatchRulesAdmission.SideResult(
+        identity,
+        true,
+        true,
+        rules,
+        rules,
+        EngineRulesResult.Status.CONFIRMED,
+        EngineRulesResult.Reason.NONE,
+        false);
   }
 
   private static EngineGameView view(boolean exchanged) {

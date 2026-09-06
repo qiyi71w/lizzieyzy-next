@@ -1,5 +1,6 @@
 package featurecat.lizzie.enginegame;
 
+import featurecat.lizzie.analysis.KataGoRules;
 import java.util.List;
 
 /** Package-visible plan factory for owner occupancy and start tests. */
@@ -38,6 +39,7 @@ public final class EngineGamePlans {
         1,
         false,
         0,
-        new EngineGameOutputChoices(false, false, ""));
+        new EngineGameOutputChoices(false, false, ""),
+        KataGoRules.parse("chinese").orElseThrow());
   }
 }

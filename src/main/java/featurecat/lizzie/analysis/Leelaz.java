@@ -49,6 +49,7 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Timer;
@@ -360,6 +361,7 @@ public class Leelaz {
       new AtomicReference<>();
   private volatile boolean loadSgfResponseQuarantined;
   private final AtomicInteger loadSgfResponseCommandIds = new AtomicInteger(1);
+  private final AtomicInteger engineRulesResponseCommandIds = new AtomicInteger(750000000);
   private final AtomicInteger readBoardGmaResponseCommandIds = new AtomicInteger(700000000);
   private final AtomicInteger engineGameResponseCommandIds = new AtomicInteger(600000000);
   private final AtomicInteger exclusiveGtpResponseCommandIds = new AtomicInteger(800000000);
@@ -450,6 +452,13 @@ public class Leelaz {
   private int recentLineNumber = 0;
   public volatile String recentRulesLine = "";
   public int usingSpecificRules = -1; // 1=中国规则2=中古规则3=日本规则4=TT规则5=其他规则
+  private final Object engineRulesLock = new Object();
+  private long engineRulesGeneration;
+  private volatile EngineRulesResult engineRulesResult = EngineRulesResult.idle();
+  private boolean engineRulesIsolated;
+  private boolean engineRulesAwaitingSet;
+  private volatile boolean autoSettleMatchRulesForTest;
+  private volatile MatchRulesTestHook matchRulesTestHook;
   public boolean preload = false;
   public volatile boolean started = false;
   public volatile boolean isDownWithError = false;
@@ -5895,6 +5904,11 @@ public class Leelaz {
     }
 
     private void sendCommand(String command) {
+      sendCommand(command, null, null);
+    }
+
+    private void sendCommand(
+        String command, Runnable onResponse, CommandSendFailureHandler onSendFailure) {
       if (settled.get()) {
         throw new IllegalStateException("startup post-action is no longer current");
       }
@@ -5902,7 +5916,7 @@ public class Leelaz {
           && !EngineManager.isCurrentEngineGameTransaction(action.engineGameTransaction)) {
         throw new IllegalStateException("engine-game startup transaction is no longer current");
       }
-      sendStartupPostActionCommand(command, binding);
+      sendStartupPostActionCommand(command, binding, onResponse, onSendFailure);
       if (settled.get()) {
         throw new IllegalStateException("startup post-action was retired during command delivery");
       }
@@ -5991,9 +6005,7 @@ public class Leelaz {
         startPdaStartupTimeoutThread(pdaQueryCleanup);
       }
       setKataEnginePara();
-      if (Lizzie.config.autoLoadKataRules) {
-        sendCommand("kata-set-rules " + Lizzie.config.kataRules);
-      }
+      confirmKataRulesAfterStartup(isolatedEngineGameStartup);
       if (!isolatedEngineGameStartup) {
         getParameterScadule(true);
       }
@@ -9951,6 +9963,14 @@ public class Leelaz {
   }
 
   private void sendStartupPostActionCommand(String command, ReaderStreamBinding binding) {
+    sendStartupPostActionCommand(command, binding, null, null);
+  }
+
+  private void sendStartupPostActionCommand(
+      String command,
+      ReaderStreamBinding binding,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure) {
     EngineManager.EngineGameOwnerTransaction transaction = engineGameStartupCommandContext.get();
     if (transaction != null && !EngineManager.isCurrentEngineGameTransaction(transaction)) {
       throw new IllegalStateException("engine-game startup transaction is no longer current");
@@ -9966,8 +9986,8 @@ public class Leelaz {
       accepted =
           sendCommand(
               command,
-              null,
-              null,
+              onResponse,
+              onSendFailure,
               true,
               false,
               TrackingReleaseReason.ORDINARY_OPERATION,
@@ -12646,6 +12666,7 @@ public class Leelaz {
     return handler instanceof BoardSynchronizationResponseHandler
         || handler instanceof EngineGameResponseHandler
         || handler instanceof EngineGameTimeLeftResponseHandler
+        || handler instanceof EngineRulesResponseHandler
         || (queuedCommand != null
             && queuedCommand.isEngineGameCommand()
             && !queuedCommand.isOrdinaryEngineGameBootstrap())
@@ -12679,6 +12700,9 @@ public class Leelaz {
     }
     if (handler instanceof EngineGameTimeLeftResponseHandler) {
       return engineGameResponseCommandIds.getAndIncrement();
+    }
+    if (handler instanceof EngineRulesResponseHandler) {
+      return ((EngineRulesResponseHandler) handler).commandId;
     }
     if (queuedCommand != null && queuedCommand.isOrdinaryEngineGameBootstrap()) {
       return NO_RESPONSE_COMMAND_ID;
@@ -13024,9 +13048,13 @@ public class Leelaz {
       return false;
     }
     PendingResponseHandler pending = peekPendingResponseHandler(line);
-    if (pending == null
-        || pending.isStaleResponseBinding(binding, currentReaderStreamBinding())
-        || !isRecentParameterReadCommand(pending.command)) {
+    if (pending == null || pending.isStaleResponseBinding(binding, currentReaderStreamBinding())) {
+      return false;
+    }
+    if (pending.handler instanceof EngineRulesResponseHandler) {
+      return line.startsWith("?") || line.startsWith("=");
+    }
+    if (!isRecentParameterReadCommand(pending.command)) {
       return false;
     }
     if (!line.startsWith("=") || !getRcentLine) {
@@ -13040,7 +13068,9 @@ public class Leelaz {
       }
       String normalizedRulesLine = "= " + payload;
       recentRulesLine = normalizedRulesLine;
-      Lizzie.config.currentKataGoRules = normalizedRulesLine;
+      if (this == Lizzie.leelaz && Lizzie.config != null) {
+        Lizzie.config.currentKataGoRules = normalizedRulesLine;
+      }
       getSuicidalAndRules();
       getRcentLine = false;
       return true;
@@ -22509,6 +22539,450 @@ public class Leelaz {
     } else sendCommand("heatmap");
   }
 
+  public EngineRulesResult engineRulesResult() {
+    return engineRulesResult;
+  }
+
+  public boolean applyEngineRules(KataGoRules rules) {
+    return applyEngineRules(rules, TimeUnit.SECONDS.toMillis(30), false);
+  }
+
+  boolean applyEngineRules(KataGoRules rules, long timeoutMillis) {
+    return applyEngineRules(rules, timeoutMillis, false);
+  }
+
+  public boolean applyEngineRulesForMatchOwner(KataGoRules rules) {
+    return applyEngineRules(rules, TimeUnit.SECONDS.toMillis(30), true);
+  }
+
+  boolean applyEngineRules(KataGoRules rules, long timeoutMillis, boolean matchOwner) {
+    Objects.requireNonNull(rules, "rules");
+    if (!matchOwner && isRulesMutationOccupied()) {
+      beginEngineRulesOperation(false, rules, lastObservedRules(), false);
+      failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.OCCUPIED);
+      return false;
+    }
+    if (autoSettleMatchRulesForTest) {
+      return settleMatchRulesForTest(rules, true);
+    }
+    if (!waitForCommandList(timeoutMillis)) {
+      beginEngineRulesOperation(false, rules, lastObservedRules(), false);
+      failEngineRules(
+          EngineRulesResult.Status.CAPABILITY_FAILED,
+          started && !isDownWithError
+              ? EngineRulesResult.Reason.LIST_COMMANDS_TIMEOUT
+              : EngineRulesResult.Reason.LIST_COMMANDS_FAILED);
+      return false;
+    }
+    boolean canSet = commandLists.contains("kata-set-rules");
+    boolean canQuery = commandLists.contains("kata-get-rules");
+    beginEngineRulesOperation(false, rules, lastObservedRules(), true);
+    updateEngineRulesCapabilities(canSet, canQuery);
+    if (!canSet) {
+      failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.SET_UNSUPPORTED);
+      return false;
+    }
+    engineRulesAwaitingSet = true;
+    scheduleEngineRulesTimeout(engineRulesGeneration, timeoutMillis);
+    sendEngineRulesCommand("kata-set-rules " + rules.toGtpArgument(), true);
+    return true;
+  }
+
+  public boolean queryEngineRules() {
+    return queryEngineRules(TimeUnit.SECONDS.toMillis(30));
+  }
+
+  public boolean queryEngineRulesForMatchOwner() {
+    return queryEngineRules(TimeUnit.SECONDS.toMillis(30));
+  }
+
+  boolean queryEngineRules(long timeoutMillis) {
+    if (autoSettleMatchRulesForTest) {
+      return settleMatchRulesForTest(null, false);
+    }
+    if (!waitForCommandList(timeoutMillis)) {
+      beginEngineRulesOperation(false, null, lastObservedRules(), false);
+      failEngineRules(
+          EngineRulesResult.Status.CAPABILITY_FAILED,
+          started && !isDownWithError
+              ? EngineRulesResult.Reason.LIST_COMMANDS_TIMEOUT
+              : EngineRulesResult.Reason.LIST_COMMANDS_FAILED);
+      return false;
+    }
+    boolean canSet = commandLists.contains("kata-set-rules");
+    boolean canQuery = commandLists.contains("kata-get-rules");
+    beginEngineRulesOperation(false, null, lastObservedRules(), true);
+    updateEngineRulesCapabilities(canSet, canQuery);
+    if (!canQuery) {
+      unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      return false;
+    }
+    engineRulesAwaitingSet = false;
+    scheduleEngineRulesTimeout(engineRulesGeneration, timeoutMillis);
+    sendEngineRulesCommand("kata-get-rules", false);
+    return true;
+  }
+
+  void confirmKataRulesAfterStartup(boolean isolated) {
+    confirmKataRulesAfterStartup(
+        isolated, engineStartupSynchronizationTimeoutMillis(), TimeUnit.SECONDS.toMillis(30));
+  }
+
+  void confirmKataRulesAfterStartup(
+      boolean isolated, long capabilityWaitMillis, long commandTimeoutMillis) {
+    beginEngineRulesOperation(isolated, requestedStartupRules(), lastObservedRules(), false);
+    if (endGetCommandList) {
+      finishKataRulesAfterStartup(commandTimeoutMillis);
+      return;
+    }
+    final long generation = engineRulesGeneration;
+    Thread waiter =
+        new Thread(
+            () -> {
+              boolean ready = waitForCommandList(capabilityWaitMillis);
+              synchronized (engineRulesLock) {
+                if (generation != engineRulesGeneration) {
+                  return;
+                }
+              }
+              if (!ready) {
+                failEngineRules(
+                    EngineRulesResult.Status.CAPABILITY_FAILED,
+                    started && !isDownWithError
+                        ? EngineRulesResult.Reason.LIST_COMMANDS_TIMEOUT
+                        : EngineRulesResult.Reason.LIST_COMMANDS_FAILED);
+                return;
+              }
+              finishKataRulesAfterStartup(commandTimeoutMillis);
+            },
+            "lizzie-engine-rules-startup");
+    waiter.setDaemon(true);
+    waiter.start();
+  }
+
+  private void finishKataRulesAfterStartup(long commandTimeoutMillis) {
+    boolean canSet = commandLists.contains("kata-set-rules");
+    boolean canQuery = commandLists.contains("kata-get-rules");
+    boolean autoLoad = Lizzie.config != null && Lizzie.config.autoLoadKataRules;
+    KataGoRules requested = autoLoad && canSet ? requestedStartupRules() : null;
+    synchronized (engineRulesLock) {
+      engineRulesResult =
+          EngineRulesResult.pending(
+                  engineRulesResult.generation(),
+                  requested,
+                  engineRulesResult.observed(),
+                  canSet,
+                  canQuery)
+              .withCommandIds(engineRulesResult.setCommandId(), engineRulesResult.queryCommandId());
+    }
+    if (autoLoad && canSet && requested != null) {
+      engineRulesAwaitingSet = true;
+      scheduleEngineRulesTimeout(engineRulesGeneration, commandTimeoutMillis);
+      sendEngineRulesCommand("kata-set-rules " + requested.toGtpArgument(), true);
+      return;
+    }
+    if (canQuery) {
+      engineRulesAwaitingSet = false;
+      scheduleEngineRulesTimeout(engineRulesGeneration, commandTimeoutMillis);
+      sendEngineRulesCommand("kata-get-rules", false);
+      return;
+    }
+    unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+  }
+
+  public boolean isRulesMutationOccupied() {
+    return hasExclusiveGtpWorkInProgress() || EngineManager.occupiesEngineGameAdmission();
+  }
+
+  private KataGoRules lastObservedRules() {
+    EngineRulesResult current = engineRulesResult;
+    return current == null ? null : current.observed();
+  }
+
+  private KataGoRules requestedStartupRules() {
+    if (Lizzie.config == null || Lizzie.config.kataRules == null || Lizzie.config.kataRules.isEmpty()) {
+      return null;
+    }
+    return KataGoRules.parse(Lizzie.config.kataRules).orElse(null);
+  }
+
+  private void beginEngineRulesOperation(
+      boolean isolated, KataGoRules requested, KataGoRules lastKnown, boolean capabilitiesKnown) {
+    synchronized (engineRulesLock) {
+      engineRulesGeneration++;
+      engineRulesIsolated = isolated;
+      engineRulesAwaitingSet = false;
+      boolean canSet = capabilitiesKnown && commandLists.contains("kata-set-rules");
+      boolean canQuery = capabilitiesKnown && commandLists.contains("kata-get-rules");
+      engineRulesResult =
+          EngineRulesResult.pending(engineRulesGeneration, requested, lastKnown, canSet, canQuery);
+    }
+  }
+
+  private void updateEngineRulesCapabilities(boolean canSet, boolean canQuery) {
+    synchronized (engineRulesLock) {
+      EngineRulesResult current = engineRulesResult;
+      engineRulesResult =
+          EngineRulesResult.pending(
+                  current.generation(), current.requested(), current.observed(), canSet, canQuery)
+              .withCommandIds(current.setCommandId(), current.queryCommandId());
+    }
+  }
+
+  private void sendEngineRulesCommand(String command, boolean setCommand) {
+    EngineRulesResponseHandler handler =
+        new EngineRulesResponseHandler(engineRulesGeneration, setCommand);
+    CommandSendFailureHandler onFailure =
+        failure ->
+            failEngineRules(
+                setCommand
+                    ? EngineRulesResult.Status.SET_FAILED
+                    : EngineRulesResult.Status.QUERY_FAILED,
+                EngineRulesResult.Reason.SEND_FAILED);
+    sendEngineRulesCommandInCurrentContext(command, handler, onFailure);
+    synchronized (engineRulesLock) {
+      if (handler.generation != engineRulesGeneration) {
+        return;
+      }
+      if (setCommand) {
+        engineRulesResult =
+            engineRulesResult.withCommandIds(handler.commandId, engineRulesResult.queryCommandId());
+      } else {
+        engineRulesResult =
+            engineRulesResult.withCommandIds(engineRulesResult.setCommandId(), handler.commandId);
+      }
+    }
+  }
+
+  private void sendEngineRulesCommandInCurrentContext(
+      String command,
+      EngineRulesResponseHandler handler,
+      CommandSendFailureHandler onFailure) {
+    Object startupContext = startupPostActionCommandContext.get();
+    if (startupContext instanceof StartupPostActionLease) {
+      ((StartupPostActionLease) startupContext).sendCommand(command, handler, onFailure);
+      return;
+    }
+    if (startupContext instanceof ReaderStreamBinding) {
+      sendStartupPostActionCommand(
+          command, (ReaderStreamBinding) startupContext, handler, onFailure);
+      return;
+    }
+    boolean failClosedStartupCommand = startupContext != null;
+    boolean sent =
+        sendCommand(command, handler, onFailure, failClosedStartupCommand, false);
+    if (failClosedStartupCommand && !sent) {
+      throw new IllegalStateException("startup command was rejected: " + command);
+    }
+  }
+
+  private void completeEngineRulesCommand(EngineRulesResponseHandler handler) {
+    synchronized (engineRulesLock) {
+      if (handler.generation != engineRulesGeneration) {
+        return;
+      }
+    }
+    if (isCurrentCommandResponseError()) {
+      failEngineRules(
+          handler.setCommand
+              ? EngineRulesResult.Status.SET_FAILED
+              : EngineRulesResult.Status.QUERY_FAILED,
+          handler.setCommand
+              ? EngineRulesResult.Reason.SET_REJECTED
+              : EngineRulesResult.Reason.QUERY_REJECTED);
+      return;
+    }
+    if (handler.setCommand) {
+      EngineRulesResult current = engineRulesResult;
+      if (current.canQuery()) {
+        engineRulesAwaitingSet = false;
+        sendEngineRulesCommand("kata-get-rules", false);
+        return;
+      }
+      unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      return;
+    }
+    Optional<KataGoRules> parsed = KataGoRules.parse(currentCommandResponseLine());
+    if (parsed.isEmpty()) {
+      failEngineRules(
+          EngineRulesResult.Status.QUERY_FAILED, EngineRulesResult.Reason.INVALID_READBACK);
+      return;
+    }
+    confirmEngineRules(parsed.get());
+  }
+
+  private void confirmEngineRules(KataGoRules observed) {
+    boolean isolated;
+    synchronized (engineRulesLock) {
+      isolated = engineRulesIsolated;
+      engineRulesResult = engineRulesResult.confirmed(observed);
+    }
+    recentRulesLine = observed.toResponseLine();
+    getSuicidalAndRules();
+    if (!isolated && this == Lizzie.leelaz && Lizzie.config != null) {
+      Lizzie.config.currentKataGoRules = recentRulesLine;
+    }
+    if (!isolated && Lizzie.frame != null) {
+      Lizzie.frame.refresh();
+    }
+  }
+
+  private void unconfirmEngineRules(EngineRulesResult.Reason reason) {
+    synchronized (engineRulesLock) {
+      engineRulesResult = engineRulesResult.unconfirmed(reason);
+    }
+  }
+
+  private void failEngineRules(EngineRulesResult.Status status, EngineRulesResult.Reason reason) {
+    synchronized (engineRulesLock) {
+      if (engineRulesResult.status() == EngineRulesResult.Status.PENDING
+          || engineRulesResult.status() == EngineRulesResult.Status.IDLE) {
+        engineRulesResult = engineRulesResult.failed(status, reason);
+      }
+    }
+  }
+
+  private void scheduleEngineRulesTimeout(long generation, long timeoutMillis) {
+    Thread timeoutThread =
+        new Thread(
+            () -> {
+              try {
+                Thread.sleep(Math.max(0L, timeoutMillis));
+              } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+              synchronized (engineRulesLock) {
+                if (engineRulesGeneration == generation
+                    && engineRulesResult.status() == EngineRulesResult.Status.PENDING) {
+                  engineRulesResult =
+                      engineRulesResult.failed(
+                          engineRulesAwaitingSet
+                              ? EngineRulesResult.Status.SET_FAILED
+                              : EngineRulesResult.Status.QUERY_FAILED,
+                          engineRulesAwaitingSet
+                              ? EngineRulesResult.Reason.SET_TIMEOUT
+                              : EngineRulesResult.Reason.QUERY_TIMEOUT);
+                }
+              }
+            },
+            "lizzie-engine-rules-timeout");
+    timeoutThread.setDaemon(true);
+    timeoutThread.start();
+  }
+
+  public void enableAutoSettleMatchRulesForTest() {
+    autoSettleMatchRulesForTest = true;
+    endGetCommandList = true;
+    isKatago = true;
+    if (!commandLists.contains("kata-set-rules")) {
+      commandLists.add("kata-set-rules");
+    }
+    if (!commandLists.contains("kata-get-rules")) {
+      commandLists.add("kata-get-rules");
+    }
+  }
+
+  public void installMatchRulesTestHook(MatchRulesTestHook hook) {
+    enableAutoSettleMatchRulesForTest();
+    matchRulesTestHook = hook;
+  }
+
+  public void confirmEngineRulesForTest(KataGoRules observed) {
+    confirmEngineRules(observed);
+  }
+
+  public void failEngineRulesForTest(
+      EngineRulesResult.Status status, EngineRulesResult.Reason reason) {
+    failEngineRules(status, reason);
+  }
+
+  public void unconfirmEngineRulesForTest(EngineRulesResult.Reason reason) {
+    unconfirmEngineRules(reason);
+  }
+
+  boolean waitUntilEngineRulesSettled(long timeoutMillis) {
+    long deadline =
+        System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(1L, timeoutMillis));
+    while (!engineRulesResult.isSettled()) {
+      if (System.nanoTime() >= deadline) {
+        failEngineRules(
+            engineRulesAwaitingSet
+                ? EngineRulesResult.Status.SET_FAILED
+                : EngineRulesResult.Status.QUERY_FAILED,
+            engineRulesAwaitingSet
+                ? EngineRulesResult.Reason.SET_TIMEOUT
+                : EngineRulesResult.Reason.QUERY_TIMEOUT);
+        return false;
+      }
+      try {
+        Thread.sleep(20L);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean settleMatchRulesForTest(KataGoRules requested, boolean setCommand) {
+    boolean canSet = commandLists.contains("kata-set-rules");
+    boolean canQuery = commandLists.contains("kata-get-rules");
+    beginEngineRulesOperation(false, requested, lastObservedRules(), true);
+    updateEngineRulesCapabilities(canSet, canQuery);
+    if (setCommand && !canSet) {
+      failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.SET_UNSUPPORTED);
+      return false;
+    }
+    if (!setCommand && !canQuery) {
+      unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      return false;
+    }
+    MatchRulesTestHook hook = matchRulesTestHook;
+    if (hook != null) {
+      if (setCommand) {
+        hook.apply(this, requested);
+      } else {
+        hook.query(this);
+      }
+      EngineRulesResult result = engineRulesResult;
+      return result.isSettled() && !result.isFailed();
+    }
+    if (setCommand) {
+      confirmEngineRules(requested);
+      return true;
+    }
+    KataGoRules observed = lastObservedRules();
+    if (observed == null) {
+      observed = KataGoRules.parse("chinese").orElseThrow();
+    }
+    confirmEngineRules(observed);
+    return true;
+  }
+
+  private boolean waitForCommandList(long waitMillis) {
+    if (endGetCommandList) {
+      return true;
+    }
+    long deadline =
+        System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(1L, waitMillis));
+    while (!endGetCommandList) {
+      if (!started || isDownWithError || isNormalEnd) {
+        return false;
+      }
+      if (System.nanoTime() >= deadline) {
+        return false;
+      }
+      try {
+        Thread.sleep(20L);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return true;
+  }
+
   public void getParameterScadule(boolean sendCommand) {
     getParameterScadule(sendCommand, TimeUnit.SECONDS.toMillis(30));
   }
@@ -22522,7 +22996,9 @@ public class Leelaz {
         recentLineNumber = 0;
         sendCommand("kata-get-param playoutDoublingAdvantage");
         sendCommand("kata-get-param analysisWideRootNoise");
-        sendCommand("kata-get-rules");
+        if (engineRulesResult.status() != EngineRulesResult.Status.PENDING) {
+          sendCommand("kata-get-rules");
+        }
       }
     }
     Thread timeoutThread =
@@ -22554,38 +23030,29 @@ public class Leelaz {
 
   public void getSuicidalAndRules() {
     usingSpecificRules = -1;
-    if (recentRulesLine.equals("")) {
+    KataGoRules rules = KataGoRules.parse(recentRulesLine).orElse(null);
+    if (rules == null) {
       canSuicidal = false;
-    } else {
-      try {
-        String line = recentRulesLine;
-        JSONObject jo = new JSONObject(new String(line.substring(2)));
-        if (jo.optBoolean("suicide", false)) canSuicidal = true;
-        else canSuicidal = false;
-        if (jo.optString("scoring", "").contentEquals("AREA")
-            && jo.optString("ko", "").contentEquals("POSITIONAL")
-            && jo.optBoolean("suicide", false)
-            && jo.optString("tax", "").contentEquals("NONE")
-            && jo.optString("whiteHandicapBonus", "").contentEquals("N")
-            && !jo.optBoolean("hasButton", true)) {
-          usingSpecificRules = 4; // tt规则
-        } else if (jo.optString("scoring", "").contentEquals("AREA")
-            && jo.optString("tax", "").contentEquals("NONE")
-            && !jo.optBoolean("hasButton", true)) {
-          usingSpecificRules = 1; // 中国规则
-        } else if (jo.optString("scoring", "").contentEquals("AREA")
-            && jo.optString("tax", "").contentEquals("ALL")
-            && !jo.optBoolean("hasButton", true)) {
-          usingSpecificRules = 2; // 中古规则
-        } else if (jo.optString("scoring", "").contentEquals("TERRITORY")
-            && jo.optString("tax", "").contentEquals("SEKI")) {
-          usingSpecificRules = 3; // 日本规则
-        } else if (jo.optString("scoring", "").contentEquals("AREA")
-            || jo.optString("scoring", "").contentEquals("TERRITORY")) {
-          usingSpecificRules = 5; // 其他规则
-        }
-      } catch (Exception e) {
-      }
+      return;
+    }
+    canSuicidal = rules.bool(KataGoRules.SUICIDE);
+    usingSpecificRules = rules.legacyClassification();
+  }
+
+  private final class EngineRulesResponseHandler implements Runnable {
+    private final long generation;
+    private final boolean setCommand;
+    private final int commandId;
+
+    private EngineRulesResponseHandler(long generation, boolean setCommand) {
+      this.generation = generation;
+      this.setCommand = setCommand;
+      this.commandId = engineRulesResponseCommandIds.getAndIncrement();
+    }
+
+    @Override
+    public void run() {
+      completeEngineRulesCommand(this);
     }
   }
 

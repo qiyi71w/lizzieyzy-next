@@ -2,6 +2,8 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.analysis.EngineRulesResult;
+import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.util.Utils;
 import java.awt.Dimension;
@@ -16,6 +18,7 @@ import java.util.ResourceBundle;
 import javax.imageio.ImageIO;
 import javax.swing.ButtonGroup;
 import javax.swing.JDialog;
+import javax.swing.SwingUtilities;
 import org.json.JSONObject;
 
 public class SetKataRules extends JDialog {
@@ -39,14 +42,36 @@ public class SetKataRules extends JDialog {
   // private JFontLabel lblNewLabel_3;
   private JFontRadioButton rdoButtonGo;
   private JFontRadioButton rdoNoButtonGo;
+  private JFontLabel lblStatus;
   private final Leelaz engine;
+  private final boolean composeOnly;
+  private final KataGoRules composeBaseline;
+  private KataGoRules composed;
+  private volatile long statusWatchGeneration;
 
   public SetKataRules() {
-    this(Lizzie.leelaz);
+    this(Lizzie.leelaz, false, null);
   }
 
   SetKataRules(Leelaz engine) {
+    this(engine, false, null);
+  }
+
+  static java.util.Optional<KataGoRules> composeMatchRules(
+      java.awt.Window owner, KataGoRules initial) {
+    SetKataRules dialog = new SetKataRules(Lizzie.leelaz, true, initial);
+    dialog.setModal(true);
+    if (owner != null) {
+      dialog.setLocationRelativeTo(owner);
+    }
+    dialog.setVisible(true);
+    return java.util.Optional.ofNullable(dialog.composed);
+  }
+
+  SetKataRules(Leelaz engine, boolean composeOnly, KataGoRules initial) {
     this.engine = engine;
+    this.composeOnly = composeOnly;
+    this.composeBaseline = composeOnly ? initial : null;
     // this.setModal(true);
     // setType(Type.POPUP);
     setResizable(false);
@@ -302,7 +327,7 @@ public class SetKataRules extends JDialog {
             closeDialog();
           }
         });
-    btnCancel.setBounds(292, 293, 93, 23);
+    btnCancel.setBounds(292, 318, 93, 23);
     getContentPane().add(btnCancel);
 
     JFontButton btnApply =
@@ -310,84 +335,10 @@ public class SetKataRules extends JDialog {
     btnApply.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (rejectEngineGameInteraction()) return;
-            if (!isCurrentEngine() || !engine.isLoaded() || !engine.isStarted()) {
-              Utils.showMsg(resourceBundle.getString("LizzieFrame.setParamNoEngineHint"));
-              setVisible(false);
-              return;
-            }
-            if (engine.hasExclusiveGtpWorkInProgress()) {
-              Utils.showMsg(
-                  resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease"));
-              return;
-            }
-            Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
-            if (jo == null) {
-              jo = new JSONObject();
-            }
-            if (rdoArea.isSelected()) jo.put("scoring", "AREA");
-            if (rdoTerritory.isSelected()) jo.put("scoring", "TERRITORY");
-
-            if (rdoSimpleKo.isSelected()) jo.put("ko", "SIMPLE");
-            if (rdoPositionKo.isSelected()) jo.put("ko", "POSITIONAL");
-            if (rdoSituationalKo.isSelected()) jo.put("ko", "SITUATIONAL");
-
-            if (rdoSuicide.isSelected()) jo.put("suicide", true);
-            if (rdoNoSuicide.isSelected()) jo.put("suicide", false);
-
-            if (rdoNoTax.isSelected()) jo.put("tax", "NONE");
-            if (rdoSeKiTax.isSelected()) jo.put("tax", "SEKI");
-            if (rdoAllTax.isSelected()) jo.put("tax", "ALL");
-
-            if (rdoNoHandicapKomi.isSelected()) jo.put("whiteHandicapBonus", "0");
-            if (rdoHandicapKomiN.isSelected()) jo.put("whiteHandicapBonus", "N");
-            if (rdoHandicapKomiN1.isSelected()) jo.put("whiteHandicapBonus", "N-1");
-
-            if (rdoButtonGo.isSelected()) jo.put("hasButton", true);
-            if (rdoNoButtonGo.isSelected()) jo.put("hasButton", false);
-
-            int oriRules = engine.usingSpecificRules;
-            if (jo.optString("scoring", "").contentEquals("AREA")
-                && jo.optString("ko", "").contentEquals("POSITIONAL")
-                && jo.optBoolean("suicide", false)
-                && jo.optString("tax", "").contentEquals("NONE")
-                && jo.optString("whiteHandicapBonus", "").contentEquals("N")
-                && !jo.optBoolean("hasButton", true)) {
-              engine.usingSpecificRules = 4; // tt规则
-            } else if (jo.optString("scoring", "").contentEquals("AREA")
-                && jo.optString("tax", "").contentEquals("NONE")
-                && !jo.optBoolean("hasButton", true)) {
-              engine.usingSpecificRules = 1; // 中国规则
-            } else if (jo.optString("scoring", "").contentEquals("AREA")
-                && jo.optString("tax", "").contentEquals("ALL")
-                && !jo.optBoolean("hasButton", true)) {
-              engine.usingSpecificRules = 2; // 中古规则
-            } else if (jo.optString("scoring", "").contentEquals("TERRITORY")
-                && jo.optString("tax", "").contentEquals("SEKI")) {
-              engine.usingSpecificRules = 3; // 日本规则
-            } else if (jo.optString("scoring", "").contentEquals("AREA")
-                || jo.optString("scoring", "").contentEquals("TERRITORY")) {
-              engine.usingSpecificRules = 5; // 其他规则
-            }
-            if (engine.usingSpecificRules != oriRules) Lizzie.frame.refresh();
-            engine.sendCommand("kata-set-rules " + jo.toString());
-
-            if (chkbxAutoLoadRules.isSelected()) {
-              Lizzie.config.autoLoadKataRules = true;
-              Lizzie.config.kataRules = jo.toString();
-              Lizzie.config.uiConfig.put("kata-rules", Lizzie.config.kataRules);
-              Lizzie.config.uiConfig.put("auto-load-kata-rules", true);
-            } else {
-              Lizzie.config.autoLoadKataRules = false;
-              Lizzie.config.uiConfig.put("auto-load-kata-rules", false);
-            }
-            engine.getParameterScadule(false);
-            engine.sendCommand("kata-get-rules");
-            if (engine.isPondering()) engine.ponder();
-            setVisible(false);
+            applySelectedRules();
           }
         });
-    btnApply.setBounds(184, 293, 93, 23);
+    btnApply.setBounds(184, 318, 93, 23);
     getContentPane().add(btnApply);
 
     JFontButton btnChnOldRule =
@@ -442,11 +393,11 @@ public class SetKataRules extends JDialog {
     group6.add(rdoButtonGo);
     group6.add(rdoNoButtonGo);
     getContentPane().add(rdoNoButtonGo);
-    setSize(592, 361);
+    setSize(592, 390);
     Lizzie.setFrameSize(
         this,
         Lizzie.config.isFrameFontSmall() ? 592 : (Lizzie.config.isFrameFontMiddle() ? 720 : 890),
-        361);
+        390);
     try {
       this.setIconImage(ImageIO.read(MoreEngines.class.getResourceAsStream("/assets/logo.png")));
       Dimension screensize = Toolkit.getDefaultToolkit().getScreenSize();
@@ -457,69 +408,240 @@ public class SetKataRules extends JDialog {
       // TODO Auto-generated catch block
       e1.printStackTrace();
     }
-    if (!engine.isKatago) {
-      //      Message msg = new Message();
-      //      msg.setMessage("当前引擎不是KataGo引擎(或未加载完成),可能无法修改规则");
-      //      msg.setVisible(true);
+    if (!composeOnly && engine != null && !engine.isKatago) {
       Utils.showMsg(resourceBundle.getString("SetKataRules.notKataGoHint"));
     }
-    if (rejectEngineGameInteraction()) return;
-    engine.recentRulesLine = "";
-    engine.getParameterScadule(false);
-    engine.nameCmd();
-    engine.sendCommand("kata-get-rules");
+    lblStatus = new JFontLabel("");
+    lblStatus.setBounds(18, 288, 897, 23);
+    getContentPane().add(lblStatus);
+    if (composeOnly) {
+      chkbxAutoLoadRules.setVisible(false);
+      lblStatus.setVisible(false);
+      if (initial != null) {
+        applyJsonToEditor(initial.toJson());
+      }
+    } else {
+      if (rejectEngineGameInteraction()) return;
+      engine.queryEngineRules();
+      refreshStatus();
+      watchEngineRulesStatus();
+    }
   }
 
   private void closeDialog() {
-    if (!rejectEngineGameInteraction() && isCurrentEngine() && engine.isPondering()) {
+    statusWatchGeneration++;
+    if (!composeOnly && !rejectEngineGameInteraction() && isCurrentEngine() && engine.isPondering()) {
       engine.ponder();
     }
     setVisible(false);
   }
 
+  void applySelectedRules() {
+    if (composeOnly) {
+      composed = rulesFromEditor();
+      setVisible(false);
+      return;
+    }
+    if (rejectEngineGameInteraction()) return;
+    if (!isCurrentEngine() || !engine.isLoaded() || !engine.isStarted()) {
+      Utils.showMsg(resourceBundle.getString("LizzieFrame.setParamNoEngineHint"));
+      setVisible(false);
+      return;
+    }
+    if (engine.isRulesMutationOccupied()) {
+      Utils.showMsg(resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease"));
+      refreshStatus();
+      return;
+    }
+    Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
+    KataGoRules requested = rulesFromEditor();
+    if (chkbxAutoLoadRules.isSelected()) {
+      Lizzie.config.autoLoadKataRules = true;
+      Lizzie.config.kataRules = requested.toGtpArgument();
+      Lizzie.config.uiConfig.put("kata-rules", Lizzie.config.kataRules);
+      Lizzie.config.uiConfig.put("auto-load-kata-rules", true);
+    } else {
+      Lizzie.config.autoLoadKataRules = false;
+      Lizzie.config.uiConfig.put("auto-load-kata-rules", false);
+    }
+    engine.applyEngineRules(requested);
+    refreshStatus();
+  }
+
+  private KataGoRules rulesFromEditor() {
+    String scoring = rdoArea.isSelected() ? "AREA" : rdoTerritory.isSelected() ? "TERRITORY" : "";
+    String ko =
+        rdoSimpleKo.isSelected()
+            ? "SIMPLE"
+            : rdoPositionKo.isSelected()
+                ? "POSITIONAL"
+                : rdoSituationalKo.isSelected() ? "SITUATIONAL" : "";
+    boolean suicide = rdoSuicide.isSelected();
+    String tax =
+        rdoNoTax.isSelected() ? "NONE" : rdoSeKiTax.isSelected() ? "SEKI" : rdoAllTax.isSelected() ? "ALL" : "";
+    String whiteHandicapBonus =
+        rdoNoHandicapKomi.isSelected()
+            ? "0"
+            : rdoHandicapKomiN.isSelected() ? "N" : rdoHandicapKomiN1.isSelected() ? "N-1" : "";
+    boolean hasButton = rdoButtonGo.isSelected();
+    KataGoRules base = null;
+    if (composeOnly) {
+      base = composeBaseline;
+    } else if (engine != null) {
+      base = engine.engineRulesResult().observed();
+      if (base == null) {
+        base = KataGoRules.parse(engine.recentRulesLine).orElse(null);
+      }
+    }
+    if (base != null) {
+      return base.overlayEditor(scoring, ko, suicide, tax, whiteHandicapBonus, hasButton);
+    }
+    JSONObject json = new JSONObject();
+    if (!scoring.isEmpty()) {
+      json.put("scoring", scoring);
+    }
+    if (!ko.isEmpty()) {
+      json.put("ko", ko);
+    }
+    json.put("suicide", suicide);
+    if (!tax.isEmpty()) {
+      json.put("tax", tax);
+    }
+    if (!whiteHandicapBonus.isEmpty()) {
+      json.put("whiteHandicapBonus", whiteHandicapBonus);
+    }
+    json.put("hasButton", hasButton);
+    return KataGoRules.fromJson(json);
+  }
+
   public boolean hasRulesResponse() {
-    return !engine.recentRulesLine.isEmpty();
+    return engine.engineRulesResult().isSettled();
   }
 
   public boolean getRules() {
-    if (engine.recentRulesLine.equals("")) {
-      return false;
-    } else {
-      String line = engine.recentRulesLine;
-      jo = new JSONObject(new String(line.substring(2)));
-      // Lizzie.leelaz.usingSpecificRules=
-      if (jo.optBoolean("hasButton", false)) rdoButtonGo.setSelected(true);
-      else rdoNoButtonGo.setSelected(true);
-      if (jo.optBoolean("suicide", false)) rdoSuicide.setSelected(true);
-      else rdoNoSuicide.setSelected(true);
-      if (jo.optString("ko", "").contentEquals("POSITIONAL")) rdoPositionKo.setSelected(true);
-      if (jo.optString("ko", "").contentEquals("SIMPLE")) rdoSimpleKo.setSelected(true);
-      if (jo.optString("ko", "").contentEquals("SITUATIONAL")) rdoSituationalKo.setSelected(true);
-
-      if (jo.optString("scoring", "").contentEquals("AREA")) {
-        rdoArea.setSelected(true);
-        rdoNoButtonGo.setEnabled(true);
-        rdoButtonGo.setEnabled(true);
-      }
-      if (jo.optString("scoring", "").contentEquals("TERRITORY")) {
-        rdoTerritory.setSelected(true);
-        rdoNoButtonGo.setEnabled(false);
-        rdoButtonGo.setEnabled(false);
-      }
-
-      if (jo.optString("whiteHandicapBonus", "").contentEquals("0"))
-        rdoNoHandicapKomi.setSelected(true);
-      if (jo.optString("whiteHandicapBonus", "").contentEquals("N"))
-        rdoHandicapKomiN.setSelected(true);
-      if (jo.optString("whiteHandicapBonus", "").contentEquals("N-1"))
-        rdoHandicapKomiN1.setSelected(true);
-
-      if (jo.optString("tax", "").contentEquals("NONE")) rdoNoTax.setSelected(true);
-      if (jo.optString("tax", "").contentEquals("ALL")) rdoAllTax.setSelected(true);
-      if (jo.optString("tax", "").contentEquals("SEKI")) rdoSeKiTax.setSelected(true);
-
-      return true;
+    KataGoRules rules = engine.engineRulesResult().observed();
+    if (rules == null) {
+      rules = KataGoRules.parse(engine.recentRulesLine).orElse(null);
     }
+    refreshStatus();
+    if (rules == null) {
+      return false;
+    }
+    jo = rules.toJson();
+    applyJsonToEditor(jo);
+    return true;
+  }
+
+  private void applyJsonToEditor(JSONObject jo) {
+    this.jo = jo;
+    if (jo == null) {
+      return;
+    }
+    if (jo.optBoolean("hasButton", false)) rdoButtonGo.setSelected(true);
+    else rdoNoButtonGo.setSelected(true);
+    if (jo.optBoolean("suicide", false)) rdoSuicide.setSelected(true);
+    else rdoNoSuicide.setSelected(true);
+    if (jo.optString("ko", "").contentEquals("POSITIONAL")) rdoPositionKo.setSelected(true);
+    if (jo.optString("ko", "").contentEquals("SIMPLE")) rdoSimpleKo.setSelected(true);
+    if (jo.optString("ko", "").contentEquals("SITUATIONAL")) rdoSituationalKo.setSelected(true);
+
+    if (jo.optString("scoring", "").contentEquals("AREA")) {
+      rdoArea.setSelected(true);
+      rdoNoButtonGo.setEnabled(true);
+      rdoButtonGo.setEnabled(true);
+    }
+    if (jo.optString("scoring", "").contentEquals("TERRITORY")) {
+      rdoTerritory.setSelected(true);
+      rdoNoButtonGo.setEnabled(false);
+      rdoButtonGo.setEnabled(false);
+    }
+
+    if (jo.optString("whiteHandicapBonus", "").contentEquals("0"))
+      rdoNoHandicapKomi.setSelected(true);
+    if (jo.optString("whiteHandicapBonus", "").contentEquals("N"))
+      rdoHandicapKomiN.setSelected(true);
+    if (jo.optString("whiteHandicapBonus", "").contentEquals("N-1"))
+      rdoHandicapKomiN1.setSelected(true);
+
+    if (jo.optString("tax", "").contentEquals("NONE")) rdoNoTax.setSelected(true);
+    if (jo.optString("tax", "").contentEquals("ALL")) rdoAllTax.setSelected(true);
+    if (jo.optString("tax", "").contentEquals("SEKI")) rdoSeKiTax.setSelected(true);
+  }
+
+  String statusText() {
+    return lblStatus.getText();
+  }
+
+  void refreshStatus() {
+    EngineRulesResult result = engine.engineRulesResult();
+    String key;
+    switch (result.status()) {
+      case PENDING:
+        key = "SetKataRules.status.pending";
+        break;
+      case CONFIRMED:
+        key = "SetKataRules.status.confirmed";
+        break;
+      case UNCONFIRMED:
+        key = "SetKataRules.status.unconfirmed";
+        break;
+      case SET_FAILED:
+        key = "SetKataRules.status.setFailed";
+        break;
+      case QUERY_FAILED:
+        key = "SetKataRules.status.queryFailed";
+        break;
+      case CAPABILITY_FAILED:
+        key = "SetKataRules.status.capabilityFailed";
+        break;
+      default:
+        lblStatus.setText("");
+        return;
+    }
+    String text = resourceBundle.getString(key);
+    if (result.lastKnownStale()) {
+      text = text + " " + resourceBundle.getString("SetKataRules.lastKnownStale");
+    }
+    lblStatus.setText(text);
+  }
+
+  private void watchEngineRulesStatus() {
+    final long generation = ++statusWatchGeneration;
+    Thread thread =
+        new Thread(
+            () -> {
+              EngineRulesResult.Status lastStatus = null;
+              long lastResultGeneration = -1L;
+              while (generation == statusWatchGeneration) {
+                EngineRulesResult snapshot = engine.engineRulesResult();
+                EngineRulesResult.Status status = snapshot.status();
+                if (status != lastStatus || snapshot.generation() != lastResultGeneration) {
+                  lastStatus = status;
+                  lastResultGeneration = snapshot.generation();
+                  boolean confirmed = snapshot.isConfirmed();
+                  SwingUtilities.invokeLater(
+                      () -> {
+                        if (generation != statusWatchGeneration) {
+                          return;
+                        }
+                        if (confirmed) {
+                          getRules();
+                        } else {
+                          refreshStatus();
+                        }
+                      });
+                }
+                try {
+                  Thread.sleep(50L);
+                } catch (InterruptedException interrupted) {
+                  Thread.currentThread().interrupt();
+                  return;
+                }
+              }
+            },
+            "lizzie-set-kata-rules-status");
+    thread.setDaemon(true);
+    thread.start();
   }
 
   static boolean rejectEngineGameInteraction() {

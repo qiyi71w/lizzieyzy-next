@@ -23,7 +23,8 @@ public final class EngineGameBatchSpecFactory {
         parsed.maxMoveLimitEnabled(),
         parsed.maxMoves(),
         new EngineGameOutputChoices(
-            parsed.autosave(), parsed.saveWinrateImage(), parsed.batchName()));
+            parsed.autosave(), parsed.saveWinrateImage(), parsed.batchName()),
+        parsed.matchRules());
   }
 
   private static EngineGameSideLimits side(EngineGameParsedStart parsed, boolean first) {

@@ -848,6 +848,7 @@ public class Config {
 
   public String kataRules = "";
   public boolean autoLoadKataRules = false;
+  public String engineGameMatchRules = "";
   public boolean showTitleWr = true;
 
   public boolean chkLzsaiEngineMem = false;
@@ -1952,6 +1953,7 @@ public class Config {
     useShortcutKataEstimate = uiConfig.optBoolean("shortcut-kata-estimate", false);
     kataRules = uiConfig.optString("kata-rules", "");
     autoLoadKataRules = uiConfig.optBoolean("auto-load-kata-rules", false);
+    engineGameMatchRules = uiConfig.optString("engine-game-match-rules", "");
     showTitleWr = uiConfig.optBoolean("show-title-wr", true);
 
     chkLzsaiEngineMem = uiConfig.optBoolean("chk-lzsai-enginemem", false);

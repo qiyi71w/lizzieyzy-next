@@ -9,9 +9,11 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.GameInfo;
 import featurecat.lizzie.enginegame.Acceptance;
+import featurecat.lizzie.enginegame.EngineGameMatchRulesSelection;
 import featurecat.lizzie.enginegame.EngineGameBatchSpec;
 import featurecat.lizzie.enginegame.EngineGameBatchSpecFactory;
 import featurecat.lizzie.enginegame.StartFailure;
+import featurecat.lizzie.enginegame.MatchRulesTexts;
 import featurecat.lizzie.enginegame.StartObserver;
 
 import featurecat.lizzie.util.Utils;
@@ -81,6 +83,7 @@ public class NewEngineGameDialog extends JDialog {
   private boolean cancelled = true;
   private boolean pendingEngineGameStart;
   private GameInfo gameInfo;
+  private MatchRulesPicker matchRulesPicker;
 
   public NewEngineGameDialog(Window owner) {
     super(owner);
@@ -332,6 +335,9 @@ public class NewEngineGameDialog extends JDialog {
     JFontLabel handicap =
         new JFontLabel(
             Lizzie.resourceBundle.getString("NewEngineGameDialog.handicap")); // ("让子(仅支持19路棋盘)");
+    matchRulesPicker = new MatchRulesPicker();
+    JFontLabel matchRules =
+        new JFontLabel(Lizzie.resourceBundle.getString("NewEngineGameDialog.matchRules"));
 
     chkContinuePlay =
         new JFontCheckBox(
@@ -583,7 +589,7 @@ public class NewEngineGameDialog extends JDialog {
     addMainSection(mainPanel, resignSection, 1);
 
     JPanel gamePanel = createSectionPanel();
-    addGameSetupRows(gamePanel, komi, handicap, lblBatchGame);
+    addGameSetupRows(gamePanel, komi, handicap, lblBatchGame, matchRules);
     addMainSection(mainPanel, gamePanel, 2);
 
     JPanel optionsPanel = createSectionPanel();
@@ -767,7 +773,11 @@ public class NewEngineGameDialog extends JDialog {
   }
 
   private void addGameSetupRows(
-      JPanel panel, JComponent komi, JComponent handicap, JComponent batchLabel) {
+      JPanel panel,
+      JComponent komi,
+      JComponent handicap,
+      JComponent batchLabel,
+      JComponent matchRules) {
     setPreferredControlWidth(textFieldKomi, 72);
     setPreferredControlWidth(textFieldHandicap, 72);
     setPreferredControlWidth(LizzieFrame.toolbar.txtenginePkBatch, 72);
@@ -779,22 +789,27 @@ public class NewEngineGameDialog extends JDialog {
     panel.add(handicap, compactConstraints(2, 0, 0.0));
     panel.add(textFieldHandicap, compactConstraints(3, 0, 0.0));
 
-    panel.add(batchLabel, compactConstraints(0, 1, 0.0));
-    panel.add(LizzieFrame.toolbar.chkenginePkBatch, compactConstraints(1, 1, 0.0));
-    GridBagConstraints batchFieldConstraints = compactConstraints(2, 1, 1.0);
+    panel.add(matchRules, compactConstraints(0, 1, 0.0));
+    GridBagConstraints matchRulesField = compactConstraints(1, 1, 1.0);
+    matchRulesField.gridwidth = 3;
+    panel.add(matchRulesPicker.component(), matchRulesField);
+
+    panel.add(batchLabel, compactConstraints(0, 2, 0.0));
+    panel.add(LizzieFrame.toolbar.chkenginePkBatch, compactConstraints(1, 2, 0.0));
+    GridBagConstraints batchFieldConstraints = compactConstraints(2, 2, 1.0);
     batchFieldConstraints.gridwidth = 2;
     panel.add(LizzieFrame.toolbar.txtenginePkBatch, batchFieldConstraints);
 
-    GridBagConstraints continueConstraints = compactConstraints(0, 2, 0.0);
+    GridBagConstraints continueConstraints = compactConstraints(0, 3, 0.0);
     continueConstraints.gridwidth = 2;
     panel.add(chkContinuePlay, continueConstraints);
 
-    GridBagConstraints sgfToggleConstraints = compactConstraints(2, 2, 0.0);
+    GridBagConstraints sgfToggleConstraints = compactConstraints(2, 3, 0.0);
     sgfToggleConstraints.gridwidth = 2;
     panel.add(inlinePanel(chkSGFstart, lblsgf), sgfToggleConstraints);
 
-    panel.add(cbxRandomSgf, compactConstraints(0, 3, 0.0));
-    GridBagConstraints buttonConstraints = compactConstraints(1, 3, 1.0);
+    panel.add(cbxRandomSgf, compactConstraints(0, 4, 0.0));
+    GridBagConstraints buttonConstraints = compactConstraints(1, 4, 1.0);
     buttonConstraints.gridwidth = 3;
     panel.add(btnSGFstart, buttonConstraints);
   }
@@ -1091,6 +1106,7 @@ public class NewEngineGameDialog extends JDialog {
       Lizzie.config.uiConfig.put("new-engine-game-komi", Lizzie.config.newEngineGameKomi);
       Lizzie.config.uiConfig.put("new-engine-game-handicap", Lizzie.config.newEngineGameHandicap);
       Lizzie.config.persistEngineSgfStart(chkSGFstart.isSelected());
+      EngineGameMatchRulesSelection.persist(Lizzie.config, matchRulesPicker.selected());
       EnginePkIdentity.persistSelection(
           Lizzie.config,
           Utils.getEngineData(),
@@ -1158,10 +1174,10 @@ public class NewEngineGameDialog extends JDialog {
                     setVisible(false);
                     return;
                   }
-                  if (!(failure instanceof StartFailure.CancelledByUser)) {
-                    Utils.showMsg(
-                        Lizzie.resourceBundle.getString("EngineManager.engineGameStartFailed"),
-                        NewEngineGameDialog.this);
+                  String message =
+                      MatchRulesTexts.startFailureMessage(failure, Lizzie.resourceBundle);
+                  if (message != null) {
+                    Utils.showMsg(message, NewEngineGameDialog.this);
                   }
                 }
               });

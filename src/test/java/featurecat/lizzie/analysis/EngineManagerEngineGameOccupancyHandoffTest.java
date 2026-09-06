@@ -483,6 +483,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
       isLoaded = true;
       width = 19;
       height = 19;
+      enableAutoSettleMatchRulesForTest();
     }
 
     @Override
@@ -537,6 +538,7 @@ class EngineManagerEngineGameOccupancyHandoffTest {
       firstLoad = false;
       width = 19;
       height = 19;
+      enableAutoSettleMatchRulesForTest();
     }
 
     @Override
