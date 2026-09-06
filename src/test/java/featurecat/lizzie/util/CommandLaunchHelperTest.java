@@ -228,6 +228,119 @@ public class CommandLaunchHelperTest {
     }
   }
 
+  @Test
+  void classifyCommandRecognizesQuotedWindowsKataGoBenchmark() {
+    List<String> tokens =
+        Utils.splitCommand(
+            "\"C:\\Program Files\\KataGo\\katago.exe\" benchmark -model \"D:\\Go Models\\net.bin.gz\"");
+    assertEquals("C:\\Program Files\\KataGo\\katago.exe", tokens.get(0));
+    assertEquals("benchmark", tokens.get(1));
+    assertEquals("D:\\Go Models\\net.bin.gz", tokens.get(3));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK,
+        CommandLaunchHelper.classifyCommand(tokens));
+  }
+
+  @Test
+  void classifyCommandRecognizesSupportedKataGoBenchmarkNames() {
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK, classify("katago benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK, classify("katago.exe benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK,
+        classify("katago-v1.16.0-opencl-windows-x64.exe benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK,
+        classify("katago_cpu.exe benchmark -model net.bin.gz"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK, classify("katago_opencl benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK, classify("katago_cuda.exe benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.BENCHMARK,
+        classify("/usr/local/bin/katago benchmark"));
+  }
+
+  @Test
+  void classifyCommandKeepsGtpAndRejectsWrappersAndCaseVariants() {
+    assertEquals(CommandLaunchHelper.EngineCommandPurpose.GTP, classify("katago gtp"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP,
+        classify("katago.exe gtp -model net.bin.gz"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP, classify("leelaz.exe benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP, classify("wine katago.exe benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP, classify("cmd /c katago.exe benchmark"));
+    assertEquals(CommandLaunchHelper.EngineCommandPurpose.GTP, classify("katago Benchmark"));
+    assertEquals(CommandLaunchHelper.EngineCommandPurpose.GTP, classify("katago BENCHMARK"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP,
+        classify("katago.exe -model C:\\benchmark\\model.bin.gz gtp"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP,
+        classify("katago gtp -model benchmark.bin.gz -config C:\\benchmark\\gtp.cfg"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP,
+        classify("katago gtp -override-config foo=benchmark"));
+    assertEquals(
+        CommandLaunchHelper.EngineCommandPurpose.GTP,
+        classify("\"C:\\Program Files\\benchmark\\engine.exe\" benchmark"));
+  }
+
+  @Test
+  void prepareLeavesOverrideConfigValueUnchangedWhenRelativeFileExists() throws Exception {
+    Path root = Files.createTempDirectory("command-launch-override-config");
+    try {
+      Path engineDir = Files.createDirectories(root.resolve("engine"));
+      Path executable = engineDir.resolve("katago.exe");
+      Path model = engineDir.resolve("cmd-launch-model.bin.gz");
+      Path config = engineDir.resolve("cmd-launch-gtp.cfg");
+      String overrideValue = "logToFile=cmd-launch-log.txt";
+      Files.createFile(model);
+      Files.createFile(config);
+      Files.createFile(engineDir.resolve(overrideValue));
+
+      CommandLaunchHelper.LaunchSpec shortFlagSpec =
+          CommandLaunchHelper.prepare(
+              Arrays.asList(
+                  executable.toString(),
+                  "gtp",
+                  "-model",
+                  model.getFileName().toString(),
+                  "-config",
+                  config.getFileName().toString(),
+                  "-override-config",
+                  overrideValue));
+      List<String> shortFlagParts = shortFlagSpec.getCommandParts();
+      assertPathEquals(engineDir, shortFlagSpec.getWorkingDirectory().toPath());
+      assertEquals(model.toAbsolutePath().normalize().toString(), shortFlagParts.get(3));
+      assertEquals(config.toAbsolutePath().normalize().toString(), shortFlagParts.get(5));
+      assertEquals(overrideValue, shortFlagParts.get(7));
+
+      CommandLaunchHelper.LaunchSpec longFlagSpec =
+          CommandLaunchHelper.prepare(
+              Arrays.asList(
+                  executable.toString(),
+                  "gtp",
+                  "-model",
+                  model.getFileName().toString(),
+                  "--override-config",
+                  overrideValue));
+      assertEquals(overrideValue, longFlagSpec.getCommandParts().get(5));
+      assertEquals(
+          model.toAbsolutePath().normalize().toString(), longFlagSpec.getCommandParts().get(3));
+    } finally {
+      deleteTree(root);
+    }
+  }
+
+  private static CommandLaunchHelper.EngineCommandPurpose classify(String command) {
+    return CommandLaunchHelper.classifyCommand(Utils.splitCommand(command));
+  }
+
   private static void assertListEquals(List<String> expected, List<String> actual) {
     assertIterableEquals(expected, actual);
   }

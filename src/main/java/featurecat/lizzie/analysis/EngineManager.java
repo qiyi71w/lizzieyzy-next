@@ -677,7 +677,7 @@ public class EngineManager {
         initialStartupCandidate =
             new InitialEngineStartupCandidate(startupIndex, e, restoreBoard, boardShapeChanges);
       } else {
-        if (e.preload) {
+        if (e.preload && !e.isBenchmark()) {
           dispatchInitialEnginePreload(e, i);
         }
       }
@@ -691,7 +691,11 @@ public class EngineManager {
         Lizzie.leelaz != null && !Lizzie.leelaz.isStarted() ? Lizzie.leelaz : null;
     publishPrimarySelectionState(emptyPlaceholder, -1, true);
     if (initialStartupCandidate != null) {
-      submitInitialEngineStartup(initialStartupCandidate);
+      if (initialStartupCandidate.engine.isBenchmark()) {
+        submitEngineSwitchIfAvailable(initialStartupCandidate.index, true, true, null);
+      } else {
+        submitInitialEngineStartup(initialStartupCandidate);
+      }
     }
     if (selectedPosition == -1) {
       if (Lizzie.leelaz != null) {
@@ -726,8 +730,10 @@ public class EngineManager {
             }
           });
     }
-    if (Lizzie.gtpConsole != null && Lizzie.gtpConsole.console != null) {
-      Lizzie.gtpConsole.console.setText("");
+    if (initialStartupCandidate == null || !initialStartupCandidate.engine.isBenchmark()) {
+      if (Lizzie.gtpConsole != null && Lizzie.gtpConsole.console != null) {
+        Lizzie.gtpConsole.console.setText("");
+      }
     }
     autoCheckEngineAlive(Lizzie.config != null && Lizzie.config.autoCheckEngineAlive);
     if (Lizzie.config != null
@@ -1351,6 +1357,10 @@ public class EngineManager {
     }
     int engineBlack = plan.blackIndex();
     int engineWhite = plan.whiteIndex();
+    if (isBenchmarkParticipant(engineBlack) || isBenchmarkParticipant(engineWhite)) {
+      showBenchmarkGtpUnavailable();
+      return false;
+    }
     if (plan.genmove()
         && DesktopTimeControl.rejectsEngineGame(
             engineList,
@@ -3579,7 +3589,8 @@ public class EngineManager {
 
   private void checkEngineAlive() {
     if (isEmpty || isSetupModeActive()) return;
-    if (!hasPlayingEngineGameTransaction() && Lizzie.leelaz != null) {
+    if (!hasPlayingEngineGameTransaction() && Lizzie.leelaz != null
+        && Lizzie.leelaz.hasGtpCapability()) {
       if (Lizzie.leelaz.isStarted()
           && Lizzie.leelaz.canCheckAlive
           && Lizzie.leelaz.isProcessDead()) {
@@ -3707,6 +3718,12 @@ public class EngineManager {
     EngineData selectedEngineData = null;
     EngineData selectedSecondaryData = null;
     for (EngineData engineDt : engineData) {
+      if (!engineDt.useJavaSSH
+          && featurecat.lizzie.util.CommandLaunchHelper.classifyCommand(
+                  Utils.splitCommand(engineDt.commands))
+              == featurecat.lizzie.util.CommandLaunchHelper.EngineCommandPurpose.BENCHMARK) {
+        continue;
+      }
       if (selectedEngineData == null && engineDt.name.equals(currentEngineName)) {
         selectedEngineData = engineDt;
       }
@@ -3800,6 +3817,11 @@ public class EngineManager {
           e = frozenPreparedMirror;
         } else {
           e = createUnstartedEngine(engineDt);
+        }
+        // Saving/rebuilding the catalog is not an explicit invocation of a one-shot command.
+        if (e.isBenchmark()) {
+          engineList.add(e);
+          continue;
         }
         if (!loadLeelaz && engineDt.name.equals(currentEngineName)) {
           loadLeelaz = true;
@@ -3941,7 +3963,7 @@ public class EngineManager {
           e.preload = true;
           e.firstLoad = true;
           currentEngineNo2 = i;
-        } else if (e.preload) {
+        } else if (e.preload && !e.isBenchmark()) {
           new Thread() {
             public void run() {
               try {
@@ -3964,7 +3986,7 @@ public class EngineManager {
           throw failure;
         }
       }
-      if (!loadLeelaz && preIndex >= 0) {
+      if (!loadLeelaz && preIndex >= 0 && !isBenchmarkParticipant(preIndex)) {
         switchEngine(preIndex, true);
       }
 
@@ -4148,6 +4170,7 @@ public class EngineManager {
 
   private void restartEngineAutomatically(Leelaz engine, int index) throws IOException {
     if (isSetupModeActive()) return;
+    if (!engine.hasGtpCapability()) return;
     Leelaz.AutomaticRestartAttempt attempt = engine.beginAutomaticEngineRestartAttempt();
     if (attempt == null) {
       return;
@@ -4370,9 +4393,10 @@ public class EngineManager {
   }
 
   private void killAllEnginesUnderReservation() {
+    cancelBenchmarks();
     // currentEngineNo = -1;
     for (int i = 0; i < engineList.size(); i++) {
-      if (engineList.get(i).isStarted()) {
+      if (engineList.get(i).isStarted() || engineList.get(i).isBenchmark()) {
         try {
           engineList.get(i).forceQuit();
         } catch (Exception e) {
@@ -4385,7 +4409,7 @@ public class EngineManager {
     Leelaz primaryEngine = Lizzie.leelaz;
     if (primaryEngine != null) {
       primaryEngine.notPondering();
-      primaryEngine.isLoaded = true;
+      primaryEngine.isLoaded = primaryEngine.hasGtpCapability();
     }
     if (Menu.engineMenu != null) {
       Menu.engineMenu.setText(resourceBundle.getString("Menu.noEngine"));
@@ -4397,9 +4421,10 @@ public class EngineManager {
   }
 
   public void forceKillAllEngines() {
+    cancelBenchmarks();
     // currentEngineNo = -1;
     for (int i = 0; i < engineList.size(); i++) {
-      if (engineList.get(i).isStarted()) {
+      if (engineList.get(i).isStarted() || engineList.get(i).isBenchmark()) {
         try {
           engineList.get(i).forceQuit();
         } catch (Exception e) {
@@ -4410,10 +4435,56 @@ public class EngineManager {
     if (primaryEngine != null) primaryEngine.notPondering();
   }
 
+  private boolean cancelPendingBenchmarkSelection(boolean main) {
+    EngineSwitchUiSnapshot cancelled;
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      EngineSwitchTransaction pending = engineSwitchTransaction.get();
+      if (pending == null || pending.main != main || !pending.targetEngine.isBenchmark()) {
+        return false;
+      }
+      pending.targetEngine.cancelBenchmark();
+      cancelled = engineSwitchUiTracker.tool(
+          pending.uiToken, main, pending.targetIndex,
+          engineDisplayNameWithoutCatalogLookup(pending.targetEngine, pending.targetIndex),
+          pending.targetEngine, resourceBundle.getString("Benchmark.cancelled")).orElse(null);
+      finishEngineSwitchTransaction(pending);
+    }
+    publishEngineSwitchUiState(cancelled);
+    return true;
+  }
+
+  /** Captures the exact tool lifetimes that must finish before application exit. */
+  public java.util.concurrent.CompletableFuture<Void> cancelBenchmarks() {
+    List<java.util.concurrent.CompletableFuture<?>> completions = new ArrayList<>();
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      EngineSwitchTransaction pending = engineSwitchTransaction.get();
+      if (pending != null && pending.targetEngine.isBenchmark()) {
+        engineSwitchUiTracker.abandonPending(pending.uiToken, pending.main);
+        finishEngineSwitchTransaction(pending);
+      }
+      java.util.Set<Leelaz> tools = new java.util.LinkedHashSet<>(engineList);
+      tools.add(Lizzie.leelaz);
+      tools.add(Lizzie.leelaz2);
+      for (Leelaz engine : tools) {
+        BenchmarkExecution execution = engine == null ? null : engine.benchmarkExecution();
+        if (execution != null) {
+          execution.cancel();
+          completions.add(execution.completion());
+        }
+      }
+    }
+    return java.util.concurrent.CompletableFuture.allOf(
+        completions.toArray(new java.util.concurrent.CompletableFuture<?>[0]));
+  }
+
   public void reStartEngine() {
     // currentEngineNo = -1;
     if (rejectForegroundEngineStartDuringSetup(true)) return;
     if (isEmpty || Lizzie.leelaz == null) return;
+    if (Lizzie.leelaz.isBenchmark()) {
+      switchEngine(currentEngineNo, true);
+      return;
+    }
     Leelaz currentForegroundEngine = Lizzie.leelaz;
     boolean restartPonderIntent = currentForegroundEngine.isPonderingOrWasPonderingBeforeTracking();
     int restartEngineIndex = currentEngineNo;
@@ -4493,6 +4564,10 @@ public class EngineManager {
     // currentEngineNo = -1;
     if (rejectForegroundEngineStartDuringSetup(true)) return;
     if (isEmpty || Lizzie.leelaz == null) return;
+    if (isBenchmarkParticipant(index)) {
+      switchEngine(index, true);
+      return;
+    }
     if (rejectSameEngineSelection(index, true)) return;
     Leelaz currentForegroundEngine = Lizzie.leelaz;
     boolean restartPonderIntent = currentForegroundEngine.isPonderingOrWasPonderingBeforeTracking();
@@ -4571,6 +4646,10 @@ public class EngineManager {
     // currentEngineNo = -1;
     if (Lizzie.leelaz2 == null || currentEngineNo2 < 0 || currentEngineNo2 >= engineList.size())
       return;
+    if (Lizzie.leelaz2.isBenchmark()) {
+      switchEngine(currentEngineNo2, false);
+      return;
+    }
     int restartEngineIndex = currentEngineNo2;
     if (rejectSameEngineSelection(restartEngineIndex, false)) return;
     boolean restartPonderIntent =
@@ -4655,7 +4734,7 @@ public class EngineManager {
 
   public void killOtherEngines() {
     for (int i = 0; i < engineList.size(); i++) {
-      if (engineList.get(i).isStarted()) {
+      if (engineList.get(i).isStarted() || engineList.get(i).isBenchmark()) {
         if (engineList.get(i) != Lizzie.leelaz)
           try {
             // engineList.get(i).normalQuit();
@@ -4669,7 +4748,7 @@ public class EngineManager {
 
   public void killOtherEngines(int engineBlack, int engineWhite) {
     for (int i = 0; i < engineList.size(); i++) {
-      if (engineList.get(i).isStarted()) {
+      if (engineList.get(i).isStarted() || engineList.get(i).isBenchmark()) {
         if (i != engineBlack && i != engineWhite) engineList.get(i).normalQuit();
       }
     }
@@ -4693,6 +4772,7 @@ public class EngineManager {
   }
 
   public void killThisEngines() {
+    if (cancelPendingBenchmarkSelection(true)) return;
     Leelaz currentForegroundEngine = Lizzie.leelaz;
     Leelaz.ExclusiveGtpLifecycleReservation reservation =
         currentForegroundEngine == null
@@ -4703,6 +4783,10 @@ public class EngineManager {
       return;
     }
     try {
+      if (currentForegroundEngine != null && currentForegroundEngine.isBenchmark()) {
+        currentForegroundEngine.cancelBenchmark();
+        return;
+      }
       if (engineList.get(currentEngineNo).isStarted()) {
         engineList.get(currentEngineNo).forceQuit();
       }
@@ -4720,6 +4804,11 @@ public class EngineManager {
   }
 
   public void killThisEngines2() {
+    if (cancelPendingBenchmarkSelection(false)) return;
+    if (Lizzie.leelaz2 != null && Lizzie.leelaz2.isBenchmark()) {
+      Lizzie.leelaz2.cancelBenchmark();
+      return;
+    }
     engineList.get(currentEngineNo2).normalQuit();
     currentEngineNo2 = -1;
     Lizzie.leelaz2.notPondering();
@@ -4791,6 +4880,11 @@ public class EngineManager {
       Leelaz newEng,
       PkEngineSynchronization completion) {
     if (newEng == null) {
+      completion.fail();
+      return completion;
+    }
+    if (!newEng.hasGtpCapability()) {
+      showBenchmarkGtpUnavailable();
       completion.fail();
       return completion;
     }
@@ -5377,6 +5471,10 @@ public class EngineManager {
   public void restartEngineForPk(int index) {
     if (index < 0 || index >= this.engineList.size()) return;
     Leelaz targetEngine = engineList.get(index);
+    if (!targetEngine.hasGtpCapability()) {
+      showBenchmarkGtpUnavailable();
+      return;
+    }
     Object failedIncarnation = targetEngine.captureEngineIncarnationFence();
     if (failedIncarnation != null
         && requestEngineGameParticipantRecovery(
@@ -5479,6 +5577,7 @@ public class EngineManager {
     IDLE,
     SWITCHING,
     ACTIVE,
+    TOOL,
     FAILED
   }
 
@@ -5656,6 +5755,22 @@ public class EngineManager {
               targetEngine,
               targetEngine == null ? current.targetEngineIdentity : targetEngine,
               current.rollbackEngineIdentity);
+      set(main, next);
+      return Optional.of(next);
+    }
+
+    synchronized Optional<EngineSwitchUiSnapshot> tool(
+        long token, boolean main, int index, String name, Leelaz engine, String status) {
+      EngineSwitchUiSnapshot current = current(main);
+      if (current.token != token
+          || (current.phase != EngineSwitchUiPhase.SWITCHING
+              && current.phase != EngineSwitchUiPhase.TOOL)) {
+        return Optional.empty();
+      }
+      EngineSwitchUiSnapshot next = new EngineSwitchUiSnapshot(
+          token, main, EngineSwitchUiPhase.TOOL, index, name, index, name, status,
+          current.rollbackIndex, current.rollbackName, engine, engine,
+          current.rollbackEngineIdentity);
       set(main, next);
       return Optional.of(next);
     }
@@ -7302,7 +7417,8 @@ public class EngineManager {
           }
           Leelaz blackEngine = catalog.get(blackIndex);
           Leelaz whiteEngine = catalog.get(whiteIndex);
-          if (blackEngine == null || whiteEngine == null || blackEngine == whiteEngine) {
+          if (blackEngine == null || whiteEngine == null || blackEngine == whiteEngine
+              || !blackEngine.hasGtpCapability() || !whiteEngine.hasGtpCapability()) {
             return null;
           }
           EngineGameOwnerTransaction transaction =
@@ -10790,6 +10906,9 @@ public class EngineManager {
   }
 
   protected void renderEngineSwitchUiState(EngineSwitchUiSnapshot snapshot) {
+    if (snapshot.isMain() && Lizzie.frame != null) {
+      Lizzie.frame.refreshEngineStartupStatus();
+    }
     if (LizzieFrame.menu != null) {
       LizzieFrame.menu.applyEngineSwitchUiState(snapshot);
     }
@@ -10950,6 +11069,10 @@ public class EngineManager {
         new java.util.concurrent.atomic.AtomicReference<>(
             () -> finishEngineSwitchTransaction(transaction));
     try {
+      if (transaction.targetEngine.isBenchmark()) {
+        executeBenchmarkSelection(transaction, retainedLifecycleOwner);
+        return;
+      }
       PreparedEngineSwitch preparedSwitch =
           prepareEngineSwitch(
               index,
@@ -11066,6 +11189,123 @@ public class EngineManager {
       failureCleanup.get().run();
       showEngineSynchronizationFailure(transaction.targetEngine);
     }
+  }
+
+  private boolean isBenchmarkParticipant(int index) {
+    return engineList != null && index >= 0 && index < engineList.size()
+        && engineList.get(index) != null && engineList.get(index).isBenchmark();
+  }
+
+  protected void showBenchmarkGtpUnavailable() {
+    runEngineSwitchUiUpdate(
+        () -> Utils.showMsg(resourceBundle.getString("Benchmark.gtpUnavailable")));
+  }
+
+  /** Tool selection owns a slot, not a GTP-ready board synchronization. */
+  private void executeBenchmarkSelection(
+      EngineSwitchTransaction transaction, Object retainedLifecycleOwner) {
+    if (occupiesEngineGameAdmission()
+        || (Lizzie.frame != null && Lizzie.frame.isContributing)
+        || isSetupModeActive()) {
+      throw new InitialStartupReservationException("Engine mode is reserved");
+    }
+    Leelaz target = transaction.targetEngine;
+    Leelaz previous = transaction.previousEngine;
+    EngineLifecycleReservations reservations =
+        reserveEngineLifecycle(previous, target, retainedLifecycleOwner);
+    if (reservations == null) {
+      throw new InitialStartupReservationException("Engine lifecycle reservation was rejected");
+    }
+    BenchmarkExecution execution = null;
+    try {
+      if (!isCurrentEngineSwitchTransaction(transaction)
+          || !engineSwitchUiTracker.isSwitching(transaction.uiToken, transaction.main)) {
+        return;
+      }
+      if (previous != null) {
+        if (previous.isBenchmark()) {
+          cancelAndReapBenchmark(previous);
+        } else if (!Lizzie.config.fastChange) {
+          previous.normalQuit();
+        } else {
+          if (previous.isLeela0110) previous.leela0110StopPonder();
+          previous.nameCmdfornoponder();
+        }
+      }
+      synchronized (ENGINE_SELECTION_STATE_LOCK) {
+        if (!isCurrentEngineSwitchTransaction(transaction)
+            || !engineSwitchUiTracker.isSwitching(transaction.uiToken, transaction.main)) return;
+      if (!installProvisionalEngineSelection(
+          transaction.main, previous, target, transaction)) {
+        throw new IllegalStateException("Engine selection changed before benchmark launch");
+      }
+      transaction.targetInstalled = true;
+      execution = target.startBenchmark(transaction.targetIndex, transaction.main);
+        if (!isCurrentEngineSwitchTransaction(transaction)
+            || !(transaction.main
+                ? commitPrimaryEngineSelection(target, transaction.targetIndex)
+                : commitSecondaryEngineSelection(target, transaction.targetIndex))) {
+          execution.cancel();
+          throw new IllegalStateException("Benchmark selection was superseded");
+        }
+        engineNo = transaction.targetIndex;
+      }
+      BenchmarkExecution selectedExecution = execution;
+      publishBenchmarkState(transaction, selectedExecution);
+      selectedExecution.completion().thenRun(
+          () -> publishBenchmarkState(transaction, selectedExecution));
+    } finally {
+      try {
+        reservations.close();
+      } finally {
+        finishEngineSwitchTransaction(transaction);
+      }
+    }
+  }
+
+  private static void cancelAndReapBenchmark(Leelaz engine) {
+    BenchmarkExecution execution = engine.benchmarkExecution();
+    if (execution != null) {
+      execution.cancel();
+      execution.completion().join();
+    }
+  }
+
+  private void publishBenchmarkState(
+      EngineSwitchTransaction transaction, BenchmarkExecution execution) {
+    String status = benchmarkStatusText(execution.snapshot());
+    if (Lizzie.gtpConsole != null) {
+      Lizzie.gtpConsole.addLine(
+          "benchmark[" + (transaction.main ? "main" : "secondary") + ":"
+              + (transaction.targetIndex + 1) + "#" + execution.invocationId() + "] "
+              + status + "\n");
+    }
+    EngineSwitchUiSnapshot presentation;
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      if (Lizzie.engineManager != this
+          || transaction.targetEngine.benchmarkExecution() != execution
+          || !isCommittedEngineSelection(
+              transaction.main, transaction.targetEngine, transaction.targetIndex)) {
+        return;
+      }
+      presentation = engineSwitchUiTracker.tool(
+          transaction.uiToken, transaction.main, transaction.targetIndex,
+          engineDisplayNameWithoutCatalogLookup(transaction.targetEngine, transaction.targetIndex),
+          transaction.targetEngine, status).orElse(null);
+    }
+    if (presentation != null) {
+      publishEngineSwitchUiState(presentation);
+    }
+  }
+
+  private String benchmarkStatusText(BenchmarkExecution.Snapshot state) {
+    return switch (state.state()) {
+      case STARTING, RUNNING -> resourceBundle.getString("Benchmark.running");
+      case SUCCEEDED -> resourceBundle.getString("Benchmark.succeeded");
+      case CANCELLED -> resourceBundle.getString("Benchmark.cancelled");
+      case FAILED -> java.text.MessageFormat.format(
+          resourceBundle.getString("Benchmark.failed"), state.detail());
+    };
   }
 
   private void dispatchEngineSwitchWork(
@@ -11714,7 +11954,9 @@ public class EngineManager {
         Leelaz curEng = preparedSwitch.previousEngine;
         // curEng.switching = true;
         try {
-          if (!Lizzie.config.fastChange) {
+          if (curEng.isBenchmark()) {
+            cancelAndReapBenchmark(curEng);
+          } else if (!Lizzie.config.fastChange) {
             curEng.normalQuit();
           } else {
             if (curEng.isLeela0110) curEng.leela0110StopPonder();
@@ -12044,6 +12286,9 @@ public class EngineManager {
             || (previousEngine != null && previousEngine.isPonderingOrWasPonderingBeforeTracking());
     Leelaz proposedRestoreMirror =
         Lizzie.config.isDoubleEngineMode() ? (isMain ? Lizzie.leelaz2 : Lizzie.leelaz) : null;
+    if (proposedRestoreMirror != null && !proposedRestoreMirror.hasGtpCapability()) {
+      proposedRestoreMirror = null;
+    }
     InitialEngineStartupSynchronization lifecycleSynchronization =
         foregroundActivation
             ? InitialEngineStartupSynchronization.capture(

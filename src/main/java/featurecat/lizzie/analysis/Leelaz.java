@@ -84,6 +84,7 @@ import org.json.JSONObject;
 public class Leelaz {
   private static final AtomicLong ENGINE_ARBITRATION_ORDER_SEQUENCE = new AtomicLong();
   private static final AtomicInteger COMMAND_DISPATCH_THREAD_SEQUENCE = new AtomicInteger();
+  private static final AtomicInteger BENCHMARK_TASK_THREAD_SEQUENCE = new AtomicInteger();
   private static final Executor COMMAND_DISPATCH_EXECUTOR =
       Executors.newCachedThreadPool(Leelaz::newCommandDispatchThread);
 
@@ -371,6 +372,7 @@ public class Leelaz {
   private volatile String currentCommandResponseLine = "";
 
   private Process process;
+  private volatile BenchmarkExecution currentBenchmarkExecution;
   private transient EngineTransport remoteTransport;
   private volatile Object engineArbitrationLock = new Object();
   private volatile Object analysisControlPonderLock = new Object();
@@ -841,6 +843,11 @@ public class Leelaz {
       }
       return;
     }
+    if (classifyCommandAsBenchmark()) {
+      startBenchmark(index, this == Lizzie.leelaz);
+      return;
+    }
+    detachCurrentBenchmark();
     canAddPlayer = false;
     currentEngineN = index;
     startupPrimaryEngineGeneration =
@@ -1075,6 +1082,125 @@ public class Leelaz {
 
     publishEngineStartupPresentation(
         engineGameStartupTransaction, startedReaderStreamBinding);
+  }
+
+  public boolean isBenchmark() {
+    if (currentBenchmarkExecution != null) {
+      return true;
+    }
+    if (isLiveGtpRun()) {
+      return false;
+    }
+    return classifyCommandAsBenchmark();
+  }
+
+  public boolean hasGtpCapability() {
+    return !isBenchmark();
+  }
+
+  public BenchmarkExecution benchmarkExecution() {
+    return currentBenchmarkExecution;
+  }
+
+  public BenchmarkExecution startBenchmark(int index, boolean main) {
+    BenchmarkExecution previous;
+    BenchmarkExecution next = new BenchmarkExecution(this, index, main, engineCommand);
+    synchronized (engineArbitrationLock()) {
+      previous = currentBenchmarkExecution;
+      currentBenchmarkExecution = next;
+      currentEngineN = index;
+      started = true;
+      isLoaded = false;
+      isDownWithError = false;
+      isNormalEnd = false;
+      isCheckingName = false;
+      isCheckingVersion = false;
+      canAddPlayer = false;
+      synchronized (commandQueue()) {
+        commandQueue().clear();
+      }
+    }
+    if (previous != null) {
+      previous.cancel();
+    }
+    newBenchmarkTaskThread(() -> next.startAfterReaping(previous)).start();
+    try {
+      currentEnginename = getEngineName(index);
+    } catch (RuntimeException ignored) {
+      currentEnginename = "";
+    }
+    return next;
+  }
+
+  public void cancelBenchmark() {
+    BenchmarkExecution execution = currentBenchmarkExecution;
+    if (execution != null) {
+      execution.cancel();
+    }
+  }
+
+  void onBenchmarkTerminal(BenchmarkExecution execution) {
+    synchronized (engineArbitrationLock()) {
+      if (currentBenchmarkExecution == execution) {
+        started = false;
+      }
+    }
+  }
+
+  private boolean classifyCommandAsBenchmark() {
+    if (useJavaSSH || useRemoteCompute) {
+      return false;
+    }
+    String command = engineCommand;
+    if (command == null || command.trim().isEmpty()) {
+      return false;
+    }
+    return CommandLaunchHelper.classifyCommand(Utils.splitCommand(command))
+        == CommandLaunchHelper.EngineCommandPurpose.BENCHMARK;
+  }
+
+  private boolean isLiveGtpRun() {
+    if (currentBenchmarkExecution != null) {
+      return false;
+    }
+    ReaderStreamBinding binding = readerStreamBinding;
+    if (binding != null && !binding.terminated) {
+      return true;
+    }
+    if (process != null && process.isAlive()) {
+      return true;
+    }
+    if (useJavaSSH && !javaSSHClosed) {
+      return true;
+    }
+    return useRemoteCompute && remoteTransport != null;
+  }
+
+  private boolean cancelLiveBenchmarkWithoutBlocking() {
+    BenchmarkExecution execution = currentBenchmarkExecution;
+    if (execution == null) {
+      return false;
+    }
+    execution.cancel();
+    return true;
+  }
+
+  private void detachCurrentBenchmark() {
+    BenchmarkExecution previous;
+    synchronized (engineArbitrationLock()) {
+      previous = currentBenchmarkExecution;
+      currentBenchmarkExecution = null;
+      if (previous != null) {
+        started = false;
+      }
+    }
+    if (previous == null) {
+      return;
+    }
+    previous.cancel();
+    if (!SwingUtilities.isEventDispatchThread()) {
+      previous.reap();
+    }
   }
 
   private void dispatchStartupBootstrapCommands(
@@ -1686,6 +1812,9 @@ public class Leelaz {
   }
 
   public void normalQuit() {
+    if (cancelLiveBenchmarkWithoutBlocking()) {
+      return;
+    }
     ReaderStreamBinding binding = currentReaderStreamBinding();
     ReaderExecutorSnapshot executors = requestReaderShutdown(binding, true);
     EngineStopObservation stoppedObservation =
@@ -2622,6 +2751,9 @@ public class Leelaz {
   }
 
   private void sendQuitToBinding(ReaderStreamBinding binding) {
+    if (!hasGtpCapability()) {
+      return;
+    }
     BufferedOutputStream bindingOutput = binding.output;
     if (bindingOutput == null) {
       return;
@@ -3518,6 +3650,9 @@ public class Leelaz {
   }
 
   public void forceQuit() {
+    if (cancelLiveBenchmarkWithoutBlocking()) {
+      return;
+    }
     ReaderStreamBinding binding = currentReaderStreamBinding();
     ReaderExecutorSnapshot executors = requestReaderShutdown(binding, true);
     EngineStopObservation stoppedObservation =
@@ -9780,6 +9915,9 @@ public class Leelaz {
   }
 
   public void sendCommand(String command) {
+    if (!hasGtpCapability()) {
+      return;
+    }
     if (this == Lizzie.leelaz) {
       AnalysisResourceCoordinator.commandSent(
           this, AnalysisResourceCoordinator.Purpose.MAIN_BOARD, command);
@@ -10493,6 +10631,9 @@ public class Leelaz {
       QueuedCommandSettlement settlement,
       boolean rejectForExclusiveWinner,
       ReaderStreamBinding readBoardGmaResponseBinding) {
+    if (!hasGtpCapability()) {
+      return false;
+    }
     EngineManager.EngineGameOwnerTransaction startupTransaction =
         engineGameStartupCommandContext.get();
     if (settlement == null
@@ -10676,6 +10817,9 @@ public class Leelaz {
       ReaderStreamBinding readBoardGmaResponseBinding,
       Leelaz mirroredEngine,
       String mirroredCommand) {
+    if (!hasGtpCapability() || !mirroredEngine.hasGtpCapability()) {
+      return false;
+    }
     RestartBootstrapReceipt bootstrapReceipt = restartBootstrapReceiptContext.get();
     RestartBootstrapReceipt mirroredBootstrapReceipt =
         mirroredEngine.restartBootstrapReceiptContext.get();
@@ -10768,6 +10912,9 @@ public class Leelaz {
       boolean noLeelaz2Coalescing,
       ReaderStreamBinding readBoardGmaResponseBinding,
       Object expectedLeela0110StateToken) {
+    if (!hasGtpCapability()) {
+      return false;
+    }
     ArrayDeque<QueuedCommand> currentQueue = commandQueue();
     RestartBootstrapReceipt bootstrapReceipt = restartBootstrapReceiptContext.get();
     EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission =
@@ -10861,7 +11008,8 @@ public class Leelaz {
       Object expectedLeela0110StateToken,
       RestartBootstrapReceipt bootstrapReceipt,
       EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission) {
-    if (shouldDropStaleForegroundRestoreCommand()
+    if (!hasGtpCapability()
+        || shouldDropStaleForegroundRestoreCommand()
         || shouldSuppressNormalCommandForForegroundAnalysis()
         || shouldDropCommandDuringInitialBoardSynchronizationAtAdmission(command)
         || shouldRejectCommandDuringLifecycleCompletion(command)
@@ -11021,7 +11169,7 @@ public class Leelaz {
       return null;
     }
     if (this == primaryEngine) {
-      return secondaryEngine;
+      return gtpCapableRestoreMirror(this, secondaryEngine);
     }
     return null;
   }
@@ -11032,6 +11180,7 @@ public class Leelaz {
   }
 
   void loadSgf(Path sgfFile, Leelaz mirroredEngine, Runnable afterConsumed) {
+    mirroredEngine = gtpCapableRestoreMirror(this, mirroredEngine);
     if (afterConsumed == null) {
       loadSgf(sgfFile);
       return;
@@ -11209,12 +11358,22 @@ public class Leelaz {
       return null;
     }
     if (this == primaryEngine) {
-      return secondaryEngine;
+      return gtpCapableRestoreMirror(this, secondaryEngine);
     }
     if (this == secondaryEngine) {
-      return primaryEngine;
+      return gtpCapableRestoreMirror(this, primaryEngine);
     }
     return null;
+  }
+
+  private static Leelaz gtpCapableRestoreMirror(Leelaz source, Leelaz candidate) {
+    if (source == null || candidate == null || source == candidate) {
+      return null;
+    }
+    if (!source.hasGtpCapability() || !candidate.hasGtpCapability()) {
+      return null;
+    }
+    return candidate;
   }
 
   private void sendLoadSgfCommand(
@@ -11635,7 +11794,19 @@ public class Leelaz {
     return thread;
   }
 
+  private static Thread newBenchmarkTaskThread(Runnable runnable) {
+    Thread thread =
+        new Thread(
+            runnable,
+            "lizzie-benchmark-task-" + BENCHMARK_TASK_THREAD_SEQUENCE.incrementAndGet());
+    thread.setDaemon(true);
+    return thread;
+  }
+
   private void trySendCommandFromQueueNow() {
+    if (!hasGtpCapability()) {
+      return;
+    }
     // Defer sending "lz-analyze" if leelaz is not ready yet.
     // Though all commands should be deferred theoretically,
     // only "lz-analyze" is differed here for fear of
@@ -11749,6 +11920,9 @@ public class Leelaz {
    */
   private Runnable sendCommandToLeelaz(
       String command, QueuedCommand queuedCommand) {
+    if (!hasGtpCapability()) {
+      return null;
+    }
     Runnable deferredResponse = null;
     logInterestingCommand(command, "sendCommandToLeelaz");
     if (command.startsWith("fixed_handicap")
@@ -13625,6 +13799,9 @@ public class Leelaz {
   }
 
   private ExclusiveGtpLeaseAvailability intrinsicExclusiveGtpLeaseAvailability() {
+    if (!hasGtpCapability()) {
+      return ExclusiveGtpLeaseAvailability.MISSING_CAPABILITY;
+    }
     if (engineStateUnrestored) {
       return ExclusiveGtpLeaseAvailability.ENGINE_STATE_UNRESTORED;
     }
@@ -14188,6 +14365,7 @@ public class Leelaz {
     if (owner == null) {
       throw new IllegalArgumentException("owner");
     }
+    mirror = gtpCapableRestoreMirror(this, mirror);
     Object capturedOwnerIdentity = ownerIdentity;
     long primaryEngineGeneration =
         owner == ExactSnapshotRestoreOwner.BOARD_SYNC && bindToPrimaryEngine
@@ -15434,6 +15612,9 @@ public class Leelaz {
       ExclusiveGtpWritePhase phase,
       int expectedCommandId,
       String command) {
+    if (!hasGtpCapability()) {
+      return ExclusiveGtpWriteResult.NOT_CLAIMED;
+    }
     BufferedOutputStream currentOutputStream = outputStream;
     if (currentOutputStream == null) {
       return ExclusiveGtpWriteResult.NOT_CLAIMED;
@@ -16971,7 +17152,7 @@ public class Leelaz {
         Double komi,
         ArrayList<Movelist> rootMoves,
         boolean resumePonder) {
-      Leelaz effectiveMirror = frozenMirror == target ? null : frozenMirror;
+      Leelaz effectiveMirror = gtpCapableRestoreMirror(target, frozenMirror);
       ExactSnapshotRestoreAdmission admission =
           target.captureExactSnapshotRestoreAdmission(
               ExactSnapshotRestoreOwner.LIFECYCLE, owner, effectiveMirror);
@@ -21191,6 +21372,7 @@ public class Leelaz {
   }
 
   public void ponder(boolean addPlayer, boolean blackToPlay) {
+    if (!hasGtpCapability()) return;
     if (shouldRejectCommandDuringLifecycleCompletion()) {
       YikeSyncDebugLog.log("Leelaz ponder deferred: lifecycle completion pending");
       return;
@@ -21322,6 +21504,12 @@ public class Leelaz {
   }
 
   public void togglePonder() {
+    if (!hasGtpCapability()) {
+      if (Lizzie.gtpConsole != null) {
+        Lizzie.gtpConsole.addLine(Lizzie.resourceBundle.getString("Benchmark.gtpUnavailable") + "\n");
+      }
+      return;
+    }
     YikeSyncDebugLog.log(
         "Leelaz togglePonder before isPondering="
             + isPondering
@@ -21404,6 +21592,9 @@ public class Leelaz {
 
   /** End the process */
   public void shutdown() {
+    if (cancelLiveBenchmarkWithoutBlocking()) {
+      return;
+    }
     ReaderStreamBinding binding = currentReaderStreamBinding();
     shutdown(binding, requestReaderShutdown(binding, true));
   }
