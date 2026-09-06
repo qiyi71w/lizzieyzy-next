@@ -167,7 +167,20 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - `undo`、`play`（含真实 PASS）与 `set_position` 使用精确 numbered response identity 和既有 queued/pending retirement。错误、发送失败或超时使所属位置 lineage 失败；迟到响应不能恢复失败来源，也不能结算后继命令。完整替换位置建立新的 lineage，但本身仍需确认。
 - `requireResponseBeforeSend` 的普通队列等待真实已写出的响应义务，不使用包含尚未发送后继命令的计数阻塞自身。Engine-game 的精确 ACK/terminal 与 arbitration 语义独立保留。
 - 解析和最终节点 publication 均复验冻结目标。被退休、目标过期或未确认的位置输出不能进入候选缓存或 ownership-only backfill；有效历史缓存、SGF 已保存分析、同上下文暂停/继续与主副引擎独立槽位保留。显式失效仍由既有 `isChanged/isChanged2` 允许首个合法低 visits 接管。
-- 本节不把完整 root/exact 恢复的模块 completion 当成最终 owner 确认；跨 SNAPSHOT 的复合恢复与 ReadBoard 单次最终 resume 分别由 Ticket 02 / 03 交付。
+- 跨 SNAPSHOT 的复合恢复遵守下节；ReadBoard 单次最终 resume 由 Ticket 03 交付。
+
+## 复合局面恢复确认（Issue #429 / Ticket 02）
+
+- Board 在首次位置转发前冻结目标节点、context revision、轮次、盘尺寸、主引擎 generation 与 captured mirror；exact plan 或 root 命令序列同时冻结。后续恢复和 completion 不重新选择当前 history 或引擎槽位。
+- 普通 resend、跨静态节点的历史导航与 removed-stone 节点恢复共用 Board owner 的目标确认。恢复中的真实 MOVE/PASS 不单独触发最终目标分析；成功 disposition 必须同时满足冻结目标仍有效、用户未暂停分析和捕获引擎身份仍有效。
+- capture 已完成但首条位置命令尚未入队时，普通分析请求也保持等待；同一原队列允许其依赖的位置命令和最终 fence 先执行。owner 确认后释放该请求；取消或失败只退休所属 capture，不影响后继恢复。
+- 用户分析暂停同时退休原普通队列及已选中但尚未取得物理写出许可的普通分析请求，包括恢复等待期间新增的请求；取消与 `beginOutputWrite` 竞争同一命令状态，计数只退休一次。位置命令、foreground restore 与 engine-game owner 的命令不随此取消；已经取得写出许可的命令沿用既有停止流程。
+- `Leelaz.PositionRestore` 仅提供捕获、作用域内命令执行与 callback confirmation，复用 ordinary queue、精确 response identity、timeout 和 retirement。一次复合恢复的 clear、尺寸/komi、loadsgf/set-position 与真实 tail 共用所属 endpoint 的失败 lineage；中间完整替换命令不得重置本次先前失败。
+- 最终 board synchronization fence 同时等待 captured authority/mirror 的全部 required position responses 与各自最终 name 响应。单独的 name 成功不能覆盖先前位置命令错误、发送失败或超时；迟到响应只结清原操作，不能结算或使不同后继操作失效。
+- exact module 继续拥有静态锚点、临时 SGF 消费与真实 tail sequencing；最终 owner confirmation、root replay 和 ponder 留在现有 owner。exact 一旦开始，失败不切换到 root fallback。
+- Board 恢复的 GTP 等待在 EDT 和 Board monitor 外执行。完成时重新检查冻结目标，过期 completion 不恢复分析，也不把替换引擎当作原恢复目标。
+- foreground handback 已冻结的同一 Board/主引擎盘面恢复先按捕获内容完成确认，再由现有 owner 检查稳定性并追赶最新目标；导航发生在 companion close 期间不能提前截断该收敛循环。Board 或主引擎 incarnation 替换仍拒绝旧恢复。
+- 同一合法目标的缓存和已导入 SGF 分析继续保留；主副引擎槽位独立。未确认或已失效来源不得建立新的 visits 高水位。board-only 同步及真实 PASS、dummy PASS、setup 语义保持原合同。
 
 ## 初始启动导航契约（Issue #223）
 

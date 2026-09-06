@@ -13,8 +13,6 @@ import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.gui.LizzieFrame;
 import java.awt.Window;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,14 +39,14 @@ class BoardPrimaryEngineSyncTest {
       Leelaz engine = new Leelaz("");
       engine.isLoaded = true;
       setStarted(engine, true);
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       assertTrue(board.resendCurrentPositionToPrimaryEngine());
 
       assertEquals(
-          List.of("boardsize 3", "clear_board", "play B A3", "play W B2"), output.commands());
+          List.of("boardsize 3", "clear_board", "play B A3", "play W B2"),
+          positionCommands(output));
     }
   }
 
@@ -68,8 +66,7 @@ class BoardPrimaryEngineSyncTest {
       Leelaz engine = new Leelaz("");
       engine.isLoaded = true;
       setStarted(engine, true);
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       assertTrue(
@@ -97,8 +94,7 @@ class BoardPrimaryEngineSyncTest {
       Leelaz engine = new Leelaz("");
       engine.isLoaded = true;
       setStarted(engine, true);
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       assertTrue(
@@ -127,8 +123,7 @@ class BoardPrimaryEngineSyncTest {
       engine.orikomi = 7.5f;
       engine.isLoaded = true;
       setStarted(engine, true);
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       assertTrue(
@@ -158,8 +153,7 @@ class BoardPrimaryEngineSyncTest {
       Leelaz engine = new Leelaz("");
       engine.isLoaded = true;
       setStarted(engine, true);
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       assertFalse(
@@ -197,15 +191,14 @@ class BoardPrimaryEngineSyncTest {
       engine.width = BOARD_SIZE;
       engine.height = BOARD_SIZE;
       setStarted(engine, true);
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       assertTrue(board.resendCurrentPositionToPrimaryEngine());
 
       assertEquals(5, engine.width);
       assertEquals(7, engine.height);
-      assertEquals(List.of("rectangular_boardsize 5 7", "clear_board"), output.commands());
+      assertEquals(List.of("rectangular_boardsize 5 7", "clear_board"), positionCommands(output));
     }
   }
 
@@ -224,8 +217,7 @@ class BoardPrimaryEngineSyncTest {
       Lizzie.board = board;
 
       Leelaz engine = new Leelaz("");
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       engine.boardSizeForEngine(19, 19);
@@ -267,7 +259,7 @@ class BoardPrimaryEngineSyncTest {
       Leelaz engine = new Leelaz("");
       engine.isLoaded = true;
       setStarted(engine, true);
-      setOutputStream(engine, new RecordingOutputStream());
+      recordingTransport(engine);
       Lizzie.leelaz = engine;
 
       Optional<Board.FrozenPrimaryPosition> initial =
@@ -329,8 +321,7 @@ class BoardPrimaryEngineSyncTest {
       Leelaz engine = new Leelaz("");
       engine.isLoaded = true;
       setStarted(engine, true);
-      RecordingOutputStream output = new RecordingOutputStream();
-      setOutputStream(engine, output);
+      ExactSnapshotRestoreProtocolFixture.Transport output = recordingTransport(engine);
       Lizzie.leelaz = engine;
       Board.FrozenPrimaryPosition frozen =
           original.freezeCurrentPositionForPrimaryEngineExactRestore().orElseThrow();
@@ -391,10 +382,14 @@ class BoardPrimaryEngineSyncTest {
     return stones;
   }
 
-  private static void setOutputStream(Leelaz engine, OutputStream stream) throws Exception {
-    Field outputField = Leelaz.class.getDeclaredField("outputStream");
-    outputField.setAccessible(true);
-    outputField.set(engine, Leelaz.createCommandOutputStream(stream));
+  private static ExactSnapshotRestoreProtocolFixture.Transport recordingTransport(Leelaz engine) {
+    return ExactSnapshotRestoreProtocolFixture.install(
+        engine, ignored -> ExactSnapshotRestoreProtocolFixture.Response.success());
+  }
+
+  private static List<String> positionCommands(
+      ExactSnapshotRestoreProtocolFixture.Transport transport) {
+    return transport.commands().stream().filter(command -> !"name".equals(command)).toList();
   }
 
   private static void setStarted(Leelaz engine, boolean started) throws Exception {
@@ -415,49 +410,6 @@ class BoardPrimaryEngineSyncTest {
     return (T) UnsafeHolder.UNSAFE.allocateInstance(type);
   }
 
-  private static final class RecordingOutputStream extends OutputStream {
-    private final StringBuilder currentCommand = new StringBuilder();
-    private final List<String> commands = new ArrayList<>();
-
-    @Override
-    public void write(int b) {
-      currentCommand.append((char) b);
-    }
-
-    @Override
-    public void flush() throws IOException {
-      String command = currentCommand.toString().trim();
-      currentCommand.setLength(0);
-      if (!command.isEmpty()) {
-        commands.add(commandPayload(command));
-      }
-    }
-
-    private static String commandPayload(String command) {
-      int payloadStart = 0;
-      while (payloadStart < command.length()) {
-        char character = command.charAt(payloadStart);
-        if (character < '0' || character > '9') {
-          break;
-        }
-        payloadStart++;
-      }
-      if (payloadStart == 0
-          || payloadStart == command.length()
-          || !Character.isWhitespace(command.charAt(payloadStart))) {
-        return command;
-      }
-      while (payloadStart < command.length()
-          && Character.isWhitespace(command.charAt(payloadStart))) {
-        payloadStart++;
-      }
-      return payloadStart == command.length() ? command : command.substring(payloadStart);
-    }
-
-    private List<String> commands() {
-      return commands;
-    }
-  }
 
   private static final class SilentFrame extends LizzieFrame {
     private SilentFrame() {

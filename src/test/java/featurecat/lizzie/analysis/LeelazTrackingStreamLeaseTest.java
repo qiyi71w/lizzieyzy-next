@@ -396,9 +396,11 @@ class LeelazTrackingStreamLeaseTest {
         queuedCommandType.getDeclaredConstructor(
             String.class, Runnable.class, failureHandlerType, boolean.class);
     constructor.setAccessible(true);
-    Object queuedCommand = constructor.newInstance("loadsgf /tmp/monitor.sgf", null, failureHandler, true);
+    Object queuedCommand =
+        constructor.newInstance("loadsgf /tmp/monitor.sgf", null, failureHandler, true);
     Method markReset =
-        queuedCommandType.getDeclaredMethod("markStateResetAfterOutputWrite", RuntimeException.class);
+        queuedCommandType.getDeclaredMethod(
+            "markStateResetAfterOutputWrite", RuntimeException.class);
     markReset.setAccessible(true);
     markReset.invoke(queuedCommand, new IllegalStateException("controlled reset"));
     Method publishReset = queuedCommandType.getDeclaredMethod("publishStateResetAfterOutputWrite");
@@ -1575,9 +1577,11 @@ class LeelazTrackingStreamLeaseTest {
       assertEquals(0, engine.feedbackCount.get());
       assertTrue(dispatch(state.engine, "=800000001"));
       assertTrue(dispatch(state.engine, ""));
-      assertTrue(
-          state.output.toString(StandardCharsets.UTF_8).endsWith("clear_board\nkomi 7.5\n"),
-          state.output.toString(StandardCharsets.UTF_8));
+      List<String> commands = outputCommandPayloads(state.output);
+      assertEquals(
+          List.of("clear_board", "komi 7.5"),
+          commands.subList(commands.size() - 2, commands.size()),
+          commands.toString());
     } finally {
       Lizzie.board = previousBoard;
     }
@@ -1600,9 +1604,11 @@ class LeelazTrackingStreamLeaseTest {
       assertEquals(0, engine.feedbackCount.get());
       assertTrue(dispatch(state.engine, "=800000001"));
       assertTrue(dispatch(state.engine, ""));
-      assertTrue(
-          state.output.toString(StandardCharsets.UTF_8).endsWith("clear_board\nkomi 7.5\n"),
-          state.output.toString(StandardCharsets.UTF_8));
+      List<String> commands = outputCommandPayloads(state.output);
+      assertEquals(
+          List.of("clear_board", "komi 7.5"),
+          commands.subList(commands.size() - 2, commands.size()),
+          commands.toString());
     } finally {
       Lizzie.board = previousBoard;
     }
@@ -1629,9 +1635,11 @@ class LeelazTrackingStreamLeaseTest {
       assertEquals(0, engine.feedbackCount.get());
       assertTrue(dispatch(state.engine, "=800000001"));
       assertTrue(dispatch(state.engine, ""));
-      assertTrue(
-          state.output.toString(StandardCharsets.UTF_8).endsWith("clear_board\nboardsize 13\n"),
-          state.output.toString(StandardCharsets.UTF_8));
+      List<String> commands = outputCommandPayloads(state.output);
+      assertEquals(
+          List.of("clear_board", "boardsize 13"),
+          commands.subList(commands.size() - 2, commands.size()),
+          commands.toString());
     } finally {
       Lizzie.board = previousBoard;
     }
@@ -1661,10 +1669,12 @@ class LeelazTrackingStreamLeaseTest {
 
       state.engine.boardSize(13, 13);
 
-      String mirroredCommands = secondOutput.toString(StandardCharsets.UTF_8);
-      assertTrue(
-          mirroredCommands.startsWith("boardsize 13\nclear_board\n"),
-          mirroredCommands);
+      List<String> mirroredCommands = outputCommandPayloads(secondOutput);
+      assertTrue(mirroredCommands.size() >= 2, mirroredCommands.toString());
+      assertEquals(
+          List.of("boardsize 13", "clear_board"),
+          mirroredCommands.subList(0, 2),
+          mirroredCommands.toString());
     } finally {
       Board.boardWidth = previousBoardWidth;
       Board.boardHeight = previousBoardHeight;
@@ -1831,6 +1841,67 @@ class LeelazTrackingStreamLeaseTest {
     }
   }
 
+  private static List<String> rawOutputCommands(ByteArrayOutputStream output) {
+    List<String> commands = new ArrayList<>();
+    for (String line : output.toString(StandardCharsets.UTF_8).split("\\R")) {
+      String command = line.trim();
+      if (!command.isEmpty()) {
+        commands.add(command);
+      }
+    }
+    return commands;
+  }
+
+  private static String commandPayload(String command) {
+    int separator = command.indexOf(' ');
+    if (separator > 0 && command.substring(0, separator).chars().allMatch(Character::isDigit)) {
+      return command.substring(separator + 1);
+    }
+    return command;
+  }
+
+  private static List<String> outputCommandPayloads(ByteArrayOutputStream output) {
+    List<String> commands = new ArrayList<>();
+    for (String command : rawOutputCommands(output)) {
+      commands.add(commandPayload(command));
+    }
+    return commands;
+  }
+
+  private static void acknowledgeCompoundPositionRestore(TestState state, Thread restore)
+      throws Exception {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+    int inspected = 0;
+    boolean finalFenceAcknowledged = false;
+    while (restore.isAlive() && System.nanoTime() < deadline) {
+      List<String> commands = rawOutputCommands(state.output);
+      while (inspected < commands.size()) {
+        String command = commands.get(inspected++);
+        int separator = command.indexOf(' ');
+        if (separator <= 0
+            || !command.substring(0, separator).chars().allMatch(Character::isDigit)) {
+          continue;
+        }
+        long commandId = Long.parseLong(command.substring(0, separator));
+        if (commandId < 900_000_000L) {
+          continue;
+        }
+        String payload = command.substring(separator + 1);
+        assertFalse(payload.contains("analyze"), "analysis must wait for the position ACK");
+        processCommandResponse(state.engine, "=" + commandId);
+        if (payload.equals("name")) {
+          finalFenceAcknowledged = true;
+        }
+      }
+      if (restore.isAlive()) {
+        Thread.sleep(10L);
+      }
+    }
+    restore.join(1_000L);
+    assertFalse(restore.isAlive(), "compound position restore must finish after its ACKs");
+    assertTrue(finalFenceAcknowledged, "compound position restore must finish through final name");
+  }
+
   private static void acknowledgeLastPositionCommand(TestState state) throws Exception {
     String commands = state.output.toString(StandardCharsets.UTF_8).trim();
     String last = commands.substring(commands.lastIndexOf('\n') + 1);
@@ -1920,14 +1991,43 @@ class LeelazTrackingStreamLeaseTest {
       assertTrue(dispatch(state.engine, "=800000001"));
       assertTrue(dispatch(state.engine, ""));
 
-      Lizzie.board.resendMoveToEngine(state.engine, false);
+      AtomicReference<Throwable> restoreFailure = new AtomicReference<>();
+      Thread restore =
+          new Thread(
+              () -> {
+                try {
+                  Lizzie.board.resendMoveToEngine(state.engine, false);
+                } catch (Throwable failure) {
+                  restoreFailure.set(failure);
+                }
+              },
+              "tracking-position-restore");
+      restore.start();
+      waitUntil(
+          () ->
+              rawOutputCommands(state.output).stream()
+                  .anyMatch(command -> command.equals("800000002 stop")));
+      assertTrue(restore.isAlive(), "restore must wait for the tracking final stop");
 
-      assertTrue(state.engine.isPondering());
       assertTrue(dispatch(state.engine, "=800000002"));
       assertTrue(dispatch(state.engine, ""));
-      acknowledgeLastPositionCommand(state);
-      String output = state.output.toString(StandardCharsets.UTF_8);
-      assertTrue(output.lastIndexOf("kata-analyze") > output.lastIndexOf("clear_board"), output);
+      acknowledgeCompoundPositionRestore(state, restore);
+      assertEquals(null, restoreFailure.get());
+      assertTrue(state.engine.isPondering());
+      waitUntil(
+          () ->
+              outputCommandPayloads(state.output).stream()
+                  .anyMatch(command -> command.startsWith("kata-analyze")));
+      List<String> commands = outputCommandPayloads(state.output);
+      int finalFence = commands.lastIndexOf("name");
+      int analysis = -1;
+      for (int index = 0; index < commands.size(); index++) {
+        if (commands.get(index).startsWith("kata-analyze")) {
+          analysis = index;
+        }
+      }
+      assertTrue(finalFence >= 0, commands.toString());
+      assertTrue(analysis > finalFence, commands.toString());
     } finally {
       Lizzie.board = previousBoard;
     }
@@ -2753,7 +2853,8 @@ class LeelazTrackingStreamLeaseTest {
             boolean.class,
             boolean.class);
     method.setAccessible(true);
-    method.invoke(engine, "loadsgf /tmp/tracking-rebind-sent.sgf", null, failureHandler, true, false);
+    method.invoke(
+        engine, "loadsgf /tmp/tracking-rebind-sent.sgf", null, failureHandler, true, false);
   }
 
   private static void enqueueBlockingTrackedLoadSgf(

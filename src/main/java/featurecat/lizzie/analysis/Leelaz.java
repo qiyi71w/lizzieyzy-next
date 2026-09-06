@@ -341,6 +341,13 @@ public class Leelaz {
       new ThreadLocal<>();
   private static final ThreadLocal<OrdinaryLiveBoardForwardingExecution>
       ordinaryLiveBoardForwardingContext = new ThreadLocal<>();
+
+  /** Shares one response dependency across every position command in a compound restore. */
+  private final ThreadLocal<AnalysisStateLineage> positionRestoreLineageContext =
+      new ThreadLocal<>();
+
+  private final ThreadLocal<ReaderStreamBinding> positionRestoreBindingContext =
+      new ThreadLocal<>();
   private static final ThreadLocal<EngineManager.EngineGameOwnerTransaction>
       engineGameStartupCommandContext = new ThreadLocal<>();
   /**
@@ -4282,19 +4289,96 @@ public class Leelaz {
   }
 
   /**
-   * Failure lineage for position-dependent output on one reader incarnation. Queued commands
-   * capture their dependency before dispatch; ordinary analysis waits for required responses. A
-   * failed state command poisons its dependents until a full replacement starts a fresh lineage.
+   * Response dependency for position-dependent output on one reader incarnation. Queued position
+   * commands register before dispatch, and confirmations observe both failure and quiescence. A
+   * compound restore supplies one lineage explicitly so full replacements inside that restore do
+   * not erase an earlier failure.
    */
   private static final class AnalysisStateLineage {
     private final AtomicBoolean failed = new AtomicBoolean();
+    private final AtomicInteger pendingRestoreOwners = new AtomicInteger();
+    private int pendingResponses;
+    private ArrayList<Runnable> changeListeners;
+
+    private synchronized void registerResponse() {
+      pendingResponses++;
+    }
+
+    private void settleResponse(boolean successful) {
+      ArrayList<Runnable> listeners;
+      synchronized (this) {
+        if (pendingResponses <= 0) {
+          return;
+        }
+        if (!successful) {
+          failed.set(true);
+        }
+        pendingResponses--;
+        listeners = !successful || pendingResponses == 0 ? copyListenersLocked() : null;
+      }
+      runListeners(listeners);
+    }
 
     private boolean fail() {
-      return failed.compareAndSet(false, true);
+      if (!failed.compareAndSet(false, true)) {
+        return false;
+      }
+      ArrayList<Runnable> listeners;
+      synchronized (this) {
+        listeners = pendingResponses == 0 ? copyListenersLocked() : null;
+      }
+      runListeners(listeners);
+      return true;
     }
 
     private boolean isFailed() {
       return failed.get();
+    }
+
+    private synchronized boolean hasPendingResponses() {
+      return pendingResponses > 0;
+    }
+
+    private void onChange(Runnable listener) {
+      boolean runImmediately;
+      synchronized (this) {
+        if (changeListeners == null) changeListeners = new ArrayList<>();
+        changeListeners.add(listener);
+        runImmediately = failed.get() || pendingResponses == 0;
+      }
+      if (runImmediately) {
+        listener.run();
+      }
+    }
+
+    private synchronized void removeListener(Runnable listener) {
+      if (changeListeners != null) {
+        changeListeners.remove(listener);
+        if (changeListeners.isEmpty()) changeListeners = null;
+      }
+    }
+
+    private void finishRestoreOwner() {
+      if (pendingRestoreOwners.decrementAndGet() == 0) {
+        ArrayList<Runnable> listeners;
+        synchronized (this) {
+          listeners = copyListenersLocked();
+        }
+        runListeners(listeners);
+      }
+    }
+
+    private ArrayList<Runnable> copyListenersLocked() {
+      return changeListeners == null ? null : new ArrayList<>(changeListeners);
+    }
+
+    private static void runListeners(ArrayList<Runnable> listeners) {
+      if (listeners == null) {
+        return;
+      }
+      for (Runnable listener : listeners) {
+        listener.run();
+      }
     }
   }
 
@@ -9012,7 +9096,8 @@ public class Leelaz {
     QueuedCommand[] admitted = new QueuedCommand[capturedCommands.size()];
     QueuedCommand[] mirroredAdmitted =
         mirroredEngine == null ? null : new QueuedCommand[capturedCommands.size()];
-    ReaderStreamBinding commandBinding = startupBinding;
+    ReaderStreamBinding commandBinding =
+        startupBinding == null ? positionRestoreBindingContext.get() : startupBinding;
     long admissionGeneration;
     if (mirroredEngine == null) {
       synchronized (engineArbitrationLock()) {
@@ -9089,6 +9174,8 @@ public class Leelaz {
       RestartBootstrapReceipt mirroredBootstrapReceipt,
       OrdinaryEnqueueEffects mirroredEffects,
       QueuedCommand[] mirroredAdmitted) {
+    ReaderStreamBinding mirroredCommandBinding =
+        mirroredEngine == null ? null : mirroredEngine.positionRestoreBindingContext.get();
     for (String command : commands) {
       if (!canAdmitOrdinaryCommandLocked(
           command,
@@ -9105,7 +9192,7 @@ public class Leelaz {
               command,
               TrackingReleaseReason.ORDINARY_OPERATION,
               true,
-              null,
+              mirroredCommandBinding,
               null,
               mirroredBootstrapReceipt,
               null)) {
@@ -9129,7 +9216,7 @@ public class Leelaz {
       mirroredEngine.enqueueStatefulOrdinaryCommandsLocked(
           commands,
           null,
-          null,
+          mirroredCommandBinding,
           mirroredBootstrapReceipt,
           mirroredEffects,
           mirroredAdmitted);
@@ -9701,7 +9788,8 @@ public class Leelaz {
         if (binding.remoteTransport != null) {
           rememberRecentLine(
               recentStderrLines,
-              "Remote engine-game participant retired; recovery deferred until transaction retirement");
+              "Remote engine-game participant retired; recovery deferred until transaction"
+                  + " retirement");
         }
         return null;
       }
@@ -10691,6 +10779,15 @@ public class Leelaz {
               !ordinaryBootstrap || !isNameRecognitionBootstrapCommand(command));
       readBoardGmaResponseBinding = startupBinding;
     }
+    ReaderStreamBinding capturedRestoreBinding = positionRestoreBindingContext.get();
+    if (capturedRestoreBinding != null) {
+      if (readBoardGmaResponseBinding != null
+          && readBoardGmaResponseBinding != capturedRestoreBinding) {
+        throw new IllegalStateException(
+            "Compound restore response binding changed during dispatch");
+      }
+      readBoardGmaResponseBinding = capturedRestoreBinding;
+    }
     if (shouldDropStaleForegroundRestoreCommand()
         || shouldSuppressNormalCommandForForegroundAnalysis()
         || shouldDropCommandDuringInitialBoardSynchronization(command)
@@ -11100,7 +11197,10 @@ public class Leelaz {
       calculateModifyNumber();
     }
     if (!targetQueue.isEmpty()
-        && shouldCoalesceQueuedCommand(targetQueue.peekLast().command, noLeelaz2Coalescing)) {
+        && shouldCoalesceQueuedCommand(targetQueue.peekLast().command, noLeelaz2Coalescing)
+        && !(targetQueue.peekLast().analysisStateLineage() != null
+            && targetQueue.peekLast().analysisStateLineage().pendingRestoreOwners.get() > 0
+            && !isOrdinaryPositionAnalysisCommand(command))) {
       QueuedCommand coalesced = targetQueue.removeLast();
       effects.coalescedCommands.add(coalesced);
       if (countCommand) {
@@ -11187,16 +11287,27 @@ public class Leelaz {
     boolean positionMutation = analysisStateMutation(command.command) != AnalysisStateMutation.NONE;
     if (binding != null
         && (positionMutation || isAnalysisOutputOwnershipCommand(command.command))) {
+      AnalysisStateLineage scopedLineage = positionRestoreLineageContext.get();
+      if (scopedLineage == null && command.restoreAdmission != null) {
+        scopedLineage = command.restoreAdmission.lineageFor(this);
+      }
       if (binding.queuedAnalysisStateLineage == null) {
         binding.queuedAnalysisStateLineage = binding.analysisStateLineage;
       }
-      if (positionMutation && startsFreshAnalysisStateLineage(command.command)) {
+      if (positionMutation && scopedLineage != null) {
+        binding.queuedAnalysisStateLineage = scopedLineage;
+      } else if (positionMutation && startsFreshAnalysisStateLineage(command.command)) {
         binding.queuedAnalysisStateLineage = new AnalysisStateLineage();
       }
       command.bindAnalysisStateLineage(binding.queuedAnalysisStateLineage, binding);
-      if (positionMutation) analysisOutputGeneration.incrementAndGet();
+      if (positionMutation) {
+        command.registerAnalysisStateResponse();
+        analysisOutputGeneration.incrementAndGet();
+      }
     }
-    if (command.engineGameTransaction() == null && isIncrementalPositionCommand(command.command)) {
+    if (command.engineGameTransaction() == null
+        && positionMutation
+        && !command.isTrackedLoadSgf()) {
       command.positionResponseTimeout = new Timer("lizzie-position-response-timeout", true);
       command.positionResponseTimeout.schedule(
           new TimerTask() {
@@ -11754,6 +11865,14 @@ public class Leelaz {
         engineGameStartupCommandContext.get();
     ReaderStreamBinding startupBinding =
         startupTransaction == null ? null : currentReaderStreamBinding();
+    ReaderStreamBinding capturedRestoreBinding = positionRestoreBindingContext.get();
+    if (capturedRestoreBinding != null) {
+      if (expectedBinding != null && expectedBinding != capturedRestoreBinding) {
+        throw new IllegalStateException(
+            "Compound restore response binding changed during dispatch");
+      }
+      expectedBinding = capturedRestoreBinding;
+    }
     if (expectedBinding != null
         && (readerStreamBinding != expectedBinding
             || expectedBinding.terminated
@@ -11912,6 +12031,23 @@ public class Leelaz {
         return;
       }
       QueuedCommand queueHead = targetQueue.peekFirst();
+      ReaderStreamBinding binding = currentReaderStreamBinding();
+      if (binding.queuedAnalysisStateLineage != null
+          && binding.queuedAnalysisStateLineage.pendingRestoreOwners.get() > 0
+          && queueHead.engineGameTransaction() == null
+          && isOrdinaryPositionAnalysisCommand(queueHead.command)) {
+        // Analysis requested after capture depends on restore commands not yet enqueued.
+        // Keep that request in this queue while its position commands and fence pass it.
+        queueHead = null;
+        for (QueuedCommand candidate : targetQueue) {
+          if (!isOrdinaryPositionAnalysisCommand(candidate.command)
+              || candidate.engineGameTransaction() != null) {
+            queueHead = candidate;
+            break;
+          }
+        }
+        if (queueHead == null) return;
+      }
       if (!foregroundRestoreInProgress
           && requireResponseBeforeSend
           && (queueHead.engineGameTransaction() != null
@@ -11941,7 +12077,9 @@ public class Leelaz {
                     || lastQueuedCommand.startsWith("analyze")
                     || lastQueuedCommand.startsWith("heatmap")))) return;
       }
-      queuedCommand = targetQueue.removeFirst();
+      queuedCommand = queueHead;
+      if (targetQueue.peekFirst() == queueHead) targetQueue.removeFirst();
+      else targetQueue.remove(queueHead);
       normalCommandSendInProgress = true;
       normalCommandBeingSent = queuedCommand;
     }
@@ -12934,9 +13072,11 @@ public class Leelaz {
     }
     if (retiredPending != null) {
       failAnalysisStateLineage(retiredPending.queuedCommand);
+      retiredPending.queuedCommand.settleAnalysisStateResponse(false);
     }
     if (retiredQueued != null) {
       failAnalysisStateLineage(retiredQueued);
+      retiredQueued.settleAnalysisStateResponse(false);
       try {
         retiredQueued.publishSettlementFailure(failure);
       } catch (RuntimeException | Error notificationFailure) {
@@ -13351,7 +13491,14 @@ public class Leelaz {
       if (handler == null) {
         return false;
       }
-      handler.run();
+      if (currentCommandResponseError) {
+        failAnalysisStateLineage(handler.queuedCommand);
+      }
+      try {
+        handler.run();
+      } finally {
+        handler.queuedCommand.settleAnalysisStateResponse(!currentCommandResponseError);
+      }
       return true;
     } finally {
       currentCommandResponseLine = "";
@@ -13450,7 +13597,11 @@ public class Leelaz {
         failAnalysisStateLineage(failedAnalysisStateCommand);
       }
       if (settleOnlyStaleBootstrapResponse) {
-        matchedPendingHandler.settleWithoutBusinessCallback();
+        try {
+          matchedPendingHandler.settleWithoutBusinessCallback();
+        } finally {
+          matchedPendingHandler.queuedCommand.settleAnalysisStateResponse(false);
+        }
       } else if (!ignoreResponse) {
         boolean handlerSettled = false;
         try {
@@ -13482,6 +13633,10 @@ public class Leelaz {
             // A diagnostic or business callback must never strand a physical engine-game lease
             // after its exact pending handler has already been removed from the queue.
             matchedPendingHandler.settleWithoutBusinessCallback();
+          }
+          if (matchedPendingHandler != null) {
+            matchedPendingHandler.queuedCommand.settleAnalysisStateResponse(
+                !currentCommandResponseError);
           }
         }
       }
@@ -14455,14 +14610,24 @@ public class Leelaz {
 
   /** Captures the board-sync owner for one immutable exact restore plan. */
   public ExactSnapshotRestoreAdmission captureBoardSyncExactSnapshotRestoreAdmission() {
+    return captureBoardSyncExactSnapshotRestoreAdmission(resolveLoadSgfMirrorEngine());
+  }
+
+  public ExactSnapshotRestoreAdmission captureBoardSyncExactSnapshotRestoreAdmission(
+      Leelaz capturedMirror) {
     return captureExactSnapshotRestoreAdmission(
-        ExactSnapshotRestoreOwner.BOARD_SYNC, null, resolveLoadSgfMirrorEngine(), false);
+        ExactSnapshotRestoreOwner.BOARD_SYNC, null, capturedMirror, false);
   }
 
   /** Captures a board-sync restore that must remain bound to the selected primary engine. */
   public ExactSnapshotRestoreAdmission captureHistoryNavigationExactSnapshotRestoreAdmission() {
+    return captureHistoryNavigationExactSnapshotRestoreAdmission(resolveLoadSgfMirrorEngine());
+  }
+
+  public ExactSnapshotRestoreAdmission captureHistoryNavigationExactSnapshotRestoreAdmission(
+      Leelaz capturedMirror) {
     return captureExactSnapshotRestoreAdmission(
-        ExactSnapshotRestoreOwner.BOARD_SYNC, null, resolveLoadSgfMirrorEngine(), true);
+        ExactSnapshotRestoreOwner.BOARD_SYNC, null, capturedMirror, true);
   }
 
   /** Captures the arbitration owner for one immutable exact restore plan. */
@@ -14521,6 +14686,22 @@ public class Leelaz {
       throw new ExactSnapshotRestoreAdmissionException(
           "Lifecycle completion is already settling board synchronization.");
     }
+    RestoreEndpointDependency[] completionDependencies =
+        completionClaim == null ? null : captureCurrentRestoreDependencies(this, mirror);
+    AnalysisStateLineage authorityLineage =
+        completionDependencies == null
+            ? new AnalysisStateLineage()
+            : completionDependencies[0].lineage;
+    AnalysisStateLineage mirrorLineage =
+        mirror == null
+            ? null
+            : completionDependencies == null
+                ? new AnalysisStateLineage()
+                : completionDependencies[1].lineage;
+    invalidateAnalysisOutputForRestoreCapture();
+    if (mirror != null) {
+      mirror.invalidateAnalysisOutputForRestoreCapture();
+    }
     return new ExactSnapshotRestoreAdmission(
         this,
         mirror,
@@ -14529,7 +14710,13 @@ public class Leelaz {
         authorityIncarnation,
         mirrorIncarnation,
         boardSyncLease,
-        primaryEngineGeneration);
+        primaryEngineGeneration,
+        authorityLineage,
+        mirrorLineage);
+  }
+
+  private void invalidateAnalysisOutputForRestoreCapture() {
+    analysisOutputGeneration.incrementAndGet();
   }
 
 
@@ -17092,6 +17279,8 @@ public class Leelaz {
     private final Object mirrorIncarnation;
     private final LifecycleCompletionClaim.BoardSyncCompletionLease boardSyncLease;
     private final long primaryEngineGeneration;
+    private final AnalysisStateLineage authorityLineage;
+    private final AnalysisStateLineage mirrorLineage;
 
     private ExactSnapshotRestoreAdmission(
         Leelaz authority,
@@ -17101,7 +17290,9 @@ public class Leelaz {
         Object authorityIncarnation,
         Object mirrorIncarnation,
         LifecycleCompletionClaim.BoardSyncCompletionLease boardSyncLease,
-        long primaryEngineGeneration) {
+        long primaryEngineGeneration,
+        AnalysisStateLineage authorityLineage,
+        AnalysisStateLineage mirrorLineage) {
       this.authority = authority;
       this.mirror = mirror;
       this.owner = owner;
@@ -17110,6 +17301,8 @@ public class Leelaz {
       this.mirrorIncarnation = mirrorIncarnation;
       this.boardSyncLease = boardSyncLease;
       this.primaryEngineGeneration = primaryEngineGeneration;
+      this.authorityLineage = authorityLineage;
+      this.mirrorLineage = mirrorLineage;
     }
 
     Leelaz authority() {
@@ -17127,6 +17320,14 @@ public class Leelaz {
     private boolean includes(Leelaz engine) {
       return engine == authority || engine == mirror;
     }
+
+    private AnalysisStateLineage lineageFor(Leelaz engine) {
+      if (engine == authority) {
+        return authorityLineage;
+      }
+      return engine == mirror ? mirrorLineage : null;
+    }
+
     private boolean runIfCurrentBoardSyncPrimary(Runnable action) {
       if (owner != ExactSnapshotRestoreOwner.BOARD_SYNC || primaryEngineGeneration < 0) {
         action.run();
@@ -18705,6 +18906,8 @@ public class Leelaz {
     private volatile AnalysisStateLineage analysisStateLineage;
     private volatile ReaderStreamBinding analysisStateResponseBinding;
     private volatile Timer positionResponseTimeout;
+    private boolean analysisStateResponseRegistered;
+    private boolean analysisStateResponseSettled;
 
     private void finishPositionResponse() {
       Timer timer = positionResponseTimeout;
@@ -18740,7 +18943,7 @@ public class Leelaz {
         Object expectedLeela0110StateToken) {
       this.command = command;
       this.onResponse =
-          onResponse == null && isIncrementalPositionCommand(command)
+          onResponse == null && analysisStateMutation(command) != AnalysisStateMutation.NONE
               ? this::finishPositionResponse
               : onResponse;
       this.onSendFailure = onSendFailure;
@@ -18765,6 +18968,35 @@ public class Leelaz {
       analysisStateResponseBinding = responseBinding;
     }
 
+    private void registerAnalysisStateResponse() {
+      AnalysisStateLineage lineage = analysisStateLineage;
+      if (lineage == null) {
+        return;
+      }
+      synchronized (this) {
+        if (analysisStateResponseRegistered) {
+          return;
+        }
+        analysisStateResponseRegistered = true;
+      }
+      lineage.registerResponse();
+    }
+
+    private void settleAnalysisStateResponse(boolean successful) {
+      AnalysisStateLineage lineage;
+      synchronized (this) {
+        if (!analysisStateResponseRegistered || analysisStateResponseSettled) {
+          return;
+        }
+        analysisStateResponseSettled = true;
+        lineage = analysisStateLineage;
+      }
+      finishPositionResponse();
+      if (lineage != null) {
+        lineage.settleResponse(successful);
+      }
+    }
+
     private AnalysisStateLineage analysisStateLineage() {
       return analysisStateLineage;
     }
@@ -18774,12 +19006,8 @@ public class Leelaz {
     }
 
     private void failAnalysisStateLineageAfterSendFailure() {
-      finishPositionResponse();
       if (analysisStateMutation(command) == AnalysisStateMutation.NONE) return;
-      AnalysisStateLineage lineage = analysisStateLineage;
-      if (lineage != null) {
-        lineage.fail();
-      }
+      settleAnalysisStateResponse(false);
     }
 
     private boolean requiresStateReset() {
@@ -18970,6 +19198,7 @@ public class Leelaz {
     }
 
     private void notifySendFailure(RuntimeException failure) {
+      failAnalysisStateLineageAfterSendFailure();
       try {
         try {
           publishInternalSendFailure(failure, false);
@@ -19014,6 +19243,7 @@ public class Leelaz {
         failure = stateResetAfterOutputWriteFailure;
         stateResetAfterOutputWritePublished = true;
       }
+      failAnalysisStateLineageAfterSendFailure();
       try {
         try {
           publishInternalSendFailure(failure, true);
@@ -20841,27 +21071,256 @@ public class Leelaz {
       completion.run();
     }
   }
+
+  /**
+   * Captures one immutable response lineage and reader identity for a compound position restore.
+   */
+  public PositionRestore capturePositionRestore(Leelaz capturedMirror) {
+    Leelaz mirror = gtpCapableRestoreMirror(this, capturedMirror);
+    if (mirror == null) {
+      synchronized (engineArbitrationLock()) {
+        synchronized (commandQueue()) {
+          return new PositionRestore(captureNewRestoreDependencyLocked(), null);
+        }
+      }
+    }
+    return withOrderedEngineArbitrationAndQueueLocks(
+        this,
+        mirror,
+        () ->
+            new PositionRestore(
+                captureNewRestoreDependencyLocked(), mirror.captureNewRestoreDependencyLocked()));
+  }
+
+  private RestoreEndpointDependency captureNewRestoreDependencyLocked() {
+    ReaderStreamBinding binding = currentReaderStreamBinding();
+    AnalysisStateLineage lineage =
+        lifecycleCompletionClaim == null
+            ? new AnalysisStateLineage()
+            : captureCurrentRestoreDependencyLocked().lineage;
+    binding.queuedAnalysisStateLineage = lineage;
+    invalidateAnalysisOutputForRestoreCapture();
+    return new RestoreEndpointDependency(this, binding, lineage);
+  }
+
+  private RestoreEndpointDependency captureCurrentRestoreDependencyLocked() {
+    ReaderStreamBinding binding = currentReaderStreamBinding();
+    AnalysisStateLineage lineage = binding.queuedAnalysisStateLineage;
+    if (lineage == null) {
+      lineage = binding.analysisStateLineage;
+    }
+    return new RestoreEndpointDependency(this, binding, lineage);
+  }
+
+  private static RestoreEndpointDependency[] captureCurrentRestoreDependencies(
+      Leelaz authority, Leelaz mirror) {
+    if (mirror == null) {
+      synchronized (authority.engineArbitrationLock()) {
+        synchronized (authority.commandQueue()) {
+          return new RestoreEndpointDependency[] {
+            authority.captureCurrentRestoreDependencyLocked(), null
+          };
+        }
+      }
+    }
+    return withOrderedEngineArbitrationAndQueueLocks(
+        authority,
+        mirror,
+        () ->
+            new RestoreEndpointDependency[] {
+              authority.captureCurrentRestoreDependencyLocked(),
+              mirror.captureCurrentRestoreDependencyLocked()
+            });
+  }
+
+  private void withPositionRestoreContext(RestoreEndpointDependency dependency, Runnable commands) {
+    AnalysisStateLineage previousLineage = positionRestoreLineageContext.get();
+    ReaderStreamBinding previousBinding = positionRestoreBindingContext.get();
+    positionRestoreLineageContext.set(dependency.lineage);
+    positionRestoreBindingContext.set(dependency.binding);
+    try {
+      commands.run();
+    } finally {
+      if (previousLineage == null) {
+        positionRestoreLineageContext.remove();
+      } else {
+        positionRestoreLineageContext.set(previousLineage);
+      }
+      if (previousBinding == null) {
+        positionRestoreBindingContext.remove();
+      } else {
+        positionRestoreBindingContext.set(previousBinding);
+      }
+    }
+  }
+
+  private static final class RestoreEndpointDependency {
+    private final Leelaz engine;
+    private final ReaderStreamBinding binding;
+    private final AnalysisStateLineage lineage;
+
+    private RestoreEndpointDependency(
+        Leelaz engine, ReaderStreamBinding binding, AnalysisStateLineage lineage) {
+      this.engine = engine;
+      this.binding = binding;
+      this.lineage = lineage;
+    }
+
+    private boolean isCurrent() {
+      synchronized (engine.engineArbitrationLock()) {
+        synchronized (engine.commandQueue()) {
+          return isCurrentLocked();
+        }
+      }
+    }
+
+    private boolean isCurrentLocked() {
+      return engine.readerStreamBinding == binding
+          && !binding.terminated
+          && (binding.queuedAnalysisStateLineage == null
+                  ? binding.analysisStateLineage
+                  : binding.queuedAnalysisStateLineage)
+              == lineage;
+    }
+
+    private void markUnavailableIfCurrent() {
+      synchronized (engine.engineArbitrationLock()) {
+        synchronized (engine.commandQueue()) {
+          if (!isCurrentLocked()) {
+            return;
+          }
+          engine.markUnavailableIfCurrentIncarnation(binding);
+        }
+      }
+    }
+
+    private boolean isConfirmed(boolean fenceConfirmed) {
+      return fenceConfirmed && isCurrent() && !lineage.isFailed() && !lineage.hasPendingResponses();
+    }
+  }
+
+  /** Capture-only handle: dispatch is scoped; response completion remains callback-based. */
+  public static final class PositionRestore {
+    private final RestoreEndpointDependency authority;
+    private final RestoreEndpointDependency mirror;
+    private final AtomicBoolean executed = new AtomicBoolean(false);
+    private final AtomicBoolean confirmationStarted = new AtomicBoolean(false);
+    private final AtomicBoolean finished = new AtomicBoolean(false);
+    private final boolean sharedLifecycleOwner;
+
+    private PositionRestore(RestoreEndpointDependency authority, RestoreEndpointDependency mirror) {
+      this.authority = authority;
+      this.mirror = mirror;
+      sharedLifecycleOwner = authority.engine.lifecycleCompletionClaim != null;
+      authority.lineage.pendingRestoreOwners.incrementAndGet();
+      if (mirror != null) mirror.lineage.pendingRestoreOwners.incrementAndGet();
+    }
+
+    public void execute(Runnable commands) {
+      if (commands == null) {
+        throw new IllegalArgumentException("commands");
+      }
+      if (!executed.compareAndSet(false, true)) {
+        throw new IllegalStateException("Position restore has already been executed");
+      }
+      if (!authority.isCurrent() || (mirror != null && !mirror.isCurrent())) {
+        failLineages();
+        throw new IllegalStateException("Position restore reader binding is no longer current");
+      }
+      try {
+        authority.engine.withPositionRestoreContext(
+            authority,
+            () -> {
+              if (mirror == null) {
+                commands.run();
+              } else {
+                mirror.engine.withPositionRestoreContext(mirror, commands);
+              }
+            });
+      } catch (RuntimeException | Error failure) {
+        failLineages();
+        throw failure;
+      }
+    }
+
+    public void confirm(Runnable onSuccess, Consumer<String> onFailure) {
+      if (!executed.get()) {
+        throw new IllegalStateException("Position restore has not been executed");
+      }
+      if (!confirmationStarted.compareAndSet(false, true)) {
+        throw new IllegalStateException("Position restore confirmation has already started");
+      }
+      authority.engine
+          .new BoardSynchronizationConfirmation(
+              authority,
+              mirror,
+              false,
+              () -> finishConfirmation(onSuccess),
+              detail -> {
+                failLineages();
+                if (onFailure != null) onFailure.accept(detail);
+              })
+          .start();
+    }
+
+    /** Retires an owner capture that will not dispatch or complete. */
+    public void cancel() {
+      executed.set(true);
+      confirmationStarted.set(true);
+      if (sharedLifecycleOwner) finishConfirmation(null);
+      else failLineages();
+    }
+
+    private void finishConfirmation(Runnable onSuccess) {
+      if (!finished.compareAndSet(false, true)) return;
+      authority.lineage.finishRestoreOwner();
+      if (mirror != null) mirror.lineage.finishRestoreOwner();
+      try {
+        if (onSuccess != null) onSuccess.run();
+      } finally {
+        authority.engine.trySendCommandFromQueue();
+        if (mirror != null) mirror.engine.trySendCommandFromQueue();
+      }
+    }
+
+    private void failLineages() {
+      authority.lineage.fail();
+      if (mirror != null) {
+        mirror.lineage.fail();
+      }
+      finishConfirmation(null);
+    }
+  }
+
   void confirmBoardSynchronization(Runnable onSuccess, Consumer<String> onFailure) {
     confirmBoardSynchronization(null, onSuccess, onFailure);
   }
 
   /**
    * Fences the final restore point against the captured authority and, when a distinct captured
-   * mirror exists, against that exact mirror as well. Ready, ponder and analyze only follow after
-   * every leg acknowledges; any leg send failure, error response or timeout fails closed.
-  */
+   * mirror exists, against that exact mirror as well. Required position responses and every final
+   * fence must succeed; any send failure, error response, timeout or reader replacement fails
+   * closed.
+   */
   void confirmBoardSynchronization(Leelaz mirror, Runnable onSuccess, Consumer<String> onFailure) {
-    new BoardSynchronizationConfirmation(mirror, onSuccess, onFailure).start();
+    Leelaz effectiveMirror = gtpCapableRestoreMirror(this, mirror);
+    RestoreEndpointDependency[] dependencies =
+        captureCurrentRestoreDependencies(this, effectiveMirror);
+    new BoardSynchronizationConfirmation(
+            dependencies[0], dependencies[1], true, onSuccess, onFailure)
+        .start();
   }
 
   private interface BoardSynchronizationResponseHandler extends Runnable {}
 
   private final class BoardSynchronizationConfirmation {
-    private final Leelaz mirror;
+    private final RestoreEndpointDependency authority;
+    private final RestoreEndpointDependency mirror;
+    private final boolean waitForRestoreOwners;
+    private final Runnable dependencyChanged = this::tryComplete;
     private final Runnable onSuccess;
     private final Consumer<String> onFailure;
     private final AtomicBoolean settled = new AtomicBoolean(false);
-    private final AtomicInteger remainingLegs;
     private final AtomicBoolean authorityLegDispatched = new AtomicBoolean(false);
     private final AtomicBoolean mirrorLegDispatched = new AtomicBoolean(false);
     private final AtomicBoolean authorityLegConfirmed = new AtomicBoolean(false);
@@ -20874,16 +21333,28 @@ public class Leelaz {
     private Timer timeout;
 
     private BoardSynchronizationConfirmation(
-        Leelaz mirror, Runnable onSuccess, Consumer<String> onFailure) {
+        RestoreEndpointDependency authority,
+        RestoreEndpointDependency mirror,
+        boolean waitForRestoreOwners,
+        Runnable onSuccess,
+        Consumer<String> onFailure) {
+      this.authority = authority;
       this.mirror = mirror;
+      this.waitForRestoreOwners = waitForRestoreOwners;
       this.onSuccess = onSuccess;
       this.onFailure = onFailure;
       this.mirrorResponseHandler =
           mirror == null ? null : (BoardSynchronizationResponseHandler) this::onMirrorResponse;
-      this.remainingLegs = new AtomicInteger(mirror == null ? 1 : 2);
     }
 
     private void start() {
+      authority.lineage.onChange(dependencyChanged);
+      if (mirror != null) {
+        mirror.lineage.onChange(dependencyChanged);
+      }
+      if (settled.get()) {
+        return;
+      }
       Timer confirmationTimeout = new Timer("lizzie-board-sync-confirmation-timeout", true);
       timeout = confirmationTimeout;
       TimerTask timeoutTask =
@@ -20895,7 +21366,16 @@ public class Leelaz {
           };
       try {
         authorityLegDispatched.set(true);
-        sendCommand("name", responseHandler, this::onSendFailure, true, false);
+        authority.engine.sendCommand(
+            "name",
+            responseHandler,
+            this::onSendFailure,
+            true,
+            false,
+            TrackingReleaseReason.ORDINARY_OPERATION,
+            null,
+            false,
+            authority.binding);
       } catch (RuntimeException ex) {
         settleFailure(ex.getMessage());
         return;
@@ -20903,8 +21383,16 @@ public class Leelaz {
       if (mirror != null && !settled.get()) {
         try {
           mirrorLegDispatched.set(true);
-          mirror.sendCommand(
-              "name", mirrorResponseHandler, this::onMirrorSendFailure, true, false);
+          mirror.engine.sendCommand(
+              "name",
+              mirrorResponseHandler,
+              this::onMirrorSendFailure,
+              true,
+              false,
+              TrackingReleaseReason.ORDINARY_OPERATION,
+              null,
+              false,
+              mirror.binding);
         } catch (RuntimeException ex) {
           settleFailure(ex.getMessage());
           return;
@@ -20914,7 +21402,7 @@ public class Leelaz {
         scheduleBoardSynchronizationTimeout(
             confirmationTimeout,
             timeoutTask,
-            Math.max(1L, readBoardGmaRestoreResponseTimeoutMillis()),
+            Math.max(1L, authority.engine.readBoardGmaRestoreResponseTimeoutMillis()),
             settled);
       }
     }
@@ -20923,28 +21411,44 @@ public class Leelaz {
       if (settled.get()) {
         return;
       }
-      if (isCurrentCommandResponseError()) {
-        settleFailure("board synchronization failed: " + currentCommandResponseLine());
+      if (authority.engine.isCurrentCommandResponseError()) {
+        settleFailure(
+            "board synchronization failed: " + authority.engine.currentCommandResponseLine());
         return;
       }
       authorityLegConfirmed.set(true);
-      completeLeg();
+      tryComplete();
     }
 
     private void onMirrorResponse() {
       if (settled.get()) {
         return;
       }
-      if (mirror.isCurrentCommandResponseError()) {
-        settleFailure("board synchronization failed: " + mirror.currentCommandResponseLine());
+      if (mirror.engine.isCurrentCommandResponseError()) {
+        settleFailure(
+            "board synchronization failed: " + mirror.engine.currentCommandResponseLine());
         return;
       }
       mirrorLegConfirmed.set(true);
-      completeLeg();
+      tryComplete();
     }
 
-    private void completeLeg() {
-      if (remainingLegs.decrementAndGet() != 0) {
+    private void tryComplete() {
+      if (settled.get()) {
+        return;
+      }
+      String dependencyFailure = dependencyFailure();
+      if (dependencyFailure != null) {
+        settleFailure(dependencyFailure);
+        return;
+      }
+      if (authority.lineage.hasPendingResponses()
+          || (mirror != null && mirror.lineage.hasPendingResponses())
+          || (waitForRestoreOwners
+              && (authority.lineage.pendingRestoreOwners.get() > 0
+                  || (mirror != null && mirror.lineage.pendingRestoreOwners.get() > 0)))
+          || !authorityLegConfirmed.get()
+          || (mirror != null && !mirrorLegConfirmed.get())) {
         return;
       }
       if (!settled.compareAndSet(false, true)) {
@@ -20956,6 +21460,22 @@ public class Leelaz {
       }
     }
 
+    private String dependencyFailure() {
+      if (!authority.isCurrent()) {
+        return "board synchronization authority changed before confirmation";
+      }
+      if (authority.lineage.isFailed()) {
+        return "board synchronization required position command failed";
+      }
+      if (mirror != null && !mirror.isCurrent()) {
+        return "board synchronization mirror changed before confirmation";
+      }
+      if (mirror != null && mirror.lineage.isFailed()) {
+        return "board synchronization mirror position command failed";
+      }
+      return null;
+    }
+
     private void onSendFailure(RuntimeException failure) {
       settleFailure(failure == null ? "board synchronization send failed" : failure.getMessage());
     }
@@ -20965,12 +21485,6 @@ public class Leelaz {
           failure == null ? "board synchronization mirror send failed" : failure.getMessage());
     }
 
-    /**
-     * Linearized failure settlement: atomically claim the settlement, then retire every
-     * dispatched leg handler, mark every captured endpoint that never confirmed unavailable, and
-     * only then invoke the failure callback so the completion gates release after all old
-     * handlers have retired.
-     */
     private void settleFailure(String detail) {
       if (!settled.compareAndSet(false, true)) {
         return;
@@ -20986,24 +21500,19 @@ public class Leelaz {
 
     private void retireDispatchedLegs() {
       if (authorityLegDispatched.get()) {
-        retireTimedOutNormalCommand(responseHandler);
+        authority.engine.retireTimedOutNormalCommand(responseHandler);
       }
       if (mirror != null && mirrorLegDispatched.get()) {
-        mirror.retireTimedOutNormalCommand(mirrorResponseHandler);
+        mirror.engine.retireTimedOutNormalCommand(mirrorResponseHandler);
       }
     }
 
-    /**
-     * Marks every captured endpoint that never acknowledged its fence unavailable. The failed
-     * endpoint is always unconfirmed; when no leg confirmed yet, the whole captured set fails
-     * closed atomically.
-     */
     private void markUnconfirmedCapturedEndpointsUnavailable() {
-      if (!authorityLegConfirmed.get()) {
-        isLoaded = false;
+      if (!authority.isConfirmed(authorityLegConfirmed.get())) {
+        authority.markUnavailableIfCurrent();
       }
-      if (mirror != null && !mirrorLegConfirmed.get()) {
-        mirror.isLoaded = false;
+      if (mirror != null && !mirror.isConfirmed(mirrorLegConfirmed.get())) {
+        mirror.markUnavailableIfCurrent();
       }
     }
 
@@ -21014,6 +21523,8 @@ public class Leelaz {
     }
 
     private void cancelTimeout() {
+      authority.lineage.removeListener(dependencyChanged);
+      if (mirror != null) mirror.lineage.removeListener(dependencyChanged);
       Timer currentTimeout = timeout;
       timeout = null;
       if (currentTimeout != null) {
@@ -21649,7 +22160,8 @@ public class Leelaz {
   public void togglePonder() {
     if (!hasGtpCapability()) {
       if (Lizzie.gtpConsole != null) {
-        Lizzie.gtpConsole.addLine(Lizzie.resourceBundle.getString("Benchmark.gtpUnavailable") + "\n");
+        Lizzie.gtpConsole.addLine(
+            Lizzie.resourceBundle.getString("Benchmark.gtpUnavailable") + "\n");
       }
       return;
     }
@@ -21690,8 +22202,57 @@ public class Leelaz {
         recordPause.run();
       }
     }
+    cancelUnwrittenOrdinaryAnalysisForPause();
     if (Lizzie.leelaz == this && isPondering()) {
       togglePonder();
+    }
+  }
+
+  private void cancelUnwrittenOrdinaryAnalysisForPause() {
+    ArrayList<QueuedCommand> cancelled = null;
+    RuntimeException failure = null;
+    synchronized (engineArbitrationLock()) {
+      synchronized (commandQueue()) {
+        QueuedCommand selected = normalCommandBeingSent;
+        if (selected != null
+            && selected.engineGameTransaction() == null
+            && !selected.foregroundRestoreCommand
+            && isOrdinaryPositionAnalysisCommand(selected.command)) {
+          failure = new IllegalStateException("Analysis paused by user");
+          if (selected.cancelBeforeOutputWrite(failure)) {
+            if (selected.claimCommandCountRetirement()) cmdNumber = Math.max(1, cmdNumber - 1);
+            cancelled = new ArrayList<>();
+            cancelled.add(selected);
+          }
+        }
+        Iterator<QueuedCommand> iterator = commandQueue().iterator();
+        while (iterator.hasNext()) {
+          QueuedCommand command = iterator.next();
+          if (command.engineGameTransaction() != null
+              || command.foregroundRestoreCommand
+              || !isOrdinaryPositionAnalysisCommand(command.command)) continue;
+          if (failure == null) failure = new IllegalStateException("Analysis paused by user");
+          if (!command.cancelBeforeOutputWrite(failure)) continue;
+          iterator.remove();
+          if (command.claimCommandCountRetirement()) cmdNumber = Math.max(1, cmdNumber - 1);
+          if (cancelled == null) cancelled = new ArrayList<>();
+          cancelled.add(command);
+        }
+        if (cancelled != null && currentCmdNum > cmdNumber - 1) currentCmdNum = cmdNumber - 1;
+      }
+    }
+    if (cancelled != null) {
+      try {
+        for (QueuedCommand command : cancelled) {
+          try {
+            command.notifySendFailure(failure);
+          } catch (Throwable ignored) {
+            // A cancelled observer cannot keep required position work in the queue.
+          }
+        }
+      } finally {
+        trySendCommandFromQueue();
+      }
     }
   }
 

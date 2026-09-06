@@ -1,8 +1,6 @@
 package featurecat.lizzie.rules;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineManager;
-import featurecat.lizzie.analysis.ExactSnapshotEngineRestore;
 import featurecat.lizzie.analysis.Leelaz;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -839,28 +837,8 @@ public class BoardHistoryNode {
   }
 
   public void clearAndSyncBoard(boolean stepIn) {
-    if (Lizzie.leelaz != null) {
-      Lizzie.leelaz.submitOrdinaryLiveBoardForwarding(
-          EngineManager.OrdinaryLiveBoardForwardingIntent.of(
-              () -> {
-                performClearAndSyncBoard(stepIn);
-                return true;
-              }));
-      return;
-    }
-    performClearAndSyncBoard(stepIn);
-  }
-
-  private void performClearAndSyncBoard(boolean stepIn) {
     if (stepIn) {
-      Leelaz engine = Lizzie.leelaz;
-      boolean resumePonder = engine.isPonderingOrWasPonderingBeforeTracking();
-      Leelaz.ExactSnapshotRestoreAdmission admission =
-          engine.captureBoardSyncExactSnapshotRestoreAdmission();
-      ExactSnapshotEngineRestore.PreparedRestore preparedRestore =
-          ExactSnapshotEngineRestore.prepare(admission, this).orElseThrow();
-      engine.notPondering();
-      executePreparedRestore(engine, preparedRestore, resumePonder);
+      Lizzie.board.restoreHistoryNodeExact(this);
     } else {
       Lizzie.board.resendMoveToEngine(Lizzie.leelaz, false);
     }
@@ -871,26 +849,10 @@ public class BoardHistoryNode {
     if (marker == null) {
       return false;
     }
-    Leelaz engine = Lizzie.leelaz;
-    boolean resumePonder = engine.isPonderingOrWasPonderingBeforeTracking();
-    Leelaz.ExactSnapshotRestoreAdmission admission =
-        engine.captureBoardSyncExactSnapshotRestoreAdmission();
-    ExactSnapshotEngineRestore.PreparedRestore preparedRestore =
-        ExactSnapshotEngineRestore.prepare(admission, this).orElseThrow();
-    engine.notPondering();
-    executePreparedRestore(engine, preparedRestore, resumePonder);
+    Lizzie.board.restoreHistoryNodeExact(this);
     return true;
   }
 
-  private static void executePreparedRestore(
-      Leelaz engine,
-      ExactSnapshotEngineRestore.PreparedRestore preparedRestore,
-      boolean resumePonder) {
-    preparedRestore.execute();
-    if (resumePonder) {
-      engine.ponder();
-    }
-  }
 
   private static ArrayList<ExtraStones> cloneExtraStones(ArrayList<ExtraStones> stones) {
     if (stones == null) {

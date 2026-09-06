@@ -800,8 +800,8 @@ class ExactSnapshotEngineRestoreContractTest {
 
       preparedRestore.execute();
 
-      assertEquals("clear_board", primaryOutput.commands().get(0));
-      assertEquals("clear_board", mirrorOutput.commands().get(0));
+      assertEquals("clear_board", commandPayload(primaryOutput.commands().get(0)));
+      assertEquals("clear_board", commandPayload(mirrorOutput.commands().get(0)));
       assertTrue(primaryOutput.loadedSgf().contains("SZ[3]"));
       assertTrue(primaryOutput.loadedSgf().contains("AB[aa]"));
       assertTrue(primaryOutput.loadedSgf().contains("AB[cc]"));
@@ -856,13 +856,22 @@ class ExactSnapshotEngineRestoreContractTest {
 
       assertThrows(RuntimeException.class, preparedRestore::execute);
 
-      assertEquals(List.of("clear_board"), primaryOutput.commands());
-      assertEquals(List.of("clear_board"), mirrorOutput.commands());
+      assertEquals(
+          List.of("clear_board"),
+          primaryOutput.commands().stream()
+              .map(ExactSnapshotEngineRestoreContractTest::commandPayload)
+              .toList());
+      assertEquals(
+          List.of("clear_board"),
+          mirrorOutput.commands().stream()
+              .map(ExactSnapshotEngineRestoreContractTest::commandPayload)
+              .toList());
       assertTrue(primary.getBestMoves().isEmpty());
       assertEquals(0.0, primary.scoreMean);
       assertTrue(
           mirror.getBestMoves().isEmpty(),
-          "state invalidation precedes the first command byte and therefore survives flush failure");
+          "state invalidation precedes the first command byte and therefore survives flush"
+              + " failure");
       assertEquals(0.0, mirror.scoreMean);
       assertEquals(0, primaryOutput.loadSgfCommandCount());
       assertEquals(0, mirrorOutput.loadSgfCommandCount());
@@ -1158,10 +1167,12 @@ class ExactSnapshotEngineRestoreContractTest {
       assertTrue(output.commands().isEmpty());
       IllegalStateException repeatedDiscard =
           assertThrows(IllegalStateException.class, preparedRestore::discard);
-      assertEquals("Exact snapshot restore has already been executed", repeatedDiscard.getMessage());
+      assertEquals(
+          "Exact snapshot restore has already been executed", repeatedDiscard.getMessage());
       IllegalStateException executeAfterDiscard =
           assertThrows(IllegalStateException.class, preparedRestore::execute);
-      assertEquals("Exact snapshot restore has already been executed", executeAfterDiscard.getMessage());
+      assertEquals(
+          "Exact snapshot restore has already been executed", executeAfterDiscard.getMessage());
       assertNotNull(engine.tryBeginLifecycleCompletion(new Object(), null));
     }
   }
@@ -1324,7 +1335,7 @@ class ExactSnapshotEngineRestoreContractTest {
       assertTrue(
           thrown.getMessage().contains("loadsgf"),
           "loadsgf send failures should be exposed as restore failures.");
-      assertEquals("clear_board", output.commands().get(0));
+      assertEquals("clear_board", commandPayload(output.commands().get(0)));
       assertTrue(isLoadSgfCommand(output.commands().get(1)));
       assertEquals(2, output.commands().size(), "restore should stop before replaying real moves.");
     }
@@ -1353,7 +1364,7 @@ class ExactSnapshotEngineRestoreContractTest {
       assertTrue(
           thrown.getMessage().contains("cannot loadsgf"),
           "loadsgf GTP error responses should be exposed as restore failures.");
-      assertEquals("clear_board", output.commands().get(0));
+      assertEquals("clear_board", commandPayload(output.commands().get(0)));
       assertTrue(isLoadSgfCommand(output.commands().get(1)));
       assertEquals(2, output.commands().size(), "restore should stop before replaying real moves.");
     }
@@ -1391,9 +1402,9 @@ class ExactSnapshotEngineRestoreContractTest {
 
       waitForCommandCount(output, 1);
 
-      assertEquals("clear_board", output.commands().get(0));
+      assertEquals("clear_board", commandPayload(output.commands().get(0)));
 
-      triggerQueuedSend(engine);
+      triggerQueuedSend(engine, output.commands().get(0));
 
       restoreThread.join(2000L);
       assertFalse(restoreThread.isAlive(), "queued loadsgf send failure should not hang restore.");
@@ -1408,7 +1419,7 @@ class ExactSnapshotEngineRestoreContractTest {
 
       List<String> commands = output.commands();
       assertEquals(2, commands.size(), "restore should stop before replaying real moves.");
-      assertEquals("clear_board", commands.get(0));
+      assertEquals("clear_board", commandPayload(commands.get(0)));
       assertTrue(isLoadSgfCommand(commands.get(1)));
 
       Path tempSgf = extractLoadSgfPath(commands.get(1));
@@ -1449,10 +1460,10 @@ class ExactSnapshotEngineRestoreContractTest {
 
       waitForCommandCount(output, 1);
 
-      assertEquals("clear_board", output.commands().get(0));
+      assertEquals("clear_board", commandPayload(output.commands().get(0)));
 
       setOutputStream(engine, null);
-      triggerQueuedSend(engine);
+      triggerQueuedSend(engine, output.commands().get(0));
 
       restoreThread.join(2000L);
       assertFalse(restoreThread.isAlive(), "queued outputStream failure should not hang restore.");
@@ -1467,7 +1478,7 @@ class ExactSnapshotEngineRestoreContractTest {
 
       List<String> commands = output.commands();
       assertEquals(1, commands.size(), "loadsgf should not replay real moves after send failure.");
-      assertEquals("clear_board", commands.get(0));
+      assertEquals("clear_board", commandPayload(commands.get(0)));
 
       Path tempSgf = extractLoadSgfPathFromFailure(thrown.getMessage());
       assertEventuallyDeleted(tempSgf);
@@ -1616,7 +1627,7 @@ class ExactSnapshotEngineRestoreContractTest {
       board.resendMoveToEngine(third, false);
 
       List<String> thirdCommands = thirdOutput.commands();
-      assertEquals("clear_board", thirdCommands.get(0));
+      assertEquals("clear_board", commandPayload(thirdCommands.get(0)));
       assertTrue(isLoadSgfCommand(thirdCommands.get(1)));
 
       List<String> expectedReplay =
@@ -1686,11 +1697,13 @@ class ExactSnapshotEngineRestoreContractTest {
 
       waitForCommandCount(secondaryOutput, 2);
       waitForCommandCount(primaryOutput, 2);
-      assertEquals("clear_board", secondaryOutput.commands().get(0));
-      assertEquals("clear_board", primaryOutput.commands().get(0));
+      assertEquals("clear_board", commandPayload(secondaryOutput.commands().get(0)));
+      assertEquals("clear_board", commandPayload(primaryOutput.commands().get(0)));
 
-      invokeResponseHandlerForLine(secondary, "=");
-      invokeResponseHandlerForLine(primary, "=");
+      invokeResponseHandlerForLine(
+          secondary, buildSuccessResponseLine(secondaryOutput.commands().get(0)));
+      invokeResponseHandlerForLine(
+          primary, buildSuccessResponseLine(primaryOutput.commands().get(0)));
       invokeResponseHandlerForLine(
           secondary, buildSuccessResponseLine(secondaryOutput.commands().get(1)));
       invokeResponseHandlerForLine(
@@ -1709,6 +1722,15 @@ class ExactSnapshotEngineRestoreContractTest {
           secondary, buildSuccessResponseLine(secondaryOutput.commands().get(3)));
       invokeResponseHandlerForLine(
           primary, buildSuccessResponseLine(primaryOutput.commands().get(3)));
+
+      waitForCommandCount(secondaryOutput, 5);
+      waitForCommandCount(primaryOutput, 5);
+      assertEquals("name", commandPayload(secondaryOutput.commands().get(4)));
+      assertEquals("name", commandPayload(primaryOutput.commands().get(4)));
+      invokeResponseHandlerForLine(
+          secondary, buildSuccessResponseLine(secondaryOutput.commands().get(4)));
+      invokeResponseHandlerForLine(
+          primary, buildSuccessResponseLine(primaryOutput.commands().get(4)));
 
       restoreThread.join(2000L);
       assertFalse(
@@ -2211,9 +2233,9 @@ class ExactSnapshotEngineRestoreContractTest {
     engine.runPendingResponseHandlerForTest(line);
   }
 
-  private static void triggerQueuedSend(Leelaz engine) {
+  private static void triggerQueuedSend(Leelaz engine, String pendingCommand) {
     engine.setResponseUpToDate();
-    engine.processCommandResponseLineForTest("=");
+    engine.processCommandResponseLineForTest(buildSuccessResponseLine(pendingCommand));
   }
 
   private static void waitForCommandCount(RecordingOutputStream output, int expectedCount)
@@ -2398,9 +2420,9 @@ class ExactSnapshotEngineRestoreContractTest {
         return response;
       }
     }
-    if (response.length() > 1
+    if (!response.isEmpty()
         && (response.charAt(0) == '=' || response.charAt(0) == '?')
-        && !Character.isDigit(response.charAt(1))) {
+        && (response.length() == 1 || !Character.isDigit(response.charAt(1)))) {
       return response.charAt(0) + firstToken + response.substring(1);
     }
     return response;
@@ -2530,7 +2552,10 @@ class ExactSnapshotEngineRestoreContractTest {
         }
       }
       if (!isLoadSgfCommand(command)) {
-        if (commandPayload(command).startsWith("play ")) {
+        String payload = commandPayload(command);
+        if (payload.equals("clear_board")
+            || payload.startsWith("play ")
+            || payload.equals("name")) {
           invokeResponseHandlerForLine(engine, buildSuccessResponseLine(command));
         }
         return;
@@ -2596,8 +2621,9 @@ class ExactSnapshotEngineRestoreContractTest {
     }
 
     private String responseFor(String command) {
-      if ("clear_board".equals(command)) {
-        return clearBoardResponse;
+      String payload = commandPayload(command);
+      if (payload.equals("clear_board")) {
+        return clearBoardResponse == null ? null : buildResponseLine(command, clearBoardResponse);
       }
       if (isLoadSgfCommand(command)) {
         if (loadSgfResponse == null) {
@@ -2608,7 +2634,7 @@ class ExactSnapshotEngineRestoreContractTest {
         }
         return buildResponseLine(command, loadSgfResponse);
       }
-      if (commandPayload(command).startsWith("play ")
+      if ((payload.startsWith("play ") || payload.equals("name"))
           && AUTO_ID_RESPONSE.equals(loadSgfResponse)) {
         return buildSuccessResponseLine(command);
       }
@@ -2628,6 +2654,7 @@ class ExactSnapshotEngineRestoreContractTest {
 
     @Override
     protected void onCommand(String command) throws IOException {
+      String payload = commandPayload(command);
       if (isLoadSgfCommand(command)) {
         loadSgfPath = extractLoadSgfPath(command);
         try {
@@ -2637,8 +2664,12 @@ class ExactSnapshotEngineRestoreContractTest {
         }
         return;
       }
-      if (commandPayload(command).startsWith("play ") && loadSgfPath != null) {
+      if (payload.startsWith("play ") && loadSgfPath != null) {
         tempFileExistedDuringReplay = tempFileExistedDuringReplay || Files.exists(loadSgfPath);
+        invokeResponseHandlerForLine(engine, buildSuccessResponseLine(command));
+        return;
+      }
+      if (payload.equals("clear_board") || payload.equals("name")) {
         invokeResponseHandlerForLine(engine, buildSuccessResponseLine(command));
       }
     }

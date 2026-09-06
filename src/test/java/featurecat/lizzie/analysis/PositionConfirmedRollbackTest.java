@@ -1,5 +1,6 @@
 package featurecat.lizzie.analysis;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -22,14 +23,357 @@ import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.jupiter.api.Test;
 
 class PositionConfirmedRollbackTest {
   private static final int BOARD_SIZE = 19;
   private static final long OBSERVATION_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(2);
+
+  @Test
+  void exactSnapshotResendWaitsForMovePassTailAndPublishesOnlyConfirmedTarget() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      RestoreHistory restoreHistory = exactRestoreHistory();
+      harness.board.setHistory(restoreHistory.history);
+      startPonder(harness);
+
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport restoreTransport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      AsyncAction restore =
+          AsyncAction.start(() -> harness.board.resendMoveToEngine(harness.engine, false));
+
+      String finalTail = awaitRawCommand(restoreTransport, "play W pass", 0);
+      boolean released = false;
+      try {
+        assertEquals(
+            List.of("play B D16", "play W pass"),
+            commandsWithPrefix(restoreTransport, "play "),
+            "the exact route must replay both real actions after the static anchor");
+        int loadSgfCommand = indexOfCommand(restoreTransport, "loadsgf ");
+        assertTrue(loadSgfCommand >= 0);
+        assertTrue(loadSgfCommand < indexOfCommand(restoreTransport, "play B D16"));
+        assertEquals(
+            0,
+            payloadCount(restoreTransport, "kata-analyze"),
+            "the unconfirmed final tail must keep physical analysis closed");
+
+        harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+        assertNoAnalysis(restoreHistory.target.getData());
+        assertPosition(enginePosition, restoreHistory.target.getData(), BOARD_SIZE, BOARD_SIZE);
+
+        acknowledge(harness.engine, finalTail);
+        released = true;
+        awaitRawCommand(restoreTransport, "kata-analyze", 0);
+        restore.awaitSuccess();
+        harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+
+        assertSame(restoreHistory.target, harness.board.getHistory().getCurrentHistoryNode());
+        assertAnalysis(restoreHistory.target.getData(), 4_875, 96.937);
+        assertEquals(1, payloadCount(restoreTransport, "kata-analyze"));
+        assertPosition(enginePosition, restoreHistory.target.getData(), BOARD_SIZE, BOARD_SIZE);
+      } finally {
+        if (!released) {
+          acknowledge(harness.engine, finalTail);
+          restore.awaitCleanup();
+        }
+      }
+    }
+  }
+
+  @Test
+  void previousNavigationFromSnapshotChildWaitsForCompleteExactTarget() throws Exception {
+    assertCompoundNavigation(false);
+  }
+
+  @Test
+  void branchJumpWaitsForCompleteExactTarget() throws Exception {
+    assertCompoundNavigation(true);
+  }
+
+  private void assertCompoundNavigation(boolean branchJump) throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      RestoreHistory restoreHistory =
+          branchJump ? exactBranchRestoreHistory() : exactRestoreHistoryWithSnapshotSuccessor();
+      harness.board.setHistory(restoreHistory.history);
+      startPonder(harness);
+
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport restoreTransport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      AsyncAction navigation =
+          AsyncAction.start(
+              () -> {
+                if (branchJump) harness.board.moveToAnyPosition(restoreHistory.target);
+                else harness.board.previousMove(false);
+              });
+      String finalTail = awaitRawCommand(restoreTransport, "play W pass", 0);
+      boolean released = false;
+      try {
+        assertSame(
+            restoreHistory.target,
+            harness.board.getHistory().getCurrentHistoryNode(),
+            "real Board navigation must adopt the intended tail target before confirmation");
+        assertEquals(0, payloadCount(restoreTransport, "kata-analyze"));
+        harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+        assertNoAnalysis(restoreHistory.target.getData());
+        assertPosition(enginePosition, restoreHistory.target.getData(), BOARD_SIZE, BOARD_SIZE);
+
+        acknowledge(harness.engine, finalTail);
+        released = true;
+        awaitRawCommand(restoreTransport, "kata-analyze", 0);
+        navigation.awaitSuccess();
+        harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+
+        assertSame(restoreHistory.target, harness.board.getHistory().getCurrentHistoryNode());
+        assertAnalysis(restoreHistory.target.getData(), 4_875, 96.937);
+        assertEquals(1, payloadCount(restoreTransport, "kata-analyze"));
+      } finally {
+        if (!released) {
+          acknowledge(harness.engine, finalTail);
+          navigation.awaitCleanup();
+        }
+      }
+    }
+  }
+
+  @Test
+  void rootReplayResendWaitsForFinalPassAndPreservesCompatibleAnalysisCache() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      RestoreHistory restoreHistory = rootRestoreHistory(9);
+      harness.board.setHistory(restoreHistory.history);
+      harness.engine.width = BOARD_SIZE;
+      harness.engine.height = BOARD_SIZE;
+      startPonder(harness);
+      harness.engine.parseAnalysisLineForTest(info(12_000, 0.615));
+      assertAnalysis(restoreHistory.target.getData(), 12_000, 61.5);
+
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport restoreTransport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      AsyncAction restore =
+          AsyncAction.start(() -> harness.board.resendMoveToEngine(harness.engine, false));
+
+      String finalReplay = awaitRawCommand(restoreTransport, "play W pass", 0);
+      boolean released = false;
+      try {
+        int boardSizeCommand = indexOfCommand(restoreTransport, "boardsize 9");
+        int clearCommand = indexOfCommand(restoreTransport, "clear_board");
+        assertTrue(boardSizeCommand >= 0);
+        assertTrue(clearCommand > boardSizeCommand);
+        assertEquals(
+            List.of("play B C7", "play W pass"), commandsWithPrefix(restoreTransport, "play "));
+        assertEquals(0, payloadCount(restoreTransport, "loadsgf "));
+        assertEquals(0, payloadCount(restoreTransport, "kata-analyze"));
+
+        harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+        assertAnalysis(restoreHistory.target.getData(), 12_000, 61.5);
+        assertPosition(enginePosition, restoreHistory.target.getData(), 9, 9);
+
+        acknowledge(harness.engine, finalReplay);
+        released = true;
+        awaitRawCommand(restoreTransport, "kata-analyze", 0);
+        restore.awaitSuccess();
+        harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+
+        assertAnalysis(restoreHistory.target.getData(), 12_000, 61.5);
+        assertEquals(1, payloadCount(restoreTransport, "kata-analyze"));
+        assertPosition(enginePosition, restoreHistory.target.getData(), 9, 9);
+      } finally {
+        if (!released) {
+          acknowledge(harness.engine, finalReplay);
+          restore.awaitCleanup();
+        }
+      }
+    }
+  }
+
+  @Test
+  void replacingHistoryDuringExactRestoreCannotResumeOrPublishIntoReplacement() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      RestoreHistory restoreHistory = exactRestoreHistory();
+      harness.board.setHistory(restoreHistory.history);
+      startPonder(harness);
+
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport restoreTransport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      AsyncAction restore =
+          AsyncAction.start(() -> harness.board.resendMoveToEngine(harness.engine, false));
+      String finalTail = awaitRawCommand(restoreTransport, "play W pass", 0);
+      boolean released = false;
+      try {
+        assertEquals(0, payloadCount(restoreTransport, "kata-analyze"));
+        harness.engine.parseAnalysisLineForTest(info(16_768, 0.335525));
+        assertNoAnalysis(restoreHistory.target.getData());
+        assertPosition(enginePosition, restoreHistory.target.getData(), BOARD_SIZE, BOARD_SIZE);
+
+        BoardHistoryList replacement =
+            new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+        BoardHistoryNode replacementTarget = replacement.getCurrentHistoryNode();
+        harness.board.setHistory(replacement);
+        acknowledge(harness.engine, finalTail);
+        released = true;
+        restore.awaitFinished();
+
+        assertSame(replacementTarget, harness.board.getHistory().getCurrentHistoryNode());
+        assertEquals(
+            0,
+            payloadCount(restoreTransport, "kata-analyze"),
+            "an obsolete restore completion must not resume analysis");
+        harness.engine.parseAnalysisLineForTest(info(4_875, 0.96937));
+        assertNoAnalysis(replacementTarget.getData());
+      } finally {
+        if (!released) {
+          acknowledge(harness.engine, finalTail);
+          restore.awaitCleanup();
+        }
+      }
+    }
+  }
+
+  @Test
+  void replacingPrimaryDuringRootRestoreCannotResumeEitherEngine() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      RestoreHistory restoreHistory = rootRestoreHistory(BOARD_SIZE);
+      harness.board.setHistory(restoreHistory.history);
+      startPonder(harness);
+
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport restoreTransport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      AsyncAction restore =
+          AsyncAction.start(() -> harness.board.resendMoveToEngine(harness.engine, false));
+      String finalReplay = awaitRawCommand(restoreTransport, "play W pass", 0);
+
+      Leelaz replacement = new PublicationControlledLeelaz();
+      replacement.isKatago = true;
+      replacement.started = true;
+      replacement.isLoaded = true;
+      replacement.commandLists.addAll(List.of("name", "play", "stop", "kata-analyze"));
+      setField(replacement, "endGetCommandList", true);
+      ExactSnapshotRestoreProtocolFixture.Transport replacementTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              replacement, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      Lizzie.setPrimaryEngine(replacement);
+
+      acknowledge(harness.engine, finalReplay);
+      restore.awaitFinished();
+
+      assertEquals(0, payloadCount(restoreTransport, "kata-analyze"));
+      assertTrue(
+          replacementTransport.commands().isEmpty(),
+          "the old completion must not send restore or analysis commands to the replacement");
+      assertNoAnalysis(restoreHistory.target.getData());
+      replacement.started = false;
+      replacement.isLoaded = false;
+    }
+  }
+
+  @Test
+  void userPauseCancelsSelectedAnalysisBeforeWriteAndAllowsLaterResume() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Field lockField =
+          EngineManager.class.getDeclaredField("ENGINE_GAME_ANALYSIS_OUTPUT_MUTATION_LOCK");
+      lockField.setAccessible(true);
+      ReentrantLock writeAdmission = (ReentrantLock) lockField.get(null);
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+      Thread writer =
+          new Thread(
+              () -> {
+                try {
+                  harness.engine.ponder();
+                } catch (Throwable thrown) {
+                  failure.set(thrown);
+                }
+              },
+              "selected-analysis-pause-regression");
+      writeAdmission.lock();
+      try {
+        writer.start();
+        long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+        while (!writeAdmission.hasQueuedThread(writer) && System.nanoTime() < deadline) {
+          Thread.sleep(1L);
+        }
+        assertTrue(writeAdmission.hasQueuedThread(writer), "writer must reach physical admission");
+        assertTrue(harness.transport.commands().isEmpty());
+        harness.engine.pauseForAnalysisControl(() -> harness.frame.userAnalysisPaused = true);
+      } finally {
+        writeAdmission.unlock();
+        writer.join(TimeUnit.SECONDS.toMillis(2));
+      }
+      assertFalse(writer.isAlive());
+      assertEquals(null, failure.get());
+      assertEquals(0, payloadCount(harness.transport, "kata-analyze"));
+      acknowledge(harness.engine, awaitRawCommand(harness.transport, "stop", 0));
+      harness.frame.userAnalysisPaused = false;
+      harness.engine.ponder();
+      awaitRawCommand(harness.transport, "kata-analyze", 0);
+      assertEquals(1, payloadCount(harness.transport, "kata-analyze"));
+    }
+  }
+
+  @Test
+  void userPauseCancelsAnalysisRequestedDuringBranchRestore() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      RestoreHistory target = exactBranchRestoreHistory();
+      harness.board.setHistory(target.history);
+      startPonder(harness);
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      AsyncAction restore = AsyncAction.start(() -> harness.board.moveToAnyPosition(target.target));
+      String tail = awaitRawCommand(transport, "play W pass", 0);
+      try {
+        harness.engine.ponder();
+        harness.engine.pauseForAnalysisControl(() -> harness.frame.userAnalysisPaused = true);
+      } finally {
+        acknowledge(harness.engine, tail);
+        restore.awaitSuccess();
+      }
+      assertEquals(0, payloadCount(transport, "kata-analyze"));
+      assertNoAnalysis(target.target.getData());
+    }
+  }
+
+  @Test
+  void userPauseWhileExactRestoreIsPendingSuppressesCapturedPonderDisposition() throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      RestoreHistory restoreHistory = exactRestoreHistory();
+      harness.board.setHistory(restoreHistory.history);
+      startPonder(harness);
+
+      SnapshotTrackingLeelaz enginePosition = SnapshotTrackingLeelaz.create();
+      ExactSnapshotRestoreProtocolFixture.Transport restoreTransport =
+          installPositionTransport(harness.engine, enginePosition, "play W pass");
+      AsyncAction restore =
+          AsyncAction.start(() -> harness.board.resendMoveToEngine(harness.engine, false));
+      String finalTail = awaitRawCommand(restoreTransport, "play W pass", 0);
+
+      harness.frame.userAnalysisPaused = true;
+      acknowledge(harness.engine, finalTail);
+      restore.awaitSuccess();
+
+      assertEquals(
+          0,
+          payloadCount(restoreTransport, "kata-analyze"),
+          "a pause chosen before confirmation must suppress the captured resume");
+      assertNoAnalysis(restoreHistory.target.getData());
+      assertPosition(enginePosition, restoreHistory.target.getData(), BOARD_SIZE, BOARD_SIZE);
+    }
+  }
 
   @Test
   void acceptedSnapshotRollbackRejectsOldAnalysisUntilUndoIsConfirmed() throws Exception {
@@ -236,6 +580,252 @@ class PositionConfirmedRollbackTest {
       assertSame(harness.p0, harness.board.getHistory().getCurrentHistoryNode());
       assertNoAnalysis(harness.p0.getData());
       assertEquals(1, payloadCount(harness.transport, "kata-analyze"));
+    }
+  }
+
+  private static void startPonder(Harness harness) throws Exception {
+    harness.engine.ponder();
+    acknowledge(harness.engine, awaitRawCommand(harness.transport, "kata-analyze", 0));
+  }
+
+  private static ExactSnapshotRestoreProtocolFixture.Transport installPositionTransport(
+      Leelaz engine, SnapshotTrackingLeelaz enginePosition, String heldCommand) {
+    return ExactSnapshotRestoreProtocolFixture.install(
+        engine,
+        command -> {
+          if (command.startsWith("loadsgf ")) {
+            enginePosition.loadSgf(Path.of(command.substring("loadsgf ".length())));
+          } else {
+            enginePosition.sendCommand(command);
+          }
+          return command.equals(heldCommand)
+              ? null
+              : ExactSnapshotRestoreProtocolFixture.Response.success();
+        });
+  }
+
+  private static RestoreHistory exactRestoreHistory() {
+    Board.boardWidth = BOARD_SIZE;
+    Board.boardHeight = BOARD_SIZE;
+    Zobrist.init();
+    Stone[] setupStones = emptyStones(BOARD_SIZE, BOARD_SIZE);
+    setupStones[Board.getIndex(0, 0)] = Stone.BLACK;
+    setupStones[Board.getIndex(1, 0)] = Stone.WHITE;
+    BoardData setup =
+        BoardData.snapshot(
+            setupStones,
+            java.util.Optional.of(new int[] {1, 0}),
+            Stone.WHITE,
+            true,
+            zobrist(setupStones, BOARD_SIZE, BOARD_SIZE),
+            3,
+            new int[setupStones.length],
+            0,
+            0,
+            50,
+            0);
+    setup.addProperty("SZ", String.valueOf(BOARD_SIZE));
+    setup.addProperty("PL", "B");
+    BoardHistoryList history = new BoardHistoryList(setup);
+
+    Stone[] movedStones = setupStones.clone();
+    movedStones[Board.getIndex(3, 3)] = Stone.BLACK;
+    history.add(
+        BoardData.move(
+            movedStones,
+            new int[] {3, 3},
+            Stone.BLACK,
+            false,
+            zobrist(movedStones, BOARD_SIZE, BOARD_SIZE),
+            4,
+            new int[movedStones.length],
+            0,
+            0,
+            50,
+            0));
+    history.add(
+        BoardData.pass(
+            movedStones.clone(),
+            Stone.WHITE,
+            true,
+            zobrist(movedStones, BOARD_SIZE, BOARD_SIZE),
+            5,
+            new int[movedStones.length],
+            0,
+            0,
+            50,
+            0));
+    BoardHistoryNode target = history.getCurrentHistoryNode();
+    return new RestoreHistory(history, target);
+  }
+
+  private static RestoreHistory exactBranchRestoreHistory() {
+    RestoreHistory source = exactRestoreHistory();
+    BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+    history.add(source.history.getStart().getData().clone());
+    history.add(source.target.previous().orElseThrow().getData().clone());
+    history.add(source.target.getData().clone());
+    BoardHistoryNode target = history.getCurrentHistoryNode();
+    history.toStart();
+    return new RestoreHistory(history, target);
+  }
+
+  private static RestoreHistory exactRestoreHistoryWithSnapshotSuccessor() {
+    RestoreHistory restoreHistory = exactRestoreHistory();
+    Stone[] successorStones = restoreHistory.target.getData().stones.clone();
+    successorStones[Board.getIndex(9, 9)] = Stone.BLACK;
+    BoardData successor =
+        BoardData.snapshot(
+            successorStones,
+            java.util.Optional.of(new int[] {9, 9}),
+            Stone.BLACK,
+            false,
+            zobrist(successorStones, BOARD_SIZE, BOARD_SIZE),
+            6,
+            new int[successorStones.length],
+            0,
+            0,
+            50,
+            0);
+    successor.addProperty("SZ", String.valueOf(BOARD_SIZE));
+    successor.addProperty("PL", "W");
+    restoreHistory.history.add(successor);
+    return restoreHistory;
+  }
+
+  private static RestoreHistory rootRestoreHistory(int size) {
+    Board.boardWidth = size;
+    Board.boardHeight = size;
+    Zobrist.init();
+    BoardHistoryList history = new BoardHistoryList(BoardData.empty(size, size));
+    Stone[] movedStones = emptyStones(size, size);
+    movedStones[Board.getIndex(2, 2)] = Stone.BLACK;
+    history.add(
+        BoardData.move(
+            movedStones,
+            new int[] {2, 2},
+            Stone.BLACK,
+            false,
+            zobrist(movedStones, size, size),
+            1,
+            new int[movedStones.length],
+            0,
+            0,
+            50,
+            0));
+    history.add(
+        BoardData.pass(
+            movedStones.clone(),
+            Stone.WHITE,
+            true,
+            zobrist(movedStones, size, size),
+            2,
+            new int[movedStones.length],
+            0,
+            0,
+            50,
+            0));
+    return new RestoreHistory(history, history.getCurrentHistoryNode());
+  }
+
+  private static Stone[] emptyStones(int width, int height) {
+    Stone[] stones = new Stone[width * height];
+    java.util.Arrays.fill(stones, Stone.EMPTY);
+    return stones;
+  }
+
+  private static Zobrist zobrist(Stone[] stones, int width, int height) {
+    Zobrist value = new Zobrist();
+    for (int x = 0; x < width; x++) {
+      for (int y = 0; y < height; y++) {
+        Stone stone = stones[x * height + y];
+        if (!stone.isEmpty()) {
+          value.toggleStone(x, y, stone);
+        }
+      }
+    }
+    return value;
+  }
+
+  private static List<String> commandsWithPrefix(
+      ExactSnapshotRestoreProtocolFixture.Transport transport, String prefix) {
+    ArrayList<String> matches = new ArrayList<>();
+    for (String command : transport.commands()) {
+      if (command.startsWith(prefix)) {
+        matches.add(command);
+      }
+    }
+    return matches;
+  }
+
+  private static int indexOfCommand(
+      ExactSnapshotRestoreProtocolFixture.Transport transport, String prefix) {
+    List<String> commands = transport.commands();
+    for (int index = 0; index < commands.size(); index++) {
+      if (commands.get(index).startsWith(prefix)) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  private static void assertPosition(
+      SnapshotTrackingLeelaz enginePosition, BoardData expected, int width, int height) {
+    assertEquals(width * height, enginePosition.copyStones().length);
+    assertArrayEquals(expected.stones, enginePosition.copyStones());
+    assertEquals(expected.blackToPlay, enginePosition.isBlackToPlay());
+    assertEquals(width, Board.boardWidth);
+    assertEquals(height, Board.boardHeight);
+  }
+
+  private static final class RestoreHistory {
+    private final BoardHistoryList history;
+    private final BoardHistoryNode target;
+
+    private RestoreHistory(BoardHistoryList history, BoardHistoryNode target) {
+      this.history = history;
+      this.target = target;
+    }
+  }
+
+  private static final class AsyncAction {
+    private final AtomicReference<Throwable> failure = new AtomicReference<>();
+    private final Thread thread;
+
+    private AsyncAction(Runnable action) {
+      thread =
+          new Thread(
+              () -> {
+                try {
+                  action.run();
+                } catch (Throwable thrown) {
+                  failure.set(thrown);
+                }
+              },
+              "position-confirmed-restore-test");
+      thread.setDaemon(true);
+      thread.start();
+    }
+
+    private static AsyncAction start(Runnable action) {
+      return new AsyncAction(action);
+    }
+
+    private void awaitFinished() throws InterruptedException {
+      thread.join(TimeUnit.NANOSECONDS.toMillis(OBSERVATION_TIMEOUT_NANOS));
+      assertFalse(thread.isAlive(), "restore action did not finish after its final response");
+    }
+
+    private void awaitCleanup() throws InterruptedException {
+      thread.join(TimeUnit.NANOSECONDS.toMillis(OBSERVATION_TIMEOUT_NANOS));
+    }
+
+    private void awaitSuccess() throws InterruptedException {
+      awaitFinished();
+      Throwable thrown = failure.get();
+      if (thrown != null) {
+        throw new AssertionError("restore action failed", thrown);
+      }
     }
   }
 
@@ -595,6 +1185,7 @@ class PositionConfirmedRollbackTest {
     private int scheduledResumeCount;
     private volatile Runnable scheduledResume;
     private boolean scheduledResumeRan;
+    private boolean userAnalysisPaused;
 
     @Override
     public BoardHistoryNode getDisplayNode() {
@@ -609,6 +1200,11 @@ class PositionConfirmedRollbackTest {
             scheduledResumeRan = true;
             action.run();
           };
+    }
+
+    @Override
+    public boolean isUserAnalysisPaused() {
+      return userAnalysisPaused;
     }
 
     @Override

@@ -3174,7 +3174,7 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     assertTrue(black.getBestMoves().isEmpty());
 
-    black.processCommandResponseLineForTest("=");
+    black.processCommandResponseLineForTest("=" + commandIdFor(black.commandText(), "clear_board"));
 
     assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
     assertTrue(
@@ -3272,7 +3272,8 @@ class EngineManagerEngineGameStateMachineTest {
           assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
           assertTrue(black.getBestMoves().isEmpty());
           assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
-          black.processCommandResponseLineForTest("=");
+          black.processCommandResponseLineForTest(
+              "=" + commandIdFor(black.commandText(), "clear_board"));
           black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 36");
           black.parseAnalysisLineForTest(kataAnalysisInfo());
         };
