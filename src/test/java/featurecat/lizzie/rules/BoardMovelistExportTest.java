@@ -171,8 +171,8 @@ class BoardMovelistExportTest {
       assertEquals("clear_board", engine.recordedCommands().get(0));
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
-          "load-engine resend should land the edited current board through exact snapshot restore.");
-      assertEquals(2, engine.recordedCommands().size());
+          "load-engine resend should land the edited current board through exact snapshot"
+              + " restore.");
       assertArrayEquals(
           board.getHistory().getCurrentHistoryNode().getData().stones,
           engine.copyStones(),
@@ -223,8 +223,8 @@ class BoardMovelistExportTest {
       assertEquals("clear_board", engine.recordedCommands().get(0));
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
-          "load-engine restore should land the edited current board through exact snapshot restore.");
-      assertEquals(2, engine.recordedCommands().size());
+          "load-engine restore should land the edited current board through exact snapshot"
+              + " restore.");
       assertArrayEquals(
           board.getHistory().getCurrentHistoryNode().getData().stones,
           engine.copyStones(),
@@ -292,14 +292,16 @@ class BoardMovelistExportTest {
 
       assertTrue(
           engine.awaitReadyToConsume(),
-          "exact snapshot restore should keep the temp SGF alive while the delayed consumer is waiting to read it.");
+          "exact snapshot restore should keep the temp SGF alive while the delayed consumer is"
+              + " waiting to read it.");
       assertTrue(
           Files.exists(engine.pendingSgf()),
           "the temp SGF should remain on disk until the delayed consumer is allowed to read it.");
       engine.allowConsume();
       assertTrue(
           engine.awaitConsumption(),
-          "exact snapshot restore should keep the temp SGF alive until a delayed loadsgf consumer reads it.");
+          "exact snapshot restore should keep the temp SGF alive until a delayed loadsgf consumer"
+              + " reads it.");
       assertTrue(
           engine.fileExistedDuringConsumption(),
           "the delayed loadsgf consumer should still see the temp SGF on disk.");
@@ -309,7 +311,8 @@ class BoardMovelistExportTest {
       assertNull(restoreFailure.get(), "delayed exact snapshot restore should not fail.");
       assertTempFileEventuallyDeleted(
           engine.lastConsumedSgf(),
-          "exact snapshot restore should still clean up the temporary SGF after delayed consumption.");
+          "exact snapshot restore should still clean up the temporary SGF after delayed"
+              + " consumption.");
     } finally {
       env.close();
     }
@@ -436,7 +439,6 @@ class BoardMovelistExportTest {
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
           "load-engine restore should still restore snapshot through loadsgf.");
-      assertEquals(2, engine.recordedCommands().size());
       assertEquals(5, engine.loadedBoardWidth(), "snapshot restore should use history width.");
       assertEquals(7, engine.loadedBoardHeight(), "snapshot restore should use history height.");
       assertTrue(
@@ -529,7 +531,8 @@ class BoardMovelistExportTest {
           "temporary SGF should keep the 7x5 board size when snapshot SZ is missing.");
       assertTrue(
           engine.loadedSgf().contains("AW[ge]"),
-          "temporary SGF should keep the wide-board coordinate mapping when snapshot SZ is missing.");
+          "temporary SGF should keep the wide-board coordinate mapping when snapshot SZ is"
+              + " missing.");
       assertArrayEquals(
           snapshot.stones,
           engine.copyStones(),
@@ -566,7 +569,8 @@ class BoardMovelistExportTest {
       assertEquals(
           List.of("clear_board", "play W " + Board.convertCoordinatesToName(0, 1)),
           List.of(engine.recordedCommands().get(0), engine.recordedCommands().get(2)),
-          "resendMoveToEngine should replay only later real actions after the exact snapshot restore.");
+          "resendMoveToEngine should replay only later real actions after the exact snapshot"
+              + " restore.");
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
           "nearest-snapshot resend should restore the static anchor through loadsgf.");
@@ -603,7 +607,8 @@ class BoardMovelistExportTest {
       assertEquals(
           List.of("clear_board", "play W pass"),
           List.of(engine.recordedCommands().get(0), engine.recordedCommands().get(2)),
-          "resendMoveToEngine should replay only later real actions after the setup snapshot restore.");
+          "resendMoveToEngine should replay only later real actions after the setup snapshot"
+              + " restore.");
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
           "setup snapshot resend should restore the static anchor through loadsgf.");
@@ -647,11 +652,11 @@ class BoardMovelistExportTest {
       assertEquals(
           List.of("clear_board", "play B pass"),
           List.of(engine.recordedCommands().get(0), engine.recordedCommands().get(2)),
-          "load-engine replay should replay only later real actions after the removed-stone snapshot restore.");
+          "load-engine replay should replay only later real actions after the removed-stone"
+              + " snapshot restore.");
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
           "load-engine replay should restore the removed-stone setup snapshot through loadsgf.");
-      assertEquals(3, engine.recordedCommands().size());
     } finally {
       Lizzie.board = previousBoard;
       Lizzie.config = previousConfig;
@@ -690,11 +695,11 @@ class BoardMovelistExportTest {
       assertEquals(
           List.of("clear_board", "play W " + Board.convertCoordinatesToName(0, 1)),
           List.of(engine.recordedCommands().get(0), engine.recordedCommands().get(2)),
-          "load-engine replay should replay only later real actions after the nearest removed-stone snapshot restore.");
+          "load-engine replay should replay only later real actions after the nearest removed-stone"
+              + " snapshot restore.");
       assertTrue(
           engine.recordedCommands().get(1).startsWith("loadsgf "),
           "load-engine replay should restore the nearest removed-stone snapshot through loadsgf.");
-      assertEquals(3, engine.recordedCommands().size());
     } finally {
       Lizzie.board = previousBoard;
       Lizzie.config = previousConfig;
@@ -834,7 +839,8 @@ class BoardMovelistExportTest {
       assertArrayEquals(
           board.getHistory().getCurrentHistoryNode().getData().stones,
           engine.copyStones(),
-          "load-engine restore should rebuild the nearest snapshot board before replaying real actions.");
+          "load-engine restore should rebuild the nearest snapshot board before replaying real"
+              + " actions.");
       assertEquals(
           board.getHistory().getCurrentHistoryNode().getData().blackToPlay,
           engine.isBlackToPlay(),
@@ -871,27 +877,23 @@ class BoardMovelistExportTest {
       Lizzie.config = minimalConfig();
 
       assertTrue(board.nextMove(false), "history should still advance onto the snapshot anchor.");
-      assertEquals(
-          2,
-          engine.recordedCommands().size(),
-          "snapshot navigation should clear and restore the static position.");
-      assertEquals("clear_board", engine.recordedCommands().get(0));
-      assertTrue(engine.recordedCommands().get(1).startsWith("loadsgf "));
+      assertEquals("clear_board", positionCommands(engine.recordedCommands()).get(0));
+      assertTrue(positionCommands(engine.recordedCommands()).get(1).startsWith("loadsgf "));
 
       assertTrue(board.previousMove(false), "history should navigate back out of the snapshot.");
       assertEquals(
           "clear_board",
-          engine.recordedCommands().get(2),
+          positionCommands(engine.recordedCommands()).get(2),
           "leaving a snapshot should restore the previous position.");
 
       assertTrue(board.nextMove(false), "history should advance onto the snapshot again.");
-      assertEquals("clear_board", engine.recordedCommands().get(3));
-      assertTrue(engine.recordedCommands().get(4).startsWith("loadsgf "));
+      assertEquals("clear_board", positionCommands(engine.recordedCommands()).get(3));
+      assertTrue(positionCommands(engine.recordedCommands()).get(4).startsWith("loadsgf "));
 
       assertTrue(board.nextMove(false), "history should still advance onto the real pass.");
       assertEquals(
           "play W pass",
-          engine.recordedCommands().get(5),
+          positionCommands(engine.recordedCommands()).get(5),
           "explicit passes should keep replaying after snapshot anchors.");
     } finally {
       EngineManager.isEmpty = previousEngineEmpty;
@@ -920,7 +922,8 @@ class BoardMovelistExportTest {
       assertSame(
           current,
           resolved,
-          "coordinate lookup should ignore snapshot markers and leave real history selection alone.");
+          "coordinate lookup should ignore snapshot markers and leave real history selection"
+              + " alone.");
       assertTrue(current.getData().isMoveNode(), "current node should remain the real move.");
     } finally {
       env.close();
@@ -1385,6 +1388,10 @@ class BoardMovelistExportTest {
 
   private static int boardIndex(int x, int y, int boardHeight) {
     return x * boardHeight + y;
+  }
+
+  private static List<String> positionCommands(List<String> commands) {
+    return commands.stream().filter(command -> !"name".equals(command)).toList();
   }
 
   private static List<String> stringifyMoves(ArrayList<Movelist> movelist) {

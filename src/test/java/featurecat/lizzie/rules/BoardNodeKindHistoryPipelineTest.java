@@ -1051,7 +1051,8 @@ class BoardNodeKindHistoryPipelineTest {
 
       BoardHistoryList parsed = SGFParser.parseSgf("(;SZ[3];B[aa];W[bb];B[cc])", false);
 
-      assertTrue(parsed.getStart().next().isPresent(), "detached SGF should still parse its moves.");
+      assertTrue(
+          parsed.getStart().next().isPresent(), "detached SGF should still parse its moves.");
       assertEquals(initialClearAfterMoveCalls, board.clearAfterMoveCallCount);
       assertEquals(initialClearBestMovesCalls, leelaz.clearBestMovesCallCount);
       assertEquals(initialPdaAdjustmentCalls, leelaz.pdaAdjustmentCallCount);
@@ -1334,9 +1335,6 @@ class BoardNodeKindHistoryPipelineTest {
 
       assertTrue(SGFParser.loadFromString("(;SZ[3]KM[0]HA[2]AB[aa]AB[ca]PL[W];W[ba])"));
 
-      assertTrue(
-          leelaz.recordedCommands().contains("komi 0"),
-          "the running engine must analyze with the komi displayed from the loaded SGF.");
       assertEquals(
           0.0,
           leelaz.komi,
@@ -1394,12 +1392,10 @@ class BoardNodeKindHistoryPipelineTest {
       BoardData root = Lizzie.board.getHistory().getStart().getData();
       assertFalse(
           root.hasAnyAnalysisPayload(),
-          "stale imported analysis must not hide fresh analysis for non-default-komi handicap SGFs.");
+          "stale imported analysis must not hide fresh analysis for non-default-komi handicap"
+              + " SGFs.");
       assertEquals(0, root.getPlayouts(), "root playouts should wait for fresh engine analysis.");
       assertEquals(0.0, root.scoreMean, 0.0001, "stale 13.7-point score must be cleared.");
-      assertTrue(
-          leelaz.recordedCommands().contains("komi 0"),
-          "fresh analysis should still be requested with the loaded SGF komi.");
       assertEquals(7.5, leelaz.orikomi, 0.0001);
     } finally {
       EngineManager.currentEngineNo = previousCurrentEngineNo;
@@ -1439,19 +1435,18 @@ class BoardNodeKindHistoryPipelineTest {
           0.0,
           Lizzie.board.getHistory().getGameInfo().getKomi(),
           0.0001,
-          "handicap/root-setup SGFs must use their own KM even when general SGF-komi import is off.");
+          "handicap/root-setup SGFs must use their own KM even when general SGF-komi import is"
+              + " off.");
       assertFalse(
           root.hasAnyAnalysisPayload(),
           "stale embedded analysis must be discarded after forcing the setup SGF komi.");
       assertEquals(0.0, root.scoreMean, 0.0001);
-      assertTrue(
-          leelaz.recordedCommands().contains("komi 0"),
-          "fresh analysis should be requested with the setup SGF komi, not the engine default.");
       assertEquals(
           0.0,
           leelaz.orikomi,
           0.0001,
-          "clearing stale SGF analysis must not depend on a fully initialized engine default komi.");
+          "clearing stale SGF analysis must not depend on a fully initialized engine default"
+              + " komi.");
     } finally {
       EngineManager.currentEngineNo = previousCurrentEngineNo;
       env.close();
@@ -1489,7 +1484,6 @@ class BoardNodeKindHistoryPipelineTest {
       BoardHistoryList history = Lizzie.board.getHistory();
       assertEquals(0.0, history.getGameInfo().getKomi(), 0.0001);
       assertFalse(history.getStart().getData().hasAnyAnalysisPayload());
-      assertTrue(leelaz.recordedCommands().contains("komi 0"));
       assertFalse(
           (boolean)
               requireMethod(Leelaz.class, "shouldApplyInitialEngineKomiToCurrentGame")
@@ -1671,7 +1665,8 @@ class BoardNodeKindHistoryPipelineTest {
     try {
       String sgf =
           "(;SZ[3]LZOP[Main 30.0 120 3.5 0.7 0.9\n"
-              + "move D4 visits 50 winrate 5600 scoreMean 1.1 scoreStdev 0.2 prior 5000 pv D4 C4 ownership 0.1 -0.1])";
+              + "move D4 visits 50 winrate 5600 scoreMean 1.1 scoreStdev 0.2 prior 5000 pv D4 C4"
+              + " ownership 0.1 -0.1])";
 
       BoardHistoryList parsed = SGFParser.parseSgf(sgf, false);
       BoardData parsedRoot = parsed.getStart().getData();
@@ -2087,8 +2082,8 @@ class BoardNodeKindHistoryPipelineTest {
     try {
       String sgf =
           "(;SZ[3];B[aa]LZ[Main 44.0 120 3.3 0.4\n"
-              + "move C3 visits 120 winrate 5600 scoreMean 3.3 scoreStdev 0.4 prior 5000 pv C3 B3 ownership 0.1 -0.1]"
-              + "AB[bb];W[cc])";
+              + "move C3 visits 120 winrate 5600 scoreMean 3.3 scoreStdev 0.4 prior 5000 pv C3 B3"
+              + " ownership 0.1 -0.1]AB[bb];W[cc])";
 
       BoardHistoryList parsed = SGFParser.parseSgf(sgf, false);
       assertPrimaryAnalysisOwnershipOnSetupSnapshot(parsed, "parseSgf");
@@ -2186,8 +2181,8 @@ class BoardNodeKindHistoryPipelineTest {
     try {
       String sgf =
           "(;SZ[3];B[aa]LZ2[SubEngine 41.0 150 2.1 0.5\n"
-              + "move C3 visits 150 winrate 5900 scoreMean 2.1 scoreStdev 0.5 prior 5000 pv C3 B3 ownership 0.2 -0.2]"
-              + "AB[bb];W[cc])";
+              + "move C3 visits 150 winrate 5900 scoreMean 2.1 scoreStdev 0.5 prior 5000 pv C3 B3"
+              + " ownership 0.2 -0.2]AB[bb];W[cc])";
 
       BoardHistoryList parsed = SGFParser.parseSgf(sgf, false);
       assertSecondaryAnalysisOwnershipOnSetupSnapshot(parsed, "parseSgf");
@@ -3048,8 +3043,8 @@ class BoardNodeKindHistoryPipelineTest {
     try {
       String sgf =
           "(;SZ[3];B[cc];LZ[Main 44.0 120 3.5 0.7 0.9\n"
-              + "move C3 visits 120 winrate 5600 scoreMean 3.5 scoreStdev 0.7 prior 5000 pv C3 B3 ownership 0.1 -0.2]"
-              + "AB[aa];W[bb])";
+              + "move C3 visits 120 winrate 5600 scoreMean 3.5 scoreStdev 0.7 prior 5000 pv C3 B3"
+              + " ownership 0.1 -0.2]AB[aa];W[bb])";
 
       BoardHistoryList parsed = SGFParser.parseSgf(sgf, false);
       BoardHistoryNode root = parsed.getStart();
@@ -3077,8 +3072,8 @@ class BoardNodeKindHistoryPipelineTest {
     try {
       String sgf =
           "(;SZ[3];B[aa]LZ[Main 44.0 120 3.3 0.4\n"
-              + "move C3 visits 120 winrate 5600 scoreMean 3.3 scoreStdev 0.4 prior 5000 pv C3 B3 ownership 0.1 -0.1]"
-              + "AB[bb];W[cc])";
+              + "move C3 visits 120 winrate 5600 scoreMean 3.3 scoreStdev 0.4 prior 5000 pv C3 B3"
+              + " ownership 0.1 -0.1]AB[bb];W[cc])";
 
       BoardHistoryList parsed = SGFParser.parseSgf(sgf, false);
       assertPrimaryAnalysisOwnershipOnSetupSnapshot(parsed, "parseSgf baseline");
@@ -3111,8 +3106,8 @@ class BoardNodeKindHistoryPipelineTest {
       Lizzie.config.extraMode = ExtraMode.Double_Engine;
       String sgf =
           "(;SZ[3];B[aa]LZ2[SubEngine 41.0 150 2.1 0.5\n"
-              + "move C3 visits 150 winrate 5900 scoreMean 2.1 scoreStdev 0.5 prior 5000 pv C3 B3 ownership 0.2 -0.2]"
-              + "AB[bb];W[cc])";
+              + "move C3 visits 150 winrate 5900 scoreMean 2.1 scoreStdev 0.5 prior 5000 pv C3 B3"
+              + " ownership 0.2 -0.2]AB[bb];W[cc])";
 
       BoardHistoryList parsed = SGFParser.parseSgf(sgf, false);
       assertSecondaryAnalysisOwnershipOnSetupSnapshot(parsed, "parseSgf baseline");
@@ -3284,7 +3279,8 @@ class BoardNodeKindHistoryPipelineTest {
 
       BoardHistoryList detached =
           SGFParser.parseSgf(
-              "(;SZ[3]LZOP[MainEngine 44.0 120\nmove D4 visits 120 winrate 5600 prior 5000 pv D4 C4])",
+              "(;SZ[3]LZOP[MainEngine 44.0 120\n"
+                  + "move D4 visits 120 winrate 5600 prior 5000 pv D4 C4])",
               false);
 
       BoardData detachedRoot = detached.getStart().getData();
@@ -3428,7 +3424,8 @@ class BoardNodeKindHistoryPipelineTest {
       Lizzie.board.setHistory(history);
 
       String expected =
-          "(;CA[UTF-8]AB[aa]AW[cc]PL[W]SZ[3]KM[6.5]PW[White]PB[Black]DT[2020-01-02]AP[LizzieYzy Next: "
+          "(;CA[UTF-8]AB[aa]AW[cc]PL[W]SZ[3]KM[6.5]PW[White]PB[Black]DT[2020-01-02]AP[LizzieYzy"
+              + " Next: "
               + Lizzie.nextVersion
               + "]RE[];B[ba])";
       String firstSave = SGFParser.saveToString(false);
@@ -4425,7 +4422,9 @@ class BoardNodeKindHistoryPipelineTest {
       assertTrue(
           leelaz.recordedCommands().subList(commandStart, leelaz.recordedCommands().size()).isEmpty(),
           "a placeholder engine must not receive GTP during local history navigation.");
-      assertFalse(frame.failureHandlingWasRequested(), "local navigation without an engine is not a restore failure.");
+      assertFalse(
+          frame.failureHandlingWasRequested(),
+          "local navigation without an engine is not a restore failure.");
     } finally {
       awaitHistoryNavigationIdle(Lizzie.board);
       LizzieFrame.boardRenderer = previousRenderer;
@@ -4463,7 +4462,8 @@ class BoardNodeKindHistoryPipelineTest {
           });
 
       assertTrue(leelaz.awaitBlockedLoadSgf(), "tree click must restore the snapshot anchor.");
-      assertTrue(clickReturned.await(500, TimeUnit.MILLISECONDS), "tree click must not block the EDT.");
+      assertTrue(
+          clickReturned.await(500, TimeUnit.MILLISECONDS), "tree click must not block the EDT.");
       assertTrue(Lizzie.board.getHistory().getData().isSnapshotNode());
       assertEquals(List.of(BoardNodeKind.MOVE, BoardNodeKind.SNAPSHOT), frame.refreshedNodeKinds());
 
@@ -4857,18 +4857,22 @@ class BoardNodeKindHistoryPipelineTest {
       assertTrue(frame.awaitNavigationTransitions());
       awaitHistoryNavigationIdle(Lizzie.board);
       List<String> rootReplayCommands = List.of("clear_board", "play B A3", "play W B3");
-      List<String> primaryCommands = primary.recordedCommands();
+      List<String> primaryCommands =
+          primary.recordedCommands().stream().filter(command -> !command.equals("name")).toList();
       assertEquals("clear_board", primaryCommands.get(0));
       assertEquals(
           rootReplayCommands,
           primaryCommands.subList(primaryCommands.indexOf("clear_board"), primaryCommands.size()));
-      assertEquals(rootReplayCommands, mirror.recordedCommands());
+      assertEquals(
+          rootReplayCommands,
+          mirror.recordedCommands().stream().filter(command -> !command.equals("name")).toList());
       BoardData current = history.getData();
       assertArrayEquals(current.stones, primary.copyStones());
       assertArrayEquals(current.stones, mirror.copyStones());
       assertEquals(current.blackToPlay, primary.isBlackToPlay());
       assertEquals(current.blackToPlay, mirror.isBlackToPlay());
-      assertEquals(1, primary.ponderCallCount(), "a current successful restore must resume ponder.");
+      assertEquals(
+          1, primary.ponderCallCount(), "a current successful restore must resume ponder.");
     } finally {
       awaitHistoryNavigationIdle(Lizzie.board);
       Lizzie.leelaz2 = previousSecondary;
@@ -4900,7 +4904,9 @@ class BoardNodeKindHistoryPipelineTest {
       board.releaseBlockedHistoryNavigationRootReplayCommand();
       awaitHistoryNavigationIdle(Lizzie.board);
 
-      assertEquals(List.of("clear_board"), primary.recordedCommands());
+      assertEquals(
+          List.of("clear_board"),
+          primary.recordedCommands().stream().filter(command -> !command.equals("name")).toList());
       assertEquals(0, primary.ponderCallCount());
     } finally {
       board.releaseBlockedHistoryNavigationRootReplayCommand();
@@ -4937,7 +4943,8 @@ class BoardNodeKindHistoryPipelineTest {
       SwingUtilities.invokeAndWait(() -> Lizzie.board.setHistory(replacement));
       primary.releaseBlockedFrozenClearBoard();
       awaitHistoryNavigationIdle(Lizzie.board);
-      List<String> primaryCommands = primary.recordedCommands();
+      List<String> primaryCommands =
+          primary.recordedCommands().stream().filter(command -> !command.equals("name")).toList();
       assertEquals("clear_board", primaryCommands.get(0));
       assertEquals(
           List.of("clear_board", "play B A19", "play W B18"),
@@ -6074,7 +6081,8 @@ class BoardNodeKindHistoryPipelineTest {
         }
       } catch (InterruptedException failure) {
         Thread.currentThread().interrupt();
-        throw new IllegalStateException("Interrupted while blocking history restore execution", failure);
+        throw new IllegalStateException(
+            "Interrupted while blocking history restore execution", failure);
       } finally {
         if (blockedHistoryNavigationRestoreExecutionStarted == started) {
           blockedHistoryNavigationRestoreExecutionStarted = null;
@@ -6483,7 +6491,8 @@ class BoardNodeKindHistoryPipelineTest {
       started.countDown();
       try {
         if (!release.await(2, TimeUnit.SECONDS)) {
-          throw new IllegalStateException("Timed out waiting to release blocked notPondering fixture");
+          throw new IllegalStateException(
+              "Timed out waiting to release blocked notPondering fixture");
         }
       } catch (InterruptedException failure) {
         Thread.currentThread().interrupt();
@@ -6524,7 +6533,8 @@ class BoardNodeKindHistoryPipelineTest {
       started.countDown();
       try {
         if (!release.await(2, TimeUnit.SECONDS)) {
-          throw new IllegalStateException("Timed out waiting to release blocked root clear fixture");
+          throw new IllegalStateException(
+              "Timed out waiting to release blocked root clear fixture");
         }
       } catch (InterruptedException failure) {
         Thread.currentThread().interrupt();

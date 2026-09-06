@@ -185,6 +185,50 @@ class BoardDataAnalysisCacheTraceTest {
   }
 
   @Test
+  void primaryExplicitInvalidationLetsLowerVisitsReplaceOnlyPrimarySlot() throws Exception {
+    startFullTrace();
+    installBoardGlobals();
+    BoardData node = primaryNode(10555, 0.12, -27.1);
+    MoveData cachedPrimary = kataMove(10555, 0.12, -27.1);
+    cachedPrimary.coordinate = "A1";
+    node.bestMoves = new ArrayList<>(List.of(cachedPrimary));
+    node.setPlayouts2(12000);
+    node.winrate2 = 55.5;
+    node.scoreMean2 = 4.25;
+    MoveData cachedSecondary = kataMove(12000, 55.5, 4.25);
+    cachedSecondary.coordinate = "Q16";
+    node.bestMoves2 = new ArrayList<>(List.of(cachedSecondary));
+    List<Double> secondaryOwnership = List.of(0.4, -0.5);
+    node.estimateArray2 = secondaryOwnership;
+    node.isChanged = true;
+    MoveData incoming = kataMove(868, 99.91, 30.4);
+    incoming.coordinate = "B1";
+    List<Double> incomingOwnership = List.of(0.9, -0.8, 0.7);
+
+    assertTrue(
+        node.tryToSetBestMovesFromEngine(
+            new ArrayList<>(List.of(incoming)),
+            "KataGo",
+            Lizzie.leelaz,
+            868,
+            incomingOwnership,
+            false));
+
+    assertEquals(868, node.getPlayouts());
+    assertEquals("B1", node.bestMoves.get(0).coordinate);
+    assertEquals(868, node.bestMoves.get(0).playouts);
+    assertEquals(99.91, node.winrate, 0.0001);
+    assertEquals(30.4, node.scoreMean, 0.0001);
+    assertEquals(incomingOwnership, node.estimateArray);
+    assertEquals(12000, node.getPlayouts2());
+    assertEquals("Q16", node.bestMoves2.get(0).coordinate);
+    assertEquals(12000, node.bestMoves2.get(0).playouts);
+    assertEquals(55.5, node.winrate2, 0.0001);
+    assertEquals(4.25, node.scoreMean2, 0.0001);
+    assertEquals(secondaryOwnership, node.estimateArray2);
+  }
+
+  @Test
   void primaryPdaChangeAcceptsEqualVisits() throws Exception {
     startFullTrace();
     installBoardGlobals();
@@ -247,6 +291,44 @@ class BoardDataAnalysisCacheTraceTest {
     assertEquals(10555, node.getPlayouts2());
     assertDecision(
         "REJECT", "LOWER_VISITS", 868, 99.91, 30.4, 10555, 0.12, -27.1, "KataGo-2");
+  }
+
+  @Test
+  void secondaryExplicitInvalidationLetsLowerVisitsReplaceOnlySecondarySlot() throws Exception {
+    startFullTrace();
+    installBoardGlobals();
+    BoardData node = secondaryNode(10555, 0.12, -27.1);
+    MoveData cachedSecondary = kataMove(10555, 0.12, -27.1);
+    cachedSecondary.coordinate = "Q16";
+    node.bestMoves2 = new ArrayList<>(List.of(cachedSecondary));
+    node.setPlayouts(12000);
+    node.winrate = 55.5;
+    node.scoreMean = 4.25;
+    MoveData cachedPrimary = kataMove(12000, 55.5, 4.25);
+    cachedPrimary.coordinate = "A1";
+    node.bestMoves = new ArrayList<>(List.of(cachedPrimary));
+    List<Double> primaryOwnership = List.of(0.4, -0.5);
+    node.estimateArray = primaryOwnership;
+    node.isChanged2 = true;
+    MoveData incoming = kataMove(868, 99.91, 30.4);
+    incoming.coordinate = "B1";
+    List<Double> incomingOwnership = List.of(0.9, -0.8, 0.7);
+
+    node.tryToSetBestMoves2FromEngine(
+        new ArrayList<>(List.of(incoming)), "KataGo-2", Lizzie.leelaz, 868, incomingOwnership);
+
+    assertEquals(868, node.getPlayouts2());
+    assertEquals("B1", node.bestMoves2.get(0).coordinate);
+    assertEquals(868, node.bestMoves2.get(0).playouts);
+    assertEquals(99.91, node.winrate2, 0.0001);
+    assertEquals(30.4, node.scoreMean2, 0.0001);
+    assertEquals(incomingOwnership, node.estimateArray2);
+    assertEquals(12000, node.getPlayouts());
+    assertEquals("A1", node.bestMoves.get(0).coordinate);
+    assertEquals(12000, node.bestMoves.get(0).playouts);
+    assertEquals(55.5, node.winrate, 0.0001);
+    assertEquals(4.25, node.scoreMean, 0.0001);
+    assertEquals(primaryOwnership, node.estimateArray);
   }
 
   @Test

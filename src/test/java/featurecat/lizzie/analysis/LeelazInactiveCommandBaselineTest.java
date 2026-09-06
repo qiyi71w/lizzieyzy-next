@@ -35,7 +35,7 @@ class LeelazInactiveCommandBaselineTest {
       assertEquals("name\n", output.toString(StandardCharsets.UTF_8));
 
       processCommandResponse(engine, "=");
-      assertEquals("name\n", output.toString(StandardCharsets.UTF_8));
+      assertEquals("name\nversion\n", output.toString(StandardCharsets.UTF_8));
 
       processCommandResponse(engine, "=");
       assertEquals("name\nversion\nshowboard\n", output.toString(StandardCharsets.UTF_8));

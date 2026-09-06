@@ -33,14 +33,19 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 
 public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.EligibilitySource {
+  private static final AtomicLongFieldUpdater<ReadBoard> SYNC_ANALYSIS_EPOCH =
+      AtomicLongFieldUpdater.newUpdater(ReadBoard.class, "syncAnalysisEpoch");
   private static final AtomicInteger PLACE_COMMAND_DISPATCH_THREAD_SEQUENCE = new AtomicInteger();
   private static final Executor PLACE_COMMAND_DISPATCH_EXECUTOR =
       Executors.newCachedThreadPool(ReadBoard::newPlaceCommandDispatchThread);
@@ -258,6 +263,8 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
   private boolean awaitingFirstSyncFrame = true;
   private int historyOverwriteSuppressionDepth = 0;
   private volatile long syncAnalysisEpoch = 0L;
+  private Thread syncRecoveryThread;
+  private BoardHistoryNode collectedSyncResumeTarget;
   private String lastProtocolLineSummary;
   private long lastProtocolTimestampMillis;
 
@@ -1511,6 +1518,35 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
   }
 
   private void syncBoardStones(boolean isSecondTime) {
+    if (isReadBoardGmaEngineBusy()
+        || Lizzie.frame.isPlayingAgainstLeelaz
+        || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
+      applySyncBoardStones(isSecondTime);
+      return;
+    }
+    collectedSyncResumeTarget = null;
+    syncRecoveryThread = Thread.currentThread();
+    CompletableFuture<Void> confirmed;
+    localNavigationTracker.beginReadBoardNavigation();
+    try {
+      confirmed =
+          Lizzie.board.applyReadBoardSync(
+              () -> applySyncBoardStones(isSecondTime), () -> collectedSyncResumeTarget != null);
+    } finally {
+      syncRecoveryThread = null;
+      localNavigationTracker.clear();
+      isSyncing = false;
+    }
+    if (collectedSyncResumeTarget != null) {
+      scheduleResumeAnalysisAfterSync(collectedSyncResumeTarget, confirmed);
+    }
+  }
+
+  private boolean isCollectingSyncRecovery() {
+    return syncRecoveryThread == Thread.currentThread();
+  }
+
+  private void applySyncBoardStones(boolean isSecondTime) {
     //    if (!isSecondTime) {
     //      long thisTime = System.currentTimeMillis();
     //      if (thisTime - startSyncTime < Lizzie.config.readBoardArg2 / 2) return;
@@ -1795,6 +1831,10 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
       if (played || needRefresh) {
         Lizzie.frame.refresh();
       }
+      if (isCollectingSyncRecovery() && played && !singleMoveRecovered) {
+        scheduleResumeAnalysisAfterSync(Lizzie.board.getHistory().getCurrentHistoryNode());
+      }
+      if (isCollectingSyncRecovery()) firstSync = false;
       if (firstSync) {
         firstSync = false;
         previousMoveWithoutTracking(true);
@@ -1811,8 +1851,10 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
       }
       continueGameAfterSyncIfNeeded("sync", Lizzie.board.getHistory().getCurrentHistoryNode());
     } finally {
-      localNavigationTracker.clear();
-      isSyncing = false;
+      if (!isCollectingSyncRecovery()) {
+        localNavigationTracker.clear();
+        isSyncing = false;
+      }
     }
     //	    if (played && Lizzie.config.alwaysGotoLastOnLive) {
     //	      int moveNumber = Lizzie.board.getHistory().getMainEnd().getData().moveNumber;
@@ -2155,19 +2197,8 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
         lastMoveSource,
         foxMoveNumber,
         false);
-    if (analysisEngineAvailable) {
-      try {
-        syncEngineToRebuiltSnapshot(rebuiltNode);
-      } catch (RuntimeException ex) {
-        localMoveSyncDebug(
-            "rebuildFromSnapshot syncEngine failed node="
-                + historyNodeSummary(rebuiltNode)
-                + " error="
-                + ex.getClass().getSimpleName()
-                + ": "
-                + ex.getMessage());
-        throw ex;
-      }
+    if (analysisEngineAvailable && !isCollectingSyncRecovery()) {
+      syncEngineToRebuiltSnapshot(rebuiltNode);
     }
     rememberResolvedSnapshotNode(rebuiltNode, resolvedRemoteContext);
     if (analysisEngineAvailable && !continueGameAfterSyncIfNeeded("rebuild", rebuiltNode)) {
@@ -2977,9 +3008,10 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     runWithSuppressedHistoryOverwriteInvalidation(() -> Lizzie.board.setHistory(history));
   }
 
-  private void invalidatePendingSyncAnalysisResume() {
-    syncAnalysisEpoch++;
+  public void invalidatePendingSyncAnalysisResume() {
+    SYNC_ANALYSIS_EPOCH.incrementAndGet(this);
   }
+
 
   private void moveToAnyPositionWithoutTracking(BoardHistoryNode node) {
     runWithoutTrackingLocalHistoryNavigation(() -> Lizzie.board.moveToAnyPosition(node));
@@ -5296,6 +5328,22 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
   }
 
   private void scheduleResumeAnalysisAfterSync(BoardHistoryNode targetNode) {
+    if (isCollectingSyncRecovery()) {
+      collectedSyncResumeTarget = targetNode;
+      return;
+    }
+    CompletableFuture<Void> confirmed = new CompletableFuture<>();
+    if (isReadBoardAnalysisEngineAvailable()) {
+      Lizzie.leelaz.confirmBoardSynchronization(
+          Lizzie.leelaz.resolveLoadSgfMirrorEngine(),
+          () -> confirmed.complete(null),
+          detail -> confirmed.completeExceptionally(new IllegalStateException(detail)));
+    }
+    scheduleResumeAnalysisAfterSync(targetNode, confirmed);
+  }
+
+  private void scheduleResumeAnalysisAfterSync(
+      BoardHistoryNode targetNode, CompletableFuture<Void> confirmed) {
     if (Lizzie.frame == null || targetNode == null || !isReadBoardAnalysisEngineAvailable()) {
       localMoveSyncDebug(
           "scheduleResumeAnalysisAfterSync skip frame="
@@ -5314,7 +5362,12 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
               + pendingLocalMoveState());
       return;
     }
-    long scheduledEpoch = ++syncAnalysisEpoch;
+    long scheduledEpoch = SYNC_ANALYSIS_EPOCH.incrementAndGet(this);
+    Board capturedBoard = Lizzie.board;
+    long capturedRevision = capturedBoard.getContextRevision();
+    Leelaz capturedEngine = Lizzie.leelaz;
+    long capturedGeneration = Lizzie.capturePrimaryEngineGeneration(capturedEngine);
+    AtomicBoolean consumed = new AtomicBoolean();
     localMoveSyncDebug(
         "scheduleResumeAnalysisAfterSync epoch="
             + scheduledEpoch
@@ -5326,7 +5379,25 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
             + (Lizzie.leelaz != null && Lizzie.leelaz.isPondering()));
     Lizzie.frame.scheduleResumeAnalysisAfterLoad(
         SYNC_ANALYSIS_RESUME_DELAY_MS,
-        () -> resumeAnalysisAfterSyncIfStillCurrent(scheduledEpoch, targetNode));
+        () ->
+            confirmed.thenRun(
+                () ->
+                    SwingUtilities.invokeLater(
+                        () -> {
+                          synchronized (capturedBoard) {
+                            if (!consumed.compareAndSet(false, true)
+                                || Lizzie.board != capturedBoard
+                                || capturedBoard.getContextRevision() != capturedRevision
+                                || shouldSkipResumeTargetBeforeConfirmedLocalMove(targetNode))
+                              return;
+                            Lizzie.runIfPrimaryEngine(
+                                capturedEngine,
+                                capturedGeneration,
+                                () ->
+                                    resumeAnalysisAfterSyncIfStillCurrent(
+                                        scheduledEpoch, targetNode));
+                          }
+                        })));
   }
 
   private boolean shouldSkipResumeTargetBeforeConfirmedLocalMove(BoardHistoryNode targetNode) {
@@ -5731,7 +5802,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
             + historyNodeSummary(targetNode)
             + " enginePonderingBefore="
             + (Lizzie.leelaz != null && Lizzie.leelaz.isPondering()));
-    boolean resumed = Lizzie.frame.ensureAnalysisResumedAfterLoad();
+    boolean resumed = Lizzie.frame.ensureAnalysisResumedAfterSyncLoad();
     localMoveSyncDebug(
         "resumeAnalysisAfterSync result resumed="
             + resumed

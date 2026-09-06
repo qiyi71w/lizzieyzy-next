@@ -542,7 +542,8 @@ class LeelazExclusiveRemoteGtpSessionTest {
         reservation.close();
       }
 
-      assertEquals("komi 6.5\n", output.toString(StandardCharsets.UTF_8));
+      assertEquals(
+          "komi 6.5\n", output.toString(StandardCharsets.UTF_8).replaceFirst("^\\d+\\s+", ""));
     } finally {
       Lizzie.leelaz = previousEngine;
       Lizzie.board = previousBoard;

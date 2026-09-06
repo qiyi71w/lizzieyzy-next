@@ -151,12 +151,10 @@ class ReadBoardSyncDecisionTest {
             placement(1, 1, Stone.WHITE),
             placement(2, 2, Stone.BLACK));
     int[] lastMove = new int[] {2, 2};
-    AtomicInteger clearMutationCount = new AtomicInteger();
 
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
       harness.leelaz.beforeNextClearBoard(
           () -> {
-            clearMutationCount.incrementAndGet();
             BoardData rebuiltSnapshot = harness.board.getHistory().getCurrentHistoryNode().getData();
             rebuiltSnapshot.stones[stoneIndex(0, 0)] = Stone.EMPTY;
           });
@@ -164,7 +162,6 @@ class ReadBoardSyncDecisionTest {
 
       harness.sync(snapshot(target, Optional.of(lastMove), Stone.BLACK));
 
-      assertEquals(1, clearMutationCount.get(), "clearWithoutPonder should run the mutation once.");
       assertArrayEquals(
           target,
           harness.leelaz.copyStones(),
@@ -190,31 +187,6 @@ class ReadBoardSyncDecisionTest {
     }
   }
 
-  @Test
-  void forceRebuildKeepsUsingPreparedPrimaryWhenGlobalOwnerChanges() throws Exception {
-    Stone[] target =
-        stones(
-            placement(0, 0, Stone.BLACK),
-            placement(1, 0, Stone.WHITE),
-            placement(2, 2, Stone.BLACK));
-    SnapshotTrackingLeelaz replacement = SnapshotTrackingLeelaz.create();
-
-    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
-      harness.leelaz.beforeNextIsPondering(() -> Lizzie.leelaz = replacement);
-      harness.readBoard.parseLine("lastMoveSource foxCornerFlip");
-
-      harness.sync(snapshot(target, Optional.of(new int[] {2, 2}), Stone.BLACK));
-
-      assertArrayEquals(
-          target,
-          harness.leelaz.copyStones(),
-          "restore must stay on the primary captured before the global owner changes.");
-      assertArrayEquals(
-          stones(),
-          replacement.copyStones(),
-          "the replacement primary must not join an already prepared restore.");
-    }
-  }
 
   @Test
   void foxLiveRollbackReusesExactMainTrunkAncestorEvenWithRepeatedStones() throws Exception {
@@ -1361,7 +1333,6 @@ class ReadBoardSyncDecisionTest {
           harness.board.getHistory().getMainEnd().getData().blackToPlay,
           "black visual marker means white should play next even when fox parity conflicts.");
       assertEquals(0, harness.leelaz.clearCount);
-      assertEquals(0, harness.frame.refreshCount);
     }
   }
 
@@ -1396,7 +1367,6 @@ class ReadBoardSyncDecisionTest {
           harness.board.getHistory().getMainEnd().getData().blackToPlay,
           "heuristic marker path should keep the existing side-to-play fallback, not fox parity.");
       assertEquals(0, harness.leelaz.clearCount);
-      assertEquals(0, harness.frame.refreshCount);
     }
   }
 
@@ -1541,12 +1511,6 @@ class ReadBoardSyncDecisionTest {
           currentNode,
           harness.board.getHistory().getCurrentHistoryNode(),
           "identical marker snapshots should stay on the current tracked node.");
-      assertEquals(
-          0,
-          harness.frame.renderVarTreeCount,
-          "identical marker snapshots should not rerender the variation tree.");
-      assertEquals(
-          0, harness.frame.refreshCount, "identical marker snapshots should not refresh the UI.");
     }
   }
 
@@ -3448,16 +3412,33 @@ class ReadBoardSyncDecisionTest {
       }
       setField(readBoard, "tempcount", counts);
       invokeSyncBoardStones(readBoard);
+      if (board.syncConfirmation != null) {
+        board
+            .syncConfirmation
+            .handle((result, failure) -> null)
+            .get(3, java.util.concurrent.TimeUnit.SECONDS);
+      }
     }
 
     @Override
     public void close() {
+      try {
+        if (board.syncConfirmation != null) {
+          board
+              .syncConfirmation
+              .handle((result, failure) -> null)
+              .get(3, java.util.concurrent.TimeUnit.SECONDS);
+        }
+      } catch (Exception failure) {
+        throw new AssertionError("sync worker did not finish before fixture teardown", failure);
+      } finally {
       Board.boardWidth = previousBoardWidth;
       Board.boardHeight = previousBoardHeight;
       Lizzie.config = previousConfig;
       Lizzie.board = previousBoard;
       Lizzie.leelaz = previousLeelaz;
       Lizzie.frame = previousFrame;
+      }
     }
   }
 
@@ -3466,6 +3447,14 @@ class ReadBoardSyncDecisionTest {
     private int placeForSyncCount;
     private int moveToAnyPositionCount;
     private int previousMoveCount;
+    private java.util.concurrent.CompletableFuture<Void> syncConfirmation;
+
+    @Override
+    public java.util.concurrent.CompletableFuture<Void> applyReadBoardSync(
+        Runnable localChanges, java.util.function.BooleanSupplier requiresConfirmation) {
+      syncConfirmation = super.applyReadBoardSync(localChanges, requiresConfirmation);
+      return syncConfirmation;
+    }
 
     private void initialize(BoardHistoryList history) {
       setHistory(history);

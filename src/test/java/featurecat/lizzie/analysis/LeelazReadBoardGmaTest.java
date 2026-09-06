@@ -1188,6 +1188,7 @@ class LeelazReadBoardGmaTest {
       invokeProcessCommandResponseLine(
           engine, errorResponseFor(output.rawCommands(), "maxTime", "restore failed"));
 
+      output.autoAcknowledgePositionRestore(engine, true);
       engine.restoreClosedEngineBoardState(false);
       invokeProcessCommandResponseLine(engine, "=");
       assertEquals(
@@ -1723,12 +1724,13 @@ class LeelazReadBoardGmaTest {
         loadThread.join(1000L);
         assertFalse(loadThread.isAlive());
 
+        assertFalse(blockedOutput.commands().contains("version"));
         invokeProcessCommandResponseLine(engine, "=");
 
-        assertFalse(
-            blockedOutput.commands().contains("version"),
-            "post-reset send failure must not retire the old loadsgf outstanding twice.");
+        assertTrue(blockedOutput.commands().contains("version"));
         assertFalse(blockedOutput.commands().contains("protocol_version"));
+        invokeProcessCommandResponseLine(engine, "=");
+        assertTrue(blockedOutput.commands().contains("protocol_version"));
         assertTrue(loadFailure.get() instanceof IllegalStateException);
       } finally {
         blockedOutput.releaseFirstFlush.countDown();
@@ -1779,6 +1781,7 @@ class LeelazReadBoardGmaTest {
           Leelaz.ExclusiveGtpLeaseAvailability.ENGINE_STATE_UNRESTORED,
           engine.previewForegroundAnalysisLeaseAvailability());
 
+      output.autoAcknowledgePositionRestore(engine, true);
       engine.restoreClosedEngineBoardState(false);
       invokeProcessCommandResponseLine(engine, "=");
       assertEquals(
@@ -1951,6 +1954,7 @@ class LeelazReadBoardGmaTest {
       engine.isThinking = false;
       engine.failReadBoardGmaEngineRestore("controlled board restore failure");
 
+      output.autoAcknowledgePositionRestore(engine, true);
       engine.restoreClosedEngineBoardState(false);
 
       assertEquals(
@@ -2031,6 +2035,7 @@ class LeelazReadBoardGmaTest {
           engine.beginEngineModeReservation(),
           "unrelated engine-mode owners must be rejected while the final fence is pending");
       assertFalse(completed.await(50, TimeUnit.MILLISECONDS));
+      acknowledgePositionCommands(engine, output);
       invokeProcessCommandResponseLine(engine, numberedResponseFor(output.rawCommands(), "name"));
       assertTrue(completed.await(1, TimeUnit.SECONDS));
       Leelaz.EngineModeReservation afterFence = engine.beginEngineModeReservation();
@@ -2059,6 +2064,7 @@ class LeelazReadBoardGmaTest {
       assertTrue(waitForRawCommand(output, "name", 1, TimeUnit.SECONDS));
       assertFalse(
           output.commands().stream().anyMatch(command -> command.startsWith("kata-analyze")));
+      acknowledgePositionCommands(engine, output);
       invokeProcessCommandResponseLine(engine, numberedResponseFor(output.rawCommands(), "name"));
       assertTrue(completed.await(1, TimeUnit.SECONDS));
       invokeProcessCommandResponseLine(engine, "=");
@@ -2170,6 +2176,7 @@ class LeelazReadBoardGmaTest {
           engine.beginEngineModeReservation(),
           "unrelated engine-mode owners must be rejected while the final fence is pending");
 
+      acknowledgePositionCommands(engine, output);
       invokeProcessCommandResponseLine(engine, numberedResponseFor(output.rawCommands(), "name"));
 
       assertTrue(completed.await(1, TimeUnit.SECONDS));
@@ -2222,6 +2229,7 @@ class LeelazReadBoardGmaTest {
       assertNull(
           engine.beginEngineModeReservation(),
           "unrelated engine-mode owners must be rejected while the final fence is pending");
+      acknowledgePositionCommands(engine, output);
       invokeProcessCommandResponseLine(engine, numberedResponseFor(output.rawCommands(), "name"));
       assertTrue(completed.await(1, TimeUnit.SECONDS));
       Leelaz.EngineModeReservation afterRestart = engine.beginEngineModeReservation();
@@ -3250,7 +3258,8 @@ class LeelazReadBoardGmaTest {
 
       assertTrue(
           tailEnqueued.await(1, TimeUnit.SECONDS),
-          "the captured MOVE/PASS tail must be dispatched before exact success is reported; commands="
+          "the captured MOVE/PASS tail must be dispatched before exact success is reported;"
+              + " commands="
               + transport.commands());
       assertFalse(
           waitForFixtureCommandPrefix(transport, "kata-set-param ", 100, TimeUnit.MILLISECONDS),
@@ -3924,6 +3933,25 @@ class LeelazReadBoardGmaTest {
     Field commandListReady = Leelaz.class.getDeclaredField("endGetCommandList");
     commandListReady.setAccessible(true);
     commandListReady.setBoolean(engine, true);
+  }
+
+  private static void acknowledgePositionCommands(Leelaz engine, RecordingOutputStream output) {
+    for (String raw : output.rawCommands()) {
+      String payload = raw.replaceFirst("^\\d+\\s+", "");
+      if (isRestorePositionCommand(payload)) {
+        engine.processCommandResponseLineForTest("=" + raw.substring(0, raw.indexOf(' ')));
+      }
+    }
+  }
+
+  private static boolean isRestorePositionCommand(String command) {
+    return command.equals("clear_board")
+        || command.startsWith("boardsize ")
+        || command.startsWith("rectangular_boardsize ")
+        || command.startsWith("komi ")
+        || command.startsWith("play ")
+        || command.startsWith("loadsgf ")
+        || command.startsWith("set_position");
   }
 
   private static void acknowledgeInitialGmaCommands(
@@ -4730,6 +4758,13 @@ class LeelazReadBoardGmaTest {
   private static final class RecordingOutputStream extends OutputStream {
     private final StringBuilder currentCommand = new StringBuilder();
     private final List<String> commands = new ArrayList<>();
+    private Leelaz acknowledgePositionEngine;
+    private boolean acknowledgeRestoreFence;
+
+    private void autoAcknowledgePositionRestore(Leelaz engine, boolean includeFinalFence) {
+      acknowledgePositionEngine = engine;
+      acknowledgeRestoreFence = includeFinalFence;
+    }
 
     @Override
     public synchronized void write(int b) {
@@ -4742,6 +4777,15 @@ class LeelazReadBoardGmaTest {
       currentCommand.setLength(0);
       if (!command.isEmpty()) {
         commands.add(command);
+        String payload = command.replaceFirst("^\\d+\\s+", "");
+        Leelaz engine = acknowledgePositionEngine;
+        if (engine != null
+            && (isRestorePositionCommand(payload)
+                || (acknowledgeRestoreFence && payload.equals("name")))) {
+          if (payload.equals("name")) acknowledgePositionEngine = null;
+          engine.processCommandResponseLineForTest(
+              "=" + command.substring(0, command.indexOf(' ')));
+        }
       }
     }
 

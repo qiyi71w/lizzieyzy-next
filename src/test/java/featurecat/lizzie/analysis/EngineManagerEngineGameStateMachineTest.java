@@ -3022,12 +3022,24 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(1, black.getBestMoves().size());
 
     black.playMoveNoPonder(Stone.BLACK, "Q16");
+    int playCommandId = commandIdFor(black.commandText(), "play B Q16");
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
     assertTrue(black.getBestMoves().isEmpty());
     assertEquals(0, black.getBestMovesPlayouts());
 
     black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 36");
+    assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    black.parseAnalysisLineForTest(kataAnalysisInfo());
+    assertTrue(black.getBestMoves().isEmpty());
+    assertEquals(0, black.getBestMovesPlayouts());
+
+    black.processCommandResponseLineForTest("=" + playCommandId);
+
+    assertTrue(
+        commandLineIndex(black.commandText(), "play B Q16")
+            < commandLineIndex(black.commandText(), "kata-analyze W 36"));
     assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
     assertEquals(1, black.getBestMoves().size());
@@ -3097,14 +3109,22 @@ class EngineManagerEngineGameStateMachineTest {
 
     output.arm(black, "kata-analyze W 36");
     black.playMoveNoPonder(Stone.BLACK, "Q16");
+    int playCommandId = commandIdFor(black.commandText(), "play B Q16");
 
     assertEquals(1, output.enqueues.get());
     assertNull(output.enqueueFailure.get());
+    assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    assertTrue(black.getBestMoves().isEmpty());
+    black.parseAnalysisLineForTest(kataAnalysisInfo());
+    assertTrue(black.getBestMoves().isEmpty());
+
+    black.processCommandResponseLineForTest("=" + playCommandId);
+
     assertTrue(
         commandLineIndex(black.commandText(), "play B Q16")
             < commandLineIndex(black.commandText(), "kata-analyze W 36"));
     assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
-    assertTrue(black.getBestMoves().isEmpty());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
     assertEquals(1, black.getBestMoves().size());
     assertEquals(40, black.getBestMovesPlayouts());
@@ -3120,38 +3140,50 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(1, black.getBestMoves().size());
 
     black.playMoveNoPonder(Stone.BLACK, "Q16");
+    int playCommandId = commandIdFor(black.commandText(), "play B Q16");
     black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 36");
 
-    // Streaming output remains valid while the preceding state command is merely pending.
-    assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
+    assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
-    assertEquals(1, black.getBestMoves().size());
+    assertTrue(black.getBestMoves().isEmpty());
+    assertEquals(0, black.getBestMovesPlayouts());
 
-    black.processCommandResponseLineForTest("? illegal move");
+    black.processCommandResponseLineForTest("?" + playCommandId + " illegal move");
 
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     assertTrue(black.getBestMoves().isEmpty());
     assertEquals(0, black.getBestMovesPlayouts());
 
-    // Neither the dependent analysis acknowledgement nor an unrelated command can revive the
-    // poisoned position lineage.
-    black.processCommandResponseLineForTest("=");
+    // Neither a late acknowledgement nor an unrelated command can revive the poisoned position
+    // lineage or publish its dependent analysis.
+    black.processCommandResponseLineForTest("=" + playCommandId);
     black.sendCommandNoLeelaz2("name");
     black.processCommandResponseLineForTest("=");
+    black.parseAnalysisLineForTest(kataAnalysisInfo());
+    assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    assertTrue(black.getBestMoves().isEmpty());
+
+    // A full state replacement deliberately starts a clean lineage, but its successor still
+    // waits for the replacement acknowledgement before it can stream.
+    black.sendCommandNoLeelaz2("clear_board");
+    black.sendOrdinaryAnalysisCommandForTest("kata-analyze B 37");
+    assertFalse(black.commandText().contains("kata-analyze B 37"), black.commandText());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     assertTrue(black.getBestMoves().isEmpty());
 
-    // A full state replacement deliberately starts a clean lineage; its successor may stream
-    // before the clear_board acknowledgement just like a normal pending state command.
-    black.sendCommandNoLeelaz2("clear_board");
-    black.sendOrdinaryAnalysisCommandForTest("kata-analyze B 37");
+    black.processCommandResponseLineForTest("=" + commandIdFor(black.commandText(), "clear_board"));
+
+    assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
+    assertTrue(
+        commandLineIndex(black.commandText(), "clear_board")
+            < commandLineIndex(black.commandText(), "kata-analyze B 37"));
     assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
     assertEquals(1, black.getBestMoves().size());
     assertEquals(40, black.getBestMovesPlayouts());
-    black.processCommandResponseLineForTest("=");
-    black.processCommandResponseLineForTest("=");
   }
 
   @Test
@@ -3163,17 +3195,25 @@ class EngineManagerEngineGameStateMachineTest {
     Runnable playResponse = () -> {};
 
     black.sendCommandWithResponseForTest("play B Q16", playResponse);
+    int playCommandId = commandIdFor(black.commandText(), "play B Q16");
     black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 39");
+    assertFalse(black.commandText().contains("kata-analyze W 39"), black.commandText());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
-    assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
-    assertEquals(1, black.getBestMoves().size());
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    assertTrue(black.getBestMoves().isEmpty());
 
     black.retireTimedOutNormalCommandForTest(playResponse);
 
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     assertTrue(black.getBestMoves().isEmpty());
     assertEquals(0, black.getBestMovesPlayouts());
-    black.processCommandResponseLineForTest("=");
+    assertFalse(black.commandText().contains("kata-analyze W 39"), black.commandText());
+
+    black.processCommandResponseLineForTest("=" + playCommandId);
+
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    assertTrue(black.getBestMoves().isEmpty());
+    assertFalse(black.commandText().contains("kata-analyze W 39"), black.commandText());
   }
 
   @Test
@@ -3182,9 +3222,11 @@ class EngineManagerEngineGameStateMachineTest {
     black.isKatago = true;
     Runnable playResponse = () -> {};
     black.sendCommandWithResponseForTest("play B Q16", playResponse);
+    int playCommandId = commandIdFor(black.commandText(), "play B Q16");
     black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 40");
+    assertFalse(black.commandText().contains("kata-analyze W 40"), black.commandText());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
-    assertEquals(1, black.getBestMoves().size());
+    assertTrue(black.getBestMoves().isEmpty());
     black.suppressGlobalEnginePresentationForTest();
     assertTrue(black.suppressesGlobalEnginePresentation(black.analysisReaderBindingForTest()));
     AtomicReference<Throwable> timeoutFailure = new AtomicReference<>();
@@ -3208,7 +3250,13 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     assertTrue(black.getBestMoves().isEmpty());
     assertEquals(0, black.getBestMovesPlayouts());
-    black.processCommandResponseLineForTest("=");
+    assertFalse(black.commandText().contains("kata-analyze W 40"), black.commandText());
+
+    black.processCommandResponseLineForTest("=" + playCommandId);
+
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    assertTrue(black.getBestMoves().isEmpty());
+    assertFalse(black.commandText().contains("kata-analyze W 40"), black.commandText());
   }
 
   @Test
@@ -3221,12 +3269,20 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(1, black.getBestMoves().size());
     black.afterClearStateCommand =
         () -> {
+          assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+          assertTrue(black.getBestMoves().isEmpty());
+          assertFalse(black.commandText().contains("kata-analyze W 36"), black.commandText());
+          black.processCommandResponseLineForTest(
+              "=" + commandIdFor(black.commandText(), "clear_board"));
           black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 36");
           black.parseAnalysisLineForTest(kataAnalysisInfo());
         };
 
     black.clear();
 
+    assertTrue(
+        commandLineIndex(black.commandText(), "clear_board")
+            < commandLineIndex(black.commandText(), "kata-analyze W 36"));
     assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
     assertEquals(1, black.getBestMoves().size());
     assertEquals("D4", black.getBestMoves().get(0).coordinate);
@@ -3242,15 +3298,29 @@ class EngineManagerEngineGameStateMachineTest {
     black.parseAnalysisLineForTest(kataAnalysisInfo());
 
     black.sendCommandNoLeelaz2("set_position");
+    int setPositionCommandId = commandIdFor(black.commandText(), "set_position");
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     assertTrue(black.getBestMoves().isEmpty());
 
     black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 38");
+    assertFalse(black.commandText().contains("kata-analyze W 38"), black.commandText());
+    black.parseAnalysisLineForTest(kataAnalysisInfo());
+    assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
+    assertTrue(black.getBestMoves().isEmpty());
+
+    black.processCommandResponseLineForTest("=" + setPositionCommandId);
+
+    assertTrue(
+        commandLineIndex(black.commandText(), "set_position")
+            < commandLineIndex(black.commandText(), "kata-analyze W 38"));
     assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
     black.parseAnalysisLineForTest(kataAnalysisInfo());
+    assertEquals(1, black.getBestMoves().size());
+
     black.sendCommandNoLeelaz2("rectangular_boardsize 13 19");
     assertEquals("EXACT_RETIRED", black.analysisOutputRouteForTest());
     assertTrue(black.getBestMoves().isEmpty());
+    black.processCommandResponseLineForTest("=");
   }
 
   @Test
@@ -3299,7 +3369,9 @@ class EngineManagerEngineGameStateMachineTest {
     black.sendOrdinaryAnalysisCommandForTest("kata-analyze W 5");
     black.processCommandResponseLineForTest("=");
 
-    assertFalse(black.suppressesGlobalEnginePresentation(black.analysisReaderBindingForTest()));
+    assertFalse(
+        black.suppressesGlobalEnginePresentation(black.analysisReaderBindingForTest()),
+        black.commandText());
     assertEquals("ORDINARY_CURRENT", black.analysisOutputRouteForTest());
   }
 

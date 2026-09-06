@@ -145,14 +145,21 @@ class TrackingProductionCutoverTest {
 
       Lizzie.board.place(0, 0, Stone.BLACK);
       environment.completeFinalFence(800000002);
-      environment.processCommandResponse(playResponse);
-      assertEquals(expectNormalAnalysis, environment.engine.isResponseUpToDate());
+      String beforeAck = environment.commands().trim();
+      String playCommand = beforeAck.substring(beforeAck.lastIndexOf('\n') + 1);
+      assertTrue(playCommand.endsWith("play B A2"), beforeAck);
+      String playId = playCommand.substring(0, playCommand.indexOf(' '));
+      environment.processCommandResponse(
+          playResponse.substring(0, 1) + playId + playResponse.substring(1));
       environment.sendOrdinaryInfo(
           "info move B2 visits 40 winrate 0.51 scoreLead 2.5 prior 0.2 pv B2");
 
       String commands = environment.commands();
       assertTrue(environment.engine.isPondering());
-      assertTrue(commands.lastIndexOf("kata-analyze") > commands.lastIndexOf("play B A1"), commands);
+      assertEquals(
+          expectNormalAnalysis,
+          commands.lastIndexOf("kata-analyze") > commands.lastIndexOf("play B A2"),
+          commands);
       assertEquals(expectNormalAnalysis ? 1 : 0, environment.engine.getBestMoves().size());
     } finally {
       LizzieFrame.boardRenderer = previousBoardRenderer;

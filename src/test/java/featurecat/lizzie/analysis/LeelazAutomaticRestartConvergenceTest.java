@@ -50,6 +50,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
@@ -202,19 +203,50 @@ class LeelazAutomaticRestartConvergenceTest {
           "the completion gate must reject unrelated engine-mode owners while the remote fence is"
               + " pending");
 
-      history.getCurrentHistoryNode().clearAndSyncBoard(true);
+      String lifecycleFenceResponse = numberedResponseFor(engine.transport.rawCommands(), "name");
+      AtomicReference<Throwable> navigationFailure = new AtomicReference<>();
+      Thread navigationRestore =
+          new Thread(
+              () -> {
+                try {
+                  history.getCurrentHistoryNode().clearAndSyncBoard(true);
+                } catch (Throwable failure) {
+                  navigationFailure.set(failure);
+                }
+              },
+              "remote-navigation-position-restore");
+      navigationRestore.start();
+      assertTrue(
+          waitForRawCommandPrefixCount(engine.transport, "name", 2, 2, TimeUnit.SECONDS),
+          "the navigation restore must reach its own final board fence");
+      assertTrue(navigationRestore.isAlive(), "navigation must wait for its final board fence");
       assertEquals(
           0,
           engine.analyzeCount.get(),
-          "SNAPSHOT navigation must not start analysis before the final fence");
+          "SNAPSHOT navigation must not start analysis before either final fence");
 
       invokeFenceResponse(engine);
+      navigationRestore.join(2_000L);
+      assertFalse(navigationRestore.isAlive(), "confirmed navigation restore must finish");
+      assertEquals(null, navigationFailure.get());
+      assertEquals(
+          0,
+          engine.analyzeCount.get(),
+          "navigation confirmation must not bypass the lifecycle fence");
+
+      engine.processCommandResponseLineForTest(lifecycleFenceResponse);
 
       assertTrue(
           waitForCount(engine.readyCount, 1, 1, TimeUnit.SECONDS),
-          "the production remote restart must publish ready after the fence");
+          "the production remote restart must publish ready after both confirmed fences");
       assertEquals(1, engine.resumeCount.get(), "remote ponder must resume exactly once");
-      assertEquals(1, engine.analyzeCount.get(), "remote analysis starts after convergence");
+      assertEquals(
+          1,
+          engine.analyzeCount.get(),
+          "commands="
+              + engine.transport.rawCommands()
+              + " route="
+              + engine.analysisOutputRouteForTest());
       assertTrue(engine.isLoaded());
       assertEngineMatchesBoard(engine, board, 19, 19);
       Leelaz.EngineModeReservation afterFence = engine.beginEngineModeReservation();
@@ -247,23 +279,39 @@ class LeelazAutomaticRestartConvergenceTest {
       engine.publishReady();
       assertTrue(waitForLoadSgfCount(engine, 2, 2, TimeUnit.SECONDS));
       assertTrue(waitForRawCommandPrefix(engine.transport, "name", 2, TimeUnit.SECONDS));
+      String lifecycleFenceResponse = numberedResponseFor(engine.transport.rawCommands(), "name");
 
       engine.blockThirdLoadSgf = true;
       assertTrue(board.nextMove(false), "snapshot tail navigation must succeed");
+      AtomicReference<Throwable> restoreFailure = new AtomicReference<>();
       Thread restore =
           new Thread(
-              () -> history.getCurrentHistoryNode().clearAndSyncBoard(true),
+              () -> {
+                try {
+                  history.getCurrentHistoryNode().clearAndSyncBoard(true);
+                } catch (Throwable failure) {
+                  restoreFailure.set(failure);
+                }
+              },
               "snapshot-tail-navigation-restore");
       restore.start();
       assertTrue(waitForLoadSgfCount(engine, 3, 2, TimeUnit.SECONDS));
 
-      invokeFenceResponse(engine);
+      engine.processCommandResponseLineForTest(lifecycleFenceResponse);
       assertEquals(0, engine.analyzeCount.get(), "fence success must wait for the tail restore");
 
       invokeLoadSgfResponse(engine);
+      assertTrue(
+          waitForRawCommandPrefixCount(engine.transport, "name", 2, 2, TimeUnit.SECONDS),
+          "the tail restore must reach its final name confirmation");
+      assertEquals(
+          0, engine.analyzeCount.get(), "analysis must wait for the tail restore final name ACK");
+      invokeFenceResponse(engine);
       restore.join(2_000L);
       assertFalse(restore.isAlive(), "snapshot tail restore must finish");
+      assertEquals(null, restoreFailure.get());
       assertTrue(waitForCount(engine.analyzeCount, 1, 2, TimeUnit.SECONDS));
+      assertEngineMatchesBoard(engine, board, 19, 19);
     }
   }
   @Test
@@ -1566,6 +1614,23 @@ class LeelazAutomaticRestartConvergenceTest {
         if (command.startsWith(prefix)) {
           return true;
         }
+      }
+      Thread.sleep(10L);
+    }
+    return false;
+  }
+
+  private static boolean waitForRawCommandPrefixCount(
+      ExactSnapshotRestoreProtocolFixture.Transport transport,
+      String prefix,
+      int count,
+      long timeout,
+      TimeUnit unit)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + unit.toNanos(timeout);
+    while (System.nanoTime() < deadline) {
+      if (countCommandsWithPrefix(transport.commands(), prefix) >= count) {
+        return true;
       }
       Thread.sleep(10L);
     }

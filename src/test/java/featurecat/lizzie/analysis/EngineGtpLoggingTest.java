@@ -221,9 +221,10 @@ class EngineGtpLoggingTest {
             .withDiagnosticsEnabled(true)
             .withDiagnosticModules(EnumSet.of(DiagnosticModule.GTP_SUMMARY)));
     Leelaz engine = prepareEngine();
+    ExactSnapshotRestoreProtocolFixture.install(
+        engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
     EngineObservation.ensureStarted(engine, "MAIN_BOARD");
     engine.sendCommand("play B " + RAW_MOVE);
-    engine.processCommandResponseLineForTest("=");
     awaitLogs(runtime);
     String appBeforeTrace = readApp();
     assertTrue(appBeforeTrace.contains("gtp command=play outcome=sent"), appBeforeTrace);
@@ -246,7 +247,8 @@ class EngineGtpLoggingTest {
     assertFalse(app.contains(RAW_MOVE), app);
     assertFalse(app.contains(INFO_CANARY), app);
     String trace = Files.readString(tempDir.resolve("logs/engine-trace.log"));
-    assertTrue(trace.contains("gtp raw command=play B " + RAW_MOVE), trace);
+    assertTrue(trace.contains("gtp raw command="), trace);
+    assertTrue(trace.contains("play B " + RAW_MOVE), trace);
     assertTrue(trace.contains("gtp raw stream="), trace);
     assertTrue(trace.contains(INFO_CANARY), trace);
     assertTrue(trace.contains("Full Trace session started"), trace);
