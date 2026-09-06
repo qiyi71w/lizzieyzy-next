@@ -67,9 +67,7 @@ class DiagnosticBundleExporterTest {
   private static final String CANARY_CAPTURE_UNKNOWN = "OPAQUE_CAPTURE_UNKNOWN_f293";
   private static final String CANARY_NONSTRING_SESSION = "OPAQUE_NONSTRING_SESSION_55ce";
   private static final byte[] PIXEL_PNG =
-      new byte[] {
-        (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03, 0x04
-      };
+      new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03, 0x04};
 
   @TempDir Path tempDir;
 
@@ -159,7 +157,11 @@ class DiagnosticBundleExporterTest {
     assertEquals("not-requested", source(manifest, "lizzie-engine-trace").getString("reason"));
     assertSource(source(manifest, "readboard-trace"), false, false, "omitted", "logs/readboard/");
     assertSource(
-        source(manifest, "readboard-capture"), true, false, "omitted", "diagnostics/readboard-capture/");
+        source(manifest, "readboard-capture"),
+        true,
+        false,
+        "omitted",
+        "diagnostics/readboard-capture/");
     assertEquals("helper-not-started", source(manifest, "readboard-capture").getString("reason"));
 
     assertTrue(text(entries, "logs/lizzie/app.log").contains("app-evidence"));
@@ -343,13 +345,10 @@ class DiagnosticBundleExporterTest {
             .put(
                 "show-coordinates",
                 new JSONArray().put(new JSONObject().put("opaque", "UI_COORD_ARRAY_CANARY")))
-            .put(
-                "network-proxy-mode",
-                new JSONObject().put("opaque", "UI_PROXY_OBJECT_CANARY")));
+            .put("network-proxy-mode", new JSONObject().put("opaque", "UI_PROXY_OBJECT_CANARY")));
     JSONObject leelaz = new JSONObject();
     leelaz.put(
-        "command",
-        "C:\\Users\\legacy-owner\\katago.exe gtp -model C:\\private\\legacy.bin.gz");
+        "command", "C:\\Users\\legacy-owner\\katago.exe gtp -model C:\\private\\legacy.bin.gz");
     leelaz.put(
         "engine-settings-list",
         new JSONArray()
@@ -378,9 +377,7 @@ class DiagnosticBundleExporterTest {
             .put(
                 new JSONObject()
                     .put("name", new JSONObject().put("opaque", "ENGINE_NAME_OBJECT_CANARY"))
-                    .put(
-                        "command",
-                        new JSONArray().put("ENGINE_COMMAND_ARRAY_CANARY")))
+                    .put("command", new JSONArray().put("ENGINE_COMMAND_ARRAY_CANARY")))
             .put(
                 new JSONObject()
                     .put("name", "Malformed executable")
@@ -482,21 +479,16 @@ class DiagnosticBundleExporterTest {
         new JSONObject()
             .put("board-size", new JSONObject().put("opaque", "UI_BOARD_OBJECT_CANARY"))
             .put("theme", new JSONArray().put("UI_THEME_ARRAY_CANARY"))
-            .put(
-                "show-coordinates",
-                new JSONObject().put("opaque", "UI_COORD_OBJECT_CANARY"))
+            .put("show-coordinates", new JSONObject().put("opaque", "UI_COORD_OBJECT_CANARY"))
             .put("show-winrate-overview", new JSONArray().put("UI_OVERVIEW_ARRAY_CANARY"))
             .put("extra-mode", 4)
             .put("is-apple-style", new JSONObject().put("opaque", "UI_APPLE_OBJECT_CANARY"))
             .put("analysis-max-visits", 1.5d)
-            .put(
-                "max-game-thinking-time-seconds",
-                new JSONArray().put("UI_THINKING_ARRAY_CANARY"))
+            .put("max-game-thinking-time-seconds", new JSONArray().put("UI_THINKING_ARRAY_CANARY"))
             .put("autoload-default", "UI_AUTOLOAD_STRING_CANARY")
             .put("network-proxy-mode", "UI_PROXY_MODE_CANARY");
     JSONObject projectedInvalid =
-        ConfigExportProjection.project(new JSONObject().put("ui", invalidUi))
-            .getJSONObject("ui");
+        ConfigExportProjection.project(new JSONObject().put("ui", invalidUi)).getJSONObject("ui");
     assertEquals(Set.of(), projectedInvalid.keySet());
     assertFalse(projectedInvalid.toString().contains("CANARY"));
   }
@@ -512,17 +504,12 @@ class DiagnosticBundleExporterTest {
                     .put(
                         new JSONObject()
                             .put(
-                                "name",
-                                new JSONObject().put("opaque", "ENGINE_NAME_NESTED_CANARY"))
-                            .put(
-                                "command",
-                                new JSONArray().put("ENGINE_COMMAND_NESTED_CANARY")))
+                                "name", new JSONObject().put("opaque", "ENGINE_NAME_NESTED_CANARY"))
+                            .put("command", new JSONArray().put("ENGINE_COMMAND_NESTED_CANARY")))
                     .put(
                         new JSONObject()
                             .put("name", "Cross-platform engine")
-                            .put(
-                                "command",
-                                "\"/opt/围棋 engines/卡塔狗-AVX2+OpenCL\" gtp"))
+                            .put("command", "\"/opt/围棋 engines/卡塔狗-AVX2+OpenCL\" gtp"))
                     .put(
                         new JSONObject()
                             .put("name", "Malformed executable")
@@ -536,8 +523,7 @@ class DiagnosticBundleExporterTest {
     assertEquals(Set.of("kind", "executable"), engines.getJSONObject(0).keySet());
     assertEquals("other", engines.getJSONObject(0).getString("kind"));
     assertEquals("unknown", engines.getJSONObject(0).getString("executable"));
-    assertEquals(
-        Set.of("name", "kind", "executable"), engines.getJSONObject(1).keySet());
+    assertEquals(Set.of("name", "kind", "executable"), engines.getJSONObject(1).keySet());
     assertEquals("Cross-platform engine", engines.getJSONObject(1).getString("name"));
     assertEquals("other", engines.getJSONObject(1).getString("kind"));
     assertEquals("卡塔狗-AVX2+OpenCL", engines.getJSONObject(1).getString("executable"));
@@ -550,17 +536,13 @@ class DiagnosticBundleExporterTest {
             "\"C:\\Program Files\\KataGo\\katago-v1.15_cuda12.8+trt.exe\" gtp"));
     assertEquals(
         "卡塔狗-AVX2+OpenCL",
-        ConfigExportProjection.executableBasename(
-            "\"/opt/围棋 engines/卡塔狗-AVX2+OpenCL\" gtp"));
+        ConfigExportProjection.executableBasename("\"/opt/围棋 engines/卡塔狗-AVX2+OpenCL\" gtp"));
     assertEquals(
         "unknown",
-        ConfigExportProjection.executableBasename(
-            "{\"opaque\":\"EXECUTABLE_JSON_CANARY\"}"));
+        ConfigExportProjection.executableBasename("{\"opaque\":\"EXECUTABLE_JSON_CANARY\"}"));
+    assertEquals("unknown", ConfigExportProjection.executableBasename("a".repeat(256)));
     assertEquals(
-        "unknown", ConfigExportProjection.executableBasename("a".repeat(256)));
-    assertEquals(
-        "unknown",
-        ConfigExportProjection.executableBasename("\"UNTERMINATED_EXECUTABLE_CANARY"));
+        "unknown", ConfigExportProjection.executableBasename("\"UNTERMINATED_EXECUTABLE_CANARY"));
   }
 
   @Test
@@ -577,8 +559,7 @@ class DiagnosticBundleExporterTest {
             .put("future-values", new JSONArray().put("OPAQUE_ARRAY_CANARY"));
 
     JSONObject projected =
-        ConfigExportProjection.project(
-                new JSONObject().put(LoggingSettings.CONFIG_KEY, logging))
+        ConfigExportProjection.project(new JSONObject().put(LoggingSettings.CONFIG_KEY, logging))
             .getJSONObject(LoggingSettings.CONFIG_KEY);
 
     assertEquals(
@@ -593,9 +574,7 @@ class DiagnosticBundleExporterTest {
         projected.getJSONArray(LoggingSettings.DIAGNOSTIC_MODULES_KEY).toString());
     assertEquals(
         scopes.toString(),
-        projected
-            .getJSONArray(LoggingSettings.PREFERRED_FULL_TRACE_SCOPES_KEY)
-            .toString());
+        projected.getJSONArray(LoggingSettings.PREFERRED_FULL_TRACE_SCOPES_KEY).toString());
   }
 
   @Test
@@ -608,12 +587,9 @@ class DiagnosticBundleExporterTest {
             .put(
                 LoggingSettings.DIAGNOSTIC_MODULES_KEY,
                 new JSONObject().put("opaque", "WRONG_MODULES_OBJECT_CANARY"))
-            .put(
-                LoggingSettings.PREFERRED_FULL_TRACE_SCOPES_KEY,
-                "WRONG_SCOPES_SCALAR_CANARY");
+            .put(LoggingSettings.PREFERRED_FULL_TRACE_SCOPES_KEY, "WRONG_SCOPES_SCALAR_CANARY");
     JSONObject projectedWrongTypes =
-        ConfigExportProjection.project(
-                new JSONObject().put(LoggingSettings.CONFIG_KEY, wrongTypes))
+        ConfigExportProjection.project(new JSONObject().put(LoggingSettings.CONFIG_KEY, wrongTypes))
             .getJSONObject(LoggingSettings.CONFIG_KEY);
     assertEquals(Set.of(), projectedWrongTypes.keySet());
     assertFalse(projectedWrongTypes.toString().contains("CANARY"));
@@ -646,9 +622,7 @@ class DiagnosticBundleExporterTest {
         projectedMixedArrays.keySet());
     assertEquals(
         new JSONArray().put("engine").toString(),
-        projectedMixedArrays
-            .getJSONArray(LoggingSettings.DIAGNOSTIC_MODULES_KEY)
-            .toString());
+        projectedMixedArrays.getJSONArray(LoggingSettings.DIAGNOSTIC_MODULES_KEY).toString());
     assertEquals(
         new JSONArray().put("readboard-yike").toString(),
         projectedMixedArrays
@@ -712,9 +686,7 @@ class DiagnosticBundleExporterTest {
         1, projected.getJSONArray(LoggingSettings.PREFERRED_FULL_TRACE_SCOPES_KEY).length());
     assertEquals(
         "readboard-yike",
-        projected
-            .getJSONArray(LoggingSettings.PREFERRED_FULL_TRACE_SCOPES_KEY)
-            .getString(0));
+        projected.getJSONArray(LoggingSettings.PREFERRED_FULL_TRACE_SCOPES_KEY).getString(0));
     assertNoCanaries(
         entries,
         "PRIVATE_HOST_CANARY.corp",
@@ -845,8 +817,7 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
-  void exportSanitizerFailClosesWindowsAbsolutePathsWithoutErasingEscapedText()
-      throws Exception {
+  void exportSanitizerFailClosesWindowsAbsolutePathsWithoutErasingEscapedText() throws Exception {
     LoggingRuntime runtime = start();
     var logger = LoggerFactory.getLogger(LogCategories.APP);
     logger.error(
@@ -862,8 +833,7 @@ class DiagnosticBundleExporterTest {
         "extended={}",
         "\\\\?\\UNC\\EXT_SERVER_CANARY\\EXT_SHARE_CANARY\\EXT_USER_CANARY\\EXT_PATH_CANARY\\file.txt");
     logger.error(
-        "drive={}",
-        "Z:\\DRIVE_ROOT_CANARY\\DRIVE USER CANARY\\DRIVE_PATH_CANARY\\file.txt");
+        "drive={}", "Z:\\DRIVE_ROOT_CANARY\\DRIVE USER CANARY\\DRIVE_PATH_CANARY\\file.txt");
     logger.error(
         "escapedDrive={}",
         "Z:\\\\ESC_DRIVE_ROOT_CANARY\\\\ESC_DRIVE_USER_CANARY\\\\ESC_DRIVE_PATH_CANARY\\\\file.txt");
@@ -900,8 +870,7 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
-  void exportSanitizerRemovesEncodedCredentialCanariesFromRawSourcesAndManifest()
-      throws Exception {
+  void exportSanitizerRemovesEncodedCredentialCanariesFromRawSourcesAndManifest() throws Exception {
     LoggingRuntime runtime = start();
     runtime.awaitIdle();
     runtime.shutdown();
@@ -937,17 +906,9 @@ class DiagnosticBundleExporterTest {
     String deepOrdinaryPercent = "opaque=%2525252541";
     StringBuilder injected = new StringBuilder();
     for (String payload : payloads) {
-      injected
-          .append(timestamp)
-          .append(" ERROR [lizzie.app] ")
-          .append(payload)
-          .append('\n');
+      injected.append(timestamp).append(" ERROR [lizzie.app] ").append(payload).append('\n');
     }
-    injected
-        .append(timestamp)
-        .append(" INFO [lizzie.app] ")
-        .append(ordinaryPercent)
-        .append('\n');
+    injected.append(timestamp).append(" INFO [lizzie.app] ").append(ordinaryPercent).append('\n');
     injected
         .append(timestamp)
         .append(" INFO [lizzie.app] ")
@@ -1004,8 +965,7 @@ class DiagnosticBundleExporterTest {
         text(entries, "logs/lizzie/app.log").contains("session=(live-room#1), ready"),
         text(entries, "logs/lizzie/app.log"));
     assertTrue(
-        text(entries, "logs/lizzie/readboard-trace.log")
-            .contains("session=live-room#1, ready"),
+        text(entries, "logs/lizzie/readboard-trace.log").contains("session=live-room#1, ready"),
         text(entries, "logs/lizzie/readboard-trace.log"));
     assertFalse(all.contains("live-room#2"), all);
     assertTrue(text(entries, "logs/lizzie/app.log").contains("session=" + applicationSession), all);
@@ -1030,7 +990,8 @@ class DiagnosticBundleExporterTest {
     runtime.stopFullTrace();
     runtime.startFullTrace(EnumSet.of(TraceScope.ENGINE_GTP));
     String secondSession = runtime.currentTraceSessionId();
-    LoggerFactory.getLogger(LogCategories.ENGINE_TRACE).info("raw-second session={}", secondSession);
+    LoggerFactory.getLogger(LogCategories.ENGINE_TRACE)
+        .info("raw-second session={}", secondSession);
     runtime.awaitIdle();
 
     Path zip =
@@ -1068,7 +1029,8 @@ class DiagnosticBundleExporterTest {
     trace.info("post-export-still-live");
     runtime.awaitIdle();
     assertTrue(
-        Files.readString(tempDir.resolve("logs/engine-trace.log")).contains("post-export-still-live"));
+        Files.readString(tempDir.resolve("logs/engine-trace.log"))
+            .contains("post-export-still-live"));
   }
 
   @Test
@@ -1127,12 +1089,14 @@ class DiagnosticBundleExporterTest {
       Files.write(archive.resolve(String.format("noise-%04d.tmp", index)), new byte[0]);
     }
 
-    DiagnosticBundleLimits limits =
-        new DiagnosticBundleLimits(24, 1234, 24, 0, 0, 0);
+    DiagnosticBundleLimits limits = new DiagnosticBundleLimits(24, 1234, 24, 0, 0, 0);
     DiagnosticBundleExporter exporter =
         new DiagnosticBundleExporter(
             DiagnosticBundleExporter.defaultOutputDirectory(tempDir), limits);
-    assertEquals(64L * 1024 + 1234, exporter.estimateUncompressedBytes(request(runtime, Set.of())));
+    DiagnosticBundleExporter.ContentEstimate estimate =
+        exporter.estimate(request(runtime, Set.of()));
+    assertTrue(estimate.incomplete());
+    assertTrue(estimate.knownBytes() < 1234);
 
     Map<String, byte[]> entries =
         unzipEntries(exporter.export(request(runtime, EnumSet.noneOf(TraceScope.class))));
@@ -1169,8 +1133,8 @@ class DiagnosticBundleExporterTest {
     runtime.shutdown();
     Files.deleteIfExists(tempDir.resolve("logs/app.log"));
     Path archive = tempDir.resolve("logs/archive");
-    Path older = archive.resolve("app.2026-01-01.0.log.gz");
-    Path newest = archive.resolve("app.2026-01-02.0.log.gz");
+    Path older = archive.resolve("app." + java.time.LocalDate.now() + ".0.log.gz");
+    Path newest = archive.resolve("app." + java.time.LocalDate.now() + ".1.log.gz");
     Files.createDirectories(archive);
     Files.writeString(older, "CORRUPT_OLDER_ARCHIVE_CANARY", StandardCharsets.UTF_8);
     writeGzipRecords(newest, 80, "NEWEST_ARCHIVE_CANARY_", 16);
@@ -1367,6 +1331,274 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
+  void hostArchivePruningUsesProducerDayRatherThanUtcDay() throws Exception {
+    java.util.TimeZone original = java.util.TimeZone.getDefault();
+    java.time.ZonedDateTime utc = Instant.now().atZone(java.time.ZoneOffset.UTC);
+    int utcMinutes = utc.getHour() * 60 + utc.getMinute();
+    boolean east = utcMinutes >= 12 * 60;
+    int offsetMinutes = east ? 24 * 60 + 30 - utcMinutes : -30 - utcMinutes;
+    java.util.TimeZone.setDefault(
+        java.util.TimeZone.getTimeZone(java.time.ZoneOffset.ofTotalSeconds(offsetMinutes * 60)));
+    try {
+      LoggingRuntime runtime = start();
+      runtime.awaitIdle();
+      Instant cutoff = Instant.now().minusSeconds(24 * 3600);
+      java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+      java.time.LocalDate bucket = cutoff.atZone(zone).toLocalDate();
+      if (east) bucket = bucket.minusDays(1);
+      Path archive = runtime.logsDirectory().resolve("archive");
+      Files.createDirectories(archive);
+      Path file = archive.resolve("app." + bucket + ".0.log.gz");
+      if (east) {
+        Files.writeString(file, "must prune before decompression");
+      } else {
+        String timestamp = cutoff.plusSeconds(60).atZone(zone).format(LOG_TIMESTAMP);
+        try (var gzip = new GZIPOutputStream(Files.newOutputStream(file))) {
+          gzip.write(
+              (timestamp + " INFO [lizzie.app] timezone-overlap-evidence\n")
+                  .getBytes(StandardCharsets.UTF_8));
+        }
+      }
+      Map<String, byte[]> entries =
+          unzipEntries(
+              new DiagnosticBundleExporter(tempDir.resolve("diagnostics"))
+                  .export(request(runtime, Set.of())));
+      JSONObject source = source(manifest(entries), "lizzie-app");
+      assertEquals(east ? 1 : 0, source.getInt("filesPruned"), source.toString());
+      assertFalse(source.has("readErrors"), source.toString());
+      if (!east)
+        assertTrue(text(entries, "logs/lizzie/app.log").contains("timezone-overlap-evidence"));
+    } finally {
+      LoggingRuntime.resetForTests();
+      java.util.TimeZone.setDefault(original);
+    }
+  }
+
+  @Test
+  void onlyPrunedArchivesRetainEnumerationWorkInManifest() throws Exception {
+    LoggingRuntime runtime = start();
+    Path archive = runtime.logsDirectory().resolve("archive");
+    Files.createDirectories(archive);
+    Files.writeString(
+        archive.resolve("engine-trace." + java.time.LocalDate.now() + ".0.log.gz"), "not gzip");
+    runtime.startFullTrace(Set.of(TraceScope.ENGINE_GTP));
+    runtime.awaitIdle();
+    DiagnosticBundleRequest captured = request(runtime, Set.of(TraceScope.ENGINE_GTP));
+    runtime.shutdown();
+    Files.delete(runtime.logsDirectory().resolve("engine-trace.log"));
+    Map<String, byte[]> entries =
+        unzipEntries(new DiagnosticBundleExporter(tempDir.resolve("diagnostics")).export(captured));
+    JSONObject source = source(manifest(entries), "lizzie-engine-trace");
+    assertEquals(1, source.getInt("filesPruned"));
+    assertEquals(0, source.getInt("candidates"));
+    assertEquals(0, source.getInt("openedFiles"));
+    assertTrue(source.getLong("enumerationNanos") >= 0);
+  }
+
+  @Test
+  void cancellationAfterForceDoesNotReportSuccessfulForceAsFailed() throws Exception {
+    LoggingRuntime runtime = start();
+    runtime.awaitIdle();
+    AtomicBoolean forced = new AtomicBoolean();
+    java.util.List<String> stages = new java.util.ArrayList<>();
+    ch.qos.logback.classic.Logger logger =
+        (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(LogCategories.DIAGNOSTICS);
+    var observer =
+        new ch.qos.logback.core.AppenderBase<ch.qos.logback.classic.spi.ILoggingEvent>() {
+          @Override
+          protected void append(ch.qos.logback.classic.spi.ILoggingEvent event) {
+            String message = event.getFormattedMessage();
+            stages.add(message);
+            if (message.contains("stage=force state=completed")) forced.set(true);
+          }
+        };
+    observer.start();
+    logger.addAppender(observer);
+    try {
+      assertThrows(
+          IOException.class,
+          () ->
+              new DiagnosticBundleExporter(tempDir.resolve("diagnostics"))
+                  .export(request(runtime, Set.of()), forced::get));
+      assertTrue(forced.get());
+      assertFalse(
+          stages.stream().anyMatch(s -> s.contains("stage=force state=failed")), stages.toString());
+      assertTrue(
+          stages.stream().anyMatch(s -> s.contains("stage=publication state=failed")),
+          stages.toString());
+    } finally {
+      logger.detachAppender(observer);
+      observer.stop();
+    }
+  }
+
+  @Test
+  void helperLaunchBoundaryPrunesOldArchiveAndRetainsPreHandshakeRecords() throws Exception {
+    LoggingRuntime runtime = start();
+    Path root = readBoardRoot(runtime);
+    Files.createDirectories(root.resolve("archive"));
+    Files.writeString(root.resolve("archive/trace.20260906T120000Z.log.gz"), "not gzip");
+    ReadBoardLoggingControl control =
+        ReadBoardLoggingControl.forLaunch(
+            new ReadBoardLoggingControl.Desired(true, false, true), true, root);
+    Instant startup = Instant.now().minusSeconds(2);
+    JSONObject record =
+        new JSONObject()
+            .put("timestamp", startup.toString())
+            .put("processSessionId", PROCESS_SESSION)
+            .put("event", "startup-before-handshake");
+    Files.writeString(root.resolve("trace.log"), record + "\n");
+    control.onCapability(
+        ReadBoardLoggingProtocol.tryParseCapability(
+            "readboardLoggingV1 " + PROCESS_SESSION + " on off on healthy 0"));
+    Map<String, byte[]> entries =
+        unzipEntries(
+            new DiagnosticBundleExporter(tempDir.resolve("diagnostics"))
+                .export(request(runtime, Set.of(), true, false, control.snapshot())));
+    assertTrue(text(entries, "logs/readboard/trace.log").contains("startup-before-handshake"));
+    JSONObject trace = source(manifest(entries), "readboard-trace");
+    assertEquals(1, trace.getInt("filesPruned"));
+    assertEquals(1, trace.getInt("openedFiles"));
+    assertFalse(trace.has("readErrors"));
+  }
+
+  @Test
+  void windowsPruneHostLocalDateAndHelperUtcArchivesBeforePayloadOpen() throws Exception {
+    LoggingRuntime runtime = start();
+    runtime.awaitIdle();
+    Path archive = runtime.logsDirectory().resolve("archive");
+    Files.createDirectories(archive);
+    String oldDate =
+        java.time.LocalDate.now(java.time.ZoneId.systemDefault()).minusDays(3).toString();
+    Files.writeString(archive.resolve("app." + oldDate + ".0.log.gz"), "not gzip");
+    Files.writeString(archive.resolve("crash." + oldDate + ".0.log.gz"), "not gzip");
+    Path helper = readBoardRoot(runtime);
+    Files.createDirectories(helper.resolve("archive"));
+    String oldUtc =
+        java.time.format.DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmss'Z'")
+            .withZone(java.time.ZoneOffset.UTC)
+            .format(Instant.now().minusSeconds(3 * 86400));
+    Files.writeString(helper.resolve("archive/app." + oldUtc + ".log.gz"), "not gzip");
+    Files.writeString(
+        helper.resolve("app.log"),
+        new JSONObject()
+                .put("timestamp", Instant.now().minusSeconds(1).toString())
+                .put("event", "helper-current")
+            + "\n");
+    Map<String, byte[]> entries =
+        unzipEntries(
+            new DiagnosticBundleExporter(tempDir.resolve("diagnostics"))
+                .export(request(runtime, Set.of())));
+    for (String name : new String[] {"lizzie-app", "lizzie-crash", "readboard-app"}) {
+      JSONObject source = source(manifest(entries), name);
+      assertEquals(1, source.getInt("filesPruned"), source.toString());
+      assertFalse(source.has("readErrors"), source.toString());
+    }
+    assertTrue(text(entries, "logs/readboard/app.log").contains("helper-current"));
+  }
+
+  @Test
+  void replacementAtPreSessionArchivePathRetainsCurrentEvidence() throws Exception {
+    LoggingRuntime runtime = start();
+    Path archive = runtime.logsDirectory().resolve("archive");
+    Files.createDirectories(archive);
+    Path old = archive.resolve("engine-trace." + java.time.LocalDate.now() + ".0.log.gz");
+    Files.writeString(old, "prior-session archive");
+    FileTime created =
+        Files.readAttributes(old, java.nio.file.attribute.BasicFileAttributes.class).creationTime();
+    runtime.startFullTrace(Set.of(TraceScope.ENGINE_GTP));
+    Files.move(old, archive.resolve("prior-session.held"));
+    String timestamp =
+        runtime.fullTraceStartedAt().atZone(java.time.ZoneId.systemDefault()).format(LOG_TIMESTAMP);
+    try (var gzip = new GZIPOutputStream(Files.newOutputStream(old))) {
+      gzip.write(
+          (timestamp
+                  + " INFO [lizzie.engine.trace] trace="
+                  + runtime.currentTraceSessionId()
+                  + " replacement-current-evidence\n")
+              .getBytes(StandardCharsets.UTF_8));
+    }
+    if (com.sun.jna.Platform.isWindows()) {
+      // NTFS can preserve/tunnel creation time across replacement; it is not a file ID.
+      Files.getFileAttributeView(old, java.nio.file.attribute.BasicFileAttributeView.class)
+          .setTimes(null, null, created);
+      assertEquals(
+          created,
+          Files.readAttributes(old, java.nio.file.attribute.BasicFileAttributes.class)
+              .creationTime());
+    }
+    runtime.awaitIdle();
+    Map<String, byte[]> entries =
+        unzipEntries(
+            new DiagnosticBundleExporter(tempDir.resolve("diagnostics"))
+                .export(request(runtime, Set.of(TraceScope.ENGINE_GTP))));
+    assertTrue(
+        text(entries, "logs/lizzie/engine-trace.log").contains("replacement-current-evidence"));
+    JSONObject source = source(manifest(entries), "lizzie-engine-trace");
+    assertEquals(0, source.getInt("filesPruned"));
+    assertEquals(2, source.getInt("openedFiles"));
+    Files.delete(old);
+  }
+
+  @Test
+  void tracePrunesArchivesExistingBeforeSessionButRetainsRotatedCurrentRecords() throws Exception {
+    LoggingRuntime runtime = start();
+    Path archive = runtime.logsDirectory().resolve("archive");
+    Files.createDirectories(archive);
+    Path old = archive.resolve("engine-trace." + java.time.LocalDate.now() + ".0.log.gz");
+    Files.writeString(old, "not a gzip: must never be opened");
+    runtime.startFullTrace(EnumSet.of(TraceScope.ENGINE_GTP));
+    String session = runtime.currentTraceSessionId();
+    String opening =
+        runtime.fullTraceStartedAt().atZone(java.time.ZoneId.systemDefault()).format(LOG_TIMESTAMP);
+    Path rotated = archive.resolve("engine-trace." + java.time.LocalDate.now() + ".1.log.gz");
+    try (var out = new GZIPOutputStream(Files.newOutputStream(rotated))) {
+      out.write(
+          (opening + " INFO [lizzie.engine.trace] trace=" + session + " rotated-opening-evidence\n")
+              .getBytes(StandardCharsets.UTF_8));
+    }
+    LoggerFactory.getLogger(LogCategories.ENGINE_TRACE).info("active-current-evidence");
+    runtime.awaitIdle();
+    Map<String, byte[]> entries =
+        unzipEntries(
+            new DiagnosticBundleExporter(tempDir.resolve("diagnostics"))
+                .export(request(runtime, Set.of(TraceScope.ENGINE_GTP))));
+    String trace = text(entries, "logs/lizzie/engine-trace.log");
+    assertTrue(trace.contains("rotated-opening-evidence"), trace);
+    assertTrue(trace.contains("active-current-evidence"), trace);
+    JSONObject source = source(manifest(entries), "lizzie-engine-trace");
+    assertEquals(1, source.getInt("filesPruned"));
+    assertEquals(2, source.getInt("openedFiles"));
+    assertFalse(source.has("readErrors"), source.toString());
+  }
+
+  @Test
+  void requestFreezesSelectionBeforeWorkerStartsAndNextRequestCapturesFreshState()
+      throws Exception {
+    LoggingRuntime runtime = start();
+    runtime.startFullTrace(EnumSet.of(TraceScope.ENGINE_GTP));
+    String firstSession = runtime.currentTraceSessionId();
+    LoggerFactory.getLogger(LogCategories.ENGINE_TRACE).info("action-time-evidence");
+    runtime.awaitIdle();
+    DiagnosticBundleRequest first = request(runtime, EnumSet.allOf(TraceScope.class));
+    runtime.stopFullTrace();
+    runtime.startFullTrace(EnumSet.of(TraceScope.NETWORK_WEBSOCKET));
+    LoggerFactory.getLogger(LogCategories.NETWORK_TRACE).info("next-action-evidence");
+    runtime.awaitIdle();
+    DiagnosticBundleExporter exporter =
+        new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir));
+    Map<String, byte[]> captured = unzipEntries(exporter.export(first));
+    assertEquals(firstSession, manifest(captured).getString("traceSession"));
+    assertTrue(text(captured, "logs/lizzie/engine-trace.log").contains("action-time-evidence"));
+    assertFalse(captured.containsKey("logs/lizzie/network-trace.log"));
+    Map<String, byte[]> fresh =
+        unzipEntries(exporter.export(request(runtime, EnumSet.allOf(TraceScope.class))));
+    assertEquals(runtime.currentTraceSessionId(), manifest(fresh).getString("traceSession"));
+    assertTrue(text(fresh, "logs/lizzie/network-trace.log").contains("next-action-evidence"));
+    assertFalse(fresh.containsKey("logs/lizzie/engine-trace.log"));
+  }
+
+  @Test
   void exportUsesOneTraceSnapshotWhenSessionChangesAfterCapture() throws Exception {
     LoggingRuntime runtime = start();
     runtime.startFullTrace(EnumSet.of(TraceScope.ENGINE_GTP));
@@ -1396,15 +1628,13 @@ class DiagnosticBundleExporterTest {
     assertTrue(switched.get());
     assertNotEquals(capturedSession, replacementSession.get());
     Map<String, String> entries = unzipTextEntries(zip);
-    assertTrue(
-        entries.get("logs/lizzie/engine-trace.log").contains("CAPTURED_ENGINE_CANARY"));
+    assertTrue(entries.get("logs/lizzie/engine-trace.log").contains("CAPTURED_ENGINE_CANARY"));
     assertFalse(entries.containsKey("logs/lizzie/network-trace.log"));
     JSONObject manifest = new JSONObject(entries.get("manifest.json"));
     assertEquals(capturedSession, manifest.getString("traceSession"));
     assertEquals(1, manifest.getJSONArray("activeTraceScopes").length());
     assertEquals("engine-gtp", manifest.getJSONArray("activeTraceScopes").getString(0));
-    JSONObject network =
-        manifest.getJSONObject("sources").getJSONObject("lizzie-network-trace");
+    JSONObject network = manifest.getJSONObject("sources").getJSONObject("lizzie-network-trace");
     assertEquals("omitted", network.getString("status"));
     assertEquals("scope-not-active-at-capture", network.getString("reason"));
   }
@@ -1450,8 +1680,7 @@ class DiagnosticBundleExporterTest {
             diagnostics,
             DiagnosticBundleLimits.production(),
             partial -> {
-              Path moved =
-                  partial.resolveSibling(partial.getFileName().toString() + ".displaced");
+              Path moved = partial.resolveSibling(partial.getFileName().toString() + ".displaced");
               Files.move(partial, moved);
               Files.writeString(
                   partial,
@@ -1484,8 +1713,7 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
-  void renamedWrittenPartialIsScrubbedThroughItsOpenHandleWithoutDeleteOnClose()
-      throws Exception {
+  void renamedWrittenPartialIsScrubbedThroughItsOpenHandleWithoutDeleteOnClose() throws Exception {
     LoggingRuntime runtime = start();
     String canary = "PERSISTENT_SENSITIVE_PARTIAL_CANARY_52fd8d19";
     LoggerFactory.getLogger(LogCategories.APP).error("diagnostic payload {}", canary);
@@ -1553,8 +1781,7 @@ class DiagnosticBundleExporterTest {
     Path outside = tempDir.resolve("outside-source.log");
     Files.writeString(
         outside,
-        LocalDateTime.now().format(LOG_TIMESTAMP)
-            + " ERROR [lizzie.app] SOURCE_SYMLINK_CANARY\n",
+        LocalDateTime.now().format(LOG_TIMESTAMP) + " ERROR [lizzie.app] SOURCE_SYMLINK_CANARY\n",
         StandardCharsets.UTF_8);
     Files.createSymbolicLink(appLog, outside.toAbsolutePath());
 
@@ -1568,13 +1795,35 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
-  void estimateIsPositiveBeforeExport() throws Exception {
+  void estimateUsesGzipContentMetadataAndExposesUnknownContributions() throws Exception {
     LoggingRuntime runtime = start();
     runtime.awaitIdle();
-    long estimate =
-        new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
-            .estimateUncompressedBytes(request(runtime, EnumSet.noneOf(TraceScope.class)));
-    assertTrue(estimate > 0);
+    runtime.shutdown();
+    Files.writeString(runtime.logsDirectory().resolve("app.log"), "");
+    Files.writeString(runtime.logsDirectory().resolve("crash.log"), "");
+    Path archive = runtime.logsDirectory().resolve("archive");
+    Files.createDirectories(archive);
+    Path gzip = archive.resolve("app." + java.time.LocalDate.now() + ".0.log.gz");
+    try (var out = new GZIPOutputStream(Files.newOutputStream(gzip))) {
+      out.write(new byte[4096]);
+    }
+    DiagnosticBundleExporter exporter =
+        new DiagnosticBundleExporter(tempDir.resolve("diagnostics"));
+    DiagnosticBundleExporter.ContentEstimate estimate =
+        exporter.estimate(request(runtime, Set.of()));
+    assertEquals(4096, estimate.knownBytes());
+    assertTrue(estimate.incomplete());
+    assertTrue(estimate.coarse());
+    gzip = Files.move(gzip, archive.resolve("app.manual.log.gz"));
+    DiagnosticBundleExporter.ContentEstimate unsupported =
+        exporter.estimate(request(runtime, Set.of()));
+    assertEquals(0, unsupported.knownBytes());
+    assertTrue(unsupported.incomplete());
+    Files.writeString(gzip, "unsupported gzip metadata");
+    DiagnosticBundleExporter.ContentEstimate unknown =
+        exporter.estimate(request(runtime, Set.of()));
+    assertEquals(0, unknown.knownBytes());
+    assertTrue(unknown.incomplete());
   }
 
   @Test
@@ -1603,14 +1852,19 @@ class DiagnosticBundleExporterTest {
     assertTrue(text(windowed, "logs/readboard/app.log").contains("rb-app-now"));
     assertTrue(text(windowed, "logs/readboard/crash.log").contains("rb-crash-now"));
     assertEquals("logs/lizzie/", source(manifest(windowed), "lizzie-app").getString("namespace"));
-    assertEquals("logs/readboard/", source(manifest(windowed), "readboard-app").getString("namespace"));
+    assertEquals(
+        "logs/readboard/", source(manifest(windowed), "readboard-app").getString("namespace"));
 
     StringBuilder padding = new StringBuilder();
     for (int i = 0; i < 80; i++) {
       padding.append("pad-").append(i).append('\n');
     }
-    Files.writeString(tempDir.resolve("logs/app.log"), padding.toString(), java.nio.file.StandardOpenOption.APPEND);
-    Files.writeString(rb.resolve("app.log"), padding.toString(), java.nio.file.StandardOpenOption.APPEND);
+    Files.writeString(
+        tempDir.resolve("logs/app.log"),
+        padding.toString(),
+        java.nio.file.StandardOpenOption.APPEND);
+    Files.writeString(
+        rb.resolve("app.log"), padding.toString(), java.nio.file.StandardOpenOption.APPEND);
     DiagnosticBundleLimits limits = new DiagnosticBundleLimits(24, 40, 24, 1024, 1024, 1024);
     Map<String, byte[]> capped =
         unzipEntries(
@@ -1679,7 +1933,8 @@ class DiagnosticBundleExporterTest {
     assertEquals(
         "no-active-session",
         source(manifest(missingCurrent), "lizzie-engine-trace").getString("reason"));
-    assertEquals("omitted", source(manifest(missingCurrent), "lizzie-engine-trace").getString("status"));
+    assertEquals(
+        "omitted", source(manifest(missingCurrent), "lizzie-engine-trace").getString("status"));
     assertTrue(text(missingCurrent, "logs/readboard/trace.log").contains("rb-current-trace"));
     assertFalse(text(missingCurrent, "logs/readboard/trace.log").contains("rb-old-trace"));
 
@@ -1725,7 +1980,8 @@ class DiagnosticBundleExporterTest {
     Path incomplete = capture.resolve("20260821-180000-000-0002-recognition-success");
     Files.createDirectories(incomplete);
     Files.write(incomplete.resolve("frame.png"), PIXEL_PNG);
-    Files.writeString(capture.resolve("debug.log"), "root debug path=/home/dev/capture-debug.png\n");
+    Files.writeString(
+        capture.resolve("debug.log"), "root debug path=/home/dev/capture-debug.png\n");
 
     Path zip =
         new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
@@ -1737,8 +1993,7 @@ class DiagnosticBundleExporterTest {
                     true,
                     helperSnapshot(PROCESS_SESSION, true, false)));
     Map<String, byte[]> entries = unzipEntries(zip);
-    String prefix =
-        "diagnostics/readboard-capture/20260821-170300-123-0001-recognition-success/";
+    String prefix = "diagnostics/readboard-capture/20260821-170300-123-0001-recognition-success/";
     assertTrue(entries.containsKey(prefix + "frame.png"));
     assertTrue(entries.containsKey(prefix + "metadata.json"));
     assertTrue(entries.containsKey(prefix + "recognition.txt"));
@@ -1763,7 +2018,12 @@ class DiagnosticBundleExporterTest {
     LoggingRuntime runtime = start();
     Path capture = readBoardRoot(runtime).resolve("capture");
     writeCaptureEvent(
-        capture, "20260821-170300-123-0001-first", PROCESS_SESSION, "first", "/tmp/a.png", "first-text");
+        capture,
+        "20260821-170300-123-0001-first",
+        PROCESS_SESSION,
+        "first",
+        "/tmp/a.png",
+        "first-text");
     writeCaptureEvent(
         capture,
         "20260821-170301-123-0002-second",
@@ -1791,7 +2051,8 @@ class DiagnosticBundleExporterTest {
     boolean first =
         entries.keySet().stream().anyMatch(name -> name.contains("20260821-170300-123-0001-first"));
     boolean second =
-        entries.keySet().stream().anyMatch(name -> name.contains("20260821-170301-123-0002-second"));
+        entries.keySet().stream()
+            .anyMatch(name -> name.contains("20260821-170301-123-0002-second"));
     assertFalse(first);
     assertTrue(second);
     assertTrue(captureSource.getLong("bytes") <= newestBytes);
@@ -1829,9 +2090,7 @@ class DiagnosticBundleExporterTest {
     Map<String, byte[]> entries =
         unzipEntries(
             new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
-                .export(
-                    request(
-                        runtime, EnumSet.noneOf(TraceScope.class), false, true, helper)));
+                .export(request(runtime, EnumSet.noneOf(TraceScope.class), false, true, helper)));
     assertTrue(
         entries.keySet().stream()
             .anyMatch(name -> name.contains("20260821-170300-123-0001-current-untagged")));
@@ -1852,7 +2111,8 @@ class DiagnosticBundleExporterTest {
     boolean posix = Files.getFileStore(rb).supportsFileAttributeView("posix");
     boolean unreadableSource = false;
     if (posix) {
-      Files.writeString(unreadable, jsonl(Instant.now().toString(), "app", PROCESS_SESSION, "hidden", null));
+      Files.writeString(
+          unreadable, jsonl(Instant.now().toString(), "app", PROCESS_SESSION, "hidden", null));
       Files.setPosixFilePermissions(unreadable, Set.of());
       unreadableSource = !Files.isReadable(unreadable);
       if (!unreadableSource) {
@@ -1864,7 +2124,8 @@ class DiagnosticBundleExporterTest {
 
     Map<String, byte[]> detached = unzipEntries(exportDefault(runtime));
     JSONObject detachedManifest = manifest(detached);
-    assertEquals("helper-not-started", source(detachedManifest, "readboard-capture").getString("reason"));
+    assertEquals(
+        "helper-not-started", source(detachedManifest, "readboard-capture").getString("reason"));
     assertEquals("omitted", source(detachedManifest, "readboard-capture").getString("status"));
     assertTrue(detached.containsKey("manifest.json"));
 
@@ -1872,9 +2133,7 @@ class DiagnosticBundleExporterTest {
     Map<String, byte[]> helperOn =
         unzipEntries(
             new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
-                .export(
-                    request(
-                        runtime, EnumSet.noneOf(TraceScope.class), false, true, started)));
+                .export(request(runtime, EnumSet.noneOf(TraceScope.class), false, true, started)));
     JSONObject helperManifest = manifest(helperOn);
     JSONObject rbApp = source(helperManifest, "readboard-app");
     // A discovered source that cannot be read is a per-source read error; a platform on which
@@ -1888,7 +2147,8 @@ class DiagnosticBundleExporterTest {
     }
     assertEquals("missing", source(helperManifest, "readboard-crash").getString("reason"));
     assertEquals("failed", source(helperManifest, "readboard-crash").getString("status"));
-    assertEquals("no-current-session", source(helperManifest, "readboard-capture").getString("reason"));
+    assertEquals(
+        "no-current-session", source(helperManifest, "readboard-capture").getString("reason"));
     assertEquals("omitted", source(helperManifest, "readboard-capture").getString("status"));
     assertTrue(helperOn.containsKey("manifest.json"));
     if (posix) {
@@ -1958,8 +2218,7 @@ class DiagnosticBundleExporterTest {
   }
 
   @Test
-  void captureJsonAndJsonlAreStructurallySanitizedAndMalformedRecordsFailClosed()
-      throws Exception {
+  void captureJsonAndJsonlAreStructurallySanitizedAndMalformedRecordsFailClosed() throws Exception {
     LoggingRuntime runtime = start();
     String eventName = "20260821-170300-123-0001-json-structure";
     Path captureRoot = readBoardRoot(runtime).resolve("capture");
@@ -1981,8 +2240,7 @@ class DiagnosticBundleExporterTest {
             .put(tagged(rootUserCanary, "userText"))
             .put(tagged(rootSessionCanary, "sessionId"))
             .put(tagged(rootPathCanary, "localPath"));
-    Files.writeString(
-        event.resolve("details.json"), rootArray.toString(), StandardCharsets.UTF_8);
+    Files.writeString(event.resolve("details.json"), rootArray.toString(), StandardCharsets.UTF_8);
 
     String lineUserCanary = "CANARY_JSONL_OBJECT_USER";
     String lineSessionCanary = "CANARY_JSONL_ARRAY_SESSION";
@@ -1999,8 +2257,7 @@ class DiagnosticBundleExporterTest {
             .put(tagged(linePathCanary, "localPath"))
             .toString();
     String malformedLine = "{\"message\":\"" + malformedCanary + "\"";
-    String laterLine =
-        new JSONObject().put("profile", tagged(laterCanary, "userText")).toString();
+    String laterLine = new JSONObject().put("profile", tagged(laterCanary, "userText")).toString();
     String scalarLine = "\"" + scalarCanary + "\"";
     Files.writeString(
         event.resolve("events.jsonl"),
@@ -2052,16 +2309,7 @@ class DiagnosticBundleExporterTest {
     assertTrue(lines[1].contains("path#"), jsonl);
     assertTrue(lines[3].contains("nickname#"), jsonl);
     assertEquals(
-        lines[0]
-            + "\r\n"
-            + lines[1]
-            + "\n"
-            + lines[2]
-            + "\r"
-            + lines[3]
-            + "\n"
-            + lines[4],
-        jsonl);
+        lines[0] + "\r\n" + lines[1] + "\n" + lines[2] + "\r" + lines[3] + "\n" + lines[4], jsonl);
     assertNoCanaries(
         entries,
         rootUserCanary,
@@ -2092,19 +2340,14 @@ class DiagnosticBundleExporterTest {
     fields.put("authorization", tagged(CANARY_CREDENTIAL, "secret"));
     fields.put("machineKey", tagged(CANARY_MACHINE_KEY, "secret"));
     fields.put(
-        "nestedSafe",
-        tagged(new JSONObject().put("machineKey", CANARY_JSON_NESTED), "safe"));
+        "nestedSafe", tagged(new JSONObject().put("machineKey", CANARY_JSON_NESTED), "safe"));
     fields.put("unknownPrivacy", tagged(CANARY_JSON_UNKNOWN, "futurePrivacy"));
-    fields.put(
-        "C:\\Users\\" + jsonlKeyCanary + "\\notes",
-        tagged("jsonl-key-value", "safe"));
-    for (String privacy :
-        new String[] {"localPath", "localUrl", "userText", "sessionId"}) {
+    fields.put("C:\\Users\\" + jsonlKeyCanary + "\\notes", tagged("jsonl-key-value", "safe"));
+    for (String privacy : new String[] {"localPath", "localUrl", "userText", "sessionId"}) {
       fields.put(
           "nonString-" + privacy,
           tagged(
-              new JSONObject().put("opaque", CANARY_NONSTRING_SESSION + "-" + privacy),
-              privacy));
+              new JSONObject().put("opaque", CANARY_NONSTRING_SESSION + "-" + privacy), privacy));
     }
     Files.createDirectories(readBoardRoot(runtime));
     Files.writeString(
@@ -2127,14 +2370,10 @@ class DiagnosticBundleExporterTest {
     metadataJson.put("TimestampUtc", Instant.now().toString());
     metadataJson.put("processSessionId", PROCESS_SESSION);
     metadataJson.put("CapturePath", "/home/dev/secret-config.txt");
+    metadataJson.put("https://metadata-key.invalid/" + metadataKeyCanary, "metadata-key-value");
     metadataJson.put(
-        "https://metadata-key.invalid/" + metadataKeyCanary,
-        "metadata-key-value");
-    metadataJson.put(
-        "nestedSafe",
-        tagged(new JSONObject().put("machineKey", CANARY_CAPTURE_NESTED), "safe"));
-    metadataJson.put(
-        "unknownPrivacy", tagged(CANARY_CAPTURE_UNKNOWN, "futurePrivacy"));
+        "nestedSafe", tagged(new JSONObject().put("machineKey", CANARY_CAPTURE_NESTED), "safe"));
+    metadataJson.put("unknownPrivacy", tagged(CANARY_CAPTURE_UNKNOWN, "futurePrivacy"));
     Files.writeString(captureMetadata, metadataJson.toString(), StandardCharsets.UTF_8);
 
     Map<String, byte[]> entries =
@@ -2156,7 +2395,9 @@ class DiagnosticBundleExporterTest {
     assertFalse(app.contains(jsonlKeyCanary), app);
     assertTrue(app.contains("redacted-field-1"), app);
     assertTrue(app.contains("jsonl-key-value"), app);
-    assertTrue(app.contains("path#1") || app.contains("<redacted-path>") || app.contains("/home/<user>"), app);
+    assertTrue(
+        app.contains("path#1") || app.contains("<redacted-path>") || app.contains("/home/<user>"),
+        app);
     assertTrue(app.contains("url#1") || app.contains("<redacted-url>"), app);
     assertTrue(app.contains("nickname#1") || app.contains("<redacted"), app);
     String metadata =
@@ -2212,8 +2453,7 @@ class DiagnosticBundleExporterTest {
   void attachedHelperWithoutProcessSessionOmitsCaptureAsNoCurrentSession() throws Exception {
     LoggingRuntime runtime = start();
     ReadBoardLoggingControl control =
-        new ReadBoardLoggingControl(
-            new ReadBoardLoggingControl.Desired(false, true, false), true);
+        new ReadBoardLoggingControl(new ReadBoardLoggingControl.Desired(false, true, false), true);
     ReadBoardLoggingSnapshot helper = control.snapshot();
     Map<String, byte[]> entries =
         unzipEntries(
@@ -2241,7 +2481,8 @@ class DiagnosticBundleExporterTest {
 
   private static DiagnosticBundleRequest request(
       LoggingRuntime runtime, Set<TraceScope> rawScopes) {
-    return new DiagnosticBundleRequest(runtime, rawScopes, new JSONObject(), emptySnapshot(), "next-dev");
+    return new DiagnosticBundleRequest(
+        runtime, rawScopes, new JSONObject(), emptySnapshot(), "next-dev");
   }
 
   private static DiagnosticBundleRequest request(
@@ -2353,7 +2594,6 @@ class DiagnosticBundleExporterTest {
     return field;
   }
 
-
   private static long directorySize(Path directory) throws IOException {
     long total = 0;
     try (var stream = Files.walk(directory)) {
@@ -2441,14 +2681,7 @@ class DiagnosticBundleExporterTest {
     try (OutputStream file = Files.newOutputStream(path);
         GZIPOutputStream gzip = new GZIPOutputStream(file)) {
       for (int i = 0; i < count; i++) {
-        String record =
-            timestamp
-                + " INFO  [lizzie.app] "
-                + prefix
-                + i
-                + " "
-                + payload
-                + '\n';
+        String record = timestamp + " INFO  [lizzie.app] " + prefix + i + " " + payload + '\n';
         gzip.write(record.getBytes(StandardCharsets.UTF_8));
       }
     }
@@ -2524,5 +2757,4 @@ class DiagnosticBundleExporterTest {
       }
     }
   }
-
 }

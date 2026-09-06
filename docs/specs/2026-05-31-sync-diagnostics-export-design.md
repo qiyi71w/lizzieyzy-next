@@ -445,3 +445,57 @@ D:\dev\weiqi\lizzieyzy-next\.tools\apache-maven-3.9.10\bin\mvn.cmd -DskipTests p
 4. 在 ReadBoard / OnlineDialog 发布 recent 事件。
 5. 在诊断面板加导出按钮和结果提示。
 6. 补齐单元测试、端到端脱敏测试、回归测试和 Windows 构建验证。
+
+## 2026-09-06：Diagnostics and Logs 导出修复（#430）
+
+`DiagnosticBundleRequest` 在 UI action 创建时冻结 host 会话、scope、settings、capture time、
+helper snapshot 和配置内容；文件枚举与读取在后台进行。下一次 action 创建新的请求。
+
+`LogArchiveBoundary` 在 host trace identity 创建前、或 helper launch arguments 准备时记录最多
+1024 个归档目录项的文件身份。只有路径、非空文件身份和 creation time 都匹配的旧归档可以
+在 payload 打开前剪枝；未知身份和后来轮转的文件继续进行有界记录筛选。文件身份优先使用
+NIO file key；Windows NIO 返回 null 时，通过只读 metadata handle 取得卷号与 128 位 file ID。
+Handle 共享读、写和删除，并在查询后立即关闭，不跟随最终路径的 reparse point。查询失败仍
+保留候选，不以 creation time 单独认定同一文件。这覆盖 NTFS 创建时间被保留或隧道化的替换。
+依据：[GetFileInformationByHandleEx / FileIdInfo](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex)、
+[FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info)。它不依赖 mtime，
+也不将 helper capability 接收时间当作进程出生时间。未带 session 的 capture event 仍采用
+既有 observation-time 规则。
+
+Host 的 Logback archive 日期桶使用生产者本地时区；只有桶的下一日零时不晚于 cutoff 才能
+排除。ReadBoard `RollingFileSink` 的 `yyyyMMddTHHmmssZ` 名称表示 UTC 滚动时刻，按秒精度的
+上界处理，不套用 host 日期桶。Host trace lower cutoff 对齐日志的毫秒精度。
+
+估算显示 MiB 单位的未压缩候选内容，不预测 ZIP 大小。普通文件贡献 metadata size，gzip
+仅通过有界 header/trailer 读取取得近似候选量；不完整 header、未知 metadata、枚举受限及
+运行时快照/capture 的未知贡献均显式显示。gzip trailer 不证明 member 数、CRC 或记录筛选
+比例，不用于分配、scan budget 或安全判断。所有候选量仍受原有 source cap 限制。
+只有匹配 host `stem.yyyy-MM-dd.index.log.gz` 或 helper `stem.yyyyMMddTHHmmssZ[-index].log.gz`
+的生产者命名契约才采用 trailer。Logback 1.6.3 `GZCompressionStrategy` 每个目标创建一个
+`GZIPOutputStream`；ReadBoard `RealLoggingFileSystem.TryCreateGzip` 每个新目标创建一个
+`GZipStream`，都不追加 member。DEFLATE 的一次 match 最多输出 258 字节、至少消费两个 bit，
+因此压缩文件超过 `0xffffffff / 1032` 字节时视为 ISIZE 可能回绕，只显示未知贡献。
+该上界是格式上限检查，不是压缩率预测。未知命名或 header 也不贡献猜测的字节数。
+
+发布成功仍以 ZIP close → force → 原子 publication 完成为边界。EDT 只恢复控件与显示结果；
+folder opener 使用独立后台线程，失败不改变成功状态。Estimate worker 最多一个执行中、一个
+待处理的最新请求；generation 排除过期结果。
+
+时长统一使用 `System.nanoTime()` 的纳秒差值。Manifest source 字段：
+
+- `enumerationNanos`：候选枚举、身份读取及剪枝。
+- `enumerationState`：completed/failed；空结果和失败结果同样保留枚举测量及零次打开记录。
+- `readFilterSanitizeNanos`：包括读取、解压、解析、筛选和脱敏的总时间，不是独立 gzip 时间。
+- `sanitizerNanos`：上述时间中 eligible record 的脱敏及 UTF-8 输出转换子区间，不能与总时间相加。
+- `zipEntryNanos`：source entry 写入与 closeEntry。
+- `candidates`、`filesPruned`、`openedFiles`：保留候选、metadata 排除和成功打开文件的数量。
+
+Manifest 之后完成的 `zip-finalization`、`force`、`publication` 和 `folder-opening` 在诊断日志
+记录 started/completed/failed 与 `elapsedNanos`，不回写已发布 ZIP。强制结束进程可能只留下 started。
+`publication` 区间包含 force 后最后一次 cancellation admission；此时取消不会把已完成的 force
+记录为失败。
+
+本次 eligible-record Linux JFR 工作负载保留 7,380,240 字节，读取/筛选/脱敏约 6.99 秒，
+其中脱敏约 6.78 秒；517 个 execution samples 中 493 个包含 regex。未证明重复 transformation
+可安全删除，因此保留既有脱敏顺序与隐私保护。这不是 Windows 延迟保证，也不能确定既往
+未完成导出的唯一原因。

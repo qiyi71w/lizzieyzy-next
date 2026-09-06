@@ -58,6 +58,7 @@ public final class LoggingRuntime {
   private volatile LoggingSettings settings = LoggingSettings.defaults();
   private volatile String traceSessionId;
   private volatile Instant fullTraceStartedAt;
+  private LogArchiveBoundary traceArchiveBoundary = LogArchiveBoundary.empty();
   private volatile Set<TraceScope> activeTraceScopes = EnumSet.noneOf(TraceScope.class);
   private volatile boolean shutdown;
 
@@ -85,8 +86,7 @@ public final class LoggingRuntime {
     try {
       factory = LoggerFactory.getILoggerFactory();
     } catch (RuntimeException e) {
-      return degrade(
-          resolution, limits, e.getClass().getSimpleName() + ": " + e.getMessage());
+      return degrade(resolution, limits, e.getClass().getSimpleName() + ": " + e.getMessage());
     }
     return initialize(resolution, limits, factory);
   }
@@ -105,14 +105,12 @@ public final class LoggingRuntime {
           return degrade(resolution, limits, "provider unavailable: " + name);
         }
         LoggingRuntime runtime =
-            new LoggingRuntime(
-                resolution.directory(), limits, (LoggerContext) factory, System.err);
+            new LoggingRuntime(resolution.directory(), limits, (LoggerContext) factory, System.err);
         runtime.bootstrap(resolution);
         instance = runtime;
         return runtime;
       } catch (RuntimeException e) {
-        return degrade(
-            resolution, limits, e.getClass().getSimpleName() + ": " + e.getMessage());
+        return degrade(resolution, limits, e.getClass().getSimpleName() + ": " + e.getMessage());
       }
     }
   }
@@ -123,8 +121,7 @@ public final class LoggingRuntime {
       if (instance != null && !instance.shutdown) {
         return instance;
       }
-      LoggingRuntime runtime =
-          new LoggingRuntime(resolution.directory(), limits, null, System.err);
+      LoggingRuntime runtime = new LoggingRuntime(resolution.directory(), limits, null, System.err);
       runtime.persistenceEnabled.set(false);
       runtime.notice("bootstrap", reason);
       instance = runtime;
@@ -188,11 +185,15 @@ public final class LoggingRuntime {
 
   public synchronized TraceSessionSnapshot traceSessionSnapshot() {
     return new TraceSessionSnapshot(
-        traceSessionId, activeTraceScopes, fullTraceStartedAt, Instant.now());
+        traceSessionId, activeTraceScopes, fullTraceStartedAt, Instant.now(), traceArchiveBoundary);
   }
 
   public record TraceSessionSnapshot(
-      String sessionId, Set<TraceScope> scopes, Instant startedAt, Instant capturedAt) {
+      String sessionId,
+      Set<TraceScope> scopes,
+      Instant startedAt,
+      Instant capturedAt,
+      LogArchiveBoundary archiveBoundary) {
     public TraceSessionSnapshot {
       scopes =
           scopes == null || scopes.isEmpty()
@@ -268,6 +269,7 @@ public final class LoggingRuntime {
     if (traceSessionId != null) {
       stopFullTrace();
     }
+    traceArchiveBoundary = LogArchiveBoundary.capture(logsDirectory);
     traceSessionId = "trace-" + UUID.randomUUID();
     fullTraceStartedAt = Instant.now();
     activeTraceScopes = selected;
@@ -759,8 +761,7 @@ public final class LoggingRuntime {
     if (text.contains("engine-trace.log") || text.startsWith(LogStream.ENGINE_TRACE.name())) {
       return LogStream.ENGINE_TRACE;
     }
-    if (text.contains("readboard-trace.log")
-        || text.startsWith(LogStream.READBOARD_TRACE.name())) {
+    if (text.contains("readboard-trace.log") || text.startsWith(LogStream.READBOARD_TRACE.name())) {
       return LogStream.READBOARD_TRACE;
     }
     if (text.contains("network-trace.log") || text.startsWith(LogStream.NETWORK_TRACE.name())) {

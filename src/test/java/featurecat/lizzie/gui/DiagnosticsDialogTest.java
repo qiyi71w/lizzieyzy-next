@@ -21,8 +21,13 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.JButton;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +55,6 @@ class DiagnosticsDialogTest {
     DiagnosticsDialog dialog = dialog(runtime, new AtomicInteger(), new ArrayList<>(), () -> true);
     assertTrue(dialog.healthText().contains(runtime.logsDirectory().toString()));
     assertTrue(dialog.healthText().contains("Persistence:"));
-    assertTrue(dialog.estimateText().contains("MB"));
     assertFalse(dialog.cancelButton().isVisible());
     assertFalse(dialog.fullLogsEnabledBox().isSelected());
     dialog.diagnosticsEnabledBox().doClick();
@@ -105,29 +109,115 @@ class DiagnosticsDialogTest {
   }
 
   @Test
-  void openFolderAndExportUseWorkDirectoryDiagnostics() throws Exception {
+  void queuedEstimateRefreshDiscardsOldPresentationAndKeepsEdtEventsRunning() throws Exception {
     LoggingRuntime runtime = start();
-    List<Path> opened = new ArrayList<>();
-    DiagnosticsDialog dialog = dialog(runtime, new AtomicInteger(), opened, () -> true);
-    assertTrue(dialog.currentRequest().rawScopes().isEmpty());
-    dialog.startFullTraceFromUi();
-    assertTrue(
-        dialog
-            .confirmBody()
-            .contains(Lizzie.resourceBundle.getString("DiagnosticsDialog.scope.engineGtp")));
-    assertTrue(dialog.currentRequest().rawScopes().contains(TraceScope.ENGINE_GTP));
-    dialog.scopeEngineBox().setSelected(false);
-    assertTrue(dialog.currentRequest().rawScopes().contains(TraceScope.ENGINE_GTP));
-    Path zip = dialog.exportSynchronously();
-    assertTrue(Files.isRegularFile(zip));
-    assertTrue(zip.getParent().endsWith("diagnostics"));
-    assertTrue(opened.contains(zip.getParent()));
-    runtime.stopFullTrace();
-    dialog.refreshFromRuntime();
-    assertFalse(dialog.fullLogsEnabledBox().isSelected());
-    assertTrue(dialog.currentRequest().rawScopes().isEmpty());
-    assertTrue(dialog.currentRequest().includeCapture());
-    assertFalse(dialog.currentRequest().includeReadBoardTrace());
+    Path helperLogs = runtime.logsDirectory().resolve("readboard");
+    Files.createDirectories(helperLogs);
+    Files.writeString(helperLogs.resolve("trace.log"), "x".repeat(1024 * 1024));
+    ReadBoardLoggingControl control =
+        new ReadBoardLoggingControl(ReadBoardLoggingControl.Desired.launchDefaults(false), true);
+    control.onCapability(
+        ReadBoardLoggingProtocol.tryParseCapability(
+            "readboardLoggingV1 dGVzdFByb2Nlc3NJRA off off off healthy 0"));
+    RecordingHelper helper = new RecordingHelper(control);
+    CountDownLatch estimateShown = new CountDownLatch(1);
+    CountDownLatch heartbeat = new CountDownLatch(1);
+    List<String> estimates = new ArrayList<>();
+    SwingUtilities.invokeAndWait(
+        () -> {
+          DiagnosticsDialog dialog =
+              dialog(
+                  runtime, new AtomicInteger(), new ArrayList<>(), () -> true, helper, () -> true);
+          observeEstimateLabels(
+              dialog,
+              value -> {
+                estimates.add(value);
+                estimateShown.countDown();
+              });
+          dialog.helperTraceBox().doClick();
+          dialog.refreshFromRuntime();
+          dialog.refreshFromRuntime();
+          SwingUtilities.invokeLater(heartbeat::countDown);
+        });
+    assertTrue(heartbeat.await(10, TimeUnit.SECONDS));
+    assertTrue(estimateShown.await(10, TimeUnit.SECONDS));
+    SwingUtilities.invokeAndWait(
+        () -> {
+          assertEquals(1, estimates.size(), estimates.toString());
+          assertTrue(estimates.get(0).contains("1.0 MiB"), estimates.toString());
+        });
+  }
+
+  private static void observeEstimateLabels(
+      java.awt.Container container, java.util.function.Consumer<String> observer) {
+    for (java.awt.Component component : container.getComponents()) {
+      if (component instanceof javax.swing.JLabel label) {
+        label.addPropertyChangeListener(
+            "text",
+            event -> {
+              if (event.getNewValue() instanceof String text && text.contains("MiB"))
+                observer.accept(text);
+            });
+      }
+      if (component instanceof java.awt.Container child) observeEstimateLabels(child, observer);
+    }
+  }
+
+  @Test
+  void lateThrowingFolderOpenerCannotOverturnSubsequentPublishedExport() throws Exception {
+    LoggingRuntime runtime = start();
+    CountDownLatch firstOpened = new CountDownLatch(1);
+    CountDownLatch secondOpened = new CountDownLatch(1);
+    CountDownLatch releaseFirst = new CountDownLatch(1);
+    CountDownLatch firstReturned = new CountDownLatch(1);
+    AtomicInteger calls = new AtomicInteger();
+    AtomicReference<DiagnosticsDialog> panel = new AtomicReference<>();
+    try {
+      SwingUtilities.invokeAndWait(
+          () -> {
+            DiagnosticsDialog dialog =
+                new DiagnosticsDialog(
+                    runtime,
+                    null,
+                    new DiagnosticBundleExporter(tempDir.resolve("diagnostics")),
+                    () -> {},
+                    () -> true,
+                    path -> {
+                      if (calls.incrementAndGet() == 1) {
+                        firstOpened.countDown();
+                        try {
+                          releaseFirst.await(10, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                          Thread.currentThread().interrupt();
+                        } finally {
+                          firstReturned.countDown();
+                        }
+                        throw new IllegalStateException("folder unavailable");
+                      }
+                      secondOpened.countDown();
+                    });
+            panel.set(dialog);
+            assertTrue(clickExport(dialog));
+          });
+      assertTrue(firstOpened.await(10, TimeUnit.SECONDS));
+      SwingUtilities.invokeAndWait(() -> assertTrue(clickExport(panel.get())));
+      assertTrue(secondOpened.await(10, TimeUnit.SECONDS));
+      AtomicReference<String> successfulStatus = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() -> successfulStatus.set(panel.get().statusText()));
+      releaseFirst.countDown();
+      assertTrue(firstReturned.await(10, TimeUnit.SECONDS));
+      SwingUtilities.invokeAndWait(
+          () -> {
+            assertEquals(successfulStatus.get(), panel.get().statusText());
+            assertFalse(panel.get().cancelButton().isVisible());
+          });
+      try (var files = Files.list(tempDir.resolve("diagnostics"))) {
+        assertEquals(2, files.filter(p -> p.toString().endsWith(".zip")).count());
+      }
+    } finally {
+      releaseFirst.countDown();
+      SwingUtilities.invokeAndWait(() -> {});
+    }
   }
 
   @Test
@@ -135,9 +225,7 @@ class DiagnosticsDialogTest {
     LoggingRuntime runtime = start();
     runtime.startFullTrace(EnumSet.of(TraceScope.ENGINE_GTP));
     runtime.applySettings(
-        runtime
-            .settings()
-            .withPreferredTraceScopes(EnumSet.of(TraceScope.NETWORK_WEBSOCKET)));
+        runtime.settings().withPreferredTraceScopes(EnumSet.of(TraceScope.NETWORK_WEBSOCKET)));
     DiagnosticsDialog dialog = dialog(runtime, new AtomicInteger(), new ArrayList<>(), () -> true);
 
     assertTrue(dialog.fullLogsEnabledBox().isSelected());
@@ -183,7 +271,9 @@ class DiagnosticsDialogTest {
     assertTrue(
         dialog.hostAppLogText().contains(runtime.logsDirectory().resolve("app.log").toString()));
     assertTrue(
-        dialog.hostCrashLogText().contains(runtime.logsDirectory().resolve("crash.log").toString()));
+        dialog
+            .hostCrashLogText()
+            .contains(runtime.logsDirectory().resolve("crash.log").toString()));
     assertFalse(dialog.hostAppLogText().contains("readboard"));
     assertFalse(dialog.hostCrashLogText().contains("readboard"));
     assertTrue(dialog.hostPaneText().contains("Engine/GTP"));
@@ -389,13 +479,79 @@ class DiagnosticsDialogTest {
 
     assertTrue(dialog.currentRequest().includeCapture());
     assertFalse(dialog.currentRequest().includeReadBoardTrace());
-    assertEquals("dGVzdFByb2Nlc3NJRA", dialog.currentRequest().readBoardLogging().processSessionId());
+    assertEquals(
+        "dGVzdFByb2Nlc3NJRA", dialog.currentRequest().readBoardLogging().processSessionId());
     assertTrue(dialog.currentRequest().rawScopes().isEmpty());
 
     dialog.helperTraceBox().doClick();
     assertTrue(dialog.currentRequest().includeReadBoardTrace());
     assertTrue(dialog.currentRequest().includeCapture());
     assertTrue(dialog.currentRequest().rawScopes().isEmpty());
+  }
+
+  @Test
+  void publishedExportCompletesBeforeBlockedFolderOpenerAndKeepsEdtResponsive() throws Exception {
+    LoggingRuntime runtime = start();
+    CountDownLatch opened = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    AtomicBoolean openerOnEdt = new AtomicBoolean();
+    AtomicReference<DiagnosticsDialog> panel = new AtomicReference<>();
+    try {
+      SwingUtilities.invokeAndWait(
+          () -> {
+            DiagnosticsDialog dialog =
+                new DiagnosticsDialog(
+                    runtime,
+                    null,
+                    new DiagnosticBundleExporter(tempDir.resolve("diagnostics")),
+                    () -> {},
+                    () -> true,
+                    path -> {
+                      openerOnEdt.set(SwingUtilities.isEventDispatchThread());
+                      opened.countDown();
+                      try {
+                        release.await(10, TimeUnit.SECONDS);
+                      } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                      }
+                    });
+            panel.set(dialog);
+            clickExport(dialog);
+          });
+      assertTrue(opened.await(10, TimeUnit.SECONDS));
+      assertFalse(openerOnEdt.get(), "folder opening must not occupy the EDT");
+      CountDownLatch heartbeat = new CountDownLatch(1);
+      SwingUtilities.invokeLater(
+          () -> {
+            if (!panel.get().cancelButton().isVisible()
+                && panel.get().statusText().contains("Exported")) {
+              heartbeat.countDown();
+            }
+          });
+      assertTrue(heartbeat.await(10, TimeUnit.SECONDS));
+      try (var files = Files.list(tempDir.resolve("diagnostics"))) {
+        assertEquals(1, files.filter(p -> p.toString().endsWith(".zip")).count());
+      }
+    } finally {
+      release.countDown();
+      SwingUtilities.invokeAndWait(() -> {});
+    }
+  }
+
+  private static boolean clickExport(java.awt.Container container) {
+    for (java.awt.Component component : container.getComponents()) {
+      if (component instanceof JButton button
+          && button
+              .getText()
+              .equals(Lizzie.resourceBundle.getString("DiagnosticsDialog.exportDefault"))) {
+        button.doClick();
+        return true;
+      }
+      if (component instanceof java.awt.Container child && clickExport(child)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private DiagnosticsDialog dialog(

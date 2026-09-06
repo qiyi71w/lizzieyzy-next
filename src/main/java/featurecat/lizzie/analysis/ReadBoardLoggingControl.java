@@ -1,5 +1,6 @@
 package featurecat.lizzie.analysis;
 
+import featurecat.lizzie.logging.LogArchiveBoundary;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -69,11 +70,25 @@ public final class ReadBoardLoggingControl {
   private Status status;
   private long stateGeneration;
   private boolean disconnected;
+  private LogArchiveBoundary archiveBoundary = LogArchiveBoundary.empty();
 
   public ReadBoardLoggingControl(Desired desired, boolean contractLaunch) {
     this.desired = desired == null ? Desired.launchDefaults(false) : desired;
     this.contractLaunch = contractLaunch;
     this.status = contractLaunch ? Status.STARTING : Status.LEGACY_UNCONFIRMED;
+  }
+
+  public static ReadBoardLoggingControl forLaunch(
+      Desired desired, boolean contractLaunch, Path logDirectory) {
+    ReadBoardLoggingControl control = new ReadBoardLoggingControl(desired, contractLaunch);
+    if (contractLaunch && logDirectory != null) {
+      control.archiveBoundary = LogArchiveBoundary.capture(logDirectory);
+    }
+    return control;
+  }
+
+  synchronized LogArchiveBoundary archiveBoundary() {
+    return archiveBoundary;
   }
 
   public static String readBoardLogDirectory(Path logsDirectory) {
@@ -147,8 +162,7 @@ public final class ReadBoardLoggingControl {
   public synchronized boolean onCapability(ReadBoardLoggingProtocol.Capability capability) {
     if (capability == null
         || disconnected
-        || (processSessionId != null
-            && !processSessionId.equals(capability.processSessionId))) {
+        || (processSessionId != null && !processSessionId.equals(capability.processSessionId))) {
       return false;
     }
     ReadBoardLoggingProtocol.Observed nextObserved = observedFromCapability(capability);
@@ -240,8 +254,7 @@ public final class ReadBoardLoggingControl {
     return beginSetLocked(diagnostics, capture, trace).request;
   }
 
-  synchronized PendingSet beginSetIfCurrent(
-      boolean diagnostics, boolean capture, boolean trace) {
+  synchronized PendingSet beginSetIfCurrent(boolean diagnostics, boolean capture, boolean trace) {
     if (disconnected || processSessionId == null || processSessionId.isEmpty()) {
       return null;
     }
