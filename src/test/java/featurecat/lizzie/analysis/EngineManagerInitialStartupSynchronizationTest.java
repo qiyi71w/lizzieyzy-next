@@ -5338,8 +5338,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       // deterministic unsent-command gate only after classification, while the async post worker is
       // still frozen, so this test exercises EOF cancellation rather than parser configuration.
       engine.requireResponseBeforeSend = true;
-      setLeelazField(engine, "cmdNumber", 4);
-      setLeelazField(engine, "currentCmdNum", 0);
+      engine.sendCommandWithResponseForTest("version", () -> {});
+      String commandsBeforeWorker = oldOutput.toString(StandardCharsets.UTF_8);
       engine.startupPostActionWorkerGate.countDown();
       assertTrue(engine.outputWorkerEntered.await(2, TimeUnit.SECONDS));
       assertTrue(engine.timeoutScheduled.await(2, TimeUnit.SECONDS));
@@ -5362,7 +5362,7 @@ class EngineManagerInitialStartupSynchronizationTest {
 
       assertFalse(rebind.isAlive(), "EOF cancellation must not wait for the delivery watchdog");
       assertNull(rebindFailure.get());
-      assertEquals("", oldOutput.toString(StandardCharsets.UTF_8));
+      assertEquals(commandsBeforeWorker, oldOutput.toString(StandardCharsets.UTF_8));
       assertEquals("", replacementOutput.toString(StandardCharsets.UTF_8));
       assertEquals(0, env.readyTransitions.get() - readyBaseline);
       assertFalse(engine.isLoaded);

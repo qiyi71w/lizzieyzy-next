@@ -438,6 +438,7 @@ class LeelazReaderIncarnationTest {
         Object binding = getField(engine, "readerStreamBinding");
         process.observeReaderLines(engine);
         Lizzie.leelaz = engine;
+        Lizzie.board = new Board();
         engine.started = true;
         engine.isLoaded = true;
         engine.isNormalEnd = true;

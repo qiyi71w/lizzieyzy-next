@@ -429,8 +429,29 @@ class BoardPrimaryEngineSyncTest {
       String command = currentCommand.toString().trim();
       currentCommand.setLength(0);
       if (!command.isEmpty()) {
-        commands.add(command);
+        commands.add(commandPayload(command));
       }
+    }
+
+    private static String commandPayload(String command) {
+      int payloadStart = 0;
+      while (payloadStart < command.length()) {
+        char character = command.charAt(payloadStart);
+        if (character < '0' || character > '9') {
+          break;
+        }
+        payloadStart++;
+      }
+      if (payloadStart == 0
+          || payloadStart == command.length()
+          || !Character.isWhitespace(command.charAt(payloadStart))) {
+        return command;
+      }
+      while (payloadStart < command.length()
+          && Character.isWhitespace(command.charAt(payloadStart))) {
+        payloadStart++;
+      }
+      return payloadStart == command.length() ? command : command.substring(payloadStart);
     }
 
     private List<String> commands() {

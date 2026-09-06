@@ -1723,12 +1723,13 @@ class LeelazReadBoardGmaTest {
         loadThread.join(1000L);
         assertFalse(loadThread.isAlive());
 
+        assertFalse(blockedOutput.commands().contains("version"));
         invokeProcessCommandResponseLine(engine, "=");
 
-        assertFalse(
-            blockedOutput.commands().contains("version"),
-            "post-reset send failure must not retire the old loadsgf outstanding twice.");
+        assertTrue(blockedOutput.commands().contains("version"));
         assertFalse(blockedOutput.commands().contains("protocol_version"));
+        invokeProcessCommandResponseLine(engine, "=");
+        assertTrue(blockedOutput.commands().contains("protocol_version"));
         assertTrue(loadFailure.get() instanceof IllegalStateException);
       } finally {
         blockedOutput.releaseFirstFlush.countDown();

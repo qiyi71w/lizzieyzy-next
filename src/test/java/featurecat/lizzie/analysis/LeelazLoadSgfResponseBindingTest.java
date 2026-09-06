@@ -159,10 +159,10 @@ class LeelazLoadSgfResponseBindingTest {
       Leelaz engine = new Leelaz("");
       Lizzie.leelaz = engine;
       engine.requireResponseBeforeSend = true;
-      setCurrentCmdNum(engine, -1);
 
       RecordingOutputStream output = new RecordingOutputStream();
       setOutputStream(engine, output);
+      engine.sendCommandWithResponseForTest("name", () -> {});
 
       Path sgfFile = Files.createTempFile("loadsgf-queued-timeout-", ".sgf");
       AtomicInteger consumedCount = new AtomicInteger();
@@ -180,14 +180,13 @@ class LeelazLoadSgfResponseBindingTest {
 
       assertEquals(1, consumedCount.get(), "timeout cleanup should still trigger afterConsumed.");
       assertEquals(0, commandQueueSize(engine), "timed-out queued loadsgf should be dropped.");
-      assertEquals(0, output.commands().size(), "stalled loadsgf should stay unsent before retry.");
+      assertEquals(List.of("name"), output.commands(), "loadsgf must remain queued behind name");
 
-      engine.setResponseUpToDate();
-      invokeTrySendCommandFromQueue(engine);
+      invokeCommandResponseLine(engine, "=");
 
       assertEquals(
-          0,
-          output.commands().size(),
+          List.of("name"),
+          output.commands(),
           "timed-out queued loadsgf must stay unsent after queue is retried.");
     }
   }

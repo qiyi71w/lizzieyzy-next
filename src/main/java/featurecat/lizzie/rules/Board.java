@@ -2952,13 +2952,21 @@ public class Board {
             Lizzie.engineManager.secondEngineCountDown.sendTimeLeft(false);
         }
       }
+      boolean previousBlackToPlay = getData().blackToPlay;
+      boolean usedExistingVariation =
+          !newBranch && !forSync && history.nextByMoveIdentity(newState).isPresent();
+      if (!usedExistingVariation) {
+        history.addOrGoto(newState, newBranch);
+      } else {
+        clearAfterMove();
+      }
       boolean needGenmove = false;
       if (forManual && !Lizzie.frame.isPlayingAgainstLeelaz && !Lizzie.leelaz.isInputCommand) {
         String move = convertCoordinatesToName(x, y);
         Lizzie.engineManager.playEngineGameManualMove(
-            getHistory().isBlacksTurn(), color, move, color.isWhite());
+            previousBlackToPlay, color, move, color.isWhite());
       } else if (Lizzie.frame.isPlayingAgainstLeelaz
-          && Lizzie.frame.playerIsBlack == getData().blackToPlay
+          && Lizzie.frame.playerIsBlack == previousBlackToPlay
           && !isEngineFollowTrialActive()) {
         Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y), true, color.isWhite());
         needGenmove = true;
@@ -2967,13 +2975,6 @@ public class Board {
           && !engineGamePlaying()
           && !isEngineFollowTrialActive()) {
         Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y), true, color.isWhite());
-      }
-      boolean usedExistingVariation =
-          !newBranch && !forSync && history.nextByMoveIdentity(newState).isPresent();
-      if (!usedExistingVariation) {
-        history.addOrGoto(newState, newBranch);
-      } else {
-        clearAfterMove();
       }
       if (shouldLogLocalMovePlace) {
         logLocalMovePlace(
@@ -4198,6 +4199,12 @@ public class Board {
         return HistoryNavigationMutation.NOT_MOVED;
       }
       if (Lizzie.config.playSound) Utils.playVoiceFile();
+      if (expectedChild == null) {
+        history.next();
+      } else {
+        history.nextVariationWithoutEngineSync(childIndex);
+      }
+      advanceContextRevision();
       if (shouldForwardHistoryNavigationToPrimaryEngine() && data.get().isMoveNode()) {
         int[] lastMove = data.get().lastMove.get();
         String name = convertCoordinatesToName(lastMove[0], lastMove[1]);
@@ -4215,12 +4222,6 @@ public class Board {
               return true;
             });
       }
-      if (expectedChild == null) {
-        history.next();
-      } else {
-        history.nextVariationWithoutEngineSync(childIndex);
-      }
-      advanceContextRevision();
       boolean needSync =
           history.getCurrentHistoryNode().hasRemovedStone()
               || history.getCurrentHistoryNode().getData().isSnapshotNode();
@@ -5343,29 +5344,30 @@ public class Board {
         modifyEnd();
         return HistoryNavigationMutation.NOT_MOVED;
       }
+      BoardHistoryNode previousCurrentNode = history.getCurrentHistoryNode();
+      history.previous();
+      advanceContextRevision();
       if (!needSync
           && isHistoryAction
-          && history.getData().lastMoveColor != Stone.EMPTY
+          && currentData.lastMoveColor != Stone.EMPTY
           && shouldForwardHistoryNavigationToPrimaryEngine()) {
         boolean nopass = false;
         if (!Lizzie.leelaz.isKatago || Lizzie.leelaz.isSai) {
-          if (isPass && history.getCurrentHistoryNode().previous().isPresent()) nopass = true;
+          if (isPass && previousCurrentNode.previous().isPresent()) nopass = true;
         }
         if (!nopass) {
           submitOrdinaryEngineForwarding(
               Lizzie.leelaz,
               () -> {
-                Lizzie.leelaz.undo(true, history.getPrevious().get().blackToPlay);
+                Lizzie.leelaz.undo(true, history.getData().blackToPlay);
                 return true;
               });
         }
         else modifyEnd();
       }
       if (!needSync && shouldForwardHistoryNavigationToPrimaryEngine()) {
-        history.getCurrentHistoryNode().undoExtraStones();
+        previousCurrentNode.undoExtraStones();
       }
-      history.previous();
-      advanceContextRevision();
       HistoryNavigationRestore engineRestore = null;
       RuntimeException restorePreparationFailure = null;
       if (needSync && shouldForwardHistoryNavigationToPrimaryEngine()) {

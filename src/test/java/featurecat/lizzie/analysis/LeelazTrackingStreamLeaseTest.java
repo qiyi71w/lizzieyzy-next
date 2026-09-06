@@ -1831,6 +1831,14 @@ class LeelazTrackingStreamLeaseTest {
     }
   }
 
+  private static void acknowledgeLastPositionCommand(TestState state) throws Exception {
+    String commands = state.output.toString(StandardCharsets.UTF_8).trim();
+    String last = commands.substring(commands.lastIndexOf('\n') + 1);
+    String first = last.split(" ", 2)[0];
+    assertFalse(last.contains("analyze"), "analysis must wait for the position ACK");
+    processCommandResponse(state.engine, "=" + (Character.isDigit(first.charAt(0)) ? first : ""));
+  }
+
   @Test
   void navigationAfterTrackingQueuesPonderForTheNewPosition() throws Exception {
     Board previousBoard = Lizzie.board;
@@ -1855,6 +1863,7 @@ class LeelazTrackingStreamLeaseTest {
       assertTrue(state.engine.isPondering());
       assertTrue(dispatch(state.engine, "=800000002"));
       assertTrue(dispatch(state.engine, ""));
+      acknowledgeLastPositionCommand(state);
       String output = state.output.toString(StandardCharsets.UTF_8);
       assertTrue(output.lastIndexOf("kata-analyze") > output.lastIndexOf("play B D4"), output);
     } finally {
@@ -1885,6 +1894,7 @@ class LeelazTrackingStreamLeaseTest {
       assertTrue(state.engine.isPondering());
       assertTrue(dispatch(state.engine, "=800000002"));
       assertTrue(dispatch(state.engine, ""));
+      acknowledgeLastPositionCommand(state);
       String output = state.output.toString(StandardCharsets.UTF_8);
       assertTrue(output.lastIndexOf("kata-analyze") > output.lastIndexOf("undo"), output);
     } finally {
@@ -1915,6 +1925,7 @@ class LeelazTrackingStreamLeaseTest {
       assertTrue(state.engine.isPondering());
       assertTrue(dispatch(state.engine, "=800000002"));
       assertTrue(dispatch(state.engine, ""));
+      acknowledgeLastPositionCommand(state);
       String output = state.output.toString(StandardCharsets.UTF_8);
       assertTrue(output.lastIndexOf("kata-analyze") > output.lastIndexOf("clear_board"), output);
     } finally {

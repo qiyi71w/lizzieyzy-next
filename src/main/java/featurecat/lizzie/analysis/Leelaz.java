@@ -3241,7 +3241,9 @@ public class Leelaz {
       if (promotedFreshOwner) {
         binding.analysisOutputOwnership.set(
             AnalysisOutputOwnership.ordinary(
-                analysisOutputGeneration.get(), binding.analysisStateLineage));
+                analysisOutputGeneration.get(),
+                binding.analysisStateLineage,
+                captureAnalysisInfoTarget()));
         binding.suppressGlobalEnginePresentation = false;
         suppressGlobalEnginePresentationUntilOwned = false;
       }
@@ -4280,9 +4282,9 @@ public class Leelaz {
   }
 
   /**
-   * Failure lineage for position-dependent output on one reader incarnation. Pending state
-   * commands leave the lineage usable so streaming analysis can start immediately; a known failed
-   * state command poisons every dependent owner until a full state rebuild starts a fresh lineage.
+   * Failure lineage for position-dependent output on one reader incarnation. Queued commands
+   * capture their dependency before dispatch; ordinary analysis waits for required responses. A
+   * failed state command poisons its dependents until a full replacement starts a fresh lineage.
    */
   private static final class AnalysisStateLineage {
     private final AtomicBoolean failed = new AtomicBoolean();
@@ -4328,6 +4330,7 @@ public class Leelaz {
     private int startupPostActionsInProgress;
     private final List<StartupCommandDelivery> startupCommandDeliveries = new ArrayList<>();
     private int runtimeUiPresentationsInProgress;
+    private AnalysisStateLineage queuedAnalysisStateLineage;
     private Throwable terminalFailure;
     private boolean terminalCleanupStarted;
     /** The dead carrier's command leases were settled before deferred engine-game recovery. */
@@ -4418,18 +4421,21 @@ public class Leelaz {
     private final Object recoveryToken;
     private final long generation;
     private final AnalysisStateLineage analysisStateLineage;
+    private final AnalysisInfoTarget target;
 
     private AnalysisOutputOwnership(
         EngineManager.EngineGamePrimaryContext exactContext,
         boolean ordinary,
         Object recoveryToken,
         long generation,
-        AnalysisStateLineage analysisStateLineage) {
+        AnalysisStateLineage analysisStateLineage,
+        AnalysisInfoTarget target) {
       this.exactContext = exactContext;
       this.ordinary = ordinary;
       this.recoveryToken = recoveryToken;
       this.generation = generation;
       this.analysisStateLineage = analysisStateLineage;
+      this.target = target;
     }
 
     private static AnalysisOutputOwnership exact(
@@ -4437,19 +4443,19 @@ public class Leelaz {
         long generation,
         AnalysisStateLineage analysisStateLineage) {
       return new AnalysisOutputOwnership(
-          context, false, null, generation, analysisStateLineage);
+          context, false, null, generation, analysisStateLineage, null);
     }
 
     private static AnalysisOutputOwnership ordinary(
-        long generation, AnalysisStateLineage analysisStateLineage) {
+        long generation, AnalysisStateLineage analysisStateLineage, AnalysisInfoTarget target) {
       return new AnalysisOutputOwnership(
-          null, true, null, generation, analysisStateLineage);
+          null, true, null, generation, analysisStateLineage, target);
     }
 
     private static AnalysisOutputOwnership recoveryTombstone(
         Object recoveryToken, long generation, AnalysisStateLineage analysisStateLineage) {
       return new AnalysisOutputOwnership(
-          null, false, recoveryToken, generation, analysisStateLineage);
+          null, false, recoveryToken, generation, analysisStateLineage, null);
     }
 
     private boolean isExact() {
@@ -4725,12 +4731,20 @@ public class Leelaz {
     private final Board board;
     private final long boardRevision;
     private final BoardHistoryNode displayNode;
+    private final boolean primarySlot;
+    private final boolean secondarySlot;
 
     private AnalysisInfoTarget(
-        Board board, long boardRevision, BoardHistoryNode displayNode) {
+        Board board, long boardRevision, BoardHistoryNode displayNode, Leelaz source) {
       this.board = board;
       this.boardRevision = boardRevision;
       this.displayNode = displayNode;
+      this.primarySlot = source == Lizzie.leelaz;
+      this.secondarySlot =
+          !primarySlot
+              && source == Lizzie.leelaz2
+              && Lizzie.config != null
+              && Lizzie.config.isDoubleEngineMode();
     }
   }
 
@@ -4739,13 +4753,23 @@ public class Leelaz {
     BoardHistoryNode displayNode =
         Lizzie.frame == null || board == null ? null : Lizzie.frame.getDisplayNode();
     return new AnalysisInfoTarget(
-        board, board == null ? -1L : board.getContextRevision(), displayNode);
+        board, board == null ? -1L : board.getContextRevision(), displayNode, this);
+  }
+
+  private AnalysisInfoTarget analysisInfoTargetForRoute(AnalysisOutputRoute route) {
+    if (route != null && route.ownerToken instanceof AnalysisOutputOwnership) {
+      AnalysisOutputOwnership ownership = (AnalysisOutputOwnership) route.ownerToken;
+      if (ownership.isOrdinary()) return ownership.target;
+    }
+    return captureAnalysisInfoTarget();
   }
 
   private boolean isCurrentAnalysisInfoTarget(AnalysisInfoTarget expected) {
     return expected != null
         && expected.board != null
         && expected.board == Lizzie.board
+        && (!expected.primarySlot || this == Lizzie.leelaz)
+        && (!expected.secondarySlot || this == Lizzie.leelaz2)
         && expected.board.getContextRevision() == expected.boardRevision
         && expected.displayNode != null
         && Lizzie.frame != null
@@ -4816,15 +4840,14 @@ public class Leelaz {
     if (parsed == null
         || parsed.moves.isEmpty()
         || target == null
-        || target.displayNode == null) {
+        || !isCurrentAnalysisInfoTarget(target)) {
       return;
     }
     BoardData displayData = target.displayNode.getData();
     if (!AnalysisCandidateValidator.allCandidatesOnEmptyPoints(parsed.moves, displayData)) {
       return;
     }
-    boolean secondaryDisplay =
-        Lizzie.config.isDoubleEngineMode() && Lizzie.leelaz2 != null && this == Lizzie.leelaz2;
+    boolean secondaryDisplay = target.secondarySlot;
     boolean engineGameParticipantToMove = true;
     if (!secondaryDisplay
         && EngineManager.hasPlayingEngineGameTransaction()
@@ -6065,9 +6088,7 @@ public class Leelaz {
       return false;
     }
     String normalized = command.trim().toLowerCase(Locale.ROOT);
-    return normalized.startsWith("kata-analyze")
-        || normalized.startsWith("lz-analyze")
-        || normalized.startsWith("analyze ")
+    return isOrdinaryPositionAnalysisCommand(normalized)
         || normalized.startsWith("kata-genmove_analyze ")
         || normalized.startsWith("lz-genmove_analyze ")
         || normalized.startsWith("genmove_analyze ")
@@ -6098,7 +6119,7 @@ public class Leelaz {
   }
 
   /** Position mutations and the local payload policy linearized with their physical write. */
-  private AnalysisStateMutation analysisStateMutation(String command) {
+  private static AnalysisStateMutation analysisStateMutation(String command) {
     if (command == null) {
       return AnalysisStateMutation.NONE;
     }
@@ -6144,11 +6165,14 @@ public class Leelaz {
   /** Requires the binding's analysis-output mutation lock at the physical state-write boundary. */
   private void bindAnalysisStateLineageAtPhysicalWrite(
       QueuedCommand command, ReaderStreamBinding binding) {
-    AnalysisStateLineage lineage = binding.analysisStateLineage;
-    if (lineage == null || startsFreshAnalysisStateLineage(command.command)) {
-      lineage = new AnalysisStateLineage();
-      binding.analysisStateLineage = lineage;
+    AnalysisStateLineage lineage = command.analysisStateLineage();
+    if (lineage == null) {
+      lineage = binding.analysisStateLineage;
+      if (lineage == null || startsFreshAnalysisStateLineage(command.command)) {
+        lineage = new AnalysisStateLineage();
+      }
     }
+    binding.analysisStateLineage = lineage;
     command.bindAnalysisStateLineage(lineage, binding);
   }
 
@@ -6260,6 +6284,14 @@ public class Leelaz {
           "analysis output lost its reader before physical command output");
     }
     if (transaction == null) {
+      if (transactionlessLease != null
+          && transactionlessLease.kind == EngineManager.TransactionlessAnalysisWriteKind.ORDINARY
+          && isOrdinaryPositionAnalysisCommand(command.command)
+          && (!isCurrentAnalysisInfoTarget(command.ordinaryAnalysisTarget)
+              || command.ordinaryAnalysisBinding != binding
+              || command.analysisStateLineage().isFailed())) {
+        throw new AnalysisOutputAdmissionFailure("Ordinary analysis target changed before output");
+      }
       if (transactionlessLease == null) {
         throw new AnalysisOutputAdmissionFailure(
             "transaction-less analysis output has no physical-write admission");
@@ -6280,7 +6312,11 @@ public class Leelaz {
       } else {
         replacement =
             AnalysisOutputOwnership.ordinary(
-                analysisOutputGeneration.get(), binding.analysisStateLineage);
+                analysisOutputGeneration.get(),
+                binding.analysisStateLineage,
+                isOrdinaryPositionAnalysisCommand(command.command)
+                    ? command.ordinaryAnalysisTarget
+                    : captureAnalysisInfoTarget());
         binding.suppressGlobalEnginePresentation = false;
         suppressGlobalEnginePresentationUntilOwned = false;
       }
@@ -6382,6 +6418,7 @@ public class Leelaz {
       boolean currentOrdinary =
           readerStreamBinding == binding
               && !binding.terminated
+              && isCurrentAnalysisInfoTarget(ownership.target)
               && !EngineManager.hasEngineGameAnalysisOutputBarrier();
       return new AnalysisOutputRoute(
           currentOrdinary
@@ -6424,6 +6461,7 @@ public class Leelaz {
     return expected.ownerToken != null
         && ownership == expected.ownerToken
         && !ownership.hasFailedAnalysisStateLineage()
+        && (!ownership.isOrdinary() || isCurrentAnalysisInfoTarget(ownership.target))
         && ownership.generation == analysisOutputGeneration.get();
   }
 
@@ -6834,8 +6872,7 @@ public class Leelaz {
                   }
                   isLoaded = true;
                   int limit =
-                      Lizzie.config.limitMaxSuggestion > 0
-                              && !Lizzie.config.showNoSuggCircle
+                      Lizzie.config.limitMaxSuggestion > 0 && !Lizzie.config.showNoSuggCircle
                           ? Lizzie.config.limitMaxSuggestion
                           : 361;
                   if (!Lizzie.frame.isPlayingAgainstLeelaz
@@ -6874,9 +6911,8 @@ public class Leelaz {
                 if (!completedMoves.isEmpty()) {
                   publishAnalysisDisplayNonFatal(
                       () -> {
-                        if (Lizzie.config.isDoubleEngineMode()
-                            && Lizzie.leelaz2 != null
-                            && this == Lizzie.leelaz2) {
+                        if (!isCurrentAnalysisInfoTarget(analysisInfoTarget)) return;
+                        if (analysisInfoTarget.secondarySlot) {
                           analysisInfoTarget
                               .displayNode
                               .getData()
@@ -6905,10 +6941,7 @@ public class Leelaz {
                 bestMoves = completedMoves;
                 acceptedSnapshot.set(
                     new AnalysisInfoSnapshot(
-                        bestMoves,
-                        currentTotalPlayouts,
-                        analysisInfoEpoch,
-                        analysisInfoTarget));
+                        bestMoves, currentTotalPlayouts, analysisInfoEpoch, analysisInfoTarget));
                 hasBestMoves.set(!completedMoves.isEmpty());
                 terminalBatch.set(true);
               }
@@ -6968,7 +7001,9 @@ public class Leelaz {
     long analysisInfoEpochAtParse =
         analysisOutputRouteAtParse == null ? -1L : analysisInfoEpochSnapshot();
     AnalysisInfoTarget analysisInfoTargetAtParse =
-        analysisOutputRouteAtParse == null ? null : captureAnalysisInfoTarget();
+        analysisOutputRouteAtParse == null
+            ? null
+            : analysisInfoTargetForRoute(analysisOutputRouteAtParse);
     if (analysisOutputRouteAtParse != null) {
       afterAnalysisOutputRouteCapturedForTest(analysisOutputRouteAtParse.kind.name());
       AnalysisOutputRoute currentRoute =
@@ -8521,7 +8556,8 @@ public class Leelaz {
     long analysisInfoEpochAtParse = analysisInfoEpochSnapshot();
     boolean analysisResponseUpToDateAtParse =
         isAnalysisResponseUpToDateSnapshot(analysisOutputRouteAtParse);
-    AnalysisInfoTarget analysisInfoTargetAtParse = captureAnalysisInfoTarget();
+    AnalysisInfoTarget analysisInfoTargetAtParse =
+        analysisInfoTargetForRoute(analysisOutputRouteAtParse);
     EngineManager.EngineGamePrimaryContext analysisGameContext =
         analysisOutputRouteAtParse.activeExactContext;
     boolean engineGameSignal = isAnalysisOutputSignalLine(line);
@@ -11128,9 +11164,58 @@ public class Leelaz {
     }
   }
 
+  private static boolean isOrdinaryPositionAnalysisCommand(String command) {
+    if (command == null) return false;
+    String normalized = command.trim().toLowerCase(Locale.ROOT);
+    return normalized.startsWith("kata-analyze")
+        || normalized.startsWith("lz-analyze")
+        || normalized.startsWith("analyze ");
+  }
+
+  private static boolean isIncrementalPositionCommand(String command) {
+    return command != null
+        && (command.equals("undo")
+            || command.startsWith("play ")
+            || command.equals("set_position")
+            || command.startsWith("set_position "));
+  }
+
   private QueuedCommand foregroundRestoreCommand(
       QueuedCommand command, ArrayDeque<QueuedCommand> targetQueue) {
     command.foregroundRestoreCommand = targetQueue == foregroundRestoreCommandQueue();
+    ReaderStreamBinding binding = currentReaderStreamBinding();
+    boolean positionMutation = analysisStateMutation(command.command) != AnalysisStateMutation.NONE;
+    if (binding != null
+        && (positionMutation || isAnalysisOutputOwnershipCommand(command.command))) {
+      if (binding.queuedAnalysisStateLineage == null) {
+        binding.queuedAnalysisStateLineage = binding.analysisStateLineage;
+      }
+      if (positionMutation && startsFreshAnalysisStateLineage(command.command)) {
+        binding.queuedAnalysisStateLineage = new AnalysisStateLineage();
+      }
+      command.bindAnalysisStateLineage(binding.queuedAnalysisStateLineage, binding);
+      if (positionMutation) analysisOutputGeneration.incrementAndGet();
+    }
+    if (command.engineGameTransaction() == null && isIncrementalPositionCommand(command.command)) {
+      command.positionResponseTimeout = new Timer("lizzie-position-response-timeout", true);
+      command.positionResponseTimeout.schedule(
+          new TimerTask() {
+            @Override
+            public void run() {
+              try {
+                retireTimedOutNormalCommand(command.onResponse);
+              } finally {
+                command.finishPositionResponse();
+              }
+            }
+          },
+          Math.max(1L, readBoardGmaRestoreResponseTimeoutMillis()));
+    }
+    if (command.engineGameTransaction() == null
+        && isAnalysisOutputOwnershipCommand(command.command)) {
+      command.ordinaryAnalysisTarget = captureAnalysisInfoTarget();
+      command.ordinaryAnalysisBinding = currentReaderStreamBinding();
+    }
     return command;
   }
 
@@ -11823,18 +11908,29 @@ public class Leelaz {
       }
       ArrayDeque<QueuedCommand> targetQueue =
           foregroundRestoreInProgress ? foregroundRestoreCommandQueue() : commandQueue();
-      if (!foregroundRestoreInProgress && requireResponseBeforeSend && !isResponseUpToPreDate()) {
-        return;
-      }
       if (targetQueue.isEmpty()) {
         return;
       }
       QueuedCommand queueHead = targetQueue.peekFirst();
+      if (!foregroundRestoreInProgress
+          && requireResponseBeforeSend
+          && (queueHead.engineGameTransaction() != null
+              ? !isResponseUpToPreDate()
+              : hasUnconfirmedOrdinaryResponse(false))) {
+        return;
+      }
       if (exclusiveGtpLifecycleQueueGate
           && !isCurrentRestartBootstrapReceiptLocked(queueHead.restartBootstrapReceipt)) {
         return;
       }
-      if (!foregroundRestoreInProgress && !isResponseUpToPreCommand()) {
+      if (queueHead.engineGameTransaction() == null
+          && isAnalysisOutputOwnershipCommand(queueHead.command)
+          && hasUnconfirmedOrdinaryResponse(true)) {
+        return;
+      }
+      if (!foregroundRestoreInProgress
+          && queueHead.engineGameTransaction() != null
+          && !isResponseUpToPreCommand()) {
         String lastQueuedCommand = targetQueue.peekLast().command;
         if ((isKatago
                 && (lastQueuedCommand.startsWith("kata-analyze")
@@ -11966,6 +12062,24 @@ public class Leelaz {
         finishRejectedCommandBeforeOutputWrite(queuedCommand, pendingHandler);
         return null;
       }
+      boolean publishesAnalysisOutputOwnership =
+          shouldPublishAnalysisOutputOwnership(queuedCommand, outputBinding);
+      boolean startsAnalysisInfoPayload = startsNewAnalysisInfoPayload(command);
+      EngineManager.EngineGameOwnerTransaction analysisOutputTransaction =
+          queuedCommand.engineGameTransaction();
+      if (publishesAnalysisOutputOwnership
+          && analysisOutputTransaction == null
+          && isOrdinaryPositionAnalysisCommand(command)
+          && (queuedCommand.ordinaryAnalysisBinding != outputBinding
+              || !isCurrentAnalysisInfoTarget(queuedCommand.ordinaryAnalysisTarget)
+              || outputBinding.analysisStateLineage.isFailed()
+              || (queuedCommand.analysisStateLineage() != null
+                  && queuedCommand.analysisStateLineage().isFailed()))) {
+        queuedCommand.cancelBeforeOutputWrite(
+            new IllegalStateException("Ordinary analysis target is obsolete or unconfirmed"));
+        finishRejectedCommandBeforeOutputWrite(queuedCommand, pendingHandler);
+        return null;
+      }
       if (!claimRestartBootstrapReceiptForOutputWrite(queuedCommand, currentOutputStream)) {
         finishRejectedCommandBeforeOutputWrite(queuedCommand, pendingHandler);
         return null;
@@ -11974,11 +12088,6 @@ public class Leelaz {
         finishRejectedCommandBeforeOutputWrite(queuedCommand, pendingHandler);
         return null;
       }
-      boolean publishesAnalysisOutputOwnership =
-          shouldPublishAnalysisOutputOwnership(queuedCommand, outputBinding);
-      boolean startsAnalysisInfoPayload = startsNewAnalysisInfoPayload(command);
-      EngineManager.EngineGameOwnerTransaction analysisOutputTransaction =
-          queuedCommand.engineGameTransaction();
       try {
         // Canonical physical-write order is transaction/global admission -> short selection
         // validation -> binding owner -> output stream. Never wait for either manager admission
@@ -12664,6 +12773,7 @@ public class Leelaz {
       boolean exactLoadSgf,
       QueuedCommand queuedCommand) {
     return handler instanceof BoardSynchronizationResponseHandler
+        || (queuedCommand != null && queuedCommand.positionResponseTimeout != null)
         || handler instanceof EngineGameResponseHandler
         || handler instanceof EngineGameTimeLeftResponseHandler
         || handler instanceof EngineRulesResponseHandler
@@ -12674,8 +12784,7 @@ public class Leelaz {
         || (getRcentLine && isRecentParameterReadCommand(command))
         || (command != null
             && handler != NO_OP_RESPONSE_HANDLER
-            && (command.startsWith("kata-get-param ")
-                || command.startsWith("kata-set-param ")));
+            && (command.startsWith("kata-get-param ") || command.startsWith("kata-set-param ")));
   }
 
   private static boolean isRecentParameterReadCommand(String command) {
@@ -12691,6 +12800,9 @@ public class Leelaz {
     }
     if (isExactSnapshotLoadSgf(command, handler)) {
       return loadSgfResponseCommandIds.getAndIncrement();
+    }
+    if (queuedCommand != null && queuedCommand.positionResponseTimeout != null) {
+      return boardSynchronizationResponseCommandIds.getAndIncrement();
     }
     if (handler instanceof BoardSynchronizationResponseHandler) {
       return boardSynchronizationResponseCommandIds.getAndIncrement();
@@ -12824,6 +12936,7 @@ public class Leelaz {
       failAnalysisStateLineage(retiredPending.queuedCommand);
     }
     if (retiredQueued != null) {
+      failAnalysisStateLineage(retiredQueued);
       try {
         retiredQueued.publishSettlementFailure(failure);
       } catch (RuntimeException | Error notificationFailure) {
@@ -13360,6 +13473,7 @@ public class Leelaz {
                 matchedPendingHandler.loggingEngineId,
                 matchedPendingHandler.loggingCommandId,
                 line);
+            matchedPendingHandler.queuedCommand.finishPositionResponse();
             matchedPendingHandler.run();
             handlerSettled = true;
           }
@@ -18575,6 +18689,8 @@ public class Leelaz {
     private final QueuedCommandSettlement settlement;
     private final boolean countedCommand;
     private final RestartBootstrapReceipt restartBootstrapReceipt;
+    private AnalysisInfoTarget ordinaryAnalysisTarget;
+    private ReaderStreamBinding ordinaryAnalysisBinding;
     private final ReaderStreamBinding readBoardGmaResponseBinding;
     private final Object expectedLeela0110StateToken;
     private final ExactSnapshotRestoreAdmission restoreAdmission = exactSnapshotRestoreAdmissionContext.get();
@@ -18588,6 +18704,12 @@ public class Leelaz {
     private boolean commandCountRetired;
     private volatile AnalysisStateLineage analysisStateLineage;
     private volatile ReaderStreamBinding analysisStateResponseBinding;
+    private volatile Timer positionResponseTimeout;
+
+    private void finishPositionResponse() {
+      Timer timer = positionResponseTimeout;
+      if (timer != null) timer.cancel();
+    }
 
     private QueuedCommand(
         String command,
@@ -18617,7 +18739,10 @@ public class Leelaz {
         ReaderStreamBinding readBoardGmaResponseBinding,
         Object expectedLeela0110StateToken) {
       this.command = command;
-      this.onResponse = onResponse;
+      this.onResponse =
+          onResponse == null && isIncrementalPositionCommand(command)
+              ? this::finishPositionResponse
+              : onResponse;
       this.onSendFailure = onSendFailure;
       this.failOnSendError = failOnSendError;
       this.settlement = settlement;
@@ -18649,6 +18774,8 @@ public class Leelaz {
     }
 
     private void failAnalysisStateLineageAfterSendFailure() {
+      finishPositionResponse();
+      if (analysisStateMutation(command) == AnalysisStateMutation.NONE) return;
       AnalysisStateLineage lineage = analysisStateLineage;
       if (lineage != null) {
         lineage.fail();
@@ -19076,6 +19203,22 @@ public class Leelaz {
         && (Lizzie.frame.isPlayingAgainstLeelaz
             || Lizzie.frame.isAnaPlayingAgainstLeelaz
             || EngineManager.occupiesEngineGameAdmission());
+  }
+
+  private boolean hasUnconfirmedOrdinaryResponse(boolean positionsOnly) {
+    ArrayDeque<PendingResponseHandler> pending = pendingResponseHandlers();
+    synchronized (pending) {
+      for (PendingResponseHandler response : pending) {
+        if (response.isOutstandingResponseRetired()) continue;
+        String command = response.queuedCommand.command;
+        if (positionsOnly
+            ? analysisStateMutation(command) != AnalysisStateMutation.NONE
+            : !isAnalysisOutputOwnershipCommand(command)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private boolean isResponseUpToPreDate() {

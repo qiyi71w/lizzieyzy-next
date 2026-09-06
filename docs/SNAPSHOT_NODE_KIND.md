@@ -160,6 +160,15 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 双引擎模式下，若已发出快照加载请求的一侧最终无响应，恢复流程仍执行兜底清理，并释放该侧对应处理器。
 - 双引擎模式下，一侧收到 GTP `?` 错误而另一侧无响应时，恢复流程仍返回失败，并完成临时 SGF 与两侧处理器清理。
 
+## 普通局面分析确认（Issue #429 / Ticket 01）
+
+- 普通落子与连续真实 MOVE/PASS 前后导航先采用目标 history 节点，再转发引擎命令；分析请求在入队时冻结显示节点、Board context revision、引擎槽位与 reader incarnation，不能在 info 到达时重新选择来源目标。
+- `Leelaz` 在位置命令入队时退休旧分析 generation，物理写出时仍执行原有 payload epoch/generation 失效。普通分析只有在依赖的位置响应成功结算后才能物理启动；无关只读查询的 pending response 不影响已合法启动的分析流。
+- `undo`、`play`（含真实 PASS）与 `set_position` 使用精确 numbered response identity 和既有 queued/pending retirement。错误、发送失败或超时使所属位置 lineage 失败；迟到响应不能恢复失败来源，也不能结算后继命令。完整替换位置建立新的 lineage，但本身仍需确认。
+- `requireResponseBeforeSend` 的普通队列等待真实已写出的响应义务，不使用包含尚未发送后继命令的计数阻塞自身。Engine-game 的精确 ACK/terminal 与 arbitration 语义独立保留。
+- 解析和最终节点 publication 均复验冻结目标。被退休、目标过期或未确认的位置输出不能进入候选缓存或 ownership-only backfill；有效历史缓存、SGF 已保存分析、同上下文暂停/继续与主副引擎独立槽位保留。显式失效仍由既有 `isChanged/isChanged2` 允许首个合法低 visits 接管。
+- 本节不把完整 root/exact 恢复的模块 completion 当成最终 owner 确认；跨 SNAPSHOT 的复合恢复与 ReadBoard 单次最终 resume 分别由 Ticket 02 / 03 交付。
+
 ## 初始启动导航契约（Issue #223）
 
 初始引擎启动恢复属于 lifecycle owner 的协调范围，遵守以下合同：

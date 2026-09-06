@@ -214,7 +214,13 @@ class LeelazAutomaticRestartConvergenceTest {
           waitForCount(engine.readyCount, 1, 1, TimeUnit.SECONDS),
           "the production remote restart must publish ready after the fence");
       assertEquals(1, engine.resumeCount.get(), "remote ponder must resume exactly once");
-      assertEquals(1, engine.analyzeCount.get(), "remote analysis starts after convergence");
+      assertEquals(
+          1,
+          engine.analyzeCount.get(),
+          "commands="
+              + engine.transport.rawCommands()
+              + " route="
+              + engine.analysisOutputRouteForTest());
       assertTrue(engine.isLoaded());
       assertEngineMatchesBoard(engine, board, 19, 19);
       Leelaz.EngineModeReservation afterFence = engine.beginEngineModeReservation();
@@ -1532,7 +1538,12 @@ class LeelazAutomaticRestartConvergenceTest {
 
   private static void invokeFenceResponse(ConvergingRestartLeelaz engine) throws Exception {
     String response = numberedResponseFor(engine.transport.rawCommands(), "name");
+    engine.awaitingFence = false;
     engine.processCommandResponseLineForTest(response);
+    int clears = engine.deferredClearResponses.getAndSet(0);
+    for (int index = 0; index < clears; index++) {
+      engine.processCommandResponseLineForTest("=");
+    }
   }
 
   private static void invokeCheckEngineAlive(EngineManager manager) throws Exception {
@@ -1881,6 +1892,8 @@ class LeelazAutomaticRestartConvergenceTest {
     private final AtomicInteger resumeCount = new AtomicInteger();
     private final AtomicInteger readyCount = new AtomicInteger();
     private final AtomicInteger clearBoardCount = new AtomicInteger();
+    private final AtomicInteger deferredClearResponses = new AtomicInteger();
+    private volatile boolean awaitingFence;
     private final Map<String, Stone> engineStones = new HashMap<>();
     private final CountDownLatch startCompleted = new CountDownLatch(1);
     private volatile ExactSnapshotRestoreProtocolFixture.Transport transport;
@@ -1928,6 +1941,11 @@ class LeelazAutomaticRestartConvergenceTest {
                   clearBoardCount.incrementAndGet();
                   engineStones.clear();
                   engineBlackToPlay = true;
+                  if (awaitingFence) {
+                    // Do not deliver an unnumbered successor response ahead of the held fence.
+                    deferredClearResponses.incrementAndGet();
+                    return null;
+                  }
                 } else if (command.startsWith("boardsize ")) {
                   engineBoardWidth =
                       Integer.parseInt(command.substring("boardsize ".length()).trim());
@@ -1977,6 +1995,7 @@ class LeelazAutomaticRestartConvergenceTest {
                         "controlled mirror fence failure");
                   }
                   // The board fence is the final gate; tests settle it explicitly.
+                  awaitingFence = true;
                   return null;
                 }
                 return ExactSnapshotRestoreProtocolFixture.Response.success();
