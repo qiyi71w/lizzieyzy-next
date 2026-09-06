@@ -1504,7 +1504,11 @@ public class Lizzie {
         e.printStackTrace();
       }
     }
-    shutdownLoggingThenExit(exit);
+    if (engineManager == null) {
+      shutdownLoggingThenExit(exit);
+    } else {
+      engineManager.cancelBenchmarks().thenRun(() -> shutdownLoggingThenExit(exit));
+    }
   }
 
   public static void shutdownLoggingThenExit(IntConsumer exit) {

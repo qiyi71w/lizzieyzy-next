@@ -7199,6 +7199,16 @@ public class LizzieFrame extends JFrame {
   }
 
   static String loadingTextResourceKey(Leelaz engine) {
+    if (engine != null && engine.isBenchmark()) {
+      featurecat.lizzie.analysis.BenchmarkExecution execution = engine.benchmarkExecution();
+      if (execution == null) return "Benchmark.runningCompact";
+      return switch (execution.snapshot().state()) {
+        case STARTING, RUNNING -> "Benchmark.runningCompact";
+        case SUCCEEDED -> "Benchmark.succeeded";
+        case FAILED -> "Benchmark.failedCompact";
+        case CANCELLED -> "Benchmark.cancelled";
+      };
+    }
     if (engine == null || engine.isDownWithError) {
       return "LizzieFrame.display.down";
     }
@@ -16465,6 +16475,10 @@ public class LizzieFrame extends JFrame {
         });
   }
 
+  public void refreshEngineStartupStatus() {
+    updateEngineStartupStatus(Lizzie.engineStartupStatus.snapshot());
+  }
+
   private void updateEngineStartupStatus(EngineStartupStatus.Snapshot snapshot) {
     SwingUtilities.invokeLater(
         () -> {
@@ -16475,7 +16489,8 @@ public class LizzieFrame extends JFrame {
             return;
           }
           String oldText = engineStartupStatusButton.getText();
-          if (snapshot.state == EngineStartupStatus.State.READY) {
+          if (snapshot.state == EngineStartupStatus.State.READY
+              || (Lizzie.leelaz != null && Lizzie.leelaz.isBenchmark())) {
             engineStartupStatusButton.setVisible(false);
             engineStartupStatusButton.setEnabled(false);
             redrawWinratePaneOnly = false;
@@ -16536,7 +16551,8 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean hasEngineStartupNotice() {
-    return Lizzie.engineStartupStatus.snapshot().state != EngineStartupStatus.State.READY;
+    return (Lizzie.leelaz == null || Lizzie.leelaz.hasGtpCapability())
+        && Lizzie.engineStartupStatus.snapshot().state != EngineStartupStatus.State.READY;
   }
 
   private WaitForAnalysis createFlashAnalysisLoadingFrame() {

@@ -10173,7 +10173,8 @@ public class Menu extends JMenuBar {
       applyEngineSwitchItemIcons(
           targetItems, snapshot, playingIcon, stoppedIcon, activeEngineAvailable);
       targetMenu.getAccessibleContext().setAccessibleDescription(targetName + " " + switching);
-    } else if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.ACTIVE) {
+    } else if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.ACTIVE
+        || snapshot.phase() == EngineManager.EngineSwitchUiPhase.TOOL) {
       String failure = snapshot.failureDetail();
       targetMenu.setText(engineSwitchNoticeText(targetLabel, failure));
       applyEngineSwitchItemIcons(
@@ -10284,7 +10285,8 @@ public class Menu extends JMenuBar {
     if (snapshot == null) {
       return;
     }
-    if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.ACTIVE) {
+    if (snapshot.phase() == EngineManager.EngineSwitchUiPhase.ACTIVE
+        || snapshot.phase() == EngineManager.EngineSwitchUiPhase.TOOL) {
       if (snapshot.previousActiveIndex() != snapshot.targetIndex()) {
         setEngineSwitchItemIcon(items, snapshot.previousActiveIndex(), stoppedIcon);
       }

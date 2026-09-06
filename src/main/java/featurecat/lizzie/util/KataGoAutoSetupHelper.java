@@ -2830,7 +2830,7 @@ public final class KataGoAutoSetupHelper {
     return -1;
   }
 
-  private static boolean looksLikeKataGoExecutable(String executable) {
+  static boolean looksLikeKataGoExecutable(String executable) {
     String fileName = executable == null ? "" : executable.replace('\\', '/');
     int slash = fileName.lastIndexOf('/');
     if (slash >= 0) {
