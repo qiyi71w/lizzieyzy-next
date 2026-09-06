@@ -65,8 +65,10 @@ public final class SyncDiagnosticsExportSanitizer {
   }
 
   public String text(String value) {
+    // Text whitespace belongs to the payload; only identifiers are trimmed by normalize.
     // Redact Windows paths before credential canonicalization can collapse JSON/UNC separators.
-    String safe = redactEmbeddedWindowsAbsolutePaths(normalize(value, "none"));
+    String safe =
+        redactEmbeddedWindowsAbsolutePaths(value == null || value.isEmpty() ? "none" : value);
     safe = credentials.sanitize(safe);
     safe = credentials.sanitize(unescapeDiagnosticSeparators(safe));
     safe = SGF_PAYLOAD.matcher(safe).replaceAll("<redacted-sgf>");

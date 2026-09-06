@@ -1523,8 +1523,12 @@ public final class DiagnosticBundleExporter {
         && !hasTraceSession(raw, requiredSession)) {
       return record.truncated();
     }
-    byte[] sanitized = sanitizer.sanitize(raw).getBytes(StandardCharsets.UTF_8);
-    records.add(sanitized);
+    String sanitized = sanitizer.sanitizeText(raw);
+    // Fail-closed redaction can consume the terminator; restore it before byte accounting.
+    if (!sanitized.endsWith("\n")) {
+      sanitized += "\n";
+    }
+    records.add(sanitized.getBytes(StandardCharsets.UTF_8));
     return record.truncated();
   }
 

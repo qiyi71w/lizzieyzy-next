@@ -98,6 +98,8 @@ chmod +x start-linux64.sh
 
 如果程序能够正常启动，请打开 **帮助 → 诊断与日志 → 导出诊断包**，并将生成的 ZIP 附加到 Issue 中。诊断包会经过现有隐私脱敏处理。如果程序无法启动，请提供 `logs/app.log`，以及存在时的 `logs/crash.log`。
 
+ZIP 中的 `logs/lizzie/app.log` 和 `logs/lizzie/crash.log` 使用 LF 行尾，保留日志事件分隔、空行和未被脱敏替换的堆栈缩进。
+
 相关入口：
 
 - [安装指南](INSTALL.md)
