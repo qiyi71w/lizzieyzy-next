@@ -2,6 +2,7 @@ package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
@@ -131,6 +132,54 @@ class SetKataRulesWindowTest {
       assertTrue(result.lastKnownStale());
       closeDialog(dialog);
     }
+  }
+
+  @Test
+  void composeConfirmPreservesChineseFriendlyPassOkAndExtrasWithoutEngineCommands()
+      throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    try (Fixture fixture = Fixture.ordinary()) {
+      JSONObject json = new JSONObject(CHINESE);
+      json.put("experimentalKo", "X");
+      KataGoRules initial = KataGoRules.fromJson(json);
+
+      SetKataRules cancelled = new SetKataRules(fixture.engine, true, initial);
+      closeDialog(cancelled);
+      assertNull(composedRules(cancelled));
+
+      SetKataRules dialog = new SetKataRules(fixture.engine, true, initial);
+      assertTrue(dialog.rdoSimpleKo.isSelected());
+      assertTrue(dialog.rdoArea.isSelected());
+      dialog.applySelectedRules();
+      KataGoRules confirmed = composedRules(dialog);
+      assertTrue(confirmed.hasRequiredFields());
+      assertTrue(confirmed.hasField("friendlyPassOk"));
+      assertTrue(confirmed.bool("friendlyPassOk"));
+      assertTrue(confirmed.hasField("experimentalKo"));
+      assertTrue(initial.semanticallyEquals(confirmed));
+
+      SetKataRules edited = new SetKataRules(fixture.engine, true, initial);
+      edited.rdoPositionKo.setSelected(true);
+      edited.applySelectedRules();
+      KataGoRules overlaid = composedRules(edited);
+      assertEquals("POSITIONAL", overlaid.string("ko"));
+      assertTrue(overlaid.hasRequiredFields());
+      assertTrue(overlaid.bool("friendlyPassOk"));
+      assertTrue(overlaid.hasField("experimentalKo"));
+      assertFalse(initial.semanticallyEquals(overlaid));
+
+      String commands = fixture.output.toString();
+      assertFalse(commands.contains("kata-get-rules"));
+      assertFalse(commands.contains("kata-set-rules"));
+      closeDialog(dialog);
+      closeDialog(edited);
+    }
+  }
+
+  private static KataGoRules composedRules(SetKataRules dialog) throws Exception {
+    Field field = SetKataRules.class.getDeclaredField("composed");
+    field.setAccessible(true);
+    return (KataGoRules) field.get(dialog);
   }
 
   private static void awaitStatus(SetKataRules dialog, String fragment) throws Exception {

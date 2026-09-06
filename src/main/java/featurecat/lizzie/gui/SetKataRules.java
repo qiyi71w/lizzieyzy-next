@@ -45,6 +45,7 @@ public class SetKataRules extends JDialog {
   private JFontLabel lblStatus;
   private final Leelaz engine;
   private final boolean composeOnly;
+  private final KataGoRules composeBaseline;
   private KataGoRules composed;
   private volatile long statusWatchGeneration;
 
@@ -67,9 +68,10 @@ public class SetKataRules extends JDialog {
     return java.util.Optional.ofNullable(dialog.composed);
   }
 
-  private SetKataRules(Leelaz engine, boolean composeOnly, KataGoRules initial) {
+  SetKataRules(Leelaz engine, boolean composeOnly, KataGoRules initial) {
     this.engine = engine;
     this.composeOnly = composeOnly;
+    this.composeBaseline = composeOnly ? initial : null;
     // this.setModal(true);
     // setType(Type.POPUP);
     setResizable(false);
@@ -483,7 +485,9 @@ public class SetKataRules extends JDialog {
             : rdoHandicapKomiN.isSelected() ? "N" : rdoHandicapKomiN1.isSelected() ? "N-1" : "";
     boolean hasButton = rdoButtonGo.isSelected();
     KataGoRules base = null;
-    if (!composeOnly && engine != null) {
+    if (composeOnly) {
+      base = composeBaseline;
+    } else if (engine != null) {
       base = engine.engineRulesResult().observed();
       if (base == null) {
         base = KataGoRules.parse(engine.recentRulesLine).orElse(null);

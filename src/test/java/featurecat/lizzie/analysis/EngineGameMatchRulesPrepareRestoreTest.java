@@ -33,7 +33,10 @@ import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -266,7 +269,7 @@ class EngineGameMatchRulesPrepareRestoreTest {
   }
 
   @Test
-  void matchingConsentIsReusedAcrossColorExchange() {
+  void matchingConsentIsReusedAcrossColorExchange() throws Exception {
     black.writeOnly(JAPANESE);
     white.writeOnly(TROMP);
     AtomicInteger prompts = new AtomicInteger();
@@ -293,16 +296,41 @@ class EngineGameMatchRulesPrepareRestoreTest {
                 .build());
     assertInstanceOf(Acceptance.Accepted.class, Lizzie.engineGame.accept(spec, observer));
     awaitPlaying();
-    assertEquals(1, prompts.get());
-    Lizzie.engineGame.complete(
-        new GameOutcome.DoublePass(),
-        Lizzie.engineGame.transaction().lifecycle().ownerToken(),
-        0);
-    assertTrue(Lizzie.engineGame.onOwnerRetired());
-    awaitPlaying();
-    assertEquals(1, prompts.get());
-    Lizzie.engineGame.stop();
-    awaitRestored();
+    Path outputRoot = Path.of("EngineGames");
+    boolean outputRootExisted = Files.exists(outputRoot);
+    Path batchOutput = outputRoot.resolve(Lizzie.engineGame.outputBatchName());
+    assertFalse(Files.exists(batchOutput), "test must not claim existing game output");
+    try {
+      assertEquals(1, prompts.get());
+      Lizzie.engineGame.complete(
+          new GameOutcome.DoublePass(),
+          Lizzie.engineGame.transaction().lifecycle().ownerToken(),
+          0);
+      assertTrue(Lizzie.engineGame.onOwnerRetired());
+      awaitPlaying();
+      assertEquals(1, prompts.get());
+      Lizzie.engineGame.stop();
+      awaitRestored();
+    } finally {
+      if (Files.exists(batchOutput)) {
+        List<Path> generatedPaths;
+        try (var paths = Files.walk(batchOutput)) {
+          generatedPaths = paths.sorted(Comparator.reverseOrder()).toList();
+        }
+        for (Path path : generatedPaths) {
+          Files.delete(path);
+        }
+      }
+      if (!outputRootExisted && Files.isDirectory(outputRoot)) {
+        boolean empty;
+        try (var remaining = Files.newDirectoryStream(outputRoot)) {
+          empty = !remaining.iterator().hasNext();
+        }
+        if (empty) {
+          Files.delete(outputRoot);
+        }
+      }
+    }
   }
 
   @Test

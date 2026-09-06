@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Preserved complete custom match rules, distinguished official rule presets, clarified unverified participation, and enabled match-rule inspection from independent-board shortcuts (#422).
 - Prevented KataGo rules dialogs from interrupting engine games while their participants remain occupied (#421).
 - Added CI to build the shaded jar on push and pull request.
 - Added Dependabot configuration for Maven dependencies and GitHub Actions.

@@ -531,7 +531,7 @@ public class InputIndependentMainBoard implements KeyListener {
         if (e.isAltDown()) {
           Lizzie.frame.setLzSaiEngine();
         } else if (e.isShiftDown()) {
-          Lizzie.frame.setRules();
+          Lizzie.frame.inspectMatchRulesOrSetRules();
         }
         // toggleShowDynamicKomi();
 

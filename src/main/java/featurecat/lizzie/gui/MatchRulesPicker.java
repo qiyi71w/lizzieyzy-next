@@ -125,7 +125,7 @@ final class MatchRulesPicker {
   }
 
   private static String displayName(String preset, KataGoRules rules) {
-    return MatchRulesSnapshotName.display(rules);
+    return MatchRulesSnapshotName.display(rules) + " (" + preset + ")";
   }
 
   private static final class Item {
