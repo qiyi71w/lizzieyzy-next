@@ -5393,6 +5393,7 @@ class EngineManagerInitialStartupSynchronizationTest {
         assertTrue(engine.startupPostActionWorkerEntered.await(2, TimeUnit.SECONDS));
         // Freeze the startup command in the ordinary queue without letting it claim output.
         engine.requireResponseBeforeSend = true;
+        engine.sendCommandWithResponseForTest("known_command name", () -> {});
         setLeelazField(engine, "cmdNumber", 4);
         setLeelazField(engine, "currentCmdNum", 0);
         engine.startupPostActionWorkerGate.countDown();
