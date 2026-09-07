@@ -1,5 +1,6 @@
 package featurecat.lizzie.rules;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -117,11 +118,13 @@ class SGFParserEngineGameRecordTest {
       String second = SGFParser.saveToString(false);
       int firstIndex = first.indexOf(bundle.getString("MatchRules.sgf.begin"));
       int secondBegin = second.indexOf(bundle.getString("MatchRules.sgf.begin"));
-      int thirdBegin =
-          second.indexOf(bundle.getString("MatchRules.sgf.begin"), secondBegin + 1);
+      long beginLines =
+          Lizzie.board.getHistory().getStart().getData().comment.lines()
+              .filter(bundle.getString("MatchRules.sgf.begin")::equals)
+              .count();
       assertTrue(firstIndex >= 0, first);
       assertTrue(secondBegin >= 0, second);
-      assertTrue(thirdBegin < 0, second);
+      assertEquals(1, beginLines, second);
     }
   }
 
