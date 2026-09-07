@@ -60,6 +60,8 @@ Remote Compute defaults to “VIP monthly” (`--gpu-type vip-share`). Non-VIP u
 
 Saved login details are protected by Windows DPAPI, macOS Keychain, or Linux Secret Service and are not written to ordinary configuration. If secure storage is unavailable, credentials remain only until the app exits. The connection retries after interruption, and you can switch back to a local engine at any time.
 
+If you have a Linux x86_64 NVIDIA GPU server but no `WSS` link yet, use [KataGo Remote One-Click](https://github.com/wimi321/katago-remote-one-click). Run one command on the server to generate an encrypted link and QR code, then paste or import it under `Remote Compute -> Custom Compute`; no public inbound port is required.
+
 ## What to download first
 
 Users in mainland China are encouraged to choose common stable builds from the [official download page](https://goagent.top/download/). Installers, Linux packages, and older versions are available from [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases).

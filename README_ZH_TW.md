@@ -60,6 +60,8 @@
 
 儲存的登入資料由 Windows DPAPI、macOS Keychain 或 Linux Secret Service 保護，不會寫入一般設定。系統安全儲存無法使用時，認證資料只保留到程式結束。斷線後會自動重連，也可隨時切回本機引擎。
 
+若有 Linux x86_64 NVIDIA GPU 伺服器、但還沒有 `WSS` 連結，可使用 [KataGo 遠端算力一鍵部署](https://github.com/wimi321/katago-remote-one-click)。在伺服器執行一條指令即可產生加密連結和 QR Code，再到 `遠端計算 -> 自建算力` 中貼上或匯入；不需要自行開放公網連入連接埠。
+
 ## 先下載哪個
 
 中國大陸使用者建議從 [官方下載頁面](https://goagent.top/download/) 選擇常用正式版；安裝程式、Linux 套件和歷史版本可在 [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases) 下載。

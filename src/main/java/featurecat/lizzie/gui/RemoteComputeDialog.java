@@ -454,25 +454,25 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   private JPanel buildCustomActionCard() {
-    JPanel card = card(text("RemoteCompute.oneClickEnable", "One-click enable"), "");
-    card.add(fullWidth(useCustomButton, 58));
-    card.add(Box.createVerticalStrut(12));
-    card.add(fullWidth(localFromCustomButton, 50));
-    card.add(Box.createVerticalStrut(22));
-    card.add(
-        infoBox(
-            text("RemoteCompute.notes", "How it works"),
-            text(
-                "RemoteCompute.customEffect",
-                "The main board, quick graph, and score estimate will use this remote engine.")));
-    card.add(Box.createVerticalStrut(14));
-    card.add(
+    return createCustomActionCardLayout(
+        useCustomButton,
+        localFromCustomButton,
         createCustomDeploymentGuideCard(
             customDeploymentGuideButton,
             text("RemoteCompute.noLinkTitle", "No remote link yet?"),
             text(
                 "RemoteCompute.noLinkDescription",
                 "Run one command on a Linux NVIDIA GPU server to get a WSS link and QR code.")));
+  }
+
+  static JPanel createCustomActionCardLayout(
+      JButton useButton, JButton localButton, JPanel deploymentCard) {
+    JPanel card = compactActionCard(text("RemoteCompute.oneClickEnable", "One-click enable"));
+    card.add(fullWidth(useButton, 48));
+    card.add(Box.createVerticalStrut(6));
+    card.add(fullWidth(localButton, 42));
+    card.add(Box.createVerticalStrut(6));
+    card.add(deploymentCard);
     card.add(Box.createVerticalGlue());
     return card;
   }
@@ -696,8 +696,9 @@ public class RemoteComputeDialog extends JDialog {
 
     guideButton.setName("customDeploymentAction");
     JPanel action = transparent(new BorderLayout());
-    action.setPreferredSize(new Dimension(0, 42));
-    action.setMinimumSize(new Dimension(0, 42));
+    int actionHeight = Math.max(42, guideButton.getPreferredSize().height);
+    action.setPreferredSize(new Dimension(0, actionHeight));
+    action.setMinimumSize(new Dimension(0, actionHeight));
     action.add(guideButton, BorderLayout.CENTER);
     panel.add(action, BorderLayout.SOUTH);
 

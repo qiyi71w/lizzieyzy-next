@@ -60,6 +60,8 @@
 
 저장한 로그인 정보는 Windows DPAPI, macOS Keychain 또는 Linux Secret Service 로 보호되며 일반 설정에 기록되지 않습니다. 보안 저장소를 사용할 수 없으면 인증 정보는 앱을 종료할 때까지만 유지됩니다. 연결이 끊기면 자동으로 다시 연결하며 언제든 로컬 엔진으로 돌아갈 수 있습니다.
 
+Linux x86_64 NVIDIA GPU 서버가 있지만 아직 `WSS` 링크가 없다면 [KataGo 원격 컴퓨팅 원클릭 배포](https://github.com/wimi321/katago-remote-one-click)를 사용할 수 있습니다. 서버에서 명령 하나를 실행하면 암호화 링크와 QR 코드가 생성되며, `원격 컴퓨팅 -> 사용자 컴퓨팅`에서 붙여 넣거나 가져올 수 있습니다. 공개 인바운드 포트를 열 필요가 없습니다.
+
 ## 먼저 무엇을 다운로드할까
 
 중국 본토 사용자는 일반 안정판을 [공식 다운로드 페이지](https://goagent.top/download/)에서 선택하는 것을 권장합니다. 설치형, Linux 패키지, 이전 버전은 [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases)에서 받을 수 있습니다.
