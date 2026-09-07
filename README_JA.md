@@ -60,6 +60,8 @@
 
 保存したログイン情報は Windows DPAPI、macOS Keychain、Linux Secret Service で保護され、通常の設定には書き込まれません。安全なストレージを利用できない場合、認証情報はアプリ終了時までだけ保持されます。切断後は自動で再接続し、いつでもローカルエンジンへ戻せます。
 
+Linux x86_64 の NVIDIA GPU サーバーがあり、まだ `WSS` リンクがない場合は、[KataGo リモート計算ワンクリックセットアップ](https://github.com/wimi321/katago-remote-one-click)を利用できます。サーバーでコマンドを 1 つ実行すると暗号化リンクと QR コードが生成され、`リモートコンピューティング -> 自前コンピューティング` で貼り付けまたは読み込めます。公開受信ポートを開く必要はありません。
+
 ## まずどれをダウンロードするか
 
 中国本土のユーザーには、よく使う安定版を [公式ダウンロードページ](https://goagent.top/download/) から選ぶことをおすすめします。インストーラ、Linux パッケージ、過去版は [GitHub Releases](https://github.com/wimi321/lizzieyzy-next/releases) からダウンロードできます。

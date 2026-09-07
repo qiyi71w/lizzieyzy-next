@@ -170,6 +170,78 @@ class RemoteComputeDialogLayoutTest {
   }
 
   @Test
+  void customDeploymentCardKeepsTheOneClickPathVisible() {
+    JButton button = new JButton("View one-click setup");
+    JPanel card =
+        RemoteComputeDialog.createCustomDeploymentGuideCard(
+            button,
+            "No remote link yet?",
+            "Run one command on a Linux NVIDIA GPU server to get a WSS link and QR code.");
+
+    assertTrue(card.getPreferredSize().height >= 122);
+    assertEquals(card.getPreferredSize().height, card.getMaximumSize().height);
+
+    card.setSize(430, card.getPreferredSize().height);
+    layoutTree(card);
+
+    assertWithinParent(findByName(card, "customDeploymentGlyph"));
+    assertWithinParent(findByName(card, "customDeploymentTitle"));
+    assertWithinParent(findByName(card, "customDeploymentDescription"));
+    Component action = findByName(card, "customDeploymentAction");
+    assertWithinParent(action);
+    assertTrue(action.getHeight() >= 42);
+  }
+
+  @Test
+  void customDeploymentCardAdaptsToLargeWindowsFontsWithoutClipping() {
+    JButton button = new JButton("View one-click setup for remote compute");
+    button.setFont(button.getFont().deriveFont(22F));
+    JPanel card =
+        RemoteComputeDialog.createCustomDeploymentGuideCard(
+            button,
+            "No remote link yet?",
+            "Run one command on a Linux NVIDIA GPU server to get a WSS link and QR code.");
+
+    card.setSize(520, card.getPreferredSize().height);
+    layoutTree(card);
+
+    assertWithinParent(findByName(card, "customDeploymentTitle"));
+    assertWithinParent(findByName(card, "customDeploymentDescription"));
+    assertWithinParent(findByName(card, "customDeploymentAction"));
+  }
+
+  @Test
+  void customActionCardFitsConstrainedWindowsWorkAreaWithoutClippingDeploymentGuide() {
+    JButton useButton = new JButton("Enable custom compute");
+    useButton.setName("enableCustom");
+    JButton localButton = new JButton("Switch to local engine");
+    localButton.setName("switchCustomToLocal");
+    JButton guideButton = new JButton("View one-click setup");
+    JPanel deploymentCard =
+        RemoteComputeDialog.createCustomDeploymentGuideCard(
+            guideButton,
+            "No remote link yet?",
+            "Run one command on a Linux NVIDIA GPU server to get a WSS link and QR code.");
+    JPanel card =
+        RemoteComputeDialog.createCustomActionCardLayout(
+            useButton, localButton, deploymentCard);
+
+    Dimension usePreferred = useButton.getPreferredSize();
+    Dimension localPreferred = localButton.getPreferredSize();
+    card.setSize(520, 417);
+    layoutTree(card);
+
+    assertWithinParent(useButton);
+    assertWithinParent(localButton);
+    assertWithinParent(deploymentCard);
+    assertWithinParent(findByName(card, "customDeploymentTitle"));
+    assertWithinParent(findByName(card, "customDeploymentDescription"));
+    assertWithinParent(findByName(card, "customDeploymentAction"));
+    assertTrue(useButton.getHeight() >= usePreferred.height);
+    assertTrue(localButton.getHeight() >= localPreferred.height);
+  }
+
+  @Test
   void statusChangesRemainAvailableAfterTheLiveAnnouncement() {
     JLabel status = new JLabel("Custom compute enabled");
     JPanel indicator = new JPanel();
