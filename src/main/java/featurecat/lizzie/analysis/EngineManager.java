@@ -3084,16 +3084,19 @@ public class EngineManager {
       side.reason = EngineRulesResult.Reason.LIST_COMMANDS_FAILED;
       return side;
     }
-    engine.queryEngineRulesForMatchOwner();
-    if (!waitForMatchRulesSettlement(transaction, engine)) {
-      copyEngineRulesResult(side, engine.engineRulesResult());
+    Leelaz.EngineRulesOperation operation = engine.queryEngineRulesForMatchOwnerOperation();
+    if (!waitForMatchRulesSettlement(transaction, operation)) {
+      copyEngineRulesResult(side, operation.snapshot());
       if (side.reason == EngineRulesResult.Reason.SET_TIMEOUT
           || side.status == EngineRulesResult.Status.SET_FAILED) {
         side.modifiedOrUncertain = true;
       }
       return side;
     }
-    EngineRulesResult queried = engine.engineRulesResult();
+    EngineRulesResult queried = operation.result();
+    if (queried == null) {
+      queried = operation.snapshot();
+    }
     copyEngineRulesResult(side, queried);
     if (queried.isFailed()) {
       return side;
@@ -3122,12 +3125,13 @@ public class EngineManager {
       return;
     }
     side.modifiedOrUncertain = true;
-    side.engine.applyEngineRulesForMatchOwner(target);
-    if (!waitForMatchRulesSettlement(transaction, side.engine)) {
-      copyEngineRulesResult(side, side.engine.engineRulesResult());
+    Leelaz.EngineRulesOperation operation = side.engine.applyEngineRulesForMatchOwnerOperation(target);
+    if (!waitForMatchRulesSettlement(transaction, operation)) {
+      copyEngineRulesResult(side, operation.snapshot());
       return;
     }
-    copyEngineRulesResult(side, side.engine.engineRulesResult());
+    EngineRulesResult result = operation.result();
+    copyEngineRulesResult(side, result == null ? operation.snapshot() : result);
   }
 
   private static void copyEngineRulesResult(
@@ -3145,14 +3149,15 @@ public class EngineManager {
   }
 
   private boolean waitForMatchRulesSettlement(
-      EngineGameOwnerTransaction transaction, Leelaz engine) {
-    if (engine.engineRulesResult().isSettled()) {
+      EngineGameOwnerTransaction transaction, Leelaz.EngineRulesOperation operation) {
+    if (operation == null) {
+      return false;
+    }
+    if (operation.isDone()) {
       return true;
     }
     return waitForEngineGameCondition(
-        transaction,
-        () -> engine.engineRulesResult().isSettled(),
-        "Match-rules command timed out");
+        transaction, operation::isDone, "Match-rules command timed out");
   }
 
   private static void restoreMatchRulesBeforeRelease(EngineGameOwnerTransaction transaction) {
@@ -3186,11 +3191,17 @@ public class EngineManager {
     if (side.incarnation != null && !side.engine.isCurrentEngineIncarnation(side.incarnation)) {
       return false;
     }
-    side.engine.applyEngineRulesForMatchOwner(side.original);
-    if (!side.engine.waitUntilEngineRulesSettled(TimeUnit.SECONDS.toMillis(30))) {
+    Leelaz.EngineRulesOperation operation = side.engine.applyEngineRulesForMatchOwnerOperation(side.original);
+    EngineRulesResult result;
+    try {
+      result = operation.await(TimeUnit.SECONDS.toMillis(30));
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
       return false;
     }
-    EngineRulesResult result = side.engine.engineRulesResult();
+    if (result == null) {
+      return false;
+    }
     return result.isConfirmed()
         && result.observed() != null
         && result.observed().semanticallyEquals(side.original);

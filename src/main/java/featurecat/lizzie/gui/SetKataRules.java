@@ -48,6 +48,7 @@ public class SetKataRules extends JDialog {
   private final KataGoRules composeBaseline;
   private KataGoRules composed;
   private volatile long statusWatchGeneration;
+  private volatile Leelaz.EngineRulesOperation rulesOperation;
 
   public SetKataRules() {
     this(Lizzie.leelaz, false, null);
@@ -422,7 +423,7 @@ public class SetKataRules extends JDialog {
       }
     } else {
       if (rejectEngineGameInteraction()) return;
-      engine.queryEngineRules();
+      rulesOperation = engine.queryEngineRulesOperation();
       refreshStatus();
       watchEngineRulesStatus();
     }
@@ -464,7 +465,7 @@ public class SetKataRules extends JDialog {
       Lizzie.config.autoLoadKataRules = false;
       Lizzie.config.uiConfig.put("auto-load-kata-rules", false);
     }
-    engine.applyEngineRules(requested);
+    rulesOperation = engine.applyEngineRulesOperation(requested);
     refreshStatus();
   }
 
@@ -487,10 +488,11 @@ public class SetKataRules extends JDialog {
     KataGoRules base = null;
     if (composeOnly) {
       base = composeBaseline;
-    } else if (engine != null) {
-      base = engine.engineRulesResult().observed();
-      if (base == null) {
-        base = KataGoRules.parse(engine.recentRulesLine).orElse(null);
+    } else {
+      Leelaz.EngineRulesOperation operation = rulesOperation;
+      EngineRulesResult result = operation == null ? null : operation.snapshot();
+      if (result != null && result.isConfirmed()) {
+        base = result.observed();
       }
     }
     if (base != null) {
@@ -515,19 +517,18 @@ public class SetKataRules extends JDialog {
   }
 
   public boolean hasRulesResponse() {
-    return engine.engineRulesResult().isSettled();
+    Leelaz.EngineRulesOperation operation = rulesOperation;
+    return operation != null && operation.isDone();
   }
 
   public boolean getRules() {
-    KataGoRules rules = engine.engineRulesResult().observed();
-    if (rules == null) {
-      rules = KataGoRules.parse(engine.recentRulesLine).orElse(null);
-    }
-    refreshStatus();
-    if (rules == null) {
+    Leelaz.EngineRulesOperation operation = rulesOperation;
+    EngineRulesResult result = operation == null ? null : operation.result();
+    refreshStatus(result == null && operation != null ? operation.snapshot() : result);
+    if (result == null || !result.isConfirmed() || result.observed() == null) {
       return false;
     }
-    jo = rules.toJson();
+    jo = result.observed().toJson();
     applyJsonToEditor(jo);
     return true;
   }
@@ -573,7 +574,15 @@ public class SetKataRules extends JDialog {
   }
 
   void refreshStatus() {
-    EngineRulesResult result = engine.engineRulesResult();
+    Leelaz.EngineRulesOperation operation = rulesOperation;
+    refreshStatus(operation == null ? null : operation.snapshot());
+  }
+
+  private void refreshStatus(EngineRulesResult result) {
+    if (result == null) {
+      lblStatus.setText("");
+      return;
+    }
     String key;
     switch (result.status()) {
       case PENDING:
@@ -613,7 +622,18 @@ public class SetKataRules extends JDialog {
               EngineRulesResult.Status lastStatus = null;
               long lastResultGeneration = -1L;
               while (generation == statusWatchGeneration) {
-                EngineRulesResult snapshot = engine.engineRulesResult();
+                Leelaz.EngineRulesOperation currentOperation = engine.engineRulesOperation();
+                Leelaz.EngineRulesOperation operation = rulesOperation;
+                if (currentOperation != null && currentOperation != operation) {
+                  rulesOperation = currentOperation;
+                  operation = currentOperation;
+                  lastStatus = null;
+                  lastResultGeneration = -1L;
+                }
+                if (operation == null) {
+                  return;
+                }
+                EngineRulesResult snapshot = operation.snapshot();
                 EngineRulesResult.Status status = snapshot.status();
                 if (status != lastStatus || snapshot.generation() != lastResultGeneration) {
                   lastStatus = status;
@@ -627,7 +647,7 @@ public class SetKataRules extends JDialog {
                         if (confirmed) {
                           getRules();
                         } else {
-                          refreshStatus();
+                          refreshStatus(snapshot);
                         }
                       });
                 }
