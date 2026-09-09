@@ -60,11 +60,15 @@ public final class ExactSnapshotRestoreProtocolFixture {
     private Transport(Leelaz engine, CommandBehavior behavior, boolean asynchronous) {
       this.engine = engine;
       this.behavior = behavior;
-      responseReader = asynchronous ? Executors.newSingleThreadExecutor(task -> {
-        Thread thread = new Thread(task, "snapshot-fixture-reader");
-        thread.setDaemon(true);
-        return thread;
-      }) : null;
+      responseReader =
+          asynchronous
+              ? Executors.newSingleThreadExecutor(
+                  task -> {
+                    Thread thread = new Thread(task, "snapshot-fixture-reader");
+                    thread.setDaemon(true);
+                    return thread;
+                  })
+              : null;
     }
 
     @Override
@@ -106,13 +110,14 @@ public final class ExactSnapshotRestoreProtocolFixture {
         engine.processCommandResponseLineForTest(responseLine);
       } else {
         // Real engine responses arrive on a reader, never inside the physical write lock.
-        responseReader.execute(() -> {
-          try {
-            engine.processCommandResponseLineForTest(responseLine);
-          } catch (Throwable failure) {
-            responseFailure.compareAndSet(null, failure);
-          }
-        });
+        responseReader.execute(
+            () -> {
+              try {
+                engine.processCommandResponseLineForTest(responseLine);
+              } catch (Throwable failure) {
+                responseFailure.compareAndSet(null, failure);
+              }
+            });
       }
     }
 
@@ -132,6 +137,15 @@ public final class ExactSnapshotRestoreProtocolFixture {
       }
       if (responseFailure.get() != null) {
         throw new IOException("Snapshot fixture reader failed", responseFailure.get());
+      }
+    }
+
+    public void awaitResponses() throws Exception {
+      if (responseReader != null) {
+        responseReader.submit(() -> {}).get(3, TimeUnit.SECONDS);
+      }
+      if (responseFailure.get() != null) {
+        throw new AssertionError("Snapshot fixture reader failed", responseFailure.get());
       }
     }
 
