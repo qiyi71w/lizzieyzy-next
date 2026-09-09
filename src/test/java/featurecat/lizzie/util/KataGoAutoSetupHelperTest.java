@@ -24,6 +24,7 @@ import featurecat.lizzie.logging.WorkDirectoryResolution;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -693,7 +694,15 @@ public class KataGoAutoSetupHelperTest {
             .orElseThrow()
             .recommended);
     assertTrue(weights.stream().allMatch(KataGoAutoSetupHelper.RemoteWeightInfo::isTransformer));
-    assertTrue(weights.stream().allMatch(info -> info.downloadUrl.contains("/v1.17.1/")));
+    assertEquals("2026-09-07", strongest.uploadedAt);
+    assertEquals(
+        "https://media.katagotraining.org/uploaded/networks/models/kata1/"
+            + KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_FILE_NAME,
+        strongest.downloadUrl);
+    assertTrue(
+        weights.stream()
+            .filter(info -> info != strongest)
+            .allMatch(info -> info.downloadUrl.contains("/v1.17.1/")));
   }
 
   @Test
@@ -736,8 +745,52 @@ public class KataGoAutoSetupHelperTest {
     assertTrue(KataGoAutoSetupHelper.isTransformerWeight(weight));
     String displayName = KataGoAutoSetupHelper.resolveWeightDisplayName(weight);
     assertTrue(displayName.contains("Transformer"));
-    assertTrue(displayName.contains("11B"));
+    assertEquals("Transformer B11 · 2026-09-07", displayName);
     assertFalse(displayName.equals("default"));
+  }
+
+  @Test
+  void recognizesTrainedTransformersWithoutRelabelingOldModels() {
+    assertTrue(
+        KataGoAutoSetupHelper.isTransformerWeight("kata1-tf3-b11c768-s11500M-d6163M.bin.gz"));
+    assertTrue(
+        KataGoAutoSetupHelper.isTransformerWeight("b11c768h12nbt3tflrs-fson-silu.bin.gz"));
+    assertFalse(
+        KataGoAutoSetupHelper.isTransformerWeight(
+            "kata1-b28c512nbt-s12763923712-d5805955894.bin.gz"));
+    assertFalse(
+        KataGoAutoSetupHelper.resolveWeightDisplayName("b11c768h12nbt3tflrs-fson-silu.bin.gz")
+            .contains("2026-09-07"));
+  }
+
+  @Test
+  void onlineCatalogKeepsPinnedIntegrityAndRatingWithoutDuplicateB11() throws Exception {
+    String model = KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_MODEL;
+    String html =
+        "<table class=\"table mt-3\"><tr><td>"
+            + model
+            + "</td><td>2026-09-07</td><td>14545.3 Elo</td><td>"
+            + officialLink(model)
+            + "</td></tr></table>";
+    try (FixtureServer server = FixtureServer.start(html.getBytes(StandardCharsets.UTF_8))) {
+      String previous = System.getProperty("lizzie.katago.networks.url");
+      try {
+        System.setProperty("lizzie.katago.networks.url", server.url());
+        List<KataGoAutoSetupHelper.RemoteWeightInfo> weights =
+            KataGoAutoSetupHelper.fetchOfficialWeights();
+        assertEquals(3, weights.size());
+        KataGoAutoSetupHelper.RemoteWeightInfo b11 =
+            weights.stream()
+                .filter(info -> info.modelName.equals(model))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("14545.3 Elo", b11.eloRating);
+        assertEquals(KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_SHA256, b11.sha256);
+        assertEquals(KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_SIZE_BYTES, b11.sizeBytes);
+      } finally {
+        restoreProperty("lizzie.katago.networks.url", previous);
+      }
+    }
   }
 
   @Test
@@ -1497,6 +1550,98 @@ public class KataGoAutoSetupHelperTest {
                             modelsDir.resolve(
                                 KataGoAutoSetupHelper.HUMAN_SL_MODEL_FILE_NAME + ".part")));
                     assertFalse(KataGoAutoSetupHelper.inspectHumanSlModel().isInstalled());
+                  }));
+    }
+  }
+
+  @Test
+  void humanSlDownloadDefaultsToMirrorAndKeepsExplicitOverrideIsolated() throws Exception {
+    String previous = System.getProperty("lizzie.humansl.model.url");
+    try {
+      System.clearProperty("lizzie.humansl.model.url");
+      assertEquals(
+          java.util.Arrays.asList(
+              "https://download.goagent.top/models/humansl/b18c384nbt-humanv0.bin.gz",
+              KataGoAutoSetupHelper.HUMAN_SL_MODEL_ORIGIN_URL),
+          KataGoAutoSetupHelper.humanSlModelDownloadUrls());
+      System.setProperty("lizzie.humansl.model.url", "http://127.0.0.1/model");
+      assertEquals(
+          java.util.Collections.singletonList("http://127.0.0.1/model"),
+          KataGoAutoSetupHelper.humanSlModelDownloadUrls());
+    } finally {
+      restoreProperty("lizzie.humansl.model.url", previous);
+    }
+  }
+
+  @Test
+  void humanSlFallsBackAfterHttpFailureOrCorruptMirrorAndReusesVerifiedModel() throws Exception {
+    byte[] bytes = repeatedBytes(4096, (byte) 7);
+    try (ErrorFixtureServer unavailable = ErrorFixtureServer.start();
+        FixtureServer corrupt = FixtureServer.start(repeatedBytes(4096, (byte) 8));
+        FixtureServer shortFile = FixtureServer.start(repeatedBytes(128, (byte) 7));
+        FixtureServer origin = FixtureServer.start(bytes)) {
+      for (String mirror :
+          java.util.Arrays.asList(unavailable.url(), corrupt.url(), shortFile.url())) {
+        Path root = Files.createTempDirectory("humansl-mirror-fallback");
+        withUserDirAndConfig(
+            root,
+            () ->
+                withHumanSlDownloadProperties(
+                    origin.url(),
+                    sha256(bytes),
+                    bytes.length,
+                    () -> {
+                      Path downloaded =
+                          KataGoAutoSetupHelper.downloadHumanSlModel(
+                              null, null, java.util.Arrays.asList(mirror, origin.url()));
+                      assertEquals(sha256(bytes), sha256(Files.readAllBytes(downloaded)));
+                      assertFalse(
+                          Files.exists(
+                              downloaded.resolveSibling(downloaded.getFileName() + ".part")));
+                      assertEquals(
+                          downloaded.toString(),
+                          Lizzie.config.uiConfig.optString("katago-human-sl-model-path"));
+                      assertEquals(
+                          downloaded,
+                          KataGoAutoSetupHelper.downloadHumanSlModel(
+                              null, null, java.util.Collections.singletonList(unavailable.url())));
+                    }));
+      }
+    }
+  }
+
+  @Test
+  void cancellingHumanSlDownloadDoesNotStartFallbackOrInstallPartialFile() throws Exception {
+    byte[] bytes = repeatedBytes(32768, (byte) 7);
+    Path root = Files.createTempDirectory("humansl-mirror-cancel");
+    try (FixtureServer mirror = FixtureServer.start(bytes)) {
+      withUserDirAndConfig(
+          root,
+          () ->
+              withHumanSlDownloadProperties(
+                  mirror.url(),
+                  sha256(bytes),
+                  bytes.length,
+                  () -> {
+                    KataGoAutoSetupHelper.DownloadSession session =
+                        new KataGoAutoSetupHelper.DownloadSession();
+                    assertThrows(
+                        KataGoAutoSetupHelper.DownloadCancelledException.class,
+                        () ->
+                            KataGoAutoSetupHelper.downloadHumanSlModel(
+                                (name, downloaded, total) -> session.cancel(),
+                                session,
+                                java.util.Arrays.asList(
+                                    mirror.url(), "invalid fallback must not be accessed")));
+                    assertFalse(
+                        Files.exists(
+                            root.resolve("human-sl-models")
+                                .resolve(KataGoAutoSetupHelper.HUMAN_SL_MODEL_FILE_NAME)));
+                    assertFalse(
+                        Files.exists(
+                            root.resolve("human-sl-models")
+                                .resolve(
+                                    KataGoAutoSetupHelper.HUMAN_SL_MODEL_FILE_NAME + ".part")));
                   }));
     }
   }

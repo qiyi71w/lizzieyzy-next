@@ -32,6 +32,67 @@ import org.junit.jupiter.api.Test;
 
 class TrackingProductionCutoverTest {
   @Test
+  void userPausedAnalysisDoesNotStartCapabilityProbe() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");
+      paused.setAccessible(true);
+      paused.setBoolean(environment.frame, true);
+      assertFalse(environment.engine.startMoveFocusProbeAfterInitialization());
+      assertFalse(environment.engine.ponderIfAnalysisControlAllows());
+      assertEquals("", environment.commands());
+      assertEquals(Leelaz.MoveFocusCapability.UNKNOWN, environment.engine.moveFocusCapability());
+    }
+  }
+
+  @Test
+  void userPauseDuringRejectedProbeDoesNotRestartOrdinaryAnalysis() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());
+      String probe = environment.commands().trim();
+      String id = probe.substring(0, probe.indexOf(' '));
+      environment.engine.pauseForAnalysisControl(() -> {});
+      environment.dispatch("?" + id + " unknown analyze option focus");
+      environment.dispatch("");
+      environment.respondedCommands = 1;
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.UNSUPPORTED, environment.engine.moveFocusCapability());
+      assertFalse(environment.engine.isPondering());
+      assertEquals(1, environment.commands().lines().filter(line -> line.contains("kata-analyze")).count());
+    }
+  }
+
+  @Test
+  void successfulProbeAfterUserPauseDoesNotRestartOrdinaryAnalysis() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());
+      String probe = environment.commands().trim();
+      String id = probe.substring(0, probe.indexOf(' '));
+      environment.dispatch("=" + id);
+      environment.respondedCommands = 1;
+      environment.streaming = true;
+      environment.engine.pauseForAnalysisControl(() -> {});
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.SUPPORTED, environment.engine.moveFocusCapability());
+      assertFalse(environment.engine.isPondering());
+      assertEquals(1, environment.commands().lines().filter(line -> line.contains("kata-analyze")).count());
+    }
+  }
+
+  @Test
+  void probeCompletionRespectsFramePauseEvenWithoutANewPauseGeneration() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());
+      Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");
+      paused.setAccessible(true);
+      paused.setBoolean(environment.frame, true);
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.SUPPORTED, environment.engine.moveFocusCapability());
+      assertFalse(environment.engine.isPondering());
+      assertEquals(1, environment.commands().lines().filter(line -> line.contains("kata-analyze")).count());
+    }
+  }
+
+  @Test
   void capabilityProbeCannotGrantSupportBeforeItsFinalResponseTerminates() throws Exception {
     try (TestEnvironment environment = TestEnvironment.open()) {
       assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());

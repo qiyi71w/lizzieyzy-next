@@ -24,6 +24,11 @@
 focus。语法拒绝与通信不确定分别处理。每个实际 binding 只尝试一次，旧 completion 不能启动
 替换引擎或改变其能力。普通分析交接完成后才开放准入，避免迟到普通命令覆盖用户 focus。
 
+初始化探针和完成后的恢复必须尊重 `isUserAnalysisPaused()`，并与
+`pauseForAnalysisControl` 共用 `analysisControlPonderLock`。探针还检查自己的暂停代次；
+lifecycle 释放后的 fallback 使用 `ponderIfAnalysisControlAllows()`，不能直接 `ponder()`。
+`TrackingProductionCutoverTest` 覆盖启动前暂停、成功/拒绝响应中暂停和已有界面暂停状态。
+
 ## 请求到结果
 
 1. `addTrackingPoint` 捕获并复验当前 context；ReadBoard 请求额外通过完整 stable-frame 重验。
