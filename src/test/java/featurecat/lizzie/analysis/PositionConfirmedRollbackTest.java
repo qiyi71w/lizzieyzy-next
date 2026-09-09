@@ -60,16 +60,16 @@ class PositionConfirmedRollbackTest {
     }
   }
 
-  @Test
+  @org.junit.jupiter.api.RepeatedTest(10)
   void rejectedOrdinaryPredecessorCannotBeForgottenBySyncRollback() throws Exception {
-    try (Harness harness = Harness.open()) {
-      ExactSnapshotRestoreProtocolFixture.Transport transport =
-          ExactSnapshotRestoreProtocolFixture.install(
+    try (Harness harness = Harness.open();
+        ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.installAsync(
               harness.engine,
               command ->
                   command.equals("play W D4")
                       ? null
-                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+                      : ExactSnapshotRestoreProtocolFixture.Response.success())) {
       harness.engine.playMoveNoPonder(Stone.BLACK, "Q16");
       harness.engine.ponder();
       awaitRawCommand(transport, "kata-analyze", 0);
@@ -79,7 +79,7 @@ class PositionConfirmedRollbackTest {
       String predecessor = awaitRawCommand(transport, "play W D4", 0);
       harness.acceptSnapshot(harness.p1);
       harness.frame.scheduledResume.run();
-      harness.engine.processCommandResponseLineForTest(
+      transport.respond(
           "?" + predecessor.substring(0, predecessor.indexOf(' ')) + " rejected play");
       long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
       while (harness.engine.isLoaded
