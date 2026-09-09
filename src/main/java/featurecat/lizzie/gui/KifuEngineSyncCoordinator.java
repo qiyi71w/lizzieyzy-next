@@ -10,7 +10,8 @@ import java.util.concurrent.atomic.AtomicLong;
 final class KifuEngineSyncCoordinator {
   enum AttemptResult {
     COMPLETE,
-    RETRY
+    RETRY,
+    PERMANENT_FAILURE
   }
 
   interface Request {
@@ -21,6 +22,8 @@ final class KifuEngineSyncCoordinator {
     default void onRetry(RuntimeException failure, int retryCount) {}
 
     void onSynchronized();
+
+    default void onFailed() {}
   }
 
   private static final long INITIAL_RETRY_DELAY_MILLIS = 250L;
@@ -76,11 +79,13 @@ final class KifuEngineSyncCoordinator {
       request.onSynchronized();
       return;
     }
+    if (result == AttemptResult.PERMANENT_FAILURE) {
+      request.onFailed();
+      return;
+    }
     long retryDelay = retryDelayMillis(retryCount);
     executor.schedule(
-        () -> run(requestGeneration, request, retryCount + 1),
-        retryDelay,
-        TimeUnit.MILLISECONDS);
+        () -> run(requestGeneration, request, retryCount + 1), retryDelay, TimeUnit.MILLISECONDS);
   }
 
   private boolean isCurrent(long requestGeneration, Request request) {

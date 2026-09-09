@@ -14,6 +14,7 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.ExactSnapshotRestoreProtocolFixture;
+import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.enginegame.EngineGameRecordContext;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
@@ -45,6 +46,7 @@ import java.util.Optional;
 import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.JPanel;
@@ -632,6 +634,11 @@ class BoardNodeKindHistoryPipelineTest {
   }
 
   @Test
+  void liveLoadRetiresStalePonderFlagAndAutomaticallyResumesOnce() throws Exception {
+    assertLiveLoadHandicapSetupSyncsPrimaryEngine(false, false);
+  }
+
+  @Test
   void deferredLoadAtLastMoveDoesNotForwardPartialPositionToPreviousPrimary() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     BoardRenderer previousBoardRenderer = LizzieFrame.boardRenderer;
@@ -861,6 +868,28 @@ class BoardNodeKindHistoryPipelineTest {
       assertStandalonePreMoveSetupNode(Lizzie.board.getHistory(), "loadFromStringforedit");
       assertSetupBoundaryMatchesParsed(parsed, Lizzie.board.getHistory(), "loadFromStringforedit");
     } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void editStringRestoreKeepsTheExactSessionRulesTarget() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousBoardRenderer = LizzieFrame.boardRenderer;
+    SubBoardRenderer previousSubBoardRenderer = LizzieFrame.subBoardRenderer;
+    try {
+      LizzieFrame.boardRenderer = new BoardRenderer(false);
+      LizzieFrame.subBoardRenderer = allocate(SubBoardRenderer.class);
+      BoardHistoryList history = Lizzie.board.getHistory();
+      BoardHistoryList.SessionRulesTarget manual =
+          history.publishManualRules(KataGoRules.parse("Japanese").orElseThrow());
+
+      assertTrue(SGFParser.loadFromStringforedit("(;B[aa])"));
+
+      assertSame(manual, Lizzie.board.getHistory().captureSessionRules());
+    } finally {
+      LizzieFrame.boardRenderer = previousBoardRenderer;
+      LizzieFrame.subBoardRenderer = previousSubBoardRenderer;
       env.close();
     }
   }
@@ -1322,6 +1351,9 @@ class BoardNodeKindHistoryPipelineTest {
   void loadFromStringHandicapKomiSynchronizesCurrentEngineWithoutChangingDefault()
       throws Exception {
     TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousBoardRenderer = LizzieFrame.boardRenderer;
+    LizzieFrame.boardRenderer = new BoardRenderer(false);
+    setField(LizzieFrame.class, Lizzie.frame, "userAnalysisPaused", true);
     int previousCurrentEngineNo = EngineManager.currentEngineNo;
     try {
       Lizzie.config.readKomi = true;
@@ -1334,6 +1366,9 @@ class BoardNodeKindHistoryPipelineTest {
       setStarted(leelaz, true);
 
       assertTrue(SGFParser.loadFromString("(;SZ[3]KM[0]HA[2]AB[aa]AB[ca]PL[W];W[ba])"));
+      awaitCondition(
+          () -> Math.abs(leelaz.komi) < 0.0001,
+          "the engine's current-game komi should be synchronized asynchronously");
 
       assertEquals(
           0.0,
@@ -1357,6 +1392,7 @@ class BoardNodeKindHistoryPipelineTest {
           leelaz.lastLoadedSgfContent().contains("KM[0.0]"),
           "the root setup snapshot passed to KataGo must carry the loaded SGF komi.");
     } finally {
+      LizzieFrame.boardRenderer = previousBoardRenderer;
       EngineManager.currentEngineNo = previousCurrentEngineNo;
       env.close();
     }
@@ -5050,6 +5086,15 @@ class BoardNodeKindHistoryPipelineTest {
         rotation);
   }
 
+  private static void awaitCondition(BooleanSupplier condition, String message) throws Exception {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+      SwingUtilities.invokeAndWait(() -> {});
+      Thread.sleep(10L);
+    }
+    assertTrue(condition.getAsBoolean(), message);
+  }
+
   private static void awaitHistoryNavigationIdle(Board board) throws Exception {
     Field inFlight = Board.class.getDeclaredField("historyRestoreInFlight");
     Field pending = Board.class.getDeclaredField("pendingHistoryNavigationSteps");
@@ -5823,10 +5868,22 @@ class BoardNodeKindHistoryPipelineTest {
 
   private static void assertLiveLoadHandicapSetupSyncsPrimaryEngine(boolean loadSgfLast)
       throws Exception {
+    assertLiveLoadHandicapSetupSyncsPrimaryEngine(loadSgfLast, true);
+  }
+
+  private static void assertLiveLoadHandicapSetupSyncsPrimaryEngine(
+      boolean loadSgfLast, boolean userPaused) throws Exception {
     TestEnvironment env = TestEnvironment.open();
+    BoardRenderer previousBoardRenderer = LizzieFrame.boardRenderer;
+    LizzieFrame.boardRenderer = new BoardRenderer(false);
+    setField(LizzieFrame.class, Lizzie.frame, "userAnalysisPaused", userPaused);
     try {
       RuleAwareFakeLeelaz engine = allocate(RuleAwareFakeLeelaz.class);
       engine.isLoaded = true;
+      if (!userPaused) {
+        engine.trackPonderCalls = true;
+        engine.pretendingToPonder = true;
+      }
       setStarted(engine, true);
       Lizzie.leelaz = engine;
       Lizzie.config.loadSgfLast = loadSgfLast;
@@ -5834,6 +5891,22 @@ class BoardNodeKindHistoryPipelineTest {
       String sgf = "(;SZ[3]HA[2]AB[aa]AB[ca];W[ba];B[bb])";
 
       assertTrue(SGFParser.loadFromString(sgf), "loadFromString should parse handicap SGF.");
+      awaitCondition(
+          () ->
+              engine.recordedCommands().contains("clear_board")
+                  && engine.recordedCommands().stream()
+                      .anyMatch(command -> command.startsWith("loadsgf ")),
+          "live SGF synchronization should finish through the coordinator");
+      assertEquals(
+          1L,
+          engine.recordedCommands().stream().filter("clear_board"::equals).count(),
+          "a confirmed SGF position must not be cleared again before analysis resumes");
+      if (!userPaused) {
+        awaitCondition(
+            () -> engine.ponderCallCount() == 1,
+            "a confirmed SGF position must automatically resume analysis once");
+        assertTrue(engine.notPonderingCallCount() >= 1);
+      }
 
       assertTrue(
           engine.recordedCommands().contains("clear_board"),
@@ -5850,6 +5923,7 @@ class BoardNodeKindHistoryPipelineTest {
           engine.isBlackToPlay(),
           "running engine should keep the same side-to-play as the loaded SGF.");
     } finally {
+      LizzieFrame.boardRenderer = previousBoardRenderer;
       env.close();
     }
   }

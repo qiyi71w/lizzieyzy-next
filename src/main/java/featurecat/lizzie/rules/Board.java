@@ -1874,15 +1874,17 @@ public class Board {
     if (generation < 0) {
       return Optional.empty();
     }
-    return freezeCurrentPositionForPrimaryEngineExactRestore(engine, generation);
+    return freezeCurrentPositionForPrimaryEngineExactRestore(
+        engine, generation, engine.activeComparisonEngine());
   }
 
-  private Optional<FrozenPrimaryPosition> freezeCurrentPositionForPrimaryEngineExactRestore(
-      Leelaz engine, long generation) {
+  public Optional<FrozenPrimaryPosition> freezeCurrentPositionForPrimaryEngineExactRestore(
+      Leelaz engine, long generation, Leelaz mirror) {
     if (engine == null
         || generation < 0
         || !isCapturedPrimaryReadyForExactRestore(engine)
-        || Lizzie.capturePrimaryEngineGeneration(engine) != generation) {
+        || Lizzie.capturePrimaryEngineGeneration(engine) != generation
+        || engine.activeComparisonEngine() != mirror) {
       return Optional.empty();
     }
     BoardData position;
@@ -1919,11 +1921,15 @@ public class Board {
     if (Lizzie.capturePrimaryEngineGeneration(engine) != generation) {
       return Optional.empty();
     }
+    if (engine.activeComparisonEngine() != mirror) {
+      return Optional.empty();
+    }
     return Optional.of(
         new FrozenPrimaryPosition(
             this,
             engine,
             generation,
+            mirror,
             capturedHistory,
             capturedCurrentNode,
             capturedContextRevision,
@@ -1936,6 +1942,7 @@ public class Board {
     private final Board owner;
     private final Leelaz engine;
     private final long primaryGeneration;
+    private final Leelaz mirror;
     private final BoardHistoryList capturedHistory;
     private final BoardHistoryNode capturedCurrentNode;
     private final long capturedContextRevision;
@@ -1947,6 +1954,7 @@ public class Board {
         Board owner,
         Leelaz engine,
         long primaryGeneration,
+        Leelaz mirror,
         BoardHistoryList capturedHistory,
         BoardHistoryNode capturedCurrentNode,
         long capturedContextRevision,
@@ -1956,6 +1964,7 @@ public class Board {
       this.owner = owner;
       this.engine = engine;
       this.primaryGeneration = primaryGeneration;
+      this.mirror = mirror;
       this.capturedHistory = capturedHistory;
       this.capturedCurrentNode = capturedCurrentNode;
       this.capturedContextRevision = capturedContextRevision;
@@ -1967,10 +1976,10 @@ public class Board {
     /** Captures admission after companion close, then executes a strict ACK-backed restore. */
     public boolean execute() {
       if (Lizzie.board != owner
-          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration) {
+          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration
+          || engine.activeComparisonEngine() != mirror) {
         return false;
       }
-      Leelaz mirror = owner.captureHistoryNavigationMirrorEngine(engine);
       Leelaz.ExactSnapshotRestoreAdmission admission =
           engine.captureHistoryNavigationExactSnapshotRestoreAdmission(mirror);
       ExactSnapshotEngineRestore.PreparedRestore prepared =
@@ -1980,7 +1989,8 @@ public class Board {
               : ExactSnapshotEngineRestore.prepareCurrentPosition(admission, position);
       Leelaz.PositionRestore confirmation = engine.capturePositionRestore(mirror);
       if (Lizzie.board != owner
-          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration) {
+          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration
+          || engine.activeComparisonEngine() != mirror) {
         prepared.discard();
         confirmation.cancel();
         return false;
@@ -2003,7 +2013,8 @@ public class Board {
      */
     public boolean matchesCurrentBoardAndPrimary() {
       if (Lizzie.board != owner
-          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration) {
+          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration
+          || engine.activeComparisonEngine() != mirror) {
         return false;
       }
       boolean matches;
@@ -2025,6 +2036,7 @@ public class Board {
       }
       return matches
           && Lizzie.board == owner
+          && engine.activeComparisonEngine() == mirror
           && Lizzie.capturePrimaryEngineGeneration(engine) == primaryGeneration;
     }
 
@@ -2033,7 +2045,8 @@ public class Board {
       if (Lizzie.board != owner) {
         return Optional.empty();
       }
-      return owner.freezeCurrentPositionForPrimaryEngineExactRestore(engine, primaryGeneration);
+      return owner.freezeCurrentPositionForPrimaryEngineExactRestore(
+          engine, primaryGeneration, mirror);
     }
 
     private static double resolveKomi(

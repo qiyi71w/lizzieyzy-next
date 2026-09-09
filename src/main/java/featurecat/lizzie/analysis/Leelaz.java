@@ -1108,6 +1108,10 @@ public class Leelaz {
   public boolean hasGtpCapability() {
     return !isBenchmark();
   }
+  public boolean isRulesCapabilityDiscoveryComplete() {
+    return started && endGetCommandList;
+  }
+
 
   public BenchmarkExecution benchmarkExecution() {
     return currentBenchmarkExecution;
@@ -3117,6 +3121,14 @@ public class Leelaz {
     synchronized (engineArbitrationLock()) {
       return readerStreamBinding;
     }
+  }
+
+  public Object engineIncarnationToken() {
+    return captureEngineIncarnationFence();
+  }
+
+  public boolean isCurrentEngineIncarnationToken(Object token) {
+    return isCurrentEngineIncarnation(token);
   }
 
   Object analysisOutputRecoveryToken(Object expectedIncarnation) {
@@ -11206,6 +11218,9 @@ public class Leelaz {
         || (exclusiveGtpLifecycleQueueGate
             && !isExactSnapshotRestoreAdmissionContextActive()
             && !isCurrentRestartBootstrapReceiptLocked(bootstrapReceipt))
+        || (startupTransactionAtAdmission == null
+            && isOrdinaryPositionAnalysisCommand(command)
+            && !SessionRulesSynchronizer.permitsOrdinaryAnalysis(this))
         || (readBoardGmaResponseBinding != null
             && (readerStreamBinding != readBoardGmaResponseBinding
                 || readBoardGmaResponseBinding.terminated))
@@ -11615,6 +11630,10 @@ public class Leelaz {
       return gtpCapableRestoreMirror(this, primaryEngine);
     }
     return null;
+  }
+
+  public Leelaz activeComparisonEngine() {
+    return resolveLoadSgfMirrorEngine();
   }
 
   private static Leelaz gtpCapableRestoreMirror(Leelaz source, Leelaz candidate) {
@@ -17465,6 +17484,9 @@ public class Leelaz {
   private static final class AutomaticRestartRound {
     private final Leelaz target;
     private final Leelaz mirror;
+    private final Leelaz rulesPrimary;
+    private final Leelaz rulesMirror;
+    private long rulesPrimaryGeneration;
     private final Board board;
     private final Object owner;
     private final ExactSnapshotRestoreAdmission admission;
@@ -17488,6 +17510,11 @@ public class Leelaz {
         EngineManager.BoardFrame capturedFrame) {
       this.target = target;
       this.mirror = mirror;
+      boolean secondaryLifecycle =
+          mirror != null && mirror == Lizzie.leelaz && target != Lizzie.leelaz;
+      this.rulesPrimary = secondaryLifecycle ? mirror : target;
+      this.rulesMirror = secondaryLifecycle ? target : mirror;
+      this.rulesPrimaryGeneration = Lizzie.capturePrimaryEngineGeneration(rulesPrimary);
       this.board = board;
       this.owner = owner;
       this.admission = admission;
@@ -17560,13 +17587,82 @@ public class Leelaz {
       return resumePonder;
     }
 
-    private void execute() {
+
+    private boolean synchronizeSessionRules() {
+      BoardHistoryList.SessionRulesTarget rulesTarget = capturedFrame.sessionRulesTarget();
+      if (rulesTarget == null) {
+        return true;
+      }
+      if (rulesPrimaryGeneration < 0L) {
+        rulesPrimaryGeneration = Lizzie.capturePrimaryEngineGeneration(rulesPrimary);
+      }
+      SessionRulesSynchronizer.Result targetResult =
+          SessionRulesSynchronizer.synchronize(rulesTarget, target, admission);
+      if (!targetResult.satisfied()) {
+        if (!capturedRulesFrameIsCurrent()) {
+          return false;
+        }
+        if (Lizzie.frame != null
+            && Lizzie.frame.requestLifecycleRulesOverride(
+                rulesTarget,
+                rulesPrimary,
+                rulesPrimaryGeneration,
+                rulesMirror,
+                targetResult)) {
+          return true;
+        }
+        return retireStaleRulesRoundOrThrow(
+            "Automatic restart rules synchronization failed: " + targetResult.failure());
+      }
+      if (mirror != null) {
+        SessionRulesSynchronizer.Result mirrorResult =
+            SessionRulesSynchronizer.synchronize(rulesTarget, mirror, admission);
+        if (!mirrorResult.satisfied()) {
+          if (!capturedRulesFrameIsCurrent()) {
+            return false;
+          }
+          if (Lizzie.frame != null
+              && Lizzie.frame.requestLifecycleRulesOverride(
+                  rulesTarget,
+                  rulesPrimary,
+                  rulesPrimaryGeneration,
+                  rulesMirror,
+                  mirrorResult)) {
+            return true;
+          }
+          return retireStaleRulesRoundOrThrow(
+              "Automatic restart mirror rules synchronization failed: " + mirrorResult.failure());
+        }
+      }
+      return true;
+    }
+
+    private boolean capturedRulesFrameIsCurrent() {
+      synchronized (board) {
+        return capturedFrame.matches(EngineManager.BoardFrame.capture(board));
+      }
+    }
+    private boolean retireStaleRulesRoundOrThrow(String message) {
+      synchronized (board) {
+        if (!capturedFrame.matches(EngineManager.BoardFrame.capture(board))) {
+          return false;
+        }
+        throw new IllegalStateException(message);
+      }
+    }
+
+
+    private boolean execute() {
+      if (!synchronizeSessionRules()) {
+        return false;
+      }
       reconcileCapturedBoardSize();
       if (preparedRestore != null) {
         board.resendMoveToEngine(target, false, preparedRestore);
       } else if (board != null) {
         executeRootReplay();
       }
+      return true;
     }
 
     private void reconcileCapturedBoardSize() {
@@ -17739,12 +17835,12 @@ public class Leelaz {
           if (Lizzie.board != board) {
             throw new IllegalStateException("Automatic restart Board changed during convergence");
           }
-          pendingRound.execute();
+          boolean rulesFrameCurrent = pendingRound.execute();
           releaseRoundReservation();
           boolean stable;
           synchronized (board) {
             EngineManager.BoardFrame currentFrame = EngineManager.BoardFrame.capture(board);
-            stable = pendingRound.capturedFrame.matches(currentFrame);
+            stable = rulesFrameCurrent && pendingRound.capturedFrame.matches(currentFrame);
             if (stable) {
               endBoardSynchronization();
             } else {
@@ -22260,6 +22356,52 @@ public class Leelaz {
   }
 
   /**
+   * Starts analysis on the current comparison engine while sharing the user's pause boundary.
+   */
+  public boolean ponderComparisonEngineIfAnalysisControlAllows(Leelaz comparisonEngine) {
+    synchronized (analysisControlPonderLock()) {
+      if (comparisonEngine == null
+          || Lizzie.config == null
+          || !Lizzie.config.isDoubleEngineMode()
+          || Lizzie.leelaz != this
+          || activeComparisonEngine() != comparisonEngine
+          || (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused())
+          || !isPonderingOrWasPonderingBeforeTracking()
+          || !comparisonEngine.isStarted()
+          || !comparisonEngine.isLoaded()
+          || comparisonEngine.isCheckingName) {
+        return false;
+      }
+      comparisonEngine.ponder();
+      comparisonEngine.setResponseUpToDate();
+      return true;
+    }
+  }
+
+  /** Reissues primary analysis after a comparison restart without crossing a later user pause. */
+  public boolean ponderAfterComparisonRestartIfAnalysisControlAllows(Leelaz comparisonEngine) {
+    synchronized (analysisControlPonderLock()) {
+      if (comparisonEngine == null
+          || Lizzie.config == null
+          || !Lizzie.config.isDoubleEngineMode()
+          || Lizzie.leelaz != this
+          || activeComparisonEngine() != comparisonEngine
+          || (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused())
+          || !isPonderingOrWasPonderingBeforeTracking()
+          || !isStarted()
+          || !isLoaded()
+          || isCheckingName
+          || !comparisonEngine.isStarted()
+          || !comparisonEngine.isLoaded()
+          || comparisonEngine.isCheckingName) {
+        return false;
+      }
+      ponder();
+      return true;
+    }
+  }
+
+  /**
    * Linearizes the analysis-control pause with tracking and ExclusiveGtp ponder handback.
    *
    * <p>The pause state must be recorded while holding the same lock used by both restore paths;
@@ -23351,7 +23493,10 @@ public class Leelaz {
     Objects.requireNonNull(rules, "rules");
     EngineRulesOperation operation =
         beginEngineRulesOperation(false, rules, lastObservedRules(), false);
-    if (!matchOwner && isRulesMutationOccupied()) {
+    ExactSnapshotRestoreAdmission restoreAdmission = operation.restoreAdmission;
+    boolean lifecycleOwner =
+        restoreAdmission != null && isExactSnapshotRestoreAdmissionValid(restoreAdmission);
+    if (!matchOwner && !lifecycleOwner && isRulesMutationOccupied()) {
       failEngineRules(operation, EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.OCCUPIED);
       return operation;
     }
@@ -23574,6 +23719,10 @@ public class Leelaz {
     }
     EngineRulesOperation replaced = null;
     EngineRulesResult replacedResult = null;
+    ExactSnapshotRestoreAdmission restoreAdmission = exactSnapshotRestoreAdmissionContext.get();
+    if (restoreAdmission != null && !isExactSnapshotRestoreAdmissionValid(restoreAdmission)) {
+      restoreAdmission = null;
+    }
     EngineRulesOperation operation;
     synchronized (engineRulesLock) {
       replaced = activeEngineRulesOperation;
@@ -23595,6 +23744,7 @@ public class Leelaz {
               binding,
               engineGameTransaction,
               startupCommandBinding,
+              restoreAdmission,
               pending);
       operation.awaitingSet = requested != null;
       activeEngineRulesOperation = operation;
@@ -23707,6 +23857,16 @@ public class Leelaz {
       String command,
       EngineRulesResponseHandler handler,
       CommandSendFailureHandler onFailure) {
+    if (operation.restoreAdmission != null
+        && exactSnapshotRestoreAdmissionContext.get() != operation.restoreAdmission) {
+      boolean[] sent = new boolean[1];
+      withExactSnapshotRestoreAdmission(
+          operation.restoreAdmission,
+          () ->
+              sent[0] =
+                  sendEngineRulesCommandInCurrentContext(operation, command, handler, onFailure));
+      return sent[0];
+    }
     EngineRulesOperation previous = engineRulesOperationContext.get();
     engineRulesOperationContext.set(operation);
     try {
@@ -24018,6 +24178,7 @@ public class Leelaz {
     private final ReaderStreamBinding readerBinding;
     private final EngineManager.EngineGameOwnerTransaction engineGameTransaction;
     private final ReaderStreamBinding startupCommandBinding;
+    private final ExactSnapshotRestoreAdmission restoreAdmission;
     private final CompletableFuture<EngineRulesResult> completion = new CompletableFuture<>();
     private volatile EngineRulesResult snapshot;
     private volatile boolean accepted;
@@ -24032,12 +24193,14 @@ public class Leelaz {
         ReaderStreamBinding readerBinding,
         EngineManager.EngineGameOwnerTransaction engineGameTransaction,
         ReaderStreamBinding startupCommandBinding,
+        ExactSnapshotRestoreAdmission restoreAdmission,
         EngineRulesResult initial) {
       this.generation = generation;
       this.isolated = isolated;
       this.readerBinding = readerBinding;
       this.engineGameTransaction = engineGameTransaction;
       this.startupCommandBinding = startupCommandBinding;
+      this.restoreAdmission = restoreAdmission;
       this.snapshot = initial;
     }
 

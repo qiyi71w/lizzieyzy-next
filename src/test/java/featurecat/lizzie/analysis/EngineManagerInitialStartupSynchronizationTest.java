@@ -1747,6 +1747,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       StartupSyncLeelaz targetSecondary = new StartupSyncLeelaz();
       primary.started = true;
       primary.isLoaded = true;
+      primary.Pondering();
+      primary.boardSynchronizationGate = new CountDownLatch(1);
       currentSecondary.started = true;
       currentSecondary.isLoaded = true;
       targetSecondary.delayReadyAfterStart = true;
@@ -1773,7 +1775,18 @@ class EngineManagerInitialStartupSynchronizationTest {
       navigateZeroToFiveToThree(board);
       targetSecondary.publishReady();
 
+      assertTrue(primary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+      assertEquals(
+          1L,
+          targetSecondary.analysisStarted.getCount(),
+          "secondary analysis must remain stopped until the primary mirror fence succeeds");
+      primary.boardSynchronizationGate.countDown();
       assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(
+          targetSecondary.analysisStarted.await(2, TimeUnit.SECONDS),
+          "a secondary switch must inherit the active primary analysis intent after synchronization");
+      assertEquals(3, targetSecondary.analyzePosition.get(), "secondary converged analysis position");
+      assertEquals(1, targetSecondary.analyzeCount.get(), "secondary analysis resume count");
       assertSame(primary, Lizzie.leelaz);
       assertSame(targetSecondary, Lizzie.leelaz2);
       assertEquals(0, EngineManager.currentEngineNo);
@@ -1788,6 +1801,91 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertEngineMatchesBoard(targetSecondary, board, 19, 19);
       assertLifecycleReservationReleased(currentSecondary);
       assertLifecycleReservationReleased(targetSecondary);
+    }
+  }
+
+  @Test
+  void secondarySwitchDoesNotRestoreAnalysisAfterPrimaryIsPausedDuringFinalFence()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz currentSecondary = new StartupSyncLeelaz();
+      StartupSyncLeelaz targetSecondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      primary.boardSynchronizationGate = new CountDownLatch(1);
+      currentSecondary.started = true;
+      currentSecondary.isLoaded = true;
+      targetSecondary.delayReadyAfterStart = true;
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Double_Engine;
+      Lizzie.board = boardWithHistory(emptyRootHistory(3));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = currentSecondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(
+              new ArrayList<>(List.of(primary, currentSecondary, targetSecondary)));
+      Lizzie.engineManager = manager;
+
+      assertTrue(manager.switchEngineIfAvailable(2, false));
+      assertTrue(targetSecondary.startCompleted.await(2, TimeUnit.SECONDS));
+      targetSecondary.publishReady();
+      assertTrue(primary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+
+      SilentStartupFrame frame = (SilentStartupFrame) Lizzie.frame;
+      primary.pauseForAnalysisControl(
+          () -> {
+            frame.userAnalysisPaused = true;
+            primary.notPondering();
+          });
+      primary.boardSynchronizationGate.countDown();
+
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertEquals(0, targetSecondary.analyzeCount.get());
+      assertFalse(primary.isPondering());
+      assertTrue(frame.userAnalysisPaused);
+      assertLifecycleReservationReleased(targetSecondary);
+    }
+  }
+
+  @Test
+  void secondarySwitchOutsideDoubleEngineModeDoesNotInheritPrimaryAnalysisIntent()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz currentSecondary = new StartupSyncLeelaz();
+      StartupSyncLeelaz targetSecondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      currentSecondary.started = true;
+      currentSecondary.isLoaded = true;
+      targetSecondary.delayReadyAfterStart = true;
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Normal;
+      Lizzie.board = boardWithHistory(emptyRootHistory(0));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = currentSecondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(
+              new ArrayList<>(List.of(primary, currentSecondary, targetSecondary)));
+      Lizzie.engineManager = manager;
+
+      assertTrue(manager.switchEngineIfAvailable(2, false));
+      assertTrue(targetSecondary.startCompleted.await(2, TimeUnit.SECONDS));
+      targetSecondary.publishReady();
+
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertEquals(1L, targetSecondary.analysisStarted.getCount());
+      assertEquals(0, targetSecondary.analyzeCount.get());
+      assertSame(targetSecondary, Lizzie.leelaz2);
     }
   }
 
@@ -2068,6 +2166,112 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertFenceBeforeAnalyze(primary);
       assertEngineMatchesBoard(primary, board, 19, 19);
       assertEngineMatchesBoard(secondary, board, 19, 19);
+      assertLifecycleReservationReleased(secondary);
+    }
+  }
+
+  @Test
+  void secondaryRestartDoesNotRestoreAnalysisAfterPrimaryIsPausedDuringFinalFence()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz secondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      secondary.started = true;
+      secondary.isLoaded = true;
+      secondary.delayReadyAfterStart = true;
+      secondary.boardSynchronizationGate = new CountDownLatch(1);
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Double_Engine;
+      Lizzie.board = boardWithHistory(emptyRootHistory(2));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = secondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(primary, secondary)));
+      Lizzie.engineManager = manager;
+
+      manager.reStartEngine2();
+      assertTrue(secondary.startCompleted.await(2, TimeUnit.SECONDS));
+      secondary.publishReady();
+      assertTrue(secondary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+
+      primary.notPondering();
+      secondary.boardSynchronizationGate.countDown();
+
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertEquals(1L, primary.analysisStarted.getCount());
+      assertEquals(0, primary.analyzeCount.get());
+      assertFalse(primary.isPondering());
+      assertLifecycleReservationReleased(secondary);
+    }
+  }
+
+  @Test
+  void secondaryRestartPonderHandoffLinearizesBeforeUserPause() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz secondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      primary.ponderCommandSent = new CountDownLatch(1);
+      primary.ponderAfterCommandGate = new CountDownLatch(1);
+      secondary.started = true;
+      secondary.isLoaded = true;
+      secondary.delayReadyAfterStart = true;
+      secondary.boardSynchronizationGate = new CountDownLatch(1);
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Double_Engine;
+      Lizzie.board = boardWithHistory(emptyRootHistory(2));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = secondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(primary, secondary)));
+      Lizzie.engineManager = manager;
+
+      manager.reStartEngine2();
+      assertTrue(secondary.startCompleted.await(2, TimeUnit.SECONDS));
+      secondary.publishReady();
+      assertTrue(secondary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+      secondary.boardSynchronizationGate.countDown();
+      assertTrue(primary.ponderCommandSent.await(2, TimeUnit.SECONDS));
+
+      SilentStartupFrame frame = (SilentStartupFrame) Lizzie.frame;
+      CountDownLatch pauseRecorded = new CountDownLatch(1);
+      Thread pauseThread =
+          new Thread(
+              () ->
+                  primary.pauseForAnalysisControl(
+                      () -> {
+                        frame.userAnalysisPaused = true;
+                        primary.sendCommand("name");
+                        primary.notPondering();
+                        pauseRecorded.countDown();
+                      }));
+      pauseThread.start();
+      assertFalse(
+          pauseRecorded.await(100, TimeUnit.MILLISECONDS),
+          "pause must wait for the in-flight ponder handoff critical section");
+
+      primary.ponderAfterCommandGate.countDown();
+      assertTrue(pauseRecorded.await(2, TimeUnit.SECONDS));
+      pauseThread.join(TimeUnit.SECONDS.toMillis(2));
+      assertFalse(pauseThread.isAlive());
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      int analyzeCountAfterPause = primary.analyzeCount.get();
+
+      assertEquals(1, analyzeCountAfterPause);
+      assertFalse(primary.isPondering());
+      assertTrue(frame.userAnalysisPaused);
+      assertEquals(analyzeCountAfterPause, primary.analyzeCount.get());
       assertLifecycleReservationReleased(secondary);
     }
   }
@@ -7511,6 +7715,13 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   private static final class SilentStartupFrame extends LizzieFrame {
+    private volatile boolean userAnalysisPaused;
+
+    @Override
+    public boolean isUserAnalysisPaused() {
+      return userAnalysisPaused;
+    }
+
     @Override
     public void refresh() {}
 

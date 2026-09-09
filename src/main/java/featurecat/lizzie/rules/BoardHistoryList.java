@@ -2,13 +2,90 @@ package featurecat.lizzie.rules;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.GameInfo;
+import featurecat.lizzie.analysis.KataGoRules;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Linked list data structure to store board history */
 public class BoardHistoryList {
+  public enum SessionRulesKind {
+    UNSPECIFIED,
+    VALID,
+    INVALID
+  }
+
+  public enum SessionRulesSource {
+    NONE,
+    EXTERNAL_IMPORT,
+    MANUAL_SELECTION
+  }
+
+  /** Immutable rules target adopted by this history and its revision. */
+  public static final class SessionRulesTarget {
+    private final SessionRulesKind kind;
+    private final String rawDeclaration;
+    private final KataGoRules parsedRules;
+    private final SessionRulesSource source;
+    private final long revision;
+
+    private SessionRulesTarget(
+        SessionRulesKind kind,
+        String rawDeclaration,
+        KataGoRules parsedRules,
+        SessionRulesSource source,
+        long revision) {
+      this.kind = Objects.requireNonNull(kind, "kind");
+      this.rawDeclaration = rawDeclaration;
+      this.parsedRules = parsedRules;
+      this.source = Objects.requireNonNull(source, "source");
+      this.revision = revision;
+    }
+
+    public SessionRulesKind kind() {
+      return kind;
+    }
+
+    public String rawDeclaration() {
+      return rawDeclaration;
+    }
+
+    public Optional<KataGoRules> parsedRules() {
+      return Optional.ofNullable(parsedRules);
+    }
+
+    public SessionRulesSource source() {
+      return source;
+    }
+
+    public long revision() {
+      return revision;
+    }
+  }
+
+  /** Opaque claim for one manual rules selection against this history. */
+  public static final class ManualRulesIntent {
+    private final SessionRulesTarget previousTarget;
+    private final long generation;
+
+    private ManualRulesIntent(SessionRulesTarget previousTarget, long generation) {
+      this.previousTarget = previousTarget;
+      this.generation = generation;
+    }
+
+    public SessionRulesTarget previousTarget() {
+      return previousTarget;
+    }
+  }
+
   private GameInfo gameInfo;
   private BoardHistoryNode head;
+  private SessionRulesTarget sessionRulesTarget;
+  private SessionRulesTarget analysisOverrideTarget;
+  private Object analysisOverridePrimary;
+  private Object analysisOverrideMirror;
+  private long analysisOverridePrimaryGeneration = -1L;
+  private long manualRulesIntentGeneration;
 
   /**
    * Initialize a new board history list, whose first node is data
@@ -18,6 +95,141 @@ public class BoardHistoryList {
   public BoardHistoryList(BoardData data) {
     head = new BoardHistoryNode(data);
     gameInfo = new GameInfo();
+    sessionRulesTarget =
+        new SessionRulesTarget(
+            SessionRulesKind.UNSPECIFIED, null, null, SessionRulesSource.NONE, 0L);
+  }
+
+  /** Atomically returns the immutable rules target currently adopted by this history. */
+  public synchronized SessionRulesTarget captureSessionRules() {
+    return sessionRulesTarget;
+  }
+
+  public synchronized ManualRulesIntent beginManualRulesIntent() {
+    return new ManualRulesIntent(sessionRulesTarget, ++manualRulesIntentGeneration);
+  }
+
+  public synchronized boolean isLatestManualRulesIntent(ManualRulesIntent intent) {
+    return intent != null && intent.generation == manualRulesIntentGeneration;
+  }
+
+  /** Rebinds an internally restored history to the exact pre-restore session target. */
+  public synchronized void restoreSessionRulesTarget(SessionRulesTarget target) {
+    sessionRulesTarget = Objects.requireNonNull(target, "target");
+    manualRulesIntentGeneration++;
+    clearAnalysisOverride();
+  }
+
+  public synchronized void authorizeAnalysisWithCurrentRules(
+      SessionRulesTarget target, Object primary, long primaryGeneration, Object mirror) {
+    if (target == null
+        || target != sessionRulesTarget
+        || primary == null
+        || primaryGeneration < 0L) {
+      throw new IllegalArgumentException("Analysis override does not match current session rules");
+    }
+    analysisOverrideTarget = target;
+    analysisOverridePrimary = primary;
+    analysisOverridePrimaryGeneration = primaryGeneration;
+    analysisOverrideMirror = mirror;
+  }
+
+  public synchronized boolean permitsAnalysisWithCurrentRules(
+      SessionRulesTarget target, Object primary, long primaryGeneration, Object mirror) {
+    return target != null
+        && target == sessionRulesTarget
+        && analysisOverrideTarget == target
+        && analysisOverridePrimary == primary
+        && analysisOverridePrimaryGeneration == primaryGeneration
+        && analysisOverrideMirror == mirror;
+  }
+
+  /** Retires any explicit continue decision for the captured target without changing the target. */
+  public synchronized void revokeAnalysisOverride(SessionRulesTarget target) {
+    if (target != null && target == sessionRulesTarget && analysisOverrideTarget == target) {
+      clearAnalysisOverride();
+    }
+  }
+
+  /**
+   * Publishes the root SGF RU declaration as this history's external target.
+   *
+   * <p>A null declaration means RU is missing and is distinct from an invalid or blank declaration.
+   * Every invocation publishes a newer revision, including missing and invalid declarations.
+   */
+  public synchronized SessionRulesTarget publishExternalRules(String rawDeclaration) {
+    manualRulesIntentGeneration++;
+    clearAnalysisOverride();
+    long revision = sessionRulesTarget.revision() + 1L;
+    if (rawDeclaration == null) {
+      sessionRulesTarget =
+          new SessionRulesTarget(
+              SessionRulesKind.UNSPECIFIED,
+              null,
+              null,
+              SessionRulesSource.EXTERNAL_IMPORT,
+              revision);
+    } else {
+      Optional<KataGoRules> parsed = KataGoRules.parse(rawDeclaration);
+      if (parsed.isPresent() && parsed.get().hasRequiredFields()) {
+        sessionRulesTarget =
+            new SessionRulesTarget(
+                SessionRulesKind.VALID,
+                rawDeclaration,
+                parsed.get(),
+                SessionRulesSource.EXTERNAL_IMPORT,
+                revision);
+      } else {
+        sessionRulesTarget =
+            new SessionRulesTarget(
+                SessionRulesKind.INVALID,
+                rawDeclaration,
+                null,
+                SessionRulesSource.EXTERNAL_IMPORT,
+                revision);
+      }
+    }
+    return sessionRulesTarget;
+  }
+
+  /** Publishes a successful manual selection as a valid target at a newer revision. */
+  public synchronized SessionRulesTarget publishManualRules(KataGoRules rules) {
+    manualRulesIntentGeneration++;
+    return publishManualRulesUnchecked(rules);
+  }
+
+  /** Publishes a manual selection only while its history-owned intent is still latest. */
+  public synchronized Optional<SessionRulesTarget> publishManualRulesIfCurrent(
+      ManualRulesIntent intent, KataGoRules rules) {
+    if (intent == null
+        || intent.generation != manualRulesIntentGeneration
+        || sessionRulesTarget != intent.previousTarget) {
+      return Optional.empty();
+    }
+    return Optional.of(publishManualRulesUnchecked(rules));
+  }
+
+  private SessionRulesTarget publishManualRulesUnchecked(KataGoRules rules) {
+    clearAnalysisOverride();
+    Objects.requireNonNull(rules, "rules");
+    if (!rules.hasRequiredFields()) {
+      throw new IllegalArgumentException("Manual session rules must contain all required fields");
+    }
+    sessionRulesTarget =
+        new SessionRulesTarget(
+            SessionRulesKind.VALID,
+            null,
+            rules,
+            SessionRulesSource.MANUAL_SELECTION,
+            sessionRulesTarget.revision() + 1L);
+    return sessionRulesTarget;
+  }
+
+  private void clearAnalysisOverride() {
+    analysisOverrideTarget = null;
+    analysisOverridePrimary = null;
+    analysisOverridePrimaryGeneration = -1L;
+    analysisOverrideMirror = null;
   }
 
   public GameInfo getGameInfo() {
@@ -70,10 +282,15 @@ public class BoardHistoryList {
     }
   }
 
-  public BoardHistoryList shallowCopy() {
+  public synchronized BoardHistoryList shallowCopy() {
     BoardHistoryList copy = new BoardHistoryList(null);
     copy.head = head;
     copy.gameInfo = gameInfo;
+    copy.sessionRulesTarget = sessionRulesTarget;
+    copy.analysisOverrideTarget = analysisOverrideTarget;
+    copy.analysisOverridePrimary = analysisOverridePrimary;
+    copy.analysisOverrideMirror = analysisOverrideMirror;
+    copy.analysisOverridePrimaryGeneration = analysisOverridePrimaryGeneration;
     return copy;
   }
 
@@ -490,8 +707,7 @@ public class BoardHistoryList {
       if (addLast) {
         head.getLast().addAtLast(newState);
       } else if (engineGamePure) {
-        this.head =
-            this.head.addOrGotoForEngineGame(newState, frozenNewMoveNumberInBranch);
+        this.head = this.head.addOrGotoForEngineGame(newState, frozenNewMoveNumberInBranch);
       } else {
         this.addOrGoto(newState, newBranch);
       }
@@ -537,17 +753,7 @@ public class BoardHistoryList {
       boolean addLast,
       boolean noCapture,
       boolean canSuicidal) {
-    place(
-        x,
-        y,
-        color,
-        newBranch,
-        changeMove,
-        addLast,
-        noCapture,
-        canSuicidal,
-        false,
-        false);
+    place(x, y, color, newBranch, changeMove, addLast, noCapture, canSuicidal, false, false);
   }
 
   void placeForEngineGame(
@@ -557,17 +763,7 @@ public class BoardHistoryList {
       boolean noCapture,
       boolean canSuicidal,
       boolean newMoveNumberInBranch) {
-    place(
-        x,
-        y,
-        color,
-        false,
-        false,
-        false,
-        noCapture,
-        canSuicidal,
-        true,
-        newMoveNumberInBranch);
+    place(x, y, color, false, false, false, noCapture, canSuicidal, true, newMoveNumberInBranch);
   }
 
   private void place(
@@ -687,8 +883,7 @@ public class BoardHistoryList {
       if (addLast) {
         head.getLast().addAtLast(newState);
       } else if (engineGamePure) {
-        this.head =
-            this.head.addOrGotoForEngineGame(newState, frozenNewMoveNumberInBranch);
+        this.head = this.head.addOrGotoForEngineGame(newState, frozenNewMoveNumberInBranch);
       } else {
         this.addOrGoto(newState, newBranch, changeMove);
       }

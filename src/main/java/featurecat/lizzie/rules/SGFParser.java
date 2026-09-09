@@ -58,8 +58,7 @@ public class SGFParser {
   public static boolean load(String filename, boolean showHint, boolean syncPrimaryEngine)
       throws IOException {
     isExtraMode2 = false;
-    Board.ClearStateSnapshot rollbackState =
-        syncPrimaryEngine ? null : Lizzie.board.captureClearState();
+    Board.ClearStateSnapshot rollbackState = Lizzie.board.captureClearState();
     boolean finalizerScheduled = false;
     Lizzie.board.isLoadingFile = true;
     try {
@@ -90,10 +89,20 @@ public class SGFParser {
         return false;
       }
 
-      boolean returnValue = parse(value);
-      SgfObservation.record("open", returnValue ? "ok" : "failed", filename, null);
+      boolean returnValue;
+      try {
+        returnValue = parse(value);
+      } catch (RuntimeException invalidSgf) {
+        SgfObservation.record("open", "failed", filename, invalidSgf);
+        return false;
+      }
       if (!returnValue) {
         return false;
+      }
+      Board loadedBoard = Lizzie.board;
+      BoardHistoryList loadedHistory = currentHistory();
+      if (syncPrimaryEngine) {
+        adoptCurrentHistoryExternalRules();
       }
       applySgfKomiForSetupGameWhenReadKomiDisabled();
       discardImportedAnalysisIfGameKomiDiffersFromEngineDefault();
@@ -101,6 +110,9 @@ public class SGFParser {
       SwingUtilities.invokeLater(
           new Runnable() {
             public void run() {
+              if (Lizzie.board != loadedBoard || loadedBoard.getHistory() != loadedHistory) {
+                return;
+              }
               try {
                 if (Lizzie.config.loadSgfLast)
                   while (Lizzie.board.nextMove(false))
@@ -122,7 +134,9 @@ public class SGFParser {
                   }
                 }
               } finally {
-                Lizzie.board.isLoadingFile = false;
+                if (Lizzie.board == loadedBoard && loadedBoard.getHistory() == loadedHistory) {
+                  loadedBoard.isLoadingFile = false;
+                }
               }
             }
           });
@@ -132,6 +146,9 @@ public class SGFParser {
       if (!finalizerScheduled) {
         if (rollbackState != null) {
           Lizzie.board.restoreClearState(rollbackState);
+          if (syncPrimaryEngine) {
+            syncPrimaryEngineAfterSgfLoad();
+          }
         }
         Lizzie.board.isLoadingFile = false;
       }
@@ -144,8 +161,7 @@ public class SGFParser {
 
   public static boolean loadFromString(String sgfString, boolean syncPrimaryEngine) {
     isExtraMode2 = false;
-    Board.ClearStateSnapshot rollbackState =
-        syncPrimaryEngine ? null : Lizzie.board.captureClearState();
+    Board.ClearStateSnapshot rollbackState = Lizzie.board.captureClearState();
     boolean result = false;
     boolean committed = false;
     Lizzie.board.isLoadingFile = true;
@@ -155,10 +171,18 @@ public class SGFParser {
       } else {
         Lizzie.board.clearForSgfLoadWithoutPrimaryEngineForwarding();
       }
-      result = parse(sgfString);
+      try {
+        result = parse(sgfString);
+      } catch (RuntimeException invalidSgf) {
+        SgfObservation.record("import", "failed", null, invalidSgf);
+        return false;
+      }
       SgfObservation.record("import", result ? "ok" : "failed", null, null);
       if (!result) {
         return false;
+      }
+      if (syncPrimaryEngine) {
+        adoptCurrentHistoryExternalRules();
       }
       applySgfKomiForSetupGameWhenReadKomiDisabled();
       discardImportedAnalysisIfGameKomiDiffersFromEngineDefault();
@@ -183,15 +207,23 @@ public class SGFParser {
     } finally {
       if (!committed && rollbackState != null) {
         Lizzie.board.restoreClearState(rollbackState);
+        if (syncPrimaryEngine) {
+          syncPrimaryEngineAfterSgfLoad();
+        }
       }
       Lizzie.board.isLoadingFile = false;
     }
   }
 
   private static void syncPrimaryEngineAfterSgfLoad() {
-    if (Lizzie.board != null) {
-      Lizzie.board.resendCurrentPositionToPrimaryEngine();
+    if (Lizzie.board == null) {
+      return;
     }
+    if (Lizzie.frame != null) {
+      Lizzie.frame.synchronizeImportedSgfAfterParserLoad();
+      return;
+    }
+    Lizzie.board.resendCurrentPositionToPrimaryEngine();
   }
 
   private static void applySgfKomiForSetupGameWhenReadKomiDisabled() {
@@ -226,6 +258,17 @@ public class SGFParser {
     }
     BoardHistoryList history = Lizzie.board.getHistory();
     return history.getGameInfo() == null ? null : history;
+  }
+
+  public static BoardHistoryList.SessionRulesTarget adoptCurrentHistoryExternalRules() {
+    BoardHistoryList history = currentHistory();
+    if (history == null || history.getStart() == null || history.getStart().getData() == null) {
+      throw new IllegalStateException("Cannot adopt rules without a parsed SGF history");
+    }
+    Map<String, String> properties = history.getStart().getData().getProperties();
+    String rawRules =
+        properties.containsKey("RU") ? history.getStart().getData().getProperty("RU") : null;
+    return history.publishExternalRules(rawRules);
   }
 
   private static boolean isSetupOrHandicapGame(BoardHistoryList history) {
@@ -356,14 +399,18 @@ public class SGFParser {
   }
 
   public static boolean loadFromStringforedit(String sgfString) {
-    // Clear the board
+    BoardHistoryList.SessionRulesTarget sessionRules =
+        Lizzie.board.getHistory().captureSessionRules();
     Lizzie.board.clearforedit();
     Lizzie.board.hasStartStone = false;
     Lizzie.board.startStonelist = new ArrayList<Movelist>();
     Lizzie.board.isLoadingFile = true;
-    boolean result = parse(sgfString);
-    Lizzie.board.isLoadingFile = false;
-    return result;
+    try {
+      return parse(sgfString);
+    } finally {
+      Lizzie.board.isLoadingFile = false;
+      Lizzie.board.getHistory().restoreSessionRulesTarget(sessionRules);
+    }
   }
 
   public static String passPos() {
@@ -990,9 +1037,7 @@ public class SGFParser {
 
   private static void maybeCaptureEngineGameSaveSnapshot(Board board) {
     GameInfo info = gameInfoForSave(board);
-    if (info == null
-        || info.engineGameRecord() != null
-        || info.engineGameRecordContext() == null) {
+    if (info == null || info.engineGameRecord() != null || info.engineGameRecordContext() == null) {
       return;
     }
     if (board == Lizzie.board && Lizzie.engineGame != null) {
@@ -1141,7 +1186,6 @@ public class SGFParser {
         return "";
     }
   }
-
 
   public static void appendAiScoreBlunder() {
     int analyzedBlack = 0;
@@ -1348,7 +1392,8 @@ public class SGFParser {
                 String.format(
                     "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KW]AP[LizzieYzy Next: %s]RE[%s]SZ[%s]CA[UTF-8]",
                     komi, playerW, playerB, date, Lizzie.nextVersion, result, boardSizeTag));
-          else if ((black != null && (black.katago() || black.sai())) || Lizzie.board.isPkBoardKataB)
+          else if ((black != null && (black.katago() || black.sai()))
+              || Lizzie.board.isPkBoardKataB)
             generalProps.append(
                 String.format(
                     "KM[%s]PW[%s]PB[%s]DT[%s]DZ[KB]AP[LizzieYzy Next: %s]RE[%s]SZ[%s]CA[UTF-8]",
@@ -1528,7 +1573,9 @@ public class SGFParser {
   }
 
   private static void appendTime(GameInfo info) {
-    if (Lizzie.board == null || Lizzie.board.getHistory() == null || Lizzie.resourceBundle == null) {
+    if (Lizzie.board == null
+        || Lizzie.board.getHistory() == null
+        || Lizzie.resourceBundle == null) {
       return;
     }
     BoardHistoryNode node = Lizzie.board.getHistory().getCurrentHistoryNode();
@@ -1988,8 +2035,7 @@ public class SGFParser {
       if (comment.matches("(?s).*" + wp + "(?s).*")) {
         Matcher matcher = Pattern.compile(wp).matcher(comment);
         if (matcher.find()) {
-          return new WinrateCommentSplit(
-              comment.replaceAll(wp, "").trim(), matcher.group().trim());
+          return new WinrateCommentSplit(comment.replaceAll(wp, "").trim(), matcher.group().trim());
         }
       }
     }
@@ -1997,8 +2043,7 @@ public class SGFParser {
   }
 
   private static String winrateCommentRegex(boolean isKataData, boolean isSaiData) {
-    boolean leadWithKomi =
-        Lizzie.config != null && Lizzie.config.showKataGoScoreLeadWithKomi;
+    boolean leadWithKomi = Lizzie.config != null && Lizzie.config.showKataGoScoreLeadWithKomi;
     String lead =
         leadWithKomi
             ? Lizzie.resourceBundle.getString("SGFParse.leadWithKomi")

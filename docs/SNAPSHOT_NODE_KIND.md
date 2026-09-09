@@ -193,6 +193,15 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 一致且无需恢复的重复快照不重新捕获恢复或重启合法分析流。普通首次同步直接采用最终视图，不以先回退再延迟前进触发额外分析。
 - 无引擎时仍完成本地 board/history 更新；GMA 和对局 continuation 保持独立的路由与 ownership exclusion。手动导航、手动分析恢复及普通棋谱加载策略保持原契约。
 
+## SGF 会话规则确认（Issue #448）
+
+- adopted `BoardHistoryList` 拥有独立于 root `RU` 元数据和引擎观测的 immutable 会话规则目标；外部采用和手动成功选择递增规则 revision，普通导航、SNAPSHOT 与试下还原不重新解释 root `RU`。
+- `SGFParser` 的 `syncPrimaryEngine=false` 与 detached/edit 解析只产出棋谱，不发布会话目标或发送规则命令；GUI owner 在成功采用后显式发布。公共同步入口发布目标后进入同一规则→盘面确认顺序。
+- 导入 owner 只捕获当前前台与当时活动的比较副引擎。每侧必须获得 fresh `CONFIRMED` actual 且与目标语义相同，才执行既有 frozen position restore/fence 并最多恢复一次分析；无 `RU` 继承现状，不发送规则操作。
+- 无效声明、能力失败、set/get 错误、超时、未确认或回读不匹配均为规则永久失败，不进入盘面临时 `RETRY`。棋谱保持可浏览；用户明确按现有规则继续后仍须完成盘面确认，许可只对捕获的 history/rules revision/primary generation/比较实例有效，且不改变规则失败状态。
+- lifecycle 非 Engine Game owner 把会话规则目标纳入 `BoardFrame`，每轮在盘面恢复前、Board monitor 外确认 captured target 与 mirror；规则 revision 变化触发现有 release/recheck/catch-up。Engine Game 继续使用自身 match-rules 语义。
+- 手动规则 set→get 成功且 actual 与请求语义一致时，实际观测成为当前 history 的新会话目标；失败只保留协议终态，不恢复旧导入请求。
+
 ## 初始启动导航契约（Issue #223）
 
 初始引擎启动恢复属于 lifecycle owner 的协调范围，遵守以下合同：

@@ -76,6 +76,45 @@ class KifuEngineSyncCoordinatorTest {
   }
 
   @Test
+  void permanentFailureCompletesAsFailureWithoutRetrying() throws Exception {
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+    KifuEngineSyncCoordinator coordinator = new KifuEngineSyncCoordinator(executor);
+    AtomicInteger attempts = new AtomicInteger();
+    CountDownLatch failed = new CountDownLatch(1);
+    try {
+      coordinator.submit(
+          new KifuEngineSyncCoordinator.Request() {
+            @Override
+            public boolean isCurrent() {
+              return true;
+            }
+
+            @Override
+            public KifuEngineSyncCoordinator.AttemptResult synchronize() {
+              attempts.incrementAndGet();
+              return KifuEngineSyncCoordinator.AttemptResult.PERMANENT_FAILURE;
+            }
+
+            @Override
+            public void onSynchronized() {
+              throw new AssertionError("permanent failure cannot synchronize");
+            }
+
+            @Override
+            public void onFailed() {
+              failed.countDown();
+            }
+          });
+
+      assertTrue(failed.await(1, TimeUnit.SECONDS));
+      Thread.sleep(300L);
+      assertEquals(1, attempts.get());
+    } finally {
+      coordinator.close();
+    }
+  }
+
+  @Test
   void requestThatStopsMatchingTheDisplayedKifuNeverCompletes() throws Exception {
     ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
     KifuEngineSyncCoordinator coordinator = new KifuEngineSyncCoordinator(executor);

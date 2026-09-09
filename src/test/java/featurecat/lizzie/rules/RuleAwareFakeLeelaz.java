@@ -20,6 +20,10 @@ class RuleAwareFakeLeelaz extends Leelaz {
   private Stone[] stones;
   private boolean blackToPlay = true;
   private Path lastLoadedSgf;
+  boolean trackPonderCalls;
+  boolean pretendingToPonder;
+  private int ponderCallCount;
+  private int notPonderingCallCount;
 
   private RuleAwareFakeLeelaz() throws IOException {
     super("");
@@ -33,6 +37,38 @@ class RuleAwareFakeLeelaz extends Leelaz {
           }
           return ExactSnapshotRestoreProtocolFixture.Response.success();
         });
+  }
+
+  @Override
+  public boolean isPondering() {
+    return trackPonderCalls ? pretendingToPonder : super.isPondering();
+  }
+
+  @Override
+  public boolean isPonderingOrWasPonderingBeforeTracking() {
+    return trackPonderCalls
+        ? pretendingToPonder
+        : super.isPonderingOrWasPonderingBeforeTracking();
+  }
+
+  @Override
+  public void notPondering() {
+    if (!trackPonderCalls) {
+      super.notPondering();
+      return;
+    }
+    notPonderingCallCount++;
+    pretendingToPonder = false;
+  }
+
+  @Override
+  public void ponder() {
+    if (!trackPonderCalls) {
+      super.ponder();
+      return;
+    }
+    ponderCallCount++;
+    pretendingToPonder = true;
   }
 
   @Override
@@ -96,6 +132,14 @@ class RuleAwareFakeLeelaz extends Leelaz {
     return lastLoadedSgf;
   }
 
+
+  int ponderCallCount() {
+    return ponderCallCount;
+  }
+
+  int notPonderingCallCount() {
+    return notPonderingCallCount;
+  }
   private void clearBoardState() {
     stones = new Stone[Board.boardWidth * Board.boardHeight];
     for (int index = 0; index < stones.length; index++) {

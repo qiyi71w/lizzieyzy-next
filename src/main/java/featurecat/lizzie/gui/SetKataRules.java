@@ -5,6 +5,7 @@ import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.util.Utils;
 import java.awt.Dimension;
 import java.awt.Insets;
@@ -49,6 +50,9 @@ public class SetKataRules extends JDialog {
   private KataGoRules composed;
   private volatile long statusWatchGeneration;
   private volatile Leelaz.EngineRulesOperation rulesOperation;
+  private volatile KataGoRules requestedManualRules;
+  private volatile Leelaz.EngineRulesOperation manualRulesOperation;
+  private volatile Leelaz.EngineRulesOperation manualMismatchOperation;
 
   public SetKataRules() {
     this(Lizzie.leelaz, false, null);
@@ -431,7 +435,10 @@ public class SetKataRules extends JDialog {
 
   private void closeDialog() {
     statusWatchGeneration++;
-    if (!composeOnly && !rejectEngineGameInteraction() && isCurrentEngine() && engine.isPondering()) {
+    if (!composeOnly
+        && !rejectEngineGameInteraction()
+        && isCurrentEngine()
+        && engine.isPondering()) {
       engine.ponder();
     }
     setVisible(false);
@@ -465,7 +472,28 @@ public class SetKataRules extends JDialog {
       Lizzie.config.autoLoadKataRules = false;
       Lizzie.config.uiConfig.put("auto-load-kata-rules", false);
     }
+    BoardHistoryList history = Lizzie.board.getHistory();
+    BoardHistoryList.ManualRulesIntent manualIntent = history.beginManualRulesIntent();
+    BoardHistoryList.SessionRulesTarget previousTarget = manualIntent.previousTarget();
+    Object engineIncarnation = engine.engineIncarnationToken();
+    long primaryGeneration = Lizzie.capturePrimaryEngineGeneration(engine);
+    synchronized (this) {
+      requestedManualRules = requested;
+    }
+    if (Lizzie.frame != null) {
+      Lizzie.frame.retireImportedRulesForManualSelection(history, previousTarget);
+    }
+    manualMismatchOperation = null;
     rulesOperation = engine.applyEngineRulesOperation(requested);
+    manualRulesOperation = rulesOperation;
+    watchManualRulesCompletion(
+        manualRulesOperation,
+        requested,
+        history,
+        manualIntent,
+        engineIncarnation,
+        primaryGeneration);
+    watchEngineRulesStatus();
     refreshStatus();
   }
 
@@ -479,7 +507,9 @@ public class SetKataRules extends JDialog {
                 : rdoSituationalKo.isSelected() ? "SITUATIONAL" : "";
     boolean suicide = rdoSuicide.isSelected();
     String tax =
-        rdoNoTax.isSelected() ? "NONE" : rdoSeKiTax.isSelected() ? "SEKI" : rdoAllTax.isSelected() ? "ALL" : "";
+        rdoNoTax.isSelected()
+            ? "NONE"
+            : rdoSeKiTax.isSelected() ? "SEKI" : rdoAllTax.isSelected() ? "ALL" : "";
     String whiteHandicapBonus =
         rdoNoHandicapKomi.isSelected()
             ? "0"
@@ -523,14 +553,81 @@ public class SetKataRules extends JDialog {
 
   public boolean getRules() {
     Leelaz.EngineRulesOperation operation = rulesOperation;
+    if (operation != null && operation == manualMismatchOperation) {
+      lblStatus.setText(resourceBundle.getString("SetKataRules.status.setFailed"));
+      return false;
+    }
     EngineRulesResult result = operation == null ? null : operation.result();
     refreshStatus(result == null && operation != null ? operation.snapshot() : result);
     if (result == null || !result.isConfirmed() || result.observed() == null) {
       return false;
     }
+    KataGoRules manual = requestedManualRules;
+    Leelaz.EngineRulesOperation manualOperation = manualRulesOperation;
+    if (manual != null
+        && operation == manualOperation
+        && !result.observed().semanticallyEquals(manual)) {
+      lblStatus.setText(resourceBundle.getString("SetKataRules.status.setFailed"));
+      manualMismatchOperation = operation;
+      clearManualRulesRequest();
+      jo = result.observed().toJson();
+      applyJsonToEditor(jo);
+      return false;
+    }
+    if (operation == manualOperation) {
+      clearManualRulesRequest();
+    }
     jo = result.observed().toJson();
     applyJsonToEditor(jo);
     return true;
+  }
+
+  private void watchManualRulesCompletion(
+      Leelaz.EngineRulesOperation operation,
+      KataGoRules requested,
+      BoardHistoryList history,
+      BoardHistoryList.ManualRulesIntent manualIntent,
+      Object engineIncarnation,
+      long primaryGeneration) {
+    Thread completion =
+        new Thread(
+            () -> {
+              try {
+                EngineRulesResult result = operation.await(31_000L);
+                if (result != null
+                    && result.isConfirmed()
+                    && result.observed() != null
+                    && result.observed().semanticallyEquals(requested)
+                    && isCurrentEngine()
+                    && engine.isCurrentEngineIncarnationToken(engineIncarnation)
+                    && Lizzie.board != null
+                    && Lizzie.capturePrimaryEngineGeneration(engine) == primaryGeneration
+                    && Lizzie.board.getHistory() == history) {
+                  synchronized (SetKataRules.this) {
+                    synchronized (history) {
+                      BoardHistoryList.SessionRulesTarget published =
+                          history
+                              .publishManualRulesIfCurrent(manualIntent, result.observed())
+                              .orElse(null);
+                      if (published != null && Lizzie.frame != null) {
+                        Lizzie.frame.synchronizeManualRulesAfterSelection(
+                            history, published, manualIntent, engine, primaryGeneration);
+                      }
+                    }
+                  }
+                }
+              } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+              }
+            },
+            "lizzie-set-kata-rules-completion");
+    completion.setDaemon(true);
+    completion.start();
+  }
+
+  private void clearManualRulesRequest() {
+    requestedManualRules = null;
+    manualRulesOperation = null;
   }
 
   private void applyJsonToEditor(JSONObject jo) {
@@ -622,13 +719,15 @@ public class SetKataRules extends JDialog {
               EngineRulesResult.Status lastStatus = null;
               long lastResultGeneration = -1L;
               while (generation == statusWatchGeneration) {
-                Leelaz.EngineRulesOperation currentOperation = engine.engineRulesOperation();
                 Leelaz.EngineRulesOperation operation = rulesOperation;
-                if (currentOperation != null && currentOperation != operation) {
-                  rulesOperation = currentOperation;
-                  operation = currentOperation;
-                  lastStatus = null;
-                  lastResultGeneration = -1L;
+                if (requestedManualRules == null) {
+                  Leelaz.EngineRulesOperation currentOperation = engine.engineRulesOperation();
+                  if (currentOperation != null && currentOperation != operation) {
+                    rulesOperation = currentOperation;
+                    operation = currentOperation;
+                    lastStatus = null;
+                    lastResultGeneration = -1L;
+                  }
                 }
                 if (operation == null) {
                   return;
@@ -639,6 +738,7 @@ public class SetKataRules extends JDialog {
                   lastStatus = status;
                   lastResultGeneration = snapshot.generation();
                   boolean confirmed = snapshot.isConfirmed();
+                  Leelaz.EngineRulesOperation watchedOperation = operation;
                   SwingUtilities.invokeLater(
                       () -> {
                         if (generation != statusWatchGeneration) {
@@ -648,6 +748,9 @@ public class SetKataRules extends JDialog {
                           getRules();
                         } else {
                           refreshStatus(snapshot);
+                          if (snapshot.isSettled() && watchedOperation == manualRulesOperation) {
+                            clearManualRulesRequest();
+                          }
                         }
                       });
                 }

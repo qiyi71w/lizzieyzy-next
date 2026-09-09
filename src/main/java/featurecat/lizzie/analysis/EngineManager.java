@@ -11498,7 +11498,7 @@ public class EngineManager {
                       throw new IllegalStateException(
                           "Primary engine changed before READY preparation");
                     }
-                    lifecycleRestore.resumePonderAfterSuccessfulSynchronization();
+                    lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
                     // Final selection/ACTIVE publication is terminal. Release every fallible
                     // lifecycle owner first so a detach/reservation failure cannot leave a failed
                     // target published as active.
@@ -11577,13 +11577,8 @@ public class EngineManager {
             () -> {
               try {
                 target.completeSecondaryExplicitRestartBoardSynchronization();
-                if (restartPonderIntent
-                    && current != null
-                    && current == Lizzie.leelaz
-                    && current.isStarted()
-                    && current.isLoaded()
-                    && !current.isCheckingName) {
-                  current.ponder();
+                if (current != null) {
+                  current.ponderAfterComparisonRestartIfAnalysisControlAllows(target);
                 }
                 target.setResponseUpToDate();
                 commitEngineSelectionAtFinalFence(lifecycleRestore);
@@ -11612,7 +11607,7 @@ public class EngineManager {
       return () -> {
         try {
           if (lifecycleRestore != null) {
-            lifecycleRestore.resumePonderAfterSuccessfulSynchronization();
+            lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
             commitEngineSelectionAtFinalFence(lifecycleRestore);
           }
           completeEngineSwitchUi(lifecycleRestore);
@@ -11657,7 +11652,7 @@ public class EngineManager {
                   target.initializeAfterExplicitRestartBoardSynchronization(restartPonderIntent);
                 }
               } else if (lifecycleRestore != null) {
-                lifecycleRestore.resumePonderAfterSuccessfulSynchronization();
+                lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
               }
               commitEngineSelectionAtFinalFence(lifecycleRestore);
               completeEngineSwitchUi(lifecycleRestore);
@@ -12294,7 +12289,12 @@ public class EngineManager {
     }
     boolean resumePonder =
         foregroundActivation
-            || (previousEngine != null && previousEngine.isPonderingOrWasPonderingBeforeTracking());
+            || (previousEngine != null
+                && previousEngine.isPonderingOrWasPonderingBeforeTracking())
+            || (!isMain
+                && Lizzie.config.isDoubleEngineMode()
+                && Lizzie.leelaz != null
+                && Lizzie.leelaz.isPonderingOrWasPonderingBeforeTracking());
     Leelaz proposedRestoreMirror =
         Lizzie.config.isDoubleEngineMode() ? (isMain ? Lizzie.leelaz2 : Lizzie.leelaz) : null;
     if (proposedRestoreMirror != null && !proposedRestoreMirror.hasGtpCapability()) {
@@ -14332,7 +14332,14 @@ public class EngineManager {
       targetEngine.initializeAfterExplicitRestartBoardSynchronization(resumePonder);
     }
 
-    private void resumePonderAfterSuccessfulSynchronization() {
+    private void resumePonderAfterSuccessfulSynchronization(boolean primarySwitch) {
+      if (!primarySwitch) {
+        Leelaz primary = Lizzie.leelaz;
+        if (primary != null) {
+          primary.ponderComparisonEngineIfAnalysisControlAllows(targetEngine);
+        }
+        return;
+      }
       if (resumePonder
           && targetEngine != null
           && targetEngine.isStarted()
@@ -14595,6 +14602,9 @@ public class EngineManager {
     private final Leelaz targetEngine;
     private final Leelaz mirrorEngine;
     private final Board board;
+    private final Leelaz rulesPrimaryEngine;
+    private final Leelaz rulesMirrorEngine;
+    private long rulesPrimaryGeneration;
     private final boolean resumePonder;
     private final boolean ensureRootReplayKomiTransport;
     private final Object lifecycleOwner;
@@ -14635,6 +14645,14 @@ public class EngineManager {
       this.previousEngine = previousEngine;
       this.targetEngine = targetEngine;
       this.mirrorEngine = mirrorEngine == targetEngine ? null : mirrorEngine;
+      boolean secondaryLifecycle =
+          this.mirrorEngine != null
+              && this.mirrorEngine == Lizzie.leelaz
+              && this.targetEngine != Lizzie.leelaz;
+      this.rulesPrimaryEngine = secondaryLifecycle ? this.mirrorEngine : this.targetEngine;
+      this.rulesMirrorEngine = secondaryLifecycle ? this.targetEngine : this.mirrorEngine;
+      this.rulesPrimaryGeneration =
+          Lizzie.capturePrimaryEngineGeneration(this.rulesPrimaryEngine);
       this.board = board;
       this.resumePonder = resumePonder;
       this.ensureRootReplayKomiTransport = ensureRootReplayKomiTransport;
@@ -14781,7 +14799,13 @@ public class EngineManager {
         if (beforeRestore != null) {
           beforeRestore.run();
         }
-        executePendingRoute(engineGameInitialization);
+        boolean rulesFrameCurrent = true;
+        if (!engineGameInitialization) {
+          rulesFrameCurrent = synchronizeCapturedSessionRules();
+        }
+        if (rulesFrameCurrent) {
+          executePendingRoute(engineGameInitialization);
+        }
         if (beforeReservationRelease != null) {
           beforeReservationRelease.run();
         }
@@ -14791,7 +14815,7 @@ public class EngineManager {
         }
         synchronized (board) {
           BoardFrame currentFrame = BoardFrame.capture(board);
-          if (capturedFrame.matches(currentFrame)) {
+          if (rulesFrameCurrent && capturedFrame.matches(currentFrame)) {
             endSynchronizationBarriers();
             stable = true;
           } else {
@@ -14842,6 +14866,114 @@ public class EngineManager {
           }
         }
         route.executeRootReplay(board, false, engineGameInitialization);
+      }
+    }
+
+    private boolean synchronizeCapturedSessionRules() {
+      if (rulesPrimaryGeneration < 0L) {
+        rulesPrimaryGeneration = Lizzie.capturePrimaryEngineGeneration(rulesPrimaryEngine);
+      }
+      BoardHistoryList.SessionRulesTarget target = capturedFrame.sessionRulesTarget;
+      BoardHistoryList history = board.getHistory();
+      if (history != null
+          && history.permitsAnalysisWithCurrentRules(
+              target, rulesPrimaryEngine, rulesPrimaryGeneration, rulesMirrorEngine)) {
+        return true;
+      }
+      if (target.kind() == BoardHistoryList.SessionRulesKind.VALID
+          && (!awaitCapturedRulesCapability(targetEngine)
+              || (mirrorEngine != null && !awaitCapturedRulesCapability(mirrorEngine)))) {
+        return false;
+      }
+      PreparedLifecycleRestore route = pendingRoute;
+      SessionRulesSynchronizer.Result targetResult =
+          SessionRulesSynchronizer.synchronize(target, targetEngine, route.admission);
+      if (!targetResult.satisfied()) {
+        if (!capturedRulesFrameIsCurrent()) {
+          return false;
+        }
+        if (Lizzie.frame != null
+            && Lizzie.frame.requestLifecycleRulesOverride(
+                target,
+                rulesPrimaryEngine,
+                rulesPrimaryGeneration,
+                rulesMirrorEngine,
+                targetResult)) {
+          return true;
+        }
+        return retireStaleRulesRoundOrThrow(
+            "Engine lifecycle rules synchronization failed: " + targetResult.failure());
+      }
+      if (mirrorEngine != null) {
+        SessionRulesSynchronizer.Result mirrorResult =
+            SessionRulesSynchronizer.synchronize(target, mirrorEngine, route.admission);
+        if (!mirrorResult.satisfied()) {
+          if (!capturedRulesFrameIsCurrent()) {
+            return false;
+          }
+          if (Lizzie.frame != null
+              && Lizzie.frame.requestLifecycleRulesOverride(
+                  target,
+                  rulesPrimaryEngine,
+                  rulesPrimaryGeneration,
+                  rulesMirrorEngine,
+                  mirrorResult)) {
+            return true;
+          }
+          return retireStaleRulesRoundOrThrow(
+              "Engine lifecycle mirror rules synchronization failed: " + mirrorResult.failure());
+        }
+      }
+      return true;
+    }
+
+    private boolean awaitCapturedRulesCapability(Leelaz engine) {
+      long deadline =
+          System.nanoTime()
+              + TimeUnit.MILLISECONDS.toNanos(
+                  Math.max(1L, engine.engineStartupSynchronizationTimeoutMillis()));
+      while (!engine.isRulesCapabilityDiscoveryComplete()) {
+        if (!capturedRulesFrameIsCurrent()) {
+          return false;
+        }
+        if (!engine.isStarted() || engine.isDownWithError || engine.isNormalEnd) {
+          return retireStaleRulesRoundOrThrow("Engine rules capability discovery failed");
+        }
+        if (System.nanoTime() >= deadline) {
+          return retireStaleRulesRoundOrThrow("Engine rules capability discovery timed out");
+        }
+        try {
+          Thread.sleep(50L);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          return retireStaleRulesRoundOrThrow(
+              "Engine rules capability discovery interrupted", interrupted);
+        }
+      }
+      return true;
+    }
+
+    private boolean retireStaleRulesRoundOrThrow(String message) {
+      synchronized (board) {
+        if (!capturedFrame.matches(BoardFrame.capture(board))) {
+          return false;
+        }
+        throw new IllegalStateException(message);
+      }
+    }
+
+    private boolean retireStaleRulesRoundOrThrow(String message, Throwable cause) {
+      synchronized (board) {
+        if (!capturedFrame.matches(BoardFrame.capture(board))) {
+          return false;
+        }
+        throw new IllegalStateException(message, cause);
+      }
+    }
+
+    private boolean capturedRulesFrameIsCurrent() {
+      synchronized (board) {
+        return capturedFrame.matches(BoardFrame.capture(board));
       }
     }
 
@@ -15087,7 +15219,7 @@ public class EngineManager {
       }
       PreparedLifecycleRestore route = pendingRoute;
       if (route != null) {
-        route.resumePonderAfterSuccessfulSynchronization();
+        route.resumePonderAfterSuccessfulSynchronization(true);
       }
       return readyPublication;
     }
@@ -15220,6 +15352,7 @@ public class EngineManager {
     private final BoardHistoryNode root;
     private final BoardHistoryNode current;
     private final long contextRevision;
+    private final BoardHistoryList.SessionRulesTarget sessionRulesTarget;
     private final boolean blackToPlay;
     private final double komi;
     private final Zobrist zobrist;
@@ -15232,6 +15365,7 @@ public class EngineManager {
         BoardHistoryNode root,
         BoardHistoryNode current,
         long contextRevision,
+        BoardHistoryList.SessionRulesTarget sessionRulesTarget,
         boolean blackToPlay,
         double komi,
         Zobrist zobrist,
@@ -15242,6 +15376,7 @@ public class EngineManager {
       this.root = root;
       this.current = current;
       this.contextRevision = contextRevision;
+      this.sessionRulesTarget = sessionRulesTarget;
       this.blackToPlay = blackToPlay;
       this.komi = komi;
       this.zobrist = zobrist;
@@ -15259,6 +15394,7 @@ public class EngineManager {
           history == null ? null : history.getStart(),
           history == null ? null : history.getCurrentHistoryNode(),
           board == null ? 0L : board.getContextRevision(),
+          history == null ? null : history.captureSessionRules(),
           history != null && history.isBlacksTurn(),
           history == null || history.getGameInfo() == null
               ? Double.NaN
@@ -15278,11 +15414,16 @@ public class EngineManager {
       return boardHeight;
     }
 
+    BoardHistoryList.SessionRulesTarget sessionRulesTarget() {
+      return sessionRulesTarget;
+    }
+
     boolean matches(BoardFrame other) {
       return other != null
           && root == other.root
           && current == other.current
           && contextRevision == other.contextRevision
+          && sessionRulesTarget == other.sessionRulesTarget
           && blackToPlay == other.blackToPlay
           && Double.compare(komi, other.komi) == 0
           && java.util.Objects.equals(zobrist, other.zobrist)

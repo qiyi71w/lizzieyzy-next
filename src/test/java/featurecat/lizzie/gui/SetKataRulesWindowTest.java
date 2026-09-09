@@ -3,17 +3,20 @@ package featurecat.lizzie.gui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.rules.BoardHistoryList;
 import java.awt.GraphicsEnvironment;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
@@ -25,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import javax.swing.SwingUtilities;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
+import sun.misc.Unsafe;
 
 class SetKataRulesWindowTest {
   private static final String CHINESE =
@@ -39,7 +43,7 @@ class SetKataRulesWindowTest {
           + "\"hasButton\":false,\"whiteHandicapBonus\":\"0\",\"friendlyPassOk\":true}";
 
   @Test
-  void windowShowsPendingThenActualConfirmedRulesNotTheRequest() throws Exception {
+  void mismatchedManualReadbackDoesNotChangeSessionTarget() throws Exception {
     assumeFalse(GraphicsEnvironment.isHeadless());
     try (Fixture fixture = Fixture.ordinary()) {
       SetKataRules dialog = new SetKataRules(fixture.engine);
@@ -55,6 +59,8 @@ class SetKataRulesWindowTest {
       assertTrue(dialog.getRules());
       assertTrue(dialog.rdoPositionKo.isSelected());
       assertEquals(1, fixture.engine.usingSpecificRules);
+      BoardHistoryList.SessionRulesTarget originalTarget =
+          Lizzie.board.getHistory().captureSessionRules();
 
       dialog.rdoTerritory.setSelected(true);
       dialog.rdoSeKiTax.setSelected(true);
@@ -72,20 +78,155 @@ class SetKataRulesWindowTest {
       dispatch(fixture.engine, "=" + setId);
       int readbackId = commandIdFor(fixture.output.toString(), "kata-get-rules");
       dispatch(fixture.engine, "=" + readbackId + " " + JAPANESE);
-      awaitStatus(dialog, "Engine rules confirmed");
-      assertTrue(dialog.getRules());
+      awaitStatus(dialog, "Failed to set engine rules");
+      assertFalse(dialog.getRules());
 
-      assertTrue(dialog.statusText().contains("Engine rules confirmed"));
+      assertTrue(dialog.statusText().contains("Failed to set engine rules"));
       assertTrue(dialog.rdoTerritory.isSelected());
       assertFalse(dialog.rdoArea.isSelected());
       assertEquals(3, fixture.engine.usingSpecificRules);
       assertTrue(fixture.engine.engineRulesResult().isConfirmed());
       assertEquals("TERRITORY", fixture.engine.engineRulesResult().observed().string("scoring"));
+      assertSame(originalTarget, Lizzie.board.getHistory().captureSessionRules());
       assertTrue(KataGoRules.parse(POSITIONAL_CHINESE).orElseThrow().hasField("experimentalKo"));
       closeDialog(dialog);
     }
   }
 
+  @Test
+  void closingAfterApplyStillPublishesMatchingManualReadback() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    try (Fixture fixture = Fixture.ordinary()) {
+      SetKataRules dialog = new SetKataRules(fixture.engine);
+      int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+      dispatch(fixture.engine, "=" + queryId + " " + CHINESE);
+      awaitStatus(dialog, "Engine rules confirmed");
+      BoardHistoryList history = Lizzie.board.getHistory();
+      BoardHistoryList.SessionRulesTarget original = history.captureSessionRules();
+
+      dialog.rdoTerritory.setSelected(true);
+      dialog.rdoSeKiTax.setSelected(true);
+      dialog.rdoNoHandicapKomi.setSelected(true);
+      dialog.rdoSimpleKo.setSelected(true);
+      dialog.rdoNoSuicide.setSelected(true);
+      dialog.applySelectedRules();
+      closeDialog(dialog);
+
+      int setId = commandIdFor(fixture.output.toString(), "kata-set-rules");
+      dispatch(fixture.engine, "=" + setId);
+      int readbackId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+      dispatch(fixture.engine, "=" + readbackId + " " + JAPANESE);
+
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (history.captureSessionRules() == original && System.nanoTime() < deadline) {
+        Thread.sleep(20L);
+      }
+      BoardHistoryList.SessionRulesTarget published = history.captureSessionRules();
+      assertFalse(published == original);
+      assertTrue(
+          published
+              .parsedRules()
+              .orElseThrow()
+              .semanticallyEquals(KataGoRules.parse(JAPANESE).orElseThrow()));
+    }
+  }
+
+  @Test
+  void matchingManualReadbackPublishesExactlyOneRevisionWhileDialogIsOpen() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    try (Fixture fixture = Fixture.ordinary()) {
+      SetKataRules dialog = new SetKataRules(fixture.engine);
+      int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+      dispatch(fixture.engine, "=" + queryId + " " + CHINESE);
+      awaitStatus(dialog, "Engine rules confirmed");
+      BoardHistoryList history = Lizzie.board.getHistory();
+      BoardHistoryList.SessionRulesTarget original = history.captureSessionRules();
+
+      dialog.rdoTerritory.setSelected(true);
+      dialog.rdoSeKiTax.setSelected(true);
+      dialog.rdoNoHandicapKomi.setSelected(true);
+      dialog.rdoSimpleKo.setSelected(true);
+      dialog.rdoNoSuicide.setSelected(true);
+      dialog.applySelectedRules();
+      int setId = commandIdFor(fixture.output.toString(), "kata-set-rules");
+      dispatch(fixture.engine, "=" + setId);
+      int readbackId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+      dispatch(fixture.engine, "=" + readbackId + " " + JAPANESE);
+      awaitStatus(dialog, "Engine rules confirmed");
+      Thread.sleep(100L);
+
+      BoardHistoryList.SessionRulesTarget published = history.captureSessionRules();
+      assertEquals(original.revision() + 1L, published.revision());
+      assertTrue(dialog.getRules());
+      assertEquals(original.revision() + 1L, history.captureSessionRules().revision());
+      closeDialog(dialog);
+    }
+  }
+
+
+  @Test
+  void matchingManualReadbackHandsCapturedComparisonPairToConvergence() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    try (Fixture fixture = Fixture.ordinary()) {
+      SetKataRules dialog = new SetKataRules(fixture.engine);
+      int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+      dispatch(fixture.engine, "=" + queryId + " " + CHINESE);
+      awaitStatus(dialog, "Engine rules confirmed");
+      Leelaz mirror = Fixture.liveEngine(new ByteArrayOutputStream());
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Lizzie.leelaz2 = mirror;
+      RecordingRulesFrame frame = allocate(RecordingRulesFrame.class);
+      Lizzie.frame = frame;
+
+      dialog.rdoTerritory.setSelected(true);
+      dialog.rdoSeKiTax.setSelected(true);
+      dialog.rdoNoHandicapKomi.setSelected(true);
+      dialog.rdoSimpleKo.setSelected(true);
+      dialog.rdoNoSuicide.setSelected(true);
+      dialog.applySelectedRules();
+      int setId = commandIdFor(fixture.output.toString(), "kata-set-rules");
+      dispatch(fixture.engine, "=" + setId);
+      int readbackId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+      dispatch(fixture.engine, "=" + readbackId + " " + JAPANESE);
+
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (frame.target == null && System.nanoTime() < deadline) {
+        Thread.sleep(20L);
+      }
+      assertSame(fixture.engine, frame.primary);
+      assertSame(mirror, frame.mirror);
+      assertSame(Lizzie.board.getHistory(), frame.history);
+      assertSame(Lizzie.board.getHistory().captureSessionRules(), frame.target);
+      closeDialog(dialog);
+    }
+  }
+
+  private static <T> T allocate(Class<T> type) throws Exception {
+    Field field = Unsafe.class.getDeclaredField("theUnsafe");
+    field.setAccessible(true);
+    return type.cast(((Unsafe) field.get(null)).allocateInstance(type));
+  }
+
+  private static final class RecordingRulesFrame extends LizzieFrame {
+    volatile BoardHistoryList history;
+    volatile BoardHistoryList.SessionRulesTarget target;
+    volatile Leelaz primary;
+    volatile Leelaz mirror;
+
+    @Override
+    public void synchronizeManualRulesAfterSelection(
+        BoardHistoryList history,
+        BoardHistoryList.SessionRulesTarget target,
+        BoardHistoryList.ManualRulesIntent manualIntent,
+        Leelaz primary,
+        long primaryGeneration) {
+      Leelaz mirror = primary.activeComparisonEngine();
+      this.history = history;
+      this.target = target;
+      this.primary = primary;
+      this.mirror = mirror;
+    }
+  }
   @Test
   void delayedQueryStaysPendingUntilProtocolSettlesThenAppliesRadios() throws Exception {
     assumeFalse(GraphicsEnvironment.isHeadless());
@@ -214,7 +355,6 @@ class SetKataRulesWindowTest {
     throw new AssertionError("missing " + command + " in " + commands);
   }
 
-
   private static void dispatch(Leelaz engine, String line) throws Exception {
     java.lang.reflect.Method method =
         Leelaz.class.getDeclaredMethod("dispatchReaderLineForTest", String.class);
@@ -224,7 +364,8 @@ class SetKataRulesWindowTest {
 
   private static void installOutput(Leelaz engine, ByteArrayOutputStream stream) throws Exception {
     java.lang.reflect.Method method =
-        Leelaz.class.getDeclaredMethod("installFreshCommandOutputForTest", java.io.OutputStream.class);
+        Leelaz.class.getDeclaredMethod(
+            "installFreshCommandOutputForTest", java.io.OutputStream.class);
     method.setAccessible(true);
     method.invoke(engine, stream);
   }
@@ -239,6 +380,7 @@ class SetKataRulesWindowTest {
   private static final class Fixture implements AutoCloseable {
     private final Config previousConfig;
     private final Leelaz previousLeelaz;
+    private final Leelaz previousSecondary;
     private final GtpConsolePane previousConsole;
     private final Board previousBoard;
     private final LizzieFrame previousFrame;
@@ -250,6 +392,7 @@ class SetKataRulesWindowTest {
     private Fixture() throws Exception {
       previousConfig = Lizzie.config;
       previousLeelaz = Lizzie.leelaz;
+      previousSecondary = Lizzie.leelaz2;
       previousConsole = Lizzie.gtpConsole;
       previousBoard = Lizzie.board;
       previousFrame = Lizzie.frame;
@@ -295,6 +438,7 @@ class SetKataRulesWindowTest {
       }
       Lizzie.config = previousConfig;
       Lizzie.leelaz = previousLeelaz;
+      Lizzie.leelaz2 = previousSecondary;
       Lizzie.gtpConsole = previousConsole;
       Lizzie.board = previousBoard;
       Lizzie.frame = previousFrame;

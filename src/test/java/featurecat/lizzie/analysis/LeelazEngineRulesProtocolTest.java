@@ -87,8 +87,7 @@ class LeelazEngineRulesProtocolTest {
   void timeoutRetiresSetAndLateAckCannotLaunchReadback() throws Exception {
     try (Fixture fixture = Fixture.ordinary()) {
       Leelaz.EngineRulesOperation operation =
-          fixture.engine.applyEngineRulesOperation(
-              KataGoRules.parse("chinese").orElseThrow(), 50L);
+          fixture.engine.applyEngineRulesOperation(KataGoRules.parse("chinese").orElseThrow(), 50L);
       int setId = commandIdFor(fixture.output.toString(), "kata-set-rules");
       EngineRulesResult settled = operation.await(TimeUnit.SECONDS.toMillis(2));
 
@@ -97,8 +96,10 @@ class LeelazEngineRulesProtocolTest {
       assertEquals(EngineRulesResult.Reason.SET_TIMEOUT, settled.reason());
       fixture.engine.processCommandResponseLineForTest("=" + setId);
 
-      assertEquals(EngineRulesResult.Status.SET_FAILED, fixture.engine.engineRulesResult().status());
-      assertEquals(EngineRulesResult.Reason.SET_TIMEOUT, fixture.engine.engineRulesResult().reason());
+      assertEquals(
+          EngineRulesResult.Status.SET_FAILED, fixture.engine.engineRulesResult().status());
+      assertEquals(
+          EngineRulesResult.Reason.SET_TIMEOUT, fixture.engine.engineRulesResult().reason());
       assertFalse(fixture.output.toString().contains("kata-get-rules"));
       assertFalse(fixture.engine.engineRulesResult().isConfirmed());
     }
@@ -116,8 +117,10 @@ class LeelazEngineRulesProtocolTest {
       assertEquals(EngineRulesResult.Reason.QUERY_TIMEOUT, settled.reason());
       fixture.engine.processCommandResponseLineForTest("=" + queryId + " " + CHINESE);
 
-      assertEquals(EngineRulesResult.Status.QUERY_FAILED, fixture.engine.engineRulesResult().status());
-      assertEquals(EngineRulesResult.Reason.QUERY_TIMEOUT, fixture.engine.engineRulesResult().reason());
+      assertEquals(
+          EngineRulesResult.Status.QUERY_FAILED, fixture.engine.engineRulesResult().status());
+      assertEquals(
+          EngineRulesResult.Reason.QUERY_TIMEOUT, fixture.engine.engineRulesResult().reason());
       assertEquals("", fixture.engine.recentRulesLine);
       assertFalse(fixture.engine.engineRulesResult().isConfirmed());
     }
@@ -166,8 +169,7 @@ class LeelazEngineRulesProtocolTest {
             new Thread(
                 () -> {
                   try {
-                    engine.dispatchReaderLineForTest(
-                        "=" + oldQueryId + " " + POSITIONAL_CHINESE);
+                    engine.dispatchReaderLineForTest("=" + oldQueryId + " " + POSITIONAL_CHINESE);
                   } catch (Throwable thrown) {
                     responseFailure[0] = thrown;
                   }
@@ -228,8 +230,7 @@ class LeelazEngineRulesProtocolTest {
     try (Fixture fixture = Fixture.ordinary()) {
       Leelaz failing = Fixture.liveEngine(new ThrowingOutputStream());
       Leelaz.EngineRulesOperation operation =
-          failing.applyEngineRulesOperation(
-              KataGoRules.parse("chinese").orElseThrow(), 1000L);
+          failing.applyEngineRulesOperation(KataGoRules.parse("chinese").orElseThrow(), 1000L);
       EngineRulesResult result = operation.await(TimeUnit.SECONDS.toMillis(2));
 
       assertNotNull(result);
@@ -356,7 +357,8 @@ class LeelazEngineRulesProtocolTest {
       assertEquals(EngineRulesResult.Status.PENDING, fixture.engine.engineRulesResult().status());
       ready.setBoolean(fixture.engine, true);
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-      while (System.nanoTime() < deadline && !fixture.output.toString().contains("kata-get-rules")) {
+      while (System.nanoTime() < deadline
+          && !fixture.output.toString().contains("kata-get-rules")) {
         Thread.sleep(20L);
       }
       assertTrue(fixture.output.toString().contains("kata-get-rules"));
@@ -375,14 +377,14 @@ class LeelazEngineRulesProtocolTest {
       try {
         assertTrue(EngineManager.occupiesEngineGameAdmission());
         assertFalse(fixture.engine.applyEngineRules(KataGoRules.parse("japanese").orElseThrow()));
-        assertEquals(EngineRulesResult.Reason.OCCUPIED, fixture.engine.engineRulesResult().reason());
+        assertEquals(
+            EngineRulesResult.Reason.OCCUPIED, fixture.engine.engineRulesResult().reason());
         fixture.engine.enableAutoSettleMatchRulesForTest();
         assertTrue(
             fixture.engine.applyEngineRulesForMatchOwner(
                 KataGoRules.parse("japanese").orElseThrow()));
         assertTrue(fixture.engine.engineRulesResult().isConfirmed());
-        assertEquals(
-            "TERRITORY", fixture.engine.engineRulesResult().observed().string("scoring"));
+        assertEquals("TERRITORY", fixture.engine.engineRulesResult().observed().string("scoring"));
       } finally {
         EngineManager.resetEngineGameTransactionStateForTest();
       }
@@ -559,9 +561,39 @@ class LeelazEngineRulesProtocolTest {
       fixture.engine.beginForegroundRestoreForTest();
       boolean sent = fixture.engine.applyEngineRules(KataGoRules.parse("chinese").orElseThrow());
       assertFalse(sent);
-      assertEquals(EngineRulesResult.Status.SET_FAILED, fixture.engine.engineRulesResult().status());
+      assertEquals(
+          EngineRulesResult.Status.SET_FAILED, fixture.engine.engineRulesResult().status());
       assertEquals(EngineRulesResult.Reason.OCCUPIED, fixture.engine.engineRulesResult().reason());
       assertFalse(fixture.output.toString().contains("kata-set-rules"));
+    }
+  }
+
+  @Test
+  void lifecycleRulesOperationRetainsOwnerAdmissionThroughReadback() throws Exception {
+    try (Fixture fixture = Fixture.ordinary()) {
+      Object owner = new Object();
+      try (Leelaz.ExclusiveGtpLifecycleReservation reservation =
+          fixture.engine.beginExclusiveGtpLifecycleReservation(owner)) {
+        assertNotNull(reservation);
+        Leelaz.ExactSnapshotRestoreAdmission admission =
+            fixture.engine.captureExactSnapshotRestoreAdmission(
+                Leelaz.ExactSnapshotRestoreOwner.LIFECYCLE, owner, null);
+        Leelaz.EngineRulesOperation[] operation = new Leelaz.EngineRulesOperation[1];
+        fixture.engine.withExactSnapshotRestoreAdmission(
+            admission,
+            () ->
+                operation[0] =
+                    fixture.engine.applyEngineRulesOperation(
+                        KataGoRules.parse("japanese").orElseThrow()));
+
+        assertTrue(operation[0].accepted());
+        int setId = commandIdFor(fixture.output.toString(), "kata-set-rules");
+        fixture.engine.dispatchReaderLineForTest("=" + setId);
+        int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
+        fixture.engine.dispatchReaderLineForTest("=" + queryId + " " + CHINESE);
+
+        assertTrue(operation[0].result().isConfirmed());
+      }
     }
   }
 
@@ -676,8 +708,7 @@ class LeelazEngineRulesProtocolTest {
       this(null, new ByteArrayOutputStream());
     }
 
-    private Fixture(Leelaz suppliedEngine, ByteArrayOutputStream fixtureOutput)
-        throws Exception {
+    private Fixture(Leelaz suppliedEngine, ByteArrayOutputStream fixtureOutput) throws Exception {
       previousConfig = Lizzie.config;
       previousLeelaz = Lizzie.leelaz;
       previousConsole = Lizzie.gtpConsole;
