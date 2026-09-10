@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Save KataGo rule preferences on confirmation and close the settings dialog after successful application.
 - Keep SGF rule-failure navigation local until explicit confirmed restore, preserve trial-return rules and positions, and resume both comparison engines after synchronization (#448).
 - Preserve local moves after stopping ReadBoard synchronization and retire obsolete placement confirmations and queued output (#432).
 - Preserved diagnostic log record boundaries and stack-trace whitespace during export without weakening privacy redaction (#431).

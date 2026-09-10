@@ -20,6 +20,7 @@ import java.awt.GraphicsEnvironment;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
@@ -52,7 +53,7 @@ class SetKataRulesWindowTest {
 
       int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
       dispatch(fixture.engine, "=" + queryId + " " + POSITIONAL_CHINESE);
-      awaitStatus(dialog, "Engine rules confirmed");
+      awaitConfirmedReadback(dialog);
       assertTrue(dialog.hasRulesResponse());
       assertTrue(dialog.getRules());
       assertTrue(dialog.rdoPositionKo.isSelected());
@@ -65,6 +66,7 @@ class SetKataRulesWindowTest {
       dialog.rdoNoHandicapKomi.setSelected(true);
       dialog.rdoSimpleKo.setSelected(true);
       dialog.rdoNoSuicide.setSelected(true);
+      SwingUtilities.invokeAndWait(() -> dialog.setVisible(true));
       dialog.applySelectedRules();
 
       assertTrue(dialog.statusText().contains("Confirming engine rules"));
@@ -86,6 +88,7 @@ class SetKataRulesWindowTest {
       assertTrue(fixture.engine.engineRulesResult().isConfirmed());
       assertEquals("TERRITORY", fixture.engine.engineRulesResult().observed().string("scoring"));
       assertSame(originalTarget, Lizzie.board.getHistory().captureSessionRules());
+      assertTrue(dialog.isVisible(), "A mismatched readback must remain visible");
       assertTrue(KataGoRules.parse(POSITIONAL_CHINESE).orElseThrow().hasField("experimentalKo"));
       closeDialog(dialog);
     }
@@ -98,7 +101,7 @@ class SetKataRulesWindowTest {
       SetKataRules dialog = new SetKataRules(fixture.engine);
       int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
       dispatch(fixture.engine, "=" + queryId + " " + CHINESE);
-      awaitStatus(dialog, "Engine rules confirmed");
+      awaitConfirmedReadback(dialog);
       BoardHistoryList history = Lizzie.board.getHistory();
       BoardHistoryList.SessionRulesTarget original = history.captureSessionRules();
 
@@ -130,33 +133,58 @@ class SetKataRulesWindowTest {
   }
 
   @Test
-  void matchingManualReadbackPublishesExactlyOneRevisionWhileDialogIsOpen() throws Exception {
+  void confirmSavesStartupRulesAndClosesAfterMatchingReadback() throws Exception {
     assumeFalse(GraphicsEnvironment.isHeadless());
     try (Fixture fixture = Fixture.ordinary()) {
       SetKataRules dialog = new SetKataRules(fixture.engine);
+      SwingUtilities.invokeAndWait(() -> dialog.setVisible(true));
       int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
       dispatch(fixture.engine, "=" + queryId + " " + CHINESE);
-      awaitStatus(dialog, "Engine rules confirmed");
+      awaitConfirmedReadback(dialog);
       BoardHistoryList history = Lizzie.board.getHistory();
       BoardHistoryList.SessionRulesTarget original = history.captureSessionRules();
+      assertTrue(dialog.isVisible(), "Opening readback must not close the editor");
+      dialog.chkbxAutoLoadRules.setSelected(true);
 
       dialog.rdoTerritory.setSelected(true);
       dialog.rdoSeKiTax.setSelected(true);
       dialog.rdoNoHandicapKomi.setSelected(true);
       dialog.rdoSimpleKo.setSelected(true);
       dialog.rdoNoSuicide.setSelected(true);
-      dialog.applySelectedRules();
+      SwingUtilities.invokeAndWait(
+          () -> {
+            for (java.awt.Component component : dialog.getContentPane().getComponents()) {
+              if (component instanceof JFontButton button
+                  && button
+                      .getText()
+                      .equals(Lizzie.resourceBundle.getString("SetKataRules.btnApply"))) {
+                button.doClick();
+                return;
+              }
+            }
+            throw new AssertionError("Confirm button missing");
+          });
+      assertTrue(dialog.isVisible(), "Keep the editor open until the engine confirms");
+      JSONObject saved =
+          new JSONObject(Files.readString(Path.of(Lizzie.config.getConfigFilePath())))
+              .getJSONObject("ui");
+      assertTrue(saved.getBoolean("auto-load-kata-rules"));
+      assertTrue(
+          KataGoRules.parse(saved.getString("kata-rules"))
+              .orElseThrow()
+              .semanticallyEquals(KataGoRules.parse(JAPANESE).orElseThrow()));
       int setId = commandIdFor(fixture.output.toString(), "kata-set-rules");
       dispatch(fixture.engine, "=" + setId);
       int readbackId = commandIdFor(fixture.output.toString(), "kata-get-rules");
       dispatch(fixture.engine, "=" + readbackId + " " + JAPANESE);
-      awaitStatus(dialog, "Engine rules confirmed");
+      awaitConfirmedReadback(dialog);
       Thread.sleep(100L);
 
       BoardHistoryList.SessionRulesTarget published = history.captureSessionRules();
       assertEquals(original.revision() + 1L, published.revision());
       assertTrue(dialog.getRules());
       assertEquals(original.revision() + 1L, history.captureSessionRules().revision());
+      assertFalse(dialog.isVisible(), "Successful confirmation must close the editor");
       closeDialog(dialog);
     }
   }
@@ -175,7 +203,7 @@ class SetKataRulesWindowTest {
 
       int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
       dispatch(fixture.engine, "=" + queryId + " " + POSITIONAL_CHINESE);
-      awaitStatus(dialog, "Engine rules confirmed");
+      awaitConfirmedReadback(dialog);
       assertTrue(dialog.hasRulesResponse());
       assertTrue(dialog.rdoPositionKo.isSelected());
       assertFalse(dialog.statusText().contains("Failed to read engine rules"));
@@ -190,7 +218,7 @@ class SetKataRulesWindowTest {
       SetKataRules dialog = new SetKataRules(fixture.engine);
       int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
       dispatch(fixture.engine, "=" + queryId + " " + CHINESE);
-      awaitStatus(dialog, "Engine rules confirmed");
+      awaitConfirmedReadback(dialog);
       assertTrue(dialog.getRules());
       String previous = fixture.engine.recentRulesLine;
 
@@ -256,6 +284,18 @@ class SetKataRulesWindowTest {
     Field field = SetKataRules.class.getDeclaredField("composed");
     field.setAccessible(true);
     return (KataGoRules) field.get(dialog);
+  }
+
+  private static void awaitConfirmedReadback(SetKataRules dialog) throws Exception {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (System.nanoTime() < deadline) {
+      SwingUtilities.invokeAndWait(() -> {});
+      if (dialog.hasRulesResponse() && dialog.statusText().isEmpty()) {
+        return;
+      }
+      Thread.sleep(20L);
+    }
+    throw new AssertionError("Confirmed readback did not settle: " + dialog.statusText());
   }
 
   private static void awaitStatus(SetKataRules dialog, String fragment) throws Exception {
@@ -335,9 +375,10 @@ class SetKataRulesWindowTest {
       previousBundle = Lizzie.resourceBundle;
       Lizzie.resourceBundle = ResourceBundle.getBundle("l10n.DisplayStrings", Locale.US);
       Lizzie.config = ConfigTestHelper.createForTests(Files.createTempDirectory("set-kata-rules"));
-      if (Lizzie.config.uiConfig == null) {
-        Lizzie.config.uiConfig = new JSONObject();
-      }
+      Lizzie.config.uiConfig = new JSONObject();
+      Lizzie.config.leelazConfig = new JSONObject();
+      Lizzie.config.config =
+          new JSONObject().put("ui", Lizzie.config.uiConfig).put("leelaz", Lizzie.config.leelazConfig);
       Lizzie.gtpConsole = null;
       Lizzie.frame = null;
       resetEngineGame();

@@ -461,17 +461,24 @@ public class SetKataRules extends JDialog {
       refreshStatus();
       return;
     }
-    Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
     KataGoRules requested = rulesFromEditor();
-    if (chkbxAutoLoadRules.isSelected()) {
-      Lizzie.config.autoLoadKataRules = true;
-      Lizzie.config.kataRules = requested.toGtpArgument();
-      Lizzie.config.uiConfig.put("kata-rules", Lizzie.config.kataRules);
-      Lizzie.config.uiConfig.put("auto-load-kata-rules", true);
-    } else {
-      Lizzie.config.autoLoadKataRules = false;
-      Lizzie.config.uiConfig.put("auto-load-kata-rules", false);
+    boolean autoLoad = chkbxAutoLoadRules.isSelected();
+    JSONObject candidateUi = new JSONObject(Lizzie.config.uiConfig.toString());
+    candidateUi.put("auto-load-kata-rules", autoLoad);
+    if (autoLoad) {
+      candidateUi.put("kata-rules", requested.toGtpArgument());
     }
+    try {
+      Lizzie.config.saveConfigSections(candidateUi, Lizzie.config.leelazConfig);
+    } catch (IOException failure) {
+      Utils.showMsg(resourceBundle.getString("Lizzie.save.error") + failure.getLocalizedMessage());
+      return;
+    }
+    Lizzie.config.autoLoadKataRules = autoLoad;
+    if (autoLoad) {
+      Lizzie.config.kataRules = requested.toGtpArgument();
+    }
+    Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
     BoardHistoryList history = Lizzie.board.getHistory();
     BoardHistoryList.ManualRulesIntent manualIntent = history.beginManualRulesIntent();
     BoardHistoryList.SessionRulesTarget previousTarget = manualIntent.previousTarget();
@@ -687,8 +694,8 @@ public class SetKataRules extends JDialog {
         key = "SetKataRules.status.pending";
         break;
       case CONFIRMED:
-        key = "SetKataRules.status.confirmed";
-        break;
+        lblStatus.setText("");
+        return;
       case UNCONFIRMED:
         key = "SetKataRules.status.unconfirmed";
         break;
@@ -746,7 +753,10 @@ public class SetKataRules extends JDialog {
                           return;
                         }
                         if (confirmed) {
-                          getRules();
+                          boolean manualApplication = watchedOperation == manualRulesOperation;
+                          if (getRules() && manualApplication) {
+                            closeDialog();
+                          }
                         } else {
                           refreshStatus(snapshot);
                           if (snapshot.isSettled() && watchedOperation == manualRulesOperation) {
