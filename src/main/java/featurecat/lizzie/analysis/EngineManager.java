@@ -598,7 +598,7 @@ public class EngineManager {
 
   public EngineManager(Config config, int index, boolean loadDefault)
       throws JSONException, IOException {
-    this(config, index, loadDefault, Utils.getEngineData(), Leelaz::new);
+    this(config, index, loadDefault, Utils.normalizeEngineSettings(), Leelaz::new);
   }
 
   @FunctionalInterface
@@ -674,6 +674,7 @@ public class EngineManager {
       EngineData engineDt = engineData.get(i);
       Leelaz e;
       e = engineFactory.create(engineDt.commands);
+      e.savedEntryId = engineDt.id;
       e.preload = engineDt.preload;
       e.width = engineDt.width;
       e.height = engineDt.height;
@@ -4337,6 +4338,8 @@ public class EngineManager {
   private boolean isSameEngineProcess(Leelaz engine, EngineData engineDt) {
     return engine != null
         && engineDt != null
+        && !engineDt.id.isBlank()
+        && engineDt.id.equals(engine.savedEntryId)
         && safeEquals(engine.oriEngineCommand, engineDt.commands)
         && engine.oriWidth == engineDt.width
         && engine.oriHeight == engineDt.height
@@ -4358,6 +4361,7 @@ public class EngineManager {
   }
 
   private void applySavedEngineMetadata(Leelaz engine, EngineData engineDt, int index) {
+    if (engine.savedEntryId.isBlank()) engine.savedEntryId = engineDt.id;
     engine.preload = engineDt.preload;
     engine.width = engineDt.width;
     engine.height = engineDt.height;
