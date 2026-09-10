@@ -1298,6 +1298,7 @@ public class Board {
 
       BoardHistoryList converted = new BoardHistoryList(startingPosition);
       converted.setGameInfo(gameInfo);
+      converted.restoreSessionRulesTarget(history.captureSessionRules());
       setHistory(converted);
       hasStartStone = false;
       startStonelist = new ArrayList<>();

@@ -32,6 +32,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class PositionConfirmedRollbackTest {
   private static final int BOARD_SIZE = 19;
@@ -1074,6 +1076,121 @@ class PositionConfirmedRollbackTest {
         mirror.leela0110StopPonder();
         mirror.started = false;
         mirror.isLoaded = false;
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"running", "paused", "pause-during-restore", "idle"})
+  void startingPositionConversionPreservesRulesAndConfirmedAnalysisIntent(String state)
+      throws Exception {
+    try (Harness harness = Harness.open()) {
+      harness.frame.readBoard = null;
+      BoardHistoryList history =
+          SGFParser.parseSgf(
+              "(;SZ[19]KM[6.5]RU[Japanese];B[pd];W[];AE[pd]AB[dd]AW[pp]PL[B];B[dp])", false);
+      history.toStart();
+      while (history.next().isPresent()) {}
+      harness.board.setHistory(history);
+      KataGoRules chinese = KataGoRules.parse("Chinese").orElseThrow();
+      history.publishManualRules(chinese);
+      BoardData expected = history.getData().clone();
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Leelaz mirror = new Leelaz("");
+      mirror.started = true;
+      mirror.isLoaded = true;
+      mirror.isKatago = true;
+      mirror.commandLists.addAll(List.of("name", "kata-analyze"));
+      setField(mirror, "endGetCommandList", true);
+      Lizzie.leelaz2 = mirror;
+      try {
+        List<ExactSnapshotRestoreProtocolFixture.Transport> outputs = new ArrayList<>();
+        AtomicReference<Boolean> holdMirrorFence = new AtomicReference<>(true);
+        for (Leelaz engine : List.of(harness.engine, mirror)) {
+          engine.commandLists.addAll(List.of("kata-set-rules", "kata-get-rules", "loadsgf"));
+          ExactSnapshotRestoreProtocolFixture.Transport output =
+              ExactSnapshotRestoreProtocolFixture.install(
+                  engine,
+                  command ->
+                      command.equals("kata-get-rules")
+                              || (engine == mirror
+                                  && command.equals("name")
+                                  && holdMirrorFence.compareAndSet(true, false))
+                          ? null
+                          : ExactSnapshotRestoreProtocolFixture.Response.success());
+          outputs.add(output);
+          engine.queryEngineRulesOperation();
+          String query = awaitRawCommand(output, "kata-get-rules", 0);
+          engine.dispatchReaderLineForTest(
+              "=" + query.substring(0, query.indexOf(' ')) + " " + chinese.toGtpArgument());
+        }
+        boolean wasRunning = state.equals("running") || state.equals("pause-during-restore");
+        Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");
+        paused.setAccessible(true);
+        paused.setBoolean(harness.frame, state.equals("paused"));
+        if (wasRunning) {
+          harness.engine.ponder();
+          for (var output : outputs) awaitRawCommand(output, "kata-analyze", 0);
+        }
+        javax.swing.SwingUtilities.invokeAndWait(
+            () -> assertTrue(harness.frame.convertCurrentPositionToStartingPositionCommand()));
+        assertEquals("Japanese", harness.board.getHistory().getStart().getData().getProperty("RU"));
+        assertTrue(
+            harness
+                .board
+                .getHistory()
+                .captureSessionRules()
+                .parsedRules()
+                .orElseThrow()
+                .semanticallyEquals(chinese));
+        assertArrayEquals(expected.stones, harness.board.getData().stones);
+        assertEquals(expected.blackToPlay, harness.board.getData().blackToPlay);
+        assertEquals(0, harness.board.getHistory().getStart().numberOfChildren());
+        String mirrorFence = awaitRawCommand(outputs.get(1), "name", 0);
+        int initialAnalyses = wasRunning ? 1 : 0;
+        for (var output : outputs) {
+          assertEquals(initialAnalyses, payloadCount(output, "kata-analyze"));
+          assertEquals(1, payloadCount(output, "clear_board"));
+          assertEquals(1, payloadCount(output, "loadsgf"));
+          assertEquals(0, payloadCount(output, "play"));
+          assertEquals(0, payloadCount(output, "kata-set-rules"));
+        }
+        if (state.equals("pause-during-restore")) {
+          harness.engine.pauseForAnalysisControl(
+              () -> {
+                try {
+                  paused.setBoolean(harness.frame, true);
+                } catch (IllegalAccessException failure) {
+                  throw new AssertionError(failure);
+                }
+              });
+        }
+        acknowledge(mirror, mirrorFence);
+        long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+        while (harness.frame.scheduledResume == null && System.nanoTime() < deadline) {
+          javax.swing.SwingUtilities.invokeAndWait(() -> {});
+          Thread.sleep(5L);
+        }
+        assertNotNull(harness.frame.scheduledResume);
+        javax.swing.SwingUtilities.invokeAndWait(harness.frame.scheduledResume);
+        if (state.equals("running")) {
+          for (var output : outputs) awaitRawCommand(output, "kata-analyze W", 1);
+          harness.engine.parseAnalysisLineForTest(info(25, 0.7));
+          assertAnalysis(harness.board.getData(), 25, 70);
+        }
+        for (int i = 0; i < outputs.size(); i++) {
+          Leelaz engine = i == 0 ? harness.engine : mirror;
+          engine.sendCommand("protocol_version");
+          awaitRawCommand(outputs.get(i), "protocol_version", 0);
+        }
+        for (var output : outputs) {
+          assertEquals(
+              initialAnalyses + (state.equals("running") ? 1 : 0),
+              payloadCount(output, "kata-analyze"));
+        }
+      } finally {
+        harness.frame.shutdownKifuEngineSyncCoordinator();
+        mirror.normalQuit();
       }
     }
   }
@@ -2435,6 +2552,11 @@ class PositionConfirmedRollbackTest {
     private boolean userAnalysisPaused;
     private volatile int rulesFailurePromptCount;
     private int rulesFailureChoice;
+
+    @Override
+    protected boolean confirmStartingPositionConversion() {
+      return true;
+    }
 
     @Override
     public String getTitle() {

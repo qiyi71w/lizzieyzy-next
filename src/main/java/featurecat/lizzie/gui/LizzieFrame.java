@@ -9394,9 +9394,14 @@ public class LizzieFrame extends JFrame {
     if (Lizzie.board.hasRealMoveOrPassHistory() && !confirmStartingPositionConversion()) {
       return false;
     }
+    boolean resumeAnalysis = Lizzie.leelaz != null && Lizzie.leelaz.isPondering();
     boolean converted = Lizzie.board.convertCurrentPositionToStartingPosition();
     if (converted) {
       clearSetupOverlayState();
+      if (Lizzie.leelaz != null && !EngineManager.isEmpty) {
+        scheduleEngineSyncAndResumeAfterKifuLoad(
+            0, resumeAnalysis ? this::resumeForegroundAnalysisForConfirmedPosition : null, false);
+      }
     }
     return converted;
   }

@@ -76,6 +76,9 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
   手顺和 variation 全部删除，同时保留 `GameInfo`、root comment 与非 setup SGF 属性。
 - 转换后的 history 必须通过 `Board.setHistory(...)` 正式采用，使棋盘尺寸、Kata/PK 派生
   标志和 history-overwrite 通知与新 root 保持一致；不能直接替换 history 引用。
+- 同一棋局内的起始局面转换保留 immutable 会话规则目标，不重新解释 root `RU`，也不
+  继承旧 history 的失败规则继续许可。独立转换入口在有引擎时通过既有棋谱 owner 先确认
+  规则、再同步最终 root；双方盘面确认后仅恢复转换前正在进行且用户未暂停的普通分析。
 - 设置模式内的编辑只在本地生效，不向引擎发送普通 `play`。退出设置模式后，通过
   `EngineFollowController` 排队并使用既有 exact snapshot restore 同步最终 root setup；
   setup stones 不能进入普通引擎手顺重放。
