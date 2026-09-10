@@ -50,6 +50,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
@@ -83,7 +84,7 @@ public class Lizzie {
   public static Board board;
   public static Leelaz leelaz;
   public static Leelaz leelaz2;
-  private static final Object PRIMARY_ENGINE_LOCK = new Object();
+  private static final ReentrantLock PRIMARY_ENGINE_LOCK = new ReentrantLock();
   private static final ReentrantReadWriteLock ENGINE_AUTHORITY_PRESENTATION_LOCK =
       new ReentrantReadWriteLock(true);
   private static final ThreadLocal<Integer> ENGINE_AUTHORITY_PRESENTATION_DEPTH =
@@ -93,9 +94,12 @@ public class Lizzie {
   public static void setPrimaryEngine(Leelaz engine) {
     runWithEngineAuthorityMutation(
         () -> {
-          synchronized (PRIMARY_ENGINE_LOCK) {
+          PRIMARY_ENGINE_LOCK.lock();
+          try {
             leelaz = engine;
             primaryEngineGeneration++;
+          } finally {
+            PRIMARY_ENGINE_LOCK.unlock();
           }
           return null;
         });
@@ -106,13 +110,16 @@ public class Lizzie {
       Leelaz expected, long expectedGeneration, Leelaz replacement) {
     return runWithEngineAuthorityMutation(
         () -> {
-          synchronized (PRIMARY_ENGINE_LOCK) {
+          PRIMARY_ENGINE_LOCK.lock();
+          try {
             if (leelaz != expected || primaryEngineGeneration != expectedGeneration) {
               return false;
             }
             leelaz = replacement;
             primaryEngineGeneration++;
             return true;
+          } finally {
+            PRIMARY_ENGINE_LOCK.unlock();
           }
         });
   }
@@ -141,8 +148,7 @@ public class Lizzie {
       throw new IllegalStateException(
           "Engine authority cannot be mutated by its active presentation owner");
     }
-    ReentrantReadWriteLock.WriteLock writeLock =
-        ENGINE_AUTHORITY_PRESENTATION_LOCK.writeLock();
+    ReentrantReadWriteLock.WriteLock writeLock = ENGINE_AUTHORITY_PRESENTATION_LOCK.writeLock();
     writeLock.lock();
     try {
       return mutation.get();
@@ -156,21 +162,22 @@ public class Lizzie {
       EngineManager expectedManager,
       Leelaz expectedPrimary,
       long expectedPrimaryGeneration) {
-    ReentrantReadWriteLock.ReadLock readLock =
-        ENGINE_AUTHORITY_PRESENTATION_LOCK.readLock();
+    ReentrantReadWriteLock.ReadLock readLock = ENGINE_AUTHORITY_PRESENTATION_LOCK.readLock();
     readLock.lock();
     boolean claimed = false;
     try {
-      synchronized (PRIMARY_ENGINE_LOCK) {
+      PRIMARY_ENGINE_LOCK.lock();
+      try {
         if (board != expectedBoard
             || engineManager != expectedManager
             || leelaz != expectedPrimary
             || primaryEngineGeneration != expectedPrimaryGeneration) {
           return null;
         }
+      } finally {
+        PRIMARY_ENGINE_LOCK.unlock();
       }
-      ENGINE_AUTHORITY_PRESENTATION_DEPTH.set(
-          ENGINE_AUTHORITY_PRESENTATION_DEPTH.get() + 1);
+      ENGINE_AUTHORITY_PRESENTATION_DEPTH.set(ENGINE_AUTHORITY_PRESENTATION_DEPTH.get() + 1);
       claimed = true;
       return new EngineAuthorityPresentationLease(Thread.currentThread());
     } finally {
@@ -211,19 +218,44 @@ public class Lizzie {
   }
 
   public static long capturePrimaryEngineGeneration(Leelaz expected) {
-    synchronized (PRIMARY_ENGINE_LOCK) {
+    PRIMARY_ENGINE_LOCK.lock();
+    try {
       return leelaz == expected ? primaryEngineGeneration : -1L;
+    } finally {
+      PRIMARY_ENGINE_LOCK.unlock();
     }
   }
 
   public static boolean runIfPrimaryEngine(
       Leelaz expected, long expectedGeneration, Runnable action) {
-    synchronized (PRIMARY_ENGINE_LOCK) {
+    PRIMARY_ENGINE_LOCK.lock();
+    try {
       if (leelaz != expected || primaryEngineGeneration != expectedGeneration) {
         return false;
       }
       action.run();
       return true;
+    } finally {
+      PRIMARY_ENGINE_LOCK.unlock();
+    }
+  }
+
+  /**
+   * Evaluates admission under the exact PRIMARY generation without waiting for its owner. Returns
+   * null on contention; the caller must release selection before waiting and retrying.
+   */
+  public static Boolean tryCallIfPrimaryEngine(
+      Leelaz expected, long expectedGeneration, Supplier<Boolean> action) {
+    if (!PRIMARY_ENGINE_LOCK.tryLock()) {
+      return null;
+    }
+    try {
+      if (leelaz != expected || primaryEngineGeneration != expectedGeneration) {
+        return false;
+      }
+      return action.get();
+    } finally {
+      PRIMARY_ENGINE_LOCK.unlock();
     }
   }
 
@@ -232,19 +264,18 @@ public class Lizzie {
    *
    * <p>The authority write lock is held across both the generation check and the supplied action,
    * so an active presentation lease freezes PRIMARY until its presentation is complete. The
-   * capability lets callers replace PRIMARY without re-entering its monitor from an engine
-   * endpoint callback. The supplied action must not perform I/O or invoke arbitrary UI callbacks.
+   * capability lets callers replace PRIMARY without re-entering its monitor from an engine endpoint
+   * callback. The supplied action must not perform I/O or invoke arbitrary UI callbacks.
    */
   public static boolean runIfPrimaryEngineWithMutation(
-      Leelaz expected,
-      long expectedGeneration,
-      Consumer<PrimaryEngineMutation> action) {
+      Leelaz expected, long expectedGeneration, Consumer<PrimaryEngineMutation> action) {
     if (action == null) {
       return false;
     }
     return runWithEngineAuthorityMutation(
         () -> {
-          synchronized (PRIMARY_ENGINE_LOCK) {
+          PRIMARY_ENGINE_LOCK.lock();
+          try {
             if (leelaz != expected || primaryEngineGeneration != expectedGeneration) {
               return false;
             }
@@ -252,7 +283,7 @@ public class Lizzie {
             try {
               action.accept(
                   replacement -> {
-                    if (!active[0] || !Thread.holdsLock(PRIMARY_ENGINE_LOCK)) {
+                    if (!active[0] || !PRIMARY_ENGINE_LOCK.isHeldByCurrentThread()) {
                       throw new IllegalStateException(
                           "PRIMARY mutation capability used outside its ownership scope");
                     }
@@ -263,6 +294,8 @@ public class Lizzie {
               active[0] = false;
             }
             return true;
+          } finally {
+            PRIMARY_ENGINE_LOCK.unlock();
           }
         });
   }

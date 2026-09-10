@@ -114,6 +114,29 @@ public class Board {
   private volatile int movelistRefreshGeneration = 0;
   private volatile long lastMoveNavigationAt = 0L;
   private volatile long contextRevision = 0L;
+  private volatile BoardHistoryList pendingEngineAlignmentHistory;
+
+  /** GUI adoption leaves navigation local until an acknowledged restore reaches this history. */
+  public synchronized void requireEngineAlignment() {
+    pendingEngineAlignmentHistory = history;
+    advanceContextRevision();
+  }
+
+  private boolean isEngineAlignmentPending() {
+    return pendingEngineAlignmentHistory != null && pendingEngineAlignmentHistory == history;
+  }
+
+  /** Called only by a restore owner after its captured engine set has confirmed the position. */
+  public synchronized void completeEngineAlignment(
+      BoardHistoryNode root, BoardHistoryNode node, long revision) {
+    if (history != null
+        && history.getStart() == root
+        && history.getCurrentHistoryNode() == node
+        && contextRevision == revision) {
+      pendingEngineAlignmentHistory = null;
+    }
+  }
+
   /** Test seam: after history-overwrite mutation, before engine forwarding. */
   public static volatile Runnable beforeHistoryOverwriteEngineForward;
 
@@ -133,6 +156,7 @@ public class Board {
   public static final class ClearStateSnapshot {
     private final Board owner;
     private final BoardHistoryList history;
+    private final BoardHistoryList pendingEngineAlignmentHistory;
     private final int boardWidth;
     private final int boardHeight;
     private final Zobrist.TableSnapshot zobristTables;
@@ -161,6 +185,7 @@ public class Board {
     private ClearStateSnapshot(Board board) {
       owner = board;
       history = board.history;
+      pendingEngineAlignmentHistory = board.pendingEngineAlignmentHistory;
       boardWidth = Board.boardWidth;
       boardHeight = Board.boardHeight;
       zobristTables = Zobrist.captureTables();
@@ -208,6 +233,7 @@ public class Board {
     forceRefresh2 = false;
     hasBigBranch = false;
     history = new BoardHistoryList(BoardData.empty(boardWidth, boardHeight));
+    pendingEngineAlignmentHistory = null;
     setupMode = false;
     if (isEngineGame) {
       Lizzie.board
@@ -1272,6 +1298,7 @@ public class Board {
 
       BoardHistoryList converted = new BoardHistoryList(startingPosition);
       converted.setGameInfo(gameInfo);
+      converted.restoreSessionRulesTarget(history.captureSessionRules());
       setHistory(converted);
       hasStartStone = false;
       startStonelist = new ArrayList<>();
@@ -1874,15 +1901,17 @@ public class Board {
     if (generation < 0) {
       return Optional.empty();
     }
-    return freezeCurrentPositionForPrimaryEngineExactRestore(engine, generation);
+    return freezeCurrentPositionForPrimaryEngineExactRestore(
+        engine, generation, engine.activeComparisonEngine());
   }
 
-  private Optional<FrozenPrimaryPosition> freezeCurrentPositionForPrimaryEngineExactRestore(
-      Leelaz engine, long generation) {
+  public Optional<FrozenPrimaryPosition> freezeCurrentPositionForPrimaryEngineExactRestore(
+      Leelaz engine, long generation, Leelaz mirror) {
     if (engine == null
         || generation < 0
         || !isCapturedPrimaryReadyForExactRestore(engine)
-        || Lizzie.capturePrimaryEngineGeneration(engine) != generation) {
+        || Lizzie.capturePrimaryEngineGeneration(engine) != generation
+        || engine.activeComparisonEngine() != mirror) {
       return Optional.empty();
     }
     BoardData position;
@@ -1919,11 +1948,15 @@ public class Board {
     if (Lizzie.capturePrimaryEngineGeneration(engine) != generation) {
       return Optional.empty();
     }
+    if (engine.activeComparisonEngine() != mirror) {
+      return Optional.empty();
+    }
     return Optional.of(
         new FrozenPrimaryPosition(
             this,
             engine,
             generation,
+            mirror,
             capturedHistory,
             capturedCurrentNode,
             capturedContextRevision,
@@ -1936,6 +1969,7 @@ public class Board {
     private final Board owner;
     private final Leelaz engine;
     private final long primaryGeneration;
+    private final Leelaz mirror;
     private final BoardHistoryList capturedHistory;
     private final BoardHistoryNode capturedCurrentNode;
     private final long capturedContextRevision;
@@ -1947,6 +1981,7 @@ public class Board {
         Board owner,
         Leelaz engine,
         long primaryGeneration,
+        Leelaz mirror,
         BoardHistoryList capturedHistory,
         BoardHistoryNode capturedCurrentNode,
         long capturedContextRevision,
@@ -1956,6 +1991,7 @@ public class Board {
       this.owner = owner;
       this.engine = engine;
       this.primaryGeneration = primaryGeneration;
+      this.mirror = mirror;
       this.capturedHistory = capturedHistory;
       this.capturedCurrentNode = capturedCurrentNode;
       this.capturedContextRevision = capturedContextRevision;
@@ -1967,10 +2003,10 @@ public class Board {
     /** Captures admission after companion close, then executes a strict ACK-backed restore. */
     public boolean execute() {
       if (Lizzie.board != owner
-          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration) {
+          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration
+          || engine.activeComparisonEngine() != mirror) {
         return false;
       }
-      Leelaz mirror = owner.captureHistoryNavigationMirrorEngine(engine);
       Leelaz.ExactSnapshotRestoreAdmission admission =
           engine.captureHistoryNavigationExactSnapshotRestoreAdmission(mirror);
       ExactSnapshotEngineRestore.PreparedRestore prepared =
@@ -1980,7 +2016,8 @@ public class Board {
               : ExactSnapshotEngineRestore.prepareCurrentPosition(admission, position);
       Leelaz.PositionRestore confirmation = engine.capturePositionRestore(mirror);
       if (Lizzie.board != owner
-          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration) {
+          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration
+          || engine.activeComparisonEngine() != mirror) {
         prepared.discard();
         confirmation.cancel();
         return false;
@@ -1994,6 +2031,19 @@ public class Board {
       return true;
     }
 
+    /** The current import owner calls this only after execute and its context checks succeed. */
+    public boolean completeEngineAlignment() {
+      if (!matchesCurrentBoardAndPrimary()) return false;
+      synchronized (owner) {
+        if (owner.history != capturedHistory
+            || owner.contextRevision != capturedContextRevision
+            || capturedHistory.getCurrentHistoryNode() != capturedCurrentNode) return false;
+        owner.completeEngineAlignment(
+            capturedHistory.getStart(), capturedCurrentNode, capturedContextRevision);
+        return true;
+      }
+    }
+
     /**
      * Returns whether the acknowledged snapshot is still the displayed position.
      *
@@ -2003,7 +2053,8 @@ public class Board {
      */
     public boolean matchesCurrentBoardAndPrimary() {
       if (Lizzie.board != owner
-          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration) {
+          || Lizzie.capturePrimaryEngineGeneration(engine) != primaryGeneration
+          || engine.activeComparisonEngine() != mirror) {
         return false;
       }
       boolean matches;
@@ -2025,6 +2076,7 @@ public class Board {
       }
       return matches
           && Lizzie.board == owner
+          && engine.activeComparisonEngine() == mirror
           && Lizzie.capturePrimaryEngineGeneration(engine) == primaryGeneration;
     }
 
@@ -2033,7 +2085,8 @@ public class Board {
       if (Lizzie.board != owner) {
         return Optional.empty();
       }
-      return owner.freezeCurrentPositionForPrimaryEngineExactRestore(engine, primaryGeneration);
+      return owner.freezeCurrentPositionForPrimaryEngineExactRestore(
+          engine, primaryGeneration, mirror);
     }
 
     private static double resolveKomi(
@@ -4177,7 +4230,10 @@ public class Board {
   }
 
   private boolean shouldForwardHistoryNavigationToPrimaryEngine() {
-    return !isCollectingReadBoardSync() && !isLoadingFile && isPrimaryEngineReady();
+    return !isCollectingReadBoardSync()
+        && !isLoadingFile
+        && !isEngineAlignmentPending()
+        && isPrimaryEngineReady();
   }
 
   private HistoryNavigationRestore prepareHistoryNavigationRestore(boolean stepIn) {
@@ -4293,7 +4349,8 @@ public class Board {
       }
       if (Lizzie.config.playSound) Utils.playVoiceFile();
       if (expectedChild == null) {
-        if (isCollectingReadBoardSync()) history.nextVariationWithoutEngineSync(0);
+        if (!shouldForwardHistoryNavigationToPrimaryEngine())
+          history.nextVariationWithoutEngineSync(0);
         else history.next();
       } else {
         history.nextVariationWithoutEngineSync(childIndex);
@@ -4649,7 +4706,7 @@ public class Board {
       updateWinrate();
       // Don't update winrate here as this is usually called when jumping between
       // variations
-      if ((isCollectingReadBoardSync()
+      if ((!shouldForwardHistoryNavigationToPrimaryEngine()
               ? history.nextVariationWithoutEngineSync(idx)
               : history.nextVariation(idx))
           .isPresent()) {
@@ -4658,9 +4715,10 @@ public class Board {
         updateIsBest();
         notifyReadBoardLocalHistoryNavigation();
         BoardData currentData = history.getData();
-        if (currentData.isSnapshotNode()) {
+        boolean forward = shouldForwardHistoryNavigationToPrimaryEngine();
+        if (forward && currentData.isSnapshotNode()) {
           history.getCurrentHistoryNode().clearAndSyncBoard(true);
-        } else if (currentData.isMoveNode()) {
+        } else if (forward && currentData.isMoveNode()) {
           int[] lastMove = currentData.lastMove.get();
           String name = convertCoordinatesToName(lastMove[0], lastMove[1]);
           submitOrdinaryEngineForwarding(
@@ -4669,7 +4727,7 @@ public class Board {
                 feedEngineForMainlineMove(currentData.lastMoveColor, name);
                 return true;
               });
-        } else if (isKnownPass(currentData)) {
+        } else if (forward && isKnownPass(currentData)) {
           submitOrdinaryEngineForwarding(
               Lizzie.leelaz,
               () -> {
@@ -4778,7 +4836,7 @@ public class Board {
    * @return void
    */
   public void moveToAnyPosition(BoardHistoryNode targetNode) {
-    if (isCollectingReadBoardSync()) {
+    if (isCollectingReadBoardSync() || isEngineAlignmentPending() || isLoadingFile) {
       synchronized (this) {
         if (history.getCurrentHistoryNode() == targetNode) return;
         if (Lizzie.leelaz != null) updateWinrate();
@@ -5166,6 +5224,7 @@ public class Board {
       boardHeight = snapshot.boardHeight;
       Zobrist.restoreTables(snapshot.zobristTables);
       history = snapshot.history;
+      pendingEngineAlignmentHistory = snapshot.pendingEngineAlignmentHistory;
       analysisMode = snapshot.analysisMode;
       setupMode = snapshot.setupMode;
       forceRefresh = snapshot.forceRefresh;

@@ -2,6 +2,7 @@ package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
+import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.enginegame.BatchSummary;
 import featurecat.lizzie.enginegame.EngineGamePlan;
@@ -81,6 +82,31 @@ public class EngineManager {
 
   /** Serializes the provisional owner pointer and its committed index/empty-state publication. */
   private static final Object ENGINE_SELECTION_STATE_LOCK = new Object();
+
+  /** Runs analysis admission while the captured primary/comparison selection remains current. */
+  static Boolean callIfCurrentAnalysisSelection(
+      Leelaz expectedPrimary,
+      Leelaz expectedActiveMirror,
+      Leelaz mirroredCommandEndpoint,
+      Supplier<Boolean> action) {
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      if (Lizzie.leelaz != expectedPrimary
+          || expectedPrimary.activeComparisonEngine() != expectedActiveMirror
+          || (mirroredCommandEndpoint != null && mirroredCommandEndpoint != expectedActiveMirror)) {
+        return false;
+      }
+      return action.get();
+    }
+  }
+
+  /** Publishes comparison-mode membership without holding selection across UI callbacks. */
+  public static ExtraMode publishExtraMode(Config config, ExtraMode mode) {
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      ExtraMode previous = config.extraMode;
+      config.extraMode = mode;
+      return previous;
+    }
+  }
 
   /** Serializes token-checked engine-game UI terminal/preparing presentations. */
   private static final ReentrantLock ENGINE_GAME_UI_MUTATION_LOCK = new ReentrantLock();
@@ -1979,7 +2005,8 @@ public class EngineManager {
               ? activeEngineGameTransaction
               : retiringEngineGameTransaction;
     }
-    String batchGameName = saveTxn == null || saveTxn.batchGameName == null ? "" : saveTxn.batchGameName;
+    String batchGameName =
+        saveTxn == null || saveTxn.batchGameName == null ? "" : saveTxn.batchGameName;
     String timestamp = saveTxn == null || saveTxn.timestamp == null ? "" : saveTxn.timestamp;
     File file = new File("");
     String courseFile = "";
@@ -3082,16 +3109,19 @@ public class EngineManager {
       side.reason = EngineRulesResult.Reason.LIST_COMMANDS_FAILED;
       return side;
     }
-    engine.queryEngineRulesForMatchOwner();
-    if (!waitForMatchRulesSettlement(transaction, engine)) {
-      copyEngineRulesResult(side, engine.engineRulesResult());
+    Leelaz.EngineRulesOperation operation = engine.queryEngineRulesForMatchOwnerOperation();
+    if (!waitForMatchRulesSettlement(transaction, operation)) {
+      copyEngineRulesResult(side, operation.snapshot());
       if (side.reason == EngineRulesResult.Reason.SET_TIMEOUT
           || side.status == EngineRulesResult.Status.SET_FAILED) {
         side.modifiedOrUncertain = true;
       }
       return side;
     }
-    EngineRulesResult queried = engine.engineRulesResult();
+    EngineRulesResult queried = operation.result();
+    if (queried == null) {
+      queried = operation.snapshot();
+    }
     copyEngineRulesResult(side, queried);
     if (queried.isFailed()) {
       return side;
@@ -3120,12 +3150,13 @@ public class EngineManager {
       return;
     }
     side.modifiedOrUncertain = true;
-    side.engine.applyEngineRulesForMatchOwner(target);
-    if (!waitForMatchRulesSettlement(transaction, side.engine)) {
-      copyEngineRulesResult(side, side.engine.engineRulesResult());
+    Leelaz.EngineRulesOperation operation = side.engine.applyEngineRulesForMatchOwnerOperation(target);
+    if (!waitForMatchRulesSettlement(transaction, operation)) {
+      copyEngineRulesResult(side, operation.snapshot());
       return;
     }
-    copyEngineRulesResult(side, side.engine.engineRulesResult());
+    EngineRulesResult result = operation.result();
+    copyEngineRulesResult(side, result == null ? operation.snapshot() : result);
   }
 
   private static void copyEngineRulesResult(
@@ -3143,14 +3174,15 @@ public class EngineManager {
   }
 
   private boolean waitForMatchRulesSettlement(
-      EngineGameOwnerTransaction transaction, Leelaz engine) {
-    if (engine.engineRulesResult().isSettled()) {
+      EngineGameOwnerTransaction transaction, Leelaz.EngineRulesOperation operation) {
+    if (operation == null) {
+      return false;
+    }
+    if (operation.isDone()) {
       return true;
     }
     return waitForEngineGameCondition(
-        transaction,
-        () -> engine.engineRulesResult().isSettled(),
-        "Match-rules command timed out");
+        transaction, operation::isDone, "Match-rules command timed out");
   }
 
   private static void restoreMatchRulesBeforeRelease(EngineGameOwnerTransaction transaction) {
@@ -3184,11 +3216,17 @@ public class EngineManager {
     if (side.incarnation != null && !side.engine.isCurrentEngineIncarnation(side.incarnation)) {
       return false;
     }
-    side.engine.applyEngineRulesForMatchOwner(side.original);
-    if (!side.engine.waitUntilEngineRulesSettled(TimeUnit.SECONDS.toMillis(30))) {
+    Leelaz.EngineRulesOperation operation = side.engine.applyEngineRulesForMatchOwnerOperation(side.original);
+    EngineRulesResult result;
+    try {
+      result = operation.await(TimeUnit.SECONDS.toMillis(30));
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
       return false;
     }
-    EngineRulesResult result = side.engine.engineRulesResult();
+    if (result == null) {
+      return false;
+    }
     return result.isConfirmed()
         && result.observed() != null
         && result.observed().semanticallyEquals(side.original);
@@ -3242,7 +3280,8 @@ public class EngineManager {
     }
     Leelaz secondEngine = exactEngineGameParticipant(transaction, plan.secondIndex());
     if (secondEngine == null) {
-      throw new IllegalStateException("Engine-game second participant left its frozen catalog slot");
+      throw new IllegalStateException(
+          "Engine-game second participant left its frozen catalog slot");
     }
     if (secondEngine.isKatago
         && !secondEngine.recentRulesLine.isEmpty()
@@ -3957,10 +3996,12 @@ public class EngineManager {
                 }
               };
         } else if (engineDt == selectedSecondaryData) {
-          Lizzie.leelaz2 = e;
           e.preload = true;
           e.firstLoad = true;
-          currentEngineNo2 = i;
+          synchronized (ENGINE_SELECTION_STATE_LOCK) {
+            Lizzie.leelaz2 = e;
+            currentEngineNo2 = i;
+          }
         } else if (e.preload && !e.isBenchmark()) {
           new Thread() {
             public void run() {
@@ -8529,9 +8570,11 @@ public class EngineManager {
       transaction.foregroundSynchronization = handback;
       handback.beforeRestore =
           () -> {
-            if (Lizzie.board != board || Lizzie.leelaz != target
+            if (Lizzie.board != board
+                || Lizzie.leelaz != target
                 || !target.isCurrentLiveEngineIncarnation(incarnation)) {
-              throw new IllegalStateException("Stopped game foreground context changed before restore");
+              throw new IllegalStateException(
+                  "Stopped game foreground context changed before restore");
             }
           };
       handback.acquireReservation();
@@ -11448,8 +11491,7 @@ public class EngineManager {
               });
       return () -> {
         EngineSwitchTransaction switchTransaction = lifecycleRestore.engineSwitchTransaction;
-        if (switchTransaction != null
-            && switchTransaction.synchronizationFailureSuperseded) {
+        if (switchTransaction != null && switchTransaction.synchronizationFailureSuperseded) {
           releaseFailedLifecycle.run();
           return;
         }
@@ -11468,73 +11510,67 @@ public class EngineManager {
                 : lifecycleRestore.mirrorEngine.captureEngineIncarnationFence();
         try {
           lifecycleRestore.confirmBoardSynchronization(
-                () -> {
-                  if (!confirmationSettled.compareAndSet(false, true)) {
-                    return;
-                  }
-                  boolean lifecycleReleased = false;
-                  Throwable settlementFailure = null;
-                  try {
-                    if (!engineSwitchUiTracker.isSwitching(
+              () -> {
+                if (!confirmationSettled.compareAndSet(false, true)) {
+                  return;
+                }
+                boolean lifecycleReleased = false;
+                Throwable settlementFailure = null;
+                try {
+                  if (!engineSwitchUiTracker.isSwitching(
                       lifecycleRestore.engineSwitchUiToken, lifecycleRestore.engineSwitchUiMain)) {
-                      throw new IllegalStateException(
-                          "Engine switch was superseded before final initialization");
-                    }
-                    Lizzie.PreparedEngineReadyPublication readyPublication =
-                        isMain
-                            ? lifecycleRestore.prepareAfterRestore(false, true)
-                            : null;
-                    if (isMain && readyPublication == null) {
-                      throw new IllegalStateException(
-                          "Primary engine changed before READY preparation");
-                    }
-                    lifecycleRestore.resumePonderAfterSuccessfulSynchronization();
-                    // Final selection/ACTIVE publication is terminal. Release every fallible
-                    // lifecycle owner first so a detach/reservation failure cannot leave a failed
-                    // target published as active.
-                    releaseLifecycle.run();
-                    lifecycleReleased = true;
-                    Runnable terminalPublication =
-                        completeOrdinaryEngineSwitchAtFinalFence(
-                            lifecycleRestore,
-                            targetIncarnation,
-                            mirrorIncarnation,
-                            readyPublication);
-                    terminalPublication.run();
-                  } catch (RuntimeException | Error failure) {
-                    settlementFailure = failure;
-                    settlementFailure =
-                        runLifecycleCleanupStep(
-                            settlementFailure,
-                            () ->
-                                failLifecycleFinalInitialization(
-                                    target,
-                                    isMain,
-                                    lifecycleRestore,
-                                    targetWasUnrestored,
-                                    failure));
-                  } finally {
-                    if (!lifecycleReleased) {
-                      settlementFailure =
-                          runLifecycleCleanupStep(settlementFailure, releaseLifecycle);
-                    }
-                    settlementFailure =
-                        runLifecycleCleanupStep(settlementFailure, finishTransaction);
+                    throw new IllegalStateException(
+                        "Engine switch was superseded before final initialization");
                   }
-                  rethrowLifecycleCleanupFailure(settlementFailure);
-                },
-                (failedEngine, detail) -> {
-                  if (!confirmationSettled.compareAndSet(false, true)) {
-                    return;
+                  Lizzie.PreparedEngineReadyPublication readyPublication =
+                      isMain ? lifecycleRestore.prepareAfterRestore(false, true) : null;
+                  if (isMain && readyPublication == null) {
+                    throw new IllegalStateException(
+                        "Primary engine changed before READY preparation");
                   }
-                  failLifecycleBoardSynchronization(
-                      target,
-                      failedEngine,
-                      detail,
-                      targetWasUnrestored,
-                      releaseFailedLifecycle,
-                      engineSwitchUiToken(lifecycleRestore));
-                });
+                  if (lifecycleRestore.initialStartupSynchronization != null) {
+                    lifecycleRestore.initialStartupSynchronization
+                        .completeConfirmedEngineAlignment();
+                  }
+                  lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
+                  // Final selection/ACTIVE publication is terminal. Release every fallible
+                  // lifecycle owner first so a detach/reservation failure cannot leave a failed
+                  // target published as active.
+                  releaseLifecycle.run();
+                  lifecycleReleased = true;
+                  Runnable terminalPublication =
+                      completeOrdinaryEngineSwitchAtFinalFence(
+                          lifecycleRestore, targetIncarnation, mirrorIncarnation, readyPublication);
+                  terminalPublication.run();
+                } catch (RuntimeException | Error failure) {
+                  settlementFailure = failure;
+                  settlementFailure =
+                      runLifecycleCleanupStep(
+                          settlementFailure,
+                          () ->
+                              failLifecycleFinalInitialization(
+                                  target, isMain, lifecycleRestore, targetWasUnrestored, failure));
+                } finally {
+                  if (!lifecycleReleased) {
+                    settlementFailure =
+                        runLifecycleCleanupStep(settlementFailure, releaseLifecycle);
+                  }
+                  settlementFailure = runLifecycleCleanupStep(settlementFailure, finishTransaction);
+                }
+                rethrowLifecycleCleanupFailure(settlementFailure);
+              },
+              (failedEngine, detail) -> {
+                if (!confirmationSettled.compareAndSet(false, true)) {
+                  return;
+                }
+                failLifecycleBoardSynchronization(
+                    target,
+                    failedEngine,
+                    detail,
+                    targetWasUnrestored,
+                    releaseFailedLifecycle,
+                    engineSwitchUiToken(lifecycleRestore));
+              });
         } catch (RuntimeException | Error confirmationFailure) {
           if (!confirmationSettled.compareAndSet(false, true)) {
             throw confirmationFailure;
@@ -11567,13 +11603,8 @@ public class EngineManager {
             () -> {
               try {
                 target.completeSecondaryExplicitRestartBoardSynchronization();
-                if (restartPonderIntent
-                    && current != null
-                    && current == Lizzie.leelaz
-                    && current.isStarted()
-                    && current.isLoaded()
-                    && !current.isCheckingName) {
-                  current.ponder();
+                if (current != null) {
+                  current.ponderAfterComparisonRestartIfAnalysisControlAllows(target);
                 }
                 target.setResponseUpToDate();
                 commitEngineSelectionAtFinalFence(lifecycleRestore);
@@ -11602,7 +11633,7 @@ public class EngineManager {
       return () -> {
         try {
           if (lifecycleRestore != null) {
-            lifecycleRestore.resumePonderAfterSuccessfulSynchronization();
+            lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
             commitEngineSelectionAtFinalFence(lifecycleRestore);
           }
           completeEngineSwitchUi(lifecycleRestore);
@@ -11647,7 +11678,7 @@ public class EngineManager {
                   target.initializeAfterExplicitRestartBoardSynchronization(restartPonderIntent);
                 }
               } else if (lifecycleRestore != null) {
-                lifecycleRestore.resumePonderAfterSuccessfulSynchronization();
+                lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
               }
               commitEngineSelectionAtFinalFence(lifecycleRestore);
               completeEngineSwitchUi(lifecycleRestore);
@@ -12284,7 +12315,12 @@ public class EngineManager {
     }
     boolean resumePonder =
         foregroundActivation
-            || (previousEngine != null && previousEngine.isPonderingOrWasPonderingBeforeTracking());
+            || (previousEngine != null
+                && previousEngine.isPonderingOrWasPonderingBeforeTracking())
+            || (!isMain
+                && Lizzie.config.isDoubleEngineMode()
+                && Lizzie.leelaz != null
+                && Lizzie.leelaz.isPonderingOrWasPonderingBeforeTracking());
     Leelaz proposedRestoreMirror =
         Lizzie.config.isDoubleEngineMode() ? (isMain ? Lizzie.leelaz2 : Lizzie.leelaz) : null;
     if (proposedRestoreMirror != null && !proposedRestoreMirror.hasGtpCapability()) {
@@ -14127,6 +14163,7 @@ public class EngineManager {
     private volatile boolean engineSwitchUiMain;
     private volatile boolean engineSwitchUiCompletionAtLifecycleFence;
     private volatile EngineSwitchTransaction engineSwitchTransaction;
+    private InitialEngineStartupSynchronization initialStartupSynchronization;
 
     private PreparedLifecycleRestore(
         Leelaz previousEngine,
@@ -14252,6 +14289,15 @@ public class EngineManager {
 
     private void confirmBoardSynchronization(
         Runnable onSuccess, java.util.function.BiConsumer<Leelaz, String> onFailure) {
+      if (initialStartupSynchronization != null) {
+        initialStartupSynchronization.confirmSwitchBoardSynchronization(onSuccess, onFailure);
+        return;
+      }
+      confirmCapturedBoardSynchronization(onSuccess, onFailure);
+    }
+
+    private void confirmCapturedBoardSynchronization(
+        Runnable onSuccess, java.util.function.BiConsumer<Leelaz, String> onFailure) {
       confirmBoardSynchronizationOnce(
           targetEngine,
           () -> {
@@ -14322,7 +14368,14 @@ public class EngineManager {
       targetEngine.initializeAfterExplicitRestartBoardSynchronization(resumePonder);
     }
 
-    private void resumePonderAfterSuccessfulSynchronization() {
+    private void resumePonderAfterSuccessfulSynchronization(boolean primarySwitch) {
+      if (!primarySwitch) {
+        Leelaz primary = mirrorEngine;
+        if (primary != null) {
+          primary.ponderAfterComparisonRestartIfAnalysisControlAllows(targetEngine);
+        }
+        return;
+      }
       if (resumePonder
           && targetEngine != null
           && targetEngine.isStarted()
@@ -14370,6 +14423,7 @@ public class EngineManager {
       this.exactRestore = lifecycleRestore.exactRestore;
       this.lifecycleRestore = lifecycleRestore;
       this.initialStartupSynchronization = initialStartupSynchronization;
+      lifecycleRestore.initialStartupSynchronization = initialStartupSynchronization;
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
       this.boardEmpty = boardEmpty;
@@ -14585,6 +14639,9 @@ public class EngineManager {
     private final Leelaz targetEngine;
     private final Leelaz mirrorEngine;
     private final Board board;
+    private final Leelaz rulesPrimaryEngine;
+    private final Leelaz rulesMirrorEngine;
+    private long rulesPrimaryGeneration;
     private final boolean resumePonder;
     private final boolean ensureRootReplayKomiTransport;
     private final Object lifecycleOwner;
@@ -14625,6 +14682,14 @@ public class EngineManager {
       this.previousEngine = previousEngine;
       this.targetEngine = targetEngine;
       this.mirrorEngine = mirrorEngine == targetEngine ? null : mirrorEngine;
+      boolean secondaryLifecycle =
+          this.mirrorEngine != null
+              && this.mirrorEngine == Lizzie.leelaz
+              && this.targetEngine != Lizzie.leelaz;
+      this.rulesPrimaryEngine = secondaryLifecycle ? this.mirrorEngine : this.targetEngine;
+      this.rulesMirrorEngine = secondaryLifecycle ? this.targetEngine : this.mirrorEngine;
+      this.rulesPrimaryGeneration =
+          Lizzie.capturePrimaryEngineGeneration(this.rulesPrimaryEngine);
       this.board = board;
       this.resumePonder = resumePonder;
       this.ensureRootReplayKomiTransport = ensureRootReplayKomiTransport;
@@ -14771,7 +14836,13 @@ public class EngineManager {
         if (beforeRestore != null) {
           beforeRestore.run();
         }
-        executePendingRoute(engineGameInitialization);
+        boolean rulesFrameCurrent = true;
+        if (!engineGameInitialization) {
+          rulesFrameCurrent = synchronizeCapturedSessionRules();
+        }
+        if (rulesFrameCurrent) {
+          executePendingRoute(engineGameInitialization);
+        }
         if (beforeReservationRelease != null) {
           beforeReservationRelease.run();
         }
@@ -14781,7 +14852,7 @@ public class EngineManager {
         }
         synchronized (board) {
           BoardFrame currentFrame = BoardFrame.capture(board);
-          if (capturedFrame.matches(currentFrame)) {
+          if (rulesFrameCurrent && capturedFrame.matches(currentFrame)) {
             endSynchronizationBarriers();
             stable = true;
           } else {
@@ -14832,6 +14903,114 @@ public class EngineManager {
           }
         }
         route.executeRootReplay(board, false, engineGameInitialization);
+      }
+    }
+
+    private boolean synchronizeCapturedSessionRules() {
+      if (rulesPrimaryGeneration < 0L) {
+        rulesPrimaryGeneration = Lizzie.capturePrimaryEngineGeneration(rulesPrimaryEngine);
+      }
+      BoardHistoryList.SessionRulesTarget target = capturedFrame.sessionRulesTarget;
+      BoardHistoryList history = board.getHistory();
+      if (history != null
+          && history.permitsAnalysisWithCurrentRules(
+              target, rulesPrimaryEngine, rulesPrimaryGeneration, rulesMirrorEngine)) {
+        return true;
+      }
+      if (target.kind() == BoardHistoryList.SessionRulesKind.VALID
+          && (!awaitCapturedRulesCapability(targetEngine)
+              || (mirrorEngine != null && !awaitCapturedRulesCapability(mirrorEngine)))) {
+        return false;
+      }
+      PreparedLifecycleRestore route = pendingRoute;
+      SessionRulesSynchronizer.Result targetResult =
+          SessionRulesSynchronizer.synchronize(target, targetEngine, route.admission);
+      if (!targetResult.satisfied()) {
+        if (!capturedRulesFrameIsCurrent()) {
+          return false;
+        }
+        if (Lizzie.frame != null
+            && Lizzie.frame.requestLifecycleRulesOverride(
+                target,
+                rulesPrimaryEngine,
+                rulesPrimaryGeneration,
+                rulesMirrorEngine,
+                targetResult)) {
+          return true;
+        }
+        return retireStaleRulesRoundOrThrow(
+            "Engine lifecycle rules synchronization failed: " + targetResult.failure());
+      }
+      if (mirrorEngine != null) {
+        SessionRulesSynchronizer.Result mirrorResult =
+            SessionRulesSynchronizer.synchronize(target, mirrorEngine, route.admission);
+        if (!mirrorResult.satisfied()) {
+          if (!capturedRulesFrameIsCurrent()) {
+            return false;
+          }
+          if (Lizzie.frame != null
+              && Lizzie.frame.requestLifecycleRulesOverride(
+                  target,
+                  rulesPrimaryEngine,
+                  rulesPrimaryGeneration,
+                  rulesMirrorEngine,
+                  mirrorResult)) {
+            return true;
+          }
+          return retireStaleRulesRoundOrThrow(
+              "Engine lifecycle mirror rules synchronization failed: " + mirrorResult.failure());
+        }
+      }
+      return true;
+    }
+
+    private boolean awaitCapturedRulesCapability(Leelaz engine) {
+      long deadline =
+          System.nanoTime()
+              + TimeUnit.MILLISECONDS.toNanos(
+                  Math.max(1L, engine.engineStartupSynchronizationTimeoutMillis()));
+      while (!engine.isRulesCapabilityDiscoveryComplete()) {
+        if (!capturedRulesFrameIsCurrent()) {
+          return false;
+        }
+        if (!engine.isStarted() || engine.isDownWithError || engine.isNormalEnd) {
+          return retireStaleRulesRoundOrThrow("Engine rules capability discovery failed");
+        }
+        if (System.nanoTime() >= deadline) {
+          return retireStaleRulesRoundOrThrow("Engine rules capability discovery timed out");
+        }
+        try {
+          Thread.sleep(50L);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          return retireStaleRulesRoundOrThrow(
+              "Engine rules capability discovery interrupted", interrupted);
+        }
+      }
+      return true;
+    }
+
+    private boolean retireStaleRulesRoundOrThrow(String message) {
+      synchronized (board) {
+        if (!capturedFrame.matches(BoardFrame.capture(board))) {
+          return false;
+        }
+        throw new IllegalStateException(message);
+      }
+    }
+
+    private boolean retireStaleRulesRoundOrThrow(String message, Throwable cause) {
+      synchronized (board) {
+        if (!capturedFrame.matches(BoardFrame.capture(board))) {
+          return false;
+        }
+        throw new IllegalStateException(message, cause);
+      }
+    }
+
+    private boolean capturedRulesFrameIsCurrent() {
+      synchronized (board) {
+        return capturedFrame.matches(BoardFrame.capture(board));
       }
     }
 
@@ -15077,9 +15256,56 @@ public class EngineManager {
       }
       PreparedLifecycleRestore route = pendingRoute;
       if (route != null) {
-        route.resumePonderAfterSuccessfulSynchronization();
+        route.resumePonderAfterSuccessfulSynchronization(true);
       }
       return readyPublication;
+    }
+
+    private void confirmSwitchBoardSynchronization(
+        Runnable onSuccess, java.util.function.BiConsumer<Leelaz, String> onFailure) {
+      pendingRoute.confirmCapturedBoardSynchronization(
+          () -> {
+            boolean current;
+            synchronized (board) {
+              current = capturedFrame.matches(BoardFrame.capture(board));
+            }
+            if (current) {
+              onSuccess.run();
+              return;
+            }
+            // A final-fence callback may run on the reader. Catch-up performs GTP off that thread.
+            ForkJoinPool.commonPool()
+                .execute(
+                    () -> {
+                      try {
+                        synchronized (board) {
+                          stable = false;
+                          barriersEnded.set(false);
+                          beginSynchronizationBarriers();
+                          capturedFrame = BoardFrame.capture(board);
+                          pendingRoute = captureRoute(false);
+                        }
+                        acquireReservation();
+                        runUntilStable();
+                        confirmSwitchBoardSynchronization(onSuccess, onFailure);
+                      } catch (RuntimeException | Error failure) {
+                        onFailure.accept(
+                            targetEngine,
+                            Leelaz.safeFailureDetail(failure, "switch completion catch-up failed"));
+                      }
+                    });
+          },
+          onFailure);
+    }
+
+    private void completeConfirmedEngineAlignment() {
+      if (!engineGameInitialization
+          && rulesPrimaryGeneration >= 0L
+          && Lizzie.capturePrimaryEngineGeneration(rulesPrimaryEngine) == rulesPrimaryGeneration
+          && rulesPrimaryEngine.activeComparisonEngine() == rulesMirrorEngine) {
+        board.completeEngineAlignment(
+            capturedFrame.root, capturedFrame.current, capturedFrame.contextRevision);
+      }
     }
 
     private void confirmFinalBoardSynchronization(
@@ -15110,7 +15336,12 @@ public class EngineManager {
           }
         }
         if (!catchUpRequired) {
-          claim.completeSuccess(onSuccess, onFailure);
+          claim.completeSuccess(
+              () -> {
+                completeConfirmedEngineAlignment();
+                onSuccess.run();
+              },
+              onFailure);
           return;
         }
         acquireReservation();
@@ -15210,6 +15441,7 @@ public class EngineManager {
     private final BoardHistoryNode root;
     private final BoardHistoryNode current;
     private final long contextRevision;
+    private final BoardHistoryList.SessionRulesTarget sessionRulesTarget;
     private final boolean blackToPlay;
     private final double komi;
     private final Zobrist zobrist;
@@ -15222,6 +15454,7 @@ public class EngineManager {
         BoardHistoryNode root,
         BoardHistoryNode current,
         long contextRevision,
+        BoardHistoryList.SessionRulesTarget sessionRulesTarget,
         boolean blackToPlay,
         double komi,
         Zobrist zobrist,
@@ -15232,6 +15465,7 @@ public class EngineManager {
       this.root = root;
       this.current = current;
       this.contextRevision = contextRevision;
+      this.sessionRulesTarget = sessionRulesTarget;
       this.blackToPlay = blackToPlay;
       this.komi = komi;
       this.zobrist = zobrist;
@@ -15249,6 +15483,7 @@ public class EngineManager {
           history == null ? null : history.getStart(),
           history == null ? null : history.getCurrentHistoryNode(),
           board == null ? 0L : board.getContextRevision(),
+          history == null ? null : history.captureSessionRules(),
           history != null && history.isBlacksTurn(),
           history == null || history.getGameInfo() == null
               ? Double.NaN
@@ -15268,11 +15503,16 @@ public class EngineManager {
       return boardHeight;
     }
 
+    BoardHistoryList.SessionRulesTarget sessionRulesTarget() {
+      return sessionRulesTarget;
+    }
+
     boolean matches(BoardFrame other) {
       return other != null
           && root == other.root
           && current == other.current
           && contextRevision == other.contextRevision
+          && sessionRulesTarget == other.sessionRulesTarget
           && blackToPlay == other.blackToPlay
           && Double.compare(komi, other.komi) == 0
           && java.util.Objects.equals(zobrist, other.zobrist)

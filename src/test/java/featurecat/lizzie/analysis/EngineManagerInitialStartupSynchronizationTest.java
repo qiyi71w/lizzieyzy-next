@@ -564,7 +564,8 @@ class EngineManagerInitialStartupSynchronizationTest {
             if (command.equals("clear_board") && delayFirstClearBoard.compareAndSet(true, false)) {
               firstClearBoardReceived.countDown();
               if (!navigationCompleted.await(2, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("navigation did not complete while GTP was delayed");
+                throw new IllegalStateException(
+                    "navigation did not complete while GTP was delayed");
               }
             }
           };
@@ -712,7 +713,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertEquals(8, board.getHistory().getMoveNumber(), "history cursor");
       assertEquals(8, engine.enginePosition.get(), "restarted engine position");
       assertEquals(2, engine.clearBoardCount.get(), "frozen route plus one catch-up route");
-      assertEquals(8, engine.playsAfterLastClear().size(), "the catch-up route must replay move eight");
+      assertEquals(
+          8, engine.playsAfterLastClear().size(), "the catch-up route must replay move eight");
       assertEquals(8, engine.analyzePosition(), "analysis position");
       assertEquals(1, engine.boardSynchronizationConfirmations, "restart target fence");
       assertFenceBeforeAnalyze(engine);
@@ -747,7 +749,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertTrue(target.startCompleted.await(2, TimeUnit.SECONDS), "target startup must begin");
       EngineManager.EngineSwitchUiSnapshot pendingSwitch = manager.engineSwitchUiSnapshot(true);
       assertEquals(EngineManager.EngineSwitchUiPhase.SWITCHING, pendingSwitch.phase());
-      assertEquals(0, pendingSwitch.activeIndex(), "the committed engine remains active while slow");
+      assertEquals(
+          0, pendingSwitch.activeIndex(), "the committed engine remains active while slow");
       assertEquals(1, pendingSwitch.targetIndex(), "the requested target is published immediately");
       navigateZeroToFiveToThree(board);
       target.publishReady();
@@ -1528,9 +1531,12 @@ class EngineManagerInitialStartupSynchronizationTest {
       staleEngine.boardSynchronizationGate = new CountDownLatch(1);
       staleEngine.normalQuitEntered = new CountDownLatch(1);
       staleEngine.normalQuitGate = staleEngine.boardSynchronizationCallbackCompleted;
+      activeEngine.boardSynchronizationGate = new CountDownLatch(1);
       staleEngine.normalQuitCompleted = new CountDownLatch(1);
-      Board staleBoard = boardWithHistory(emptyRootHistory(1));
-      Board activeBoard = boardWithHistory(emptyRootHistory(2));
+      Board staleBoard = boardWithHistory(emptyRootHistory(2));
+      staleBoard.getHistory().toStart();
+      Board activeBoard = staleBoard;
+      activeBoard.requireEngineAlignment();
       Lizzie.board = staleBoard;
 
       EngineManager staleManager =
@@ -1552,13 +1558,7 @@ class EngineManagerInitialStartupSynchronizationTest {
               false,
               new ArrayList<>(List.of(engineData(0, "active-reader-owner", false))),
               command -> activeEngine);
-      long activeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-      while ((activeManager.engineSwitchUiSnapshot(true).phase()
-                  != EngineManager.EngineSwitchUiPhase.ACTIVE
-              || managerAtomicReferenceValue(activeManager, "engineSwitchTransaction") != null)
-          && System.nanoTime() < activeDeadline) {
-        Thread.sleep(10L);
-      }
+      assertTrue(activeEngine.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
       assertSame(activeManager, Lizzie.engineManager);
       assertSame(activeEngine, Lizzie.leelaz);
 
@@ -1568,6 +1568,16 @@ class EngineManagerInitialStartupSynchronizationTest {
           "a stale ACK callback must return before its process shutdown completes");
       assertTrue(staleEngine.normalQuitEntered.await(2, TimeUnit.SECONDS));
       assertTrue(staleEngine.normalQuitCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(activeBoard.nextMove(false));
+      assertEquals(0, activeEngine.enginePosition.get(), "a stale owner cannot release navigation");
+      activeEngine.boardSynchronizationGate.countDown();
+      long activeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while ((activeManager.engineSwitchUiSnapshot(true).phase()
+                  != EngineManager.EngineSwitchUiPhase.ACTIVE
+              || managerAtomicReferenceValue(activeManager, "engineSwitchTransaction") != null)
+          && System.nanoTime() < activeDeadline) {
+        Thread.sleep(10L);
+      }
       long staleDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
       while (managerAtomicReferenceValue(staleManager, "engineSwitchTransaction") != null
           && System.nanoTime() < staleDeadline) {
@@ -1589,6 +1599,8 @@ class EngineManagerInitialStartupSynchronizationTest {
           activeManager.engineSwitchUiSnapshot(true).phase());
       assertLifecycleReservationReleased(staleEngine);
       assertLifecycleReservationReleased(activeEngine);
+      assertTrue(activeBoard.nextMove(false));
+      assertEquals(2, activeEngine.enginePosition.get(), "the current fence releases navigation");
     }
   }
 
@@ -1747,6 +1759,9 @@ class EngineManagerInitialStartupSynchronizationTest {
       StartupSyncLeelaz targetSecondary = new StartupSyncLeelaz();
       primary.started = true;
       primary.isLoaded = true;
+      primary.Pondering();
+      primary.analysisActive = true;
+      primary.boardSynchronizationGate = new CountDownLatch(1);
       currentSecondary.started = true;
       currentSecondary.isLoaded = true;
       targetSecondary.delayReadyAfterStart = true;
@@ -1756,6 +1771,7 @@ class EngineManagerInitialStartupSynchronizationTest {
       history.toStart();
       Board board = boardWithHistory(history);
       Lizzie.board = board;
+      board.requireEngineAlignment();
       Lizzie.leelaz = primary;
       Lizzie.leelaz2 = currentSecondary;
       EngineManager.isEmpty = false;
@@ -1773,21 +1789,145 @@ class EngineManagerInitialStartupSynchronizationTest {
       navigateZeroToFiveToThree(board);
       targetSecondary.publishReady();
 
+      assertTrue(primary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+      assertEquals(
+          1L,
+          targetSecondary.analysisStarted.getCount(),
+          "secondary analysis must remain stopped until the primary mirror fence succeeds");
+      assertEquals(0, primary.analyzeCount.get(), "primary must also wait for both fences");
+      assertFalse(primary.analysisActive);
+      assertFalse(targetSecondary.analysisActive);
+      assertTrue(board.previousMove(false));
+      assertTrue(board.nextMove(false));
+      assertEquals(3, primary.enginePosition.get(), "final-fence browsing stays local");
+      primary.boardSynchronizationGate.countDown();
       assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertTrue(
+          targetSecondary.analysisStarted.await(2, TimeUnit.SECONDS),
+          "a secondary switch must inherit the active primary analysis intent after"
+              + " synchronization");
+      long activeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (manager.engineSwitchUiSnapshot(false).phase()
+              != EngineManager.EngineSwitchUiPhase.ACTIVE
+          && System.nanoTime() < activeDeadline) {
+        Thread.sleep(10L);
+      }
+      assertEquals(
+          EngineManager.EngineSwitchUiPhase.ACTIVE, manager.engineSwitchUiSnapshot(false).phase());
+      assertEquals(
+          3, targetSecondary.analyzePosition.get(), "secondary converged analysis position");
+      assertEquals(1, targetSecondary.analyzeCount.get(), "secondary analysis resume count");
+      assertEquals(1, primary.analyzeCount.get(), "primary analysis must restart after its clear");
+      assertEquals(3, primary.analyzePosition.get(), "primary converged analysis position");
+      assertTrue(primary.analysisActive);
+      assertTrue(targetSecondary.analysisActive);
       assertSame(primary, Lizzie.leelaz);
       assertSame(targetSecondary, Lizzie.leelaz2);
       assertEquals(0, EngineManager.currentEngineNo);
       assertEquals(2, EngineManager.currentEngineNo2);
       assertEquals(3, primary.enginePosition.get(), "primary mirror position");
-      assertEquals(2, primary.clearBoardCount.get(), "mirror frozen route plus catch-up");
-      assertEquals(2, targetSecondary.clearBoardCount.get(), "target frozen route plus catch-up");
+      assertEquals(3, primary.clearBoardCount.get(), "mirror initial and final-fence catch-up");
+      assertEquals(
+          3, targetSecondary.clearBoardCount.get(), "target initial and final-fence catch-up");
       assertEquals(3, targetSecondary.enginePosition.get(), "secondary target position");
-      assertEquals(1, primary.boardSynchronizationConfirmations, "primary mirror fence");
-      assertEquals(1, targetSecondary.boardSynchronizationConfirmations, "secondary target fence");
+      assertEquals(
+          2, primary.boardSynchronizationConfirmations, "primary catches up before resume");
+      assertEquals(
+          2, targetSecondary.boardSynchronizationConfirmations, "secondary catch-up fence");
       assertEngineMatchesBoard(primary, board, 19, 19);
       assertEngineMatchesBoard(targetSecondary, board, 19, 19);
       assertLifecycleReservationReleased(currentSecondary);
       assertLifecycleReservationReleased(targetSecondary);
+      assertTrue(board.nextMove(false));
+      assertEquals(4, primary.enginePosition.get(), "aligned navigation resumes incrementally");
+      assertEquals(4, targetSecondary.enginePosition.get());
+      assertEquals(3, primary.clearBoardCount.get());
+    }
+  }
+
+  @Test
+  void secondarySwitchDoesNotRestoreAnalysisAfterPrimaryIsPausedDuringFinalFence()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz currentSecondary = new StartupSyncLeelaz();
+      StartupSyncLeelaz targetSecondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      primary.boardSynchronizationGate = new CountDownLatch(1);
+      currentSecondary.started = true;
+      currentSecondary.isLoaded = true;
+      targetSecondary.delayReadyAfterStart = true;
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Double_Engine;
+      Lizzie.board = boardWithHistory(emptyRootHistory(3));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = currentSecondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(
+              new ArrayList<>(List.of(primary, currentSecondary, targetSecondary)));
+      Lizzie.engineManager = manager;
+
+      assertTrue(manager.switchEngineIfAvailable(2, false));
+      assertTrue(targetSecondary.startCompleted.await(2, TimeUnit.SECONDS));
+      targetSecondary.publishReady();
+      assertTrue(primary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+
+      SilentStartupFrame frame = (SilentStartupFrame) Lizzie.frame;
+      primary.pauseForAnalysisControl(
+          () -> {
+            frame.userAnalysisPaused = true;
+            primary.notPondering();
+          });
+      primary.boardSynchronizationGate.countDown();
+
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertEquals(0, targetSecondary.analyzeCount.get());
+      assertEquals(0, primary.analyzeCount.get());
+      assertFalse(primary.isPondering());
+      assertTrue(frame.userAnalysisPaused);
+      assertLifecycleReservationReleased(targetSecondary);
+    }
+  }
+
+  @Test
+  void secondarySwitchOutsideDoubleEngineModeDoesNotInheritPrimaryAnalysisIntent()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz currentSecondary = new StartupSyncLeelaz();
+      StartupSyncLeelaz targetSecondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      currentSecondary.started = true;
+      currentSecondary.isLoaded = true;
+      targetSecondary.delayReadyAfterStart = true;
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Normal;
+      Lizzie.board = boardWithHistory(emptyRootHistory(0));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = currentSecondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(
+              new ArrayList<>(List.of(primary, currentSecondary, targetSecondary)));
+      Lizzie.engineManager = manager;
+
+      assertTrue(manager.switchEngineIfAvailable(2, false));
+      assertTrue(targetSecondary.startCompleted.await(2, TimeUnit.SECONDS));
+      targetSecondary.publishReady();
+
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertEquals(1L, targetSecondary.analysisStarted.getCount());
+      assertEquals(0, targetSecondary.analyzeCount.get());
+      assertSame(targetSecondary, Lizzie.leelaz2);
     }
   }
 
@@ -2068,6 +2208,112 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertFenceBeforeAnalyze(primary);
       assertEngineMatchesBoard(primary, board, 19, 19);
       assertEngineMatchesBoard(secondary, board, 19, 19);
+      assertLifecycleReservationReleased(secondary);
+    }
+  }
+
+  @Test
+  void secondaryRestartDoesNotRestoreAnalysisAfterPrimaryIsPausedDuringFinalFence()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz secondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      secondary.started = true;
+      secondary.isLoaded = true;
+      secondary.delayReadyAfterStart = true;
+      secondary.boardSynchronizationGate = new CountDownLatch(1);
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Double_Engine;
+      Lizzie.board = boardWithHistory(emptyRootHistory(2));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = secondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(primary, secondary)));
+      Lizzie.engineManager = manager;
+
+      manager.reStartEngine2();
+      assertTrue(secondary.startCompleted.await(2, TimeUnit.SECONDS));
+      secondary.publishReady();
+      assertTrue(secondary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+
+      primary.notPondering();
+      secondary.boardSynchronizationGate.countDown();
+
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      assertEquals(1L, primary.analysisStarted.getCount());
+      assertEquals(0, primary.analyzeCount.get());
+      assertFalse(primary.isPondering());
+      assertLifecycleReservationReleased(secondary);
+    }
+  }
+
+  @Test
+  void secondaryRestartPonderHandoffLinearizesBeforeUserPause() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz primary = new StartupSyncLeelaz();
+      StartupSyncLeelaz secondary = new StartupSyncLeelaz();
+      primary.started = true;
+      primary.isLoaded = true;
+      primary.Pondering();
+      primary.ponderCommandSent = new CountDownLatch(1);
+      primary.ponderAfterCommandGate = new CountDownLatch(1);
+      secondary.started = true;
+      secondary.isLoaded = true;
+      secondary.delayReadyAfterStart = true;
+      secondary.boardSynchronizationGate = new CountDownLatch(1);
+      Lizzie.config.fastChange = true;
+      Lizzie.config.extraMode = featurecat.lizzie.ExtraMode.Double_Engine;
+      Lizzie.board = boardWithHistory(emptyRootHistory(2));
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = secondary;
+      EngineManager.isEmpty = false;
+      EngineManager.currentEngineNo = 0;
+      EngineManager.currentEngineNo2 = 1;
+      ProductionEntryEngineManager manager =
+          new ProductionEntryEngineManager(new ArrayList<>(List.of(primary, secondary)));
+      Lizzie.engineManager = manager;
+
+      manager.reStartEngine2();
+      assertTrue(secondary.startCompleted.await(2, TimeUnit.SECONDS));
+      secondary.publishReady();
+      assertTrue(secondary.boardSynchronizationEntered.await(2, TimeUnit.SECONDS));
+      secondary.boardSynchronizationGate.countDown();
+      assertTrue(primary.ponderCommandSent.await(2, TimeUnit.SECONDS));
+
+      SilentStartupFrame frame = (SilentStartupFrame) Lizzie.frame;
+      CountDownLatch pauseRecorded = new CountDownLatch(1);
+      Thread pauseThread =
+          new Thread(
+              () ->
+                  primary.pauseForAnalysisControl(
+                      () -> {
+                        frame.userAnalysisPaused = true;
+                        primary.sendCommand("name");
+                        primary.notPondering();
+                        pauseRecorded.countDown();
+                      }));
+      pauseThread.start();
+      assertFalse(
+          pauseRecorded.await(100, TimeUnit.MILLISECONDS),
+          "pause must wait for the in-flight ponder handoff critical section");
+
+      primary.ponderAfterCommandGate.countDown();
+      assertTrue(pauseRecorded.await(2, TimeUnit.SECONDS));
+      pauseThread.join(TimeUnit.SECONDS.toMillis(2));
+      assertFalse(pauseThread.isAlive());
+      assertTrue(manager.firstSynchronizationCompleted.await(2, TimeUnit.SECONDS));
+      int analyzeCountAfterPause = primary.analyzeCount.get();
+
+      assertEquals(1, analyzeCountAfterPause);
+      assertFalse(primary.isPondering());
+      assertTrue(frame.userAnalysisPaused);
+      assertEquals(analyzeCountAfterPause, primary.analyzeCount.get());
       assertLifecycleReservationReleased(secondary);
     }
   }
@@ -2644,8 +2890,15 @@ class EngineManagerInitialStartupSynchronizationTest {
                 int commandsBefore = engine.commands.size();
                 // H3 stepIn admission path on the removed-stone snapshot anchor itself.
                 BoardHistoryNode snapshotNode =
-                    board.getHistory().getStart().next().orElseThrow().next().orElseThrow()
-                        .next().orElseThrow();
+                    board
+                        .getHistory()
+                        .getStart()
+                        .next()
+                        .orElseThrow()
+                        .next()
+                        .orElseThrow()
+                        .next()
+                        .orElseThrow();
                 snapshotNode.clearAndSyncBoard(true);
                 // Forward over the SNAPSHOT and the real tail with refresh.
                 for (int step = 1; step <= 5; step++) {
@@ -2668,7 +2921,8 @@ class EngineManagerInitialStartupSynchronizationTest {
                 assertEquals(
                     commandsBefore,
                     engine.commands.size(),
-                    "ordinary live-board sync must not reach the engine while the barrier is active");
+                    "ordinary live-board sync must not reach the engine while the barrier is"
+                        + " active");
               } catch (Throwable failure) {
                 navigationFailure.set(failure);
               }
@@ -3177,7 +3431,8 @@ class EngineManagerInitialStartupSynchronizationTest {
 
         assertTrue(
             manager.switchEngineIfAvailable(2, true),
-            "a blocked failed-process shutdown must not hold the manager gate for other identities");
+            "a blocked failed-process shutdown must not hold the manager gate for other"
+                + " identities");
         assertTrue(alternative.analysisStarted.await(2, TimeUnit.SECONDS));
         assertTrue(manager.secondSynchronizationCompleted.await(2, TimeUnit.SECONDS));
         long alternativeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
@@ -3435,7 +3690,8 @@ class EngineManagerInitialStartupSynchronizationTest {
               postReopenKomi.set(board.getHistory().getGameInfo().getKomi());
               assertFalse(
                   engine.commands.stream().anyMatch(command -> command.startsWith("boardsize")),
-                  "ordinary board-size resync must not reach the engine while the barrier is active");
+                  "ordinary board-size resync must not reach the engine while the barrier is"
+                      + " active");
             }
           };
 
@@ -4018,7 +4274,8 @@ class EngineManagerInitialStartupSynchronizationTest {
                 assertEquals(
                     commandsBefore,
                     engine.commands.size(),
-                    "ordinary MOVE navigation must not inject live-board commands during admission");
+                    "ordinary MOVE navigation must not inject live-board commands during"
+                        + " admission");
               } catch (Throwable failure) {
                 navigationFailure.set(failure);
               }
@@ -4109,7 +4366,8 @@ class EngineManagerInitialStartupSynchronizationTest {
         assertFalse(
             engine.submitOrdinaryLiveBoardForwarding(
                 EngineManager.OrdinaryLiveBoardForwardingIntent.of(() -> true)),
-            "ordinary forwarding must stay occupied while failure cleanup still holds the reservation");
+            "ordinary forwarding must stay occupied while failure cleanup still holds the"
+                + " reservation");
       }
 
       cleanupThread.join(2_000L);
@@ -4247,7 +4505,8 @@ class EngineManagerInitialStartupSynchronizationTest {
   void captureFailureRetainsPrimaryFailureWhenReservationCleanupAlsoFails() throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       StartupSyncLeelaz engine = new StartupSyncLeelaz();
-      RuntimeException captureFailure = new IllegalStateException("controlled route capture failure");
+      RuntimeException captureFailure =
+          new IllegalStateException("controlled route capture failure");
       CaptureFailureBoard board = allocate(CaptureFailureBoard.class);
       board.startStonelist = new ArrayList<>();
       board.movelistwr = new ArrayList<>();
@@ -4426,25 +4685,31 @@ class EngineManagerInitialStartupSynchronizationTest {
               "bundled-ready-version-parser");
       primaryOwner.setDaemon(true);
       parser.setDaemon(true);
-      primaryOwner.start();
-      assertTrue(primaryHeld.await(2, TimeUnit.SECONDS));
-      parser.start();
-      assertTrue(
-          awaitThreadState(parser, Thread.State.BLOCKED, 2_000L),
-          "the parser should reach the bundled PRIMARY fence while it is held");
+      try {
+        primaryOwner.start();
+        assertTrue(primaryHeld.await(2, TimeUnit.SECONDS));
+        parser.start();
+        assertTrue(
+            awaitPrimaryFence(parser),
+            "the parser should reach the bundled PRIMARY fence while it is held");
 
-      attemptEngineMonitor.countDown();
-      assertTrue(
-          engineMonitorAcquired.await(2, TimeUnit.SECONDS),
-          "PRIMARY -> engine monitor must not deadlock with the name/version parser");
-      primaryOwner.join(2_000L);
-      parser.join(2_000L);
+        attemptEngineMonitor.countDown();
+        assertTrue(
+            engineMonitorAcquired.await(2, TimeUnit.SECONDS),
+            "PRIMARY -> engine monitor must not deadlock with the name/version parser");
+        primaryOwner.join(2_000L);
+        parser.join(2_000L);
 
-      assertFalse(primaryOwner.isAlive());
-      assertFalse(parser.isAlive());
-      assertNull(primaryFailure.get());
-      assertNull(parserFailure.get());
-      assertFalse(engine.isCheckingVersion);
+        assertFalse(primaryOwner.isAlive());
+        assertFalse(parser.isAlive());
+        assertNull(primaryFailure.get());
+        assertNull(parserFailure.get());
+        assertFalse(engine.isCheckingVersion);
+      } finally {
+        attemptEngineMonitor.countDown();
+        primaryOwner.join(2_000L);
+        parser.join(2_000L);
+      }
     }
   }
 
@@ -4511,21 +4776,27 @@ class EngineManagerInitialStartupSynchronizationTest {
               "stale-bundled-version-parser");
       primaryOwner.setDaemon(true);
       parser.setDaemon(true);
-      primaryOwner.start();
-      assertTrue(primaryHeld.await(2, TimeUnit.SECONDS));
-      parser.start();
-      assertTrue(awaitThreadState(parser, Thread.State.BLOCKED, 2_000L));
+      try {
+        primaryOwner.start();
+        assertTrue(primaryHeld.await(2, TimeUnit.SECONDS));
+        parser.start();
+        assertTrue(awaitPrimaryFence(parser));
 
-      replaceStartup.countDown();
-      primaryOwner.join(2_000L);
-      parser.join(2_000L);
+        replaceStartup.countDown();
+        primaryOwner.join(2_000L);
+        parser.join(2_000L);
 
-      assertFalse(primaryOwner.isAlive());
-      assertFalse(parser.isAlive());
-      assertNull(ownerFailure.get());
-      assertNull(parserFailure.get());
-      assertSame(replacementStatus.get(), Lizzie.engineStartupStatus.snapshot());
-      assertEquals(EngineStartupStatus.State.CHECKING, replacementStatus.get().state);
+        assertFalse(primaryOwner.isAlive());
+        assertFalse(parser.isAlive());
+        assertNull(ownerFailure.get());
+        assertNull(parserFailure.get());
+        assertSame(replacementStatus.get(), Lizzie.engineStartupStatus.snapshot());
+        assertEquals(EngineStartupStatus.State.CHECKING, replacementStatus.get().state);
+      } finally {
+        replaceStartup.countDown();
+        primaryOwner.join(2_000L);
+        parser.join(2_000L);
+      }
     }
   }
 
@@ -4583,21 +4854,28 @@ class EngineManagerInitialStartupSynchronizationTest {
               "stale-kata-name-parser");
       primaryOwner.setDaemon(true);
       parser.setDaemon(true);
-      primaryOwner.start();
-      assertTrue(primaryHeld.await(2, TimeUnit.SECONDS));
-      parser.start();
-      assertTrue(awaitThreadState(parser, Thread.State.BLOCKED, 2_000L));
+      try {
+        primaryOwner.start();
+        assertTrue(primaryHeld.await(2, TimeUnit.SECONDS));
+        parser.start();
+        assertTrue(awaitPrimaryFence(parser));
 
-      rebindReader.countDown();
-      primaryOwner.join(2_000L);
-      parser.join(2_000L);
+        rebindReader.countDown();
+        primaryOwner.join(2_000L);
+        parser.join(2_000L);
 
-      assertFalse(primaryOwner.isAlive());
-      assertFalse(parser.isAlive());
-      assertNull(ownerFailure.get());
-      assertNull(parserFailure.get());
-      assertTrue(engine.commands.isEmpty(), "the old reader must not configure the rebound engine");
-      assertFalse(engine.getRcentLine, "the old reader must not arm a parameter-read timeout");
+        assertFalse(primaryOwner.isAlive());
+        assertFalse(parser.isAlive());
+        assertNull(ownerFailure.get());
+        assertNull(parserFailure.get());
+        assertTrue(
+            engine.commands.isEmpty(), "the old reader must not configure the rebound engine");
+        assertFalse(engine.getRcentLine, "the old reader must not arm a parameter-read timeout");
+      } finally {
+        rebindReader.countDown();
+        primaryOwner.join(2_000L);
+        parser.join(2_000L);
+      }
     }
   }
 
@@ -4639,7 +4917,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertFalse(parser.isAlive());
       assertNull(parserFailure.get());
       assertTrue(engine.isCheckingName, "the replacement reader must still await its own name");
-      assertFalse(engine.isLoaded, "the retired reader must not mark the replacement runtime ready");
+      assertFalse(
+          engine.isLoaded, "the retired reader must not mark the replacement runtime ready");
       assertFalse(engine.isKatago, "the retired name must not classify the replacement runtime");
     }
   }
@@ -4777,7 +5056,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertSame(commandFailure, startupFailure.getCause());
       assertTrue(engine.startupCommandAttempts.contains(failedCommand));
       assertFalse(engine.isLoaded, "SAI post-work failure must not publish startup readiness");
-      assertTrue(engine.isDownWithError, "SAI post-work failure must fail the exact runtime closed");
+      assertTrue(
+          engine.isDownWithError, "SAI post-work failure must fail the exact runtime closed");
       assertEquals(0, env.readyTransitions.get() - readyBaseline);
     }
   }
@@ -5215,7 +5495,8 @@ class EngineManagerInitialStartupSynchronizationTest {
       assertTrue(awaitCondition(() -> engine.isDownWithError, 2_000L));
       assertFalse(engine.isLoaded);
       assertEquals(0, env.readyTransitions.get() - readyBaseline);
-      assertTrue(engine.transport.commands().isEmpty(), "a stale receipt must authorize zero bytes");
+      assertTrue(
+          engine.transport.commands().isEmpty(), "a stale receipt must authorize zero bytes");
       assertEquals(1, ((Number) getLeelazField(engine, "cmdNumber")).intValue());
 
       engine.installFreshCommandOutputForTest(new ByteArrayOutputStream());
@@ -5918,6 +6199,19 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
   }
 
+  private static boolean awaitPrimaryFence(Thread thread) throws InterruptedException {
+    return awaitCondition(
+        () -> {
+          for (StackTraceElement frame : thread.getStackTrace()) {
+            if (frame.getClassName().equals(Lizzie.class.getName())
+                && (frame.getMethodName().equals("runIfPrimaryEngine")
+                    || frame.getMethodName().equals("capturePrimaryEngineGeneration"))) return true;
+          }
+          return false;
+        },
+        2_000L);
+  }
+
   private static boolean awaitThreadState(Thread thread, Thread.State state, long timeoutMillis)
       throws InterruptedException {
     long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
@@ -6232,7 +6526,8 @@ class EngineManagerInitialStartupSynchronizationTest {
           }
         } catch (InterruptedException interrupted) {
           Thread.currentThread().interrupt();
-          throw new IllegalStateException("controlled startup output dispatch interrupted", interrupted);
+          throw new IllegalStateException(
+              "controlled startup output dispatch interrupted", interrupted);
         }
         throw outputDispatchFailureAfterStart;
       }
@@ -6551,6 +6846,7 @@ class EngineManagerInitialStartupSynchronizationTest {
     private final AtomicInteger enginePosition = new AtomicInteger();
     private final AtomicInteger analyzePosition = new AtomicInteger(-1);
     private final AtomicInteger analyzeCount = new AtomicInteger();
+    private volatile boolean analysisActive;
     private final AtomicInteger diagnosticCount = new AtomicInteger();
     private final AtomicInteger loadSgfCount = new AtomicInteger();
     private final AtomicInteger clearBoardCount = new AtomicInteger();
@@ -6627,6 +6923,11 @@ class EngineManagerInitialStartupSynchronizationTest {
                   beforeCommand.beforeCommand(command);
                 }
                 commands.add(command);
+                if (command.equals("clear_board")
+                    || command.startsWith("loadsgf ")
+                    || command.startsWith("play ")
+                    || command.equals("undo")
+                    || command.equals("stop")) analysisActive = false;
                 if (command.startsWith("play ")) {
                   enginePosition.incrementAndGet();
                   String[] parts = command.split("\\s+");
@@ -6671,8 +6972,8 @@ class EngineManagerInitialStartupSynchronizationTest {
                     return ExactSnapshotRestoreProtocolFixture.Response.error(
                         "snapshot sgf unreadable: " + sgfPath);
                   }
-                } else if (command.startsWith("lz-analyze")
-                    || command.startsWith("kata-analyze")) {
+                } else if (command.startsWith("lz-analyze") || command.startsWith("kata-analyze")) {
+                  analysisActive = true;
                   analyzeCount.incrementAndGet();
                   analyzePosition.set(enginePosition.get());
                   lifecycleEvents.add("analyze");
@@ -7482,6 +7783,13 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   private static final class SilentStartupFrame extends LizzieFrame {
+    private volatile boolean userAnalysisPaused;
+
+    @Override
+    public boolean isUserAnalysisPaused() {
+      return userAnalysisPaused;
+    }
+
     @Override
     public void refresh() {}
 

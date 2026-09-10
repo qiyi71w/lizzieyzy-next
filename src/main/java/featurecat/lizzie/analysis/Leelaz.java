@@ -55,11 +55,14 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -461,10 +464,11 @@ public class Leelaz {
   public volatile String recentRulesLine = "";
   public int usingSpecificRules = -1; // 1=中国规则2=中古规则3=日本规则4=TT规则5=其他规则
   private final Object engineRulesLock = new Object();
+  private final ThreadLocal<EngineRulesOperation> engineRulesOperationContext =
+      new ThreadLocal<>();
   private long engineRulesGeneration;
   private volatile EngineRulesResult engineRulesResult = EngineRulesResult.idle();
-  private boolean engineRulesIsolated;
-  private boolean engineRulesAwaitingSet;
+  private EngineRulesOperation activeEngineRulesOperation;
   private volatile boolean autoSettleMatchRulesForTest;
   private volatile MatchRulesTestHook matchRulesTestHook;
   public boolean preload = false;
@@ -1124,6 +1128,10 @@ public class Leelaz {
   public boolean hasGtpCapability() {
     return !isBenchmark();
   }
+  public boolean isRulesCapabilityDiscoveryComplete() {
+    return started && endGetCommandList;
+  }
+
 
   public BenchmarkExecution benchmarkExecution() {
     return currentBenchmarkExecution;
@@ -3133,6 +3141,14 @@ public class Leelaz {
     synchronized (engineArbitrationLock()) {
       return readerStreamBinding;
     }
+  }
+
+  public Object engineIncarnationToken() {
+    return captureEngineIncarnationFence();
+  }
+
+  public boolean isCurrentEngineIncarnationToken(Object token) {
+    return isCurrentEngineIncarnation(token);
   }
 
   Object analysisOutputRecoveryToken(Object expectedIncarnation) {
@@ -10110,14 +10126,21 @@ public class Leelaz {
       ReaderStreamBinding binding,
       Runnable onResponse,
       CommandSendFailureHandler onSendFailure) {
+    sendStartupPostActionCommand(command, binding, onResponse, onSendFailure, true);
+  }
+
+  private void sendStartupPostActionCommand(
+      String command,
+      ReaderStreamBinding binding,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure,
+      boolean waitForDelivery) {
     EngineManager.EngineGameOwnerTransaction transaction = engineGameStartupCommandContext.get();
     if (transaction != null && !EngineManager.isCurrentEngineGameTransaction(transaction)) {
       throw new IllegalStateException("engine-game startup transaction is no longer current");
     }
     EngineGameStartupCommandPermit engineGamePermit =
-        transaction == null
-            ? null
-            : new EngineGameStartupCommandPermit(this, transaction, binding);
+        transaction == null ? null : new EngineGameStartupCommandPermit(this, transaction, binding);
     StartupCommandDelivery delivery =
         new StartupCommandDelivery(command, binding, engineGamePermit);
     boolean accepted;
@@ -10162,7 +10185,9 @@ public class Leelaz {
                   "Failed to schedule startup command output: " + command, schedulingFailure);
       abortStartupCommandDelivery(delivery, failure);
     }
-    awaitStartupCommandDelivery(delivery);
+    if (waitForDelivery) {
+      awaitStartupCommandDelivery(delivery);
+    }
   }
 
   private void awaitStartupCommandDelivery(StartupCommandDelivery delivery) {
@@ -10314,6 +10339,10 @@ public class Leelaz {
 
   /** Test seam after cancellation ownership and before the cancelled command leaves its queue. */
   void afterStartupCommandCancellationClaimBeforeQueueRemoval() {}
+  /** Test seam immediately before an engine-rules command claims physical output. */
+  void beforeEngineRulesCommandPhysicalWrite(String command) {}
+  /** Test seam after matching an engine-rules response handler, before response dispatch. */
+  void afterEngineRulesResponseHandlerPeek() {}
 
   private void abortStartupCommandDelivery(
       StartupCommandDelivery delivery, RuntimeException failure) {
@@ -10850,6 +10879,7 @@ public class Leelaz {
       }
     }
     Leelaz mirroredEngine = mirrorToSecondEngine ? resolveDefaultCommandMirrorEngine() : null;
+    boolean defaultMirrorMustRemainAbsent = mirrorToSecondEngine && mirroredEngine == null;
     String mirroredCommand =
         mirroredEngine == null ? null : mirroredEngine.prepareDefaultMirroredCommand(command);
     if (mirroredCommand == null) {
@@ -10862,31 +10892,71 @@ public class Leelaz {
             && !Thread.holdsLock(mirroredEngine.engineArbitrationLock())
             && !Thread.holdsLock(commandQueue())
             && !Thread.holdsLock(mirroredEngine.commandQueue());
-    boolean enqueued =
-        atomicallyMirrored
-            ? enqueueOrdinaryCommandWithMirror(
-                command,
-                onResponse,
-                onSendFailure,
-                failOnSendError || foregroundRestoreCommandSession.get() != null,
-                settlement,
-                releaseReason,
-                rejectForExclusiveWinner,
-                readBoardGmaResponseBinding,
-                mirroredEngine,
-                mirroredCommand)
-            : enqueueOrdinaryCommand(
-                command,
-                onResponse,
-                onSendFailure,
-                failOnSendError || foregroundRestoreCommandSession.get() != null,
-                settlement,
-                releaseReason,
-                rejectForExclusiveWinner,
-                true,
-                false,
-                readBoardGmaResponseBinding,
-                null);
+    EngineRulesOperation rulesOperation = engineRulesOperationContext.get();
+    boolean enqueued;
+    if (rulesOperation == null) {
+      enqueued =
+          atomicallyMirrored
+              ? enqueueOrdinaryCommandWithMirror(
+                  command,
+                  onResponse,
+                  onSendFailure,
+                  failOnSendError || foregroundRestoreCommandSession.get() != null,
+                  settlement,
+                  releaseReason,
+                  rejectForExclusiveWinner,
+                  readBoardGmaResponseBinding,
+                  mirroredEngine,
+                  mirroredCommand)
+              : enqueueOrdinaryCommand(
+                  command,
+                  onResponse,
+                  onSendFailure,
+                  failOnSendError || foregroundRestoreCommandSession.get() != null,
+                  settlement,
+                  releaseReason,
+                  rejectForExclusiveWinner,
+                  true,
+                  false,
+                  readBoardGmaResponseBinding,
+                  null,
+                  defaultMirrorMustRemainAbsent);
+    } else {
+      synchronized (engineRulesLock) {
+        if (!isCurrentEngineRulesOperationLocked(rulesOperation)
+            || rulesOperation.readerBinding == null
+            || currentReaderStreamBinding() != rulesOperation.readerBinding
+            || rulesOperation.readerBinding.terminated) {
+          return false;
+        }
+        enqueued =
+            atomicallyMirrored
+                ? enqueueOrdinaryCommandWithMirror(
+                    command,
+                    onResponse,
+                    onSendFailure,
+                    failOnSendError || foregroundRestoreCommandSession.get() != null,
+                    settlement,
+                    releaseReason,
+                    rejectForExclusiveWinner,
+                    readBoardGmaResponseBinding,
+                    mirroredEngine,
+                    mirroredCommand)
+                : enqueueOrdinaryCommand(
+                    command,
+                    onResponse,
+                    onSendFailure,
+                    failOnSendError || foregroundRestoreCommandSession.get() != null,
+                    settlement,
+                    releaseReason,
+                    rejectForExclusiveWinner,
+                    true,
+                    false,
+                    readBoardGmaResponseBinding,
+                    null,
+                    false);
+      }
+    }
     if (!enqueued) {
       if (startupTransaction != null) {
         throw new IllegalStateException(
@@ -10953,6 +11023,53 @@ public class Leelaz {
     return adapted;
   }
 
+  private boolean withOrdinaryAnalysisSelectionLocks(
+      String command,
+      Leelaz mirroredEngine,
+      String mirroredCommand,
+      EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission,
+      boolean defaultMirrorMustRemainAbsent,
+      Supplier<Boolean> admission) {
+    if (startupTransactionAtAdmission != null) {
+      return admission.get();
+    }
+    if (!isOrdinaryPositionAnalysisCommand(command)
+        && (mirroredCommand == null || !isOrdinaryPositionAnalysisCommand(mirroredCommand))) {
+      return admission.get();
+    }
+    Leelaz primary = Lizzie.leelaz;
+    if (primary == null) {
+      return admission.get();
+    }
+    Leelaz activeMirror = primary.activeComparisonEngine();
+    if (mirroredEngine != null && mirroredEngine != activeMirror) {
+      return false;
+    }
+    long primaryGeneration = Lizzie.capturePrimaryEngineGeneration(primary);
+    if (primaryGeneration < 0L) {
+      return false;
+    }
+    Supplier<Boolean> rulesAdmission =
+        () ->
+            SessionRulesSynchronizer.withOrdinaryAnalysisAdmission(this, mirroredEngine, admission);
+    Supplier<Boolean> primaryAdmission =
+        () ->
+            !defaultMirrorMustRemainAbsent || resolveDefaultCommandMirrorEngine() == null
+                ? Lizzie.tryCallIfPrimaryEngine(primary, primaryGeneration, rulesAdmission)
+                : Boolean.FALSE;
+    do {
+      Boolean accepted =
+          EngineManager.callIfCurrentAnalysisSelection(
+              primary, activeMirror, mirroredEngine, primaryAdmission);
+      if (accepted != null) {
+        return accepted;
+      }
+      // A primary-owned restore may need selection for physical output. Wait only after
+      // releasing selection, then retry the same generation and comparison identity.
+    } while (Lizzie.capturePrimaryEngineGeneration(primary) == primaryGeneration);
+    return false;
+  }
+
   /** Atomically appends one ordinary command to both endpoint queues in stable lock order. */
   private boolean enqueueOrdinaryCommandWithMirror(
       String command,
@@ -10975,71 +11092,133 @@ public class Leelaz {
         engineGameStartupCommandContext.get();
     OrdinaryEnqueueEffects effects = new OrdinaryEnqueueEffects();
     OrdinaryEnqueueEffects mirroredEffects = mirroredEngine.new OrdinaryEnqueueEffects();
+    boolean analysisCommand =
+        startupTransactionAtAdmission == null
+            && (isOrdinaryPositionAnalysisCommand(command)
+                || isOrdinaryPositionAnalysisCommand(mirroredCommand));
     boolean accepted =
-        withOrderedEngineArbitrationAndQueueLocks(
-            this,
-            mirroredEngine,
-            () -> {
-              if (!canAdmitOrdinaryCommandLocked(
-                      command,
-                      releaseReason,
-                      rejectForExclusiveWinner,
-                      readBoardGmaResponseBinding,
-                      null,
-                      bootstrapReceipt,
-                      startupTransactionAtAdmission)
-                  || !mirroredEngine.canAdmitOrdinaryCommandLocked(
-                      mirroredCommand,
-                      TrackingReleaseReason.ORDINARY_OPERATION,
-                      true,
-                      null,
-                      null,
-                      mirroredBootstrapReceipt,
-                      null)) {
-                return false;
-              }
-              QueuedCommand primaryCommand =
-                  enqueueAdmittedOrdinaryCommandLocked(
-                      command,
-                      onResponse,
-                      onSendFailure,
-                      failOnSendError,
-                      settlement,
-                      releaseReason,
-                      true,
-                      false,
-                      readBoardGmaResponseBinding,
-                      null,
-                      bootstrapReceipt,
-                      effects);
-              QueuedCommand mirrorCommand =
-                  mirroredEngine.enqueueAdmittedOrdinaryCommandLocked(
-                      mirroredCommand,
-                      null,
-                      null,
-                      mirroredEngine.foregroundRestoreCommandSession.get() != null,
-                      null,
-                      TrackingReleaseReason.ORDINARY_OPERATION,
-                      true,
-                      false,
-                      null,
-                      null,
-                      mirroredBootstrapReceipt,
-                      mirroredEffects);
-              primaryCommand.installInternalSendFailureHandler(
-                  failure ->
-                      mirroredEngine.cancelPairedOrdinaryCommandBeforeOutputWrite(
-                          mirrorCommand, failure));
-              mirrorCommand.installInternalSendFailureHandler(
-                  failure -> cancelPairedOrdinaryCommandBeforeOutputWrite(primaryCommand, failure));
-              return true;
-            });
+        analysisCommand
+            ? withOrdinaryAnalysisSelectionLocks(
+                command,
+                mirroredEngine,
+                mirroredCommand,
+                null,
+                false,
+                () ->
+                    enqueueOrdinaryCommandWithMirrorUnderLocks(
+                        command,
+                        onResponse,
+                        onSendFailure,
+                        failOnSendError,
+                        settlement,
+                        releaseReason,
+                        rejectForExclusiveWinner,
+                        readBoardGmaResponseBinding,
+                        mirroredEngine,
+                        mirroredCommand,
+                        bootstrapReceipt,
+                        mirroredBootstrapReceipt,
+                        startupTransactionAtAdmission,
+                        effects,
+                        mirroredEffects))
+            : enqueueOrdinaryCommandWithMirrorUnderLocks(
+                command,
+                onResponse,
+                onSendFailure,
+                failOnSendError,
+                settlement,
+                releaseReason,
+                rejectForExclusiveWinner,
+                readBoardGmaResponseBinding,
+                mirroredEngine,
+                mirroredCommand,
+                bootstrapReceipt,
+                mirroredBootstrapReceipt,
+                startupTransactionAtAdmission,
+                effects,
+                mirroredEffects);
     if (!accepted) {
       return false;
     }
     publishOrdinaryEnqueueEffects(effects);
     mirroredEngine.publishOrdinaryEnqueueEffects(mirroredEffects);
     return true;
+  }
+
+  private boolean enqueueOrdinaryCommandWithMirrorUnderLocks(
+      String command,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure,
+      boolean failOnSendError,
+      QueuedCommandSettlement settlement,
+      TrackingReleaseReason releaseReason,
+      boolean rejectForExclusiveWinner,
+      ReaderStreamBinding readBoardGmaResponseBinding,
+      Leelaz mirroredEngine,
+      String mirroredCommand,
+      RestartBootstrapReceipt bootstrapReceipt,
+      RestartBootstrapReceipt mirroredBootstrapReceipt,
+      EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission,
+      OrdinaryEnqueueEffects effects,
+      OrdinaryEnqueueEffects mirroredEffects) {
+    return withOrderedEngineArbitrationAndQueueLocks(
+        this,
+        mirroredEngine,
+        () -> {
+          if (!canAdmitOrdinaryCommandLocked(
+                  command,
+                  releaseReason,
+                  rejectForExclusiveWinner,
+                  readBoardGmaResponseBinding,
+                  null,
+                  bootstrapReceipt,
+                  startupTransactionAtAdmission)
+              || !mirroredEngine.canAdmitOrdinaryCommandLocked(
+                  mirroredCommand,
+                  TrackingReleaseReason.ORDINARY_OPERATION,
+                  true,
+                  null,
+                  null,
+                  mirroredBootstrapReceipt,
+                  null)) {
+            return false;
+          }
+          QueuedCommand primaryCommand =
+              enqueueAdmittedOrdinaryCommandLocked(
+                  command,
+                  onResponse,
+                  onSendFailure,
+                  failOnSendError,
+                  settlement,
+                  releaseReason,
+                  true,
+                  false,
+                  readBoardGmaResponseBinding,
+                  null,
+                  bootstrapReceipt,
+                  effects);
+          QueuedCommand mirrorCommand =
+              mirroredEngine.enqueueAdmittedOrdinaryCommandLocked(
+                  mirroredCommand,
+                  null,
+                  null,
+                  mirroredEngine.foregroundRestoreCommandSession.get() != null,
+                  null,
+                  TrackingReleaseReason.ORDINARY_OPERATION,
+                  true,
+                  false,
+                  null,
+                  null,
+                  mirroredBootstrapReceipt,
+                  mirroredEffects);
+          primaryCommand.installInternalSendFailureHandler(
+              failure ->
+                  mirroredEngine.cancelPairedOrdinaryCommandBeforeOutputWrite(
+                      mirrorCommand, failure));
+          mirrorCommand.installInternalSendFailureHandler(
+              failure -> cancelPairedOrdinaryCommandBeforeOutputWrite(primaryCommand, failure));
+          return true;
+        });
   }
 
   /** Fallback for the rare legacy call site that already owns an endpoint command queue. */
@@ -11059,7 +11238,8 @@ public class Leelaz {
       boolean countCommand,
       boolean noLeelaz2Coalescing,
       ReaderStreamBinding readBoardGmaResponseBinding,
-      Object expectedLeela0110StateToken) {
+      Object expectedLeela0110StateToken,
+      boolean defaultMirrorMustRemainAbsent) {
     if (!hasGtpCapability()) {
       return false;
     }
@@ -11109,6 +11289,67 @@ public class Leelaz {
       return true;
     }
     OrdinaryEnqueueEffects effects = new OrdinaryEnqueueEffects();
+    boolean accepted =
+        isOrdinaryPositionAnalysisCommand(command)
+            ? withOrdinaryAnalysisSelectionLocks(
+                command,
+                null,
+                null,
+                startupTransactionAtAdmission,
+                defaultMirrorMustRemainAbsent,
+                () ->
+                    enqueueOrdinaryCommandUnderLocks(
+                        command,
+                        onResponse,
+                        onSendFailure,
+                        failOnSendError,
+                        settlement,
+                        releaseReason,
+                        rejectForExclusiveWinner,
+                        countCommand,
+                        noLeelaz2Coalescing,
+                        readBoardGmaResponseBinding,
+                        expectedLeela0110StateToken,
+                        bootstrapReceipt,
+                        startupTransactionAtAdmission,
+                        effects))
+            : enqueueOrdinaryCommandUnderLocks(
+                command,
+                onResponse,
+                onSendFailure,
+                failOnSendError,
+                settlement,
+                releaseReason,
+                rejectForExclusiveWinner,
+                countCommand,
+                noLeelaz2Coalescing,
+                readBoardGmaResponseBinding,
+                expectedLeela0110StateToken,
+                bootstrapReceipt,
+                startupTransactionAtAdmission,
+                effects);
+    if (!accepted) {
+      return false;
+    }
+    publishOrdinaryEnqueueEffects(effects);
+    return true;
+  }
+
+  private boolean enqueueOrdinaryCommandUnderLocks(
+      String command,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure,
+      boolean failOnSendError,
+      QueuedCommandSettlement settlement,
+      TrackingReleaseReason releaseReason,
+      boolean rejectForExclusiveWinner,
+      boolean countCommand,
+      boolean noLeelaz2Coalescing,
+      ReaderStreamBinding readBoardGmaResponseBinding,
+      Object expectedLeela0110StateToken,
+      RestartBootstrapReceipt bootstrapReceipt,
+      EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission,
+      OrdinaryEnqueueEffects effects) {
     synchronized (engineArbitrationLock()) {
       synchronized (commandQueue()) {
         if (!canAdmitOrdinaryCommandLocked(
@@ -11136,7 +11377,6 @@ public class Leelaz {
             effects);
       }
     }
-    publishOrdinaryEnqueueEffects(effects);
     return true;
   }
 
@@ -11166,6 +11406,9 @@ public class Leelaz {
         || (exclusiveGtpLifecycleQueueGate
             && !isExactSnapshotRestoreAdmissionContextActive()
             && !isCurrentRestartBootstrapReceiptLocked(bootstrapReceipt))
+        || (startupTransactionAtAdmission == null
+            && isOrdinaryPositionAnalysisCommand(command)
+            && !SessionRulesSynchronizer.permitsOrdinaryAnalysis(this))
         || (readBoardGmaResponseBinding != null
             && (readerStreamBinding != readBoardGmaResponseBinding
                 || readBoardGmaResponseBinding.terminated))
@@ -11584,6 +11827,10 @@ public class Leelaz {
     return null;
   }
 
+  public Leelaz activeComparisonEngine() {
+    return resolveLoadSgfMirrorEngine();
+  }
+
   private static Leelaz gtpCapableRestoreMirror(Leelaz source, Leelaz candidate) {
     if (source == null || candidate == null || source == candidate) {
       return null;
@@ -11927,7 +12174,8 @@ public class Leelaz {
         false,
         true,
         commandBinding,
-        expectedLeela0110StateToken)) {
+        expectedLeela0110StateToken,
+        false)) {
       if (startupTransaction != null) {
         throw new IllegalStateException(
             "engine-game startup command was rejected before enqueue: " + command);
@@ -12110,6 +12358,9 @@ public class Leelaz {
     Runnable deferredResponse = null;
     Throwable sendFailure = null;
     try {
+      if (queuedCommand.onResponse instanceof EngineRulesResponseHandler) {
+        beforeEngineRulesCommandPhysicalWrite(command);
+      }
       deferredResponse =
           sendCommandToLeelaz(command, queuedCommand);
     } catch (RuntimeException | Error ex) {
@@ -12219,6 +12470,12 @@ public class Leelaz {
         queuedCommand.cancelBeforeOutputWrite(
             new IllegalStateException(
                 "GTP command reader binding changed before physical output write"));
+        finishRejectedCommandBeforeOutputWrite(queuedCommand, pendingHandler);
+        return null;
+      }
+      if (!isCurrentEngineRulesCommand(queuedCommand)) {
+        queuedCommand.cancelBeforeOutputWrite(
+            new IllegalStateException("Engine-rules operation is no longer current"));
         finishRejectedCommandBeforeOutputWrite(queuedCommand, pendingHandler);
         return null;
       }
@@ -12860,13 +13117,17 @@ public class Leelaz {
         || command.startsWith("kata-raw")
         || command.startsWith("heat");
   }
+
   private PendingResponseHandler buildPendingResponseHandler(
       String command, Runnable handler, QueuedCommand queuedCommand) {
     boolean exactLoadSgf = isExactSnapshotLoadSgf(command, handler);
     ReaderStreamBinding responseBinding = queuedCommand.readBoardGmaResponseBinding;
-    int protocolId = nextResponseCommandId(command, handler, queuedCommand);
+    if (responseBinding == null && handler instanceof EngineRulesResponseHandler) {
+      responseBinding = ((EngineRulesResponseHandler) handler).readerBinding;
+    }
     String engineId =
         loggingEngineId != null ? loggingEngineId : EngineObservation.identityFor(this);
+    int protocolId = nextResponseCommandId(command, handler, queuedCommand);
     return new PendingResponseHandler(
         command,
         handler,
@@ -13327,6 +13588,7 @@ public class Leelaz {
       return false;
     }
     if (pending.handler instanceof EngineRulesResponseHandler) {
+      afterEngineRulesResponseHandlerPeek();
       return line.startsWith("?") || line.startsWith("=");
     }
     if (!isRecentParameterReadCommand(pending.command)) {
@@ -13338,16 +13600,6 @@ public class Leelaz {
     }
     String payload = gtpResponsePayload(line);
     if (pending.command.equals("kata-get-rules")) {
-      if (!payload.startsWith("{")) {
-        return true;
-      }
-      String normalizedRulesLine = "= " + payload;
-      recentRulesLine = normalizedRulesLine;
-      if (this == Lizzie.leelaz && Lizzie.config != null) {
-        Lizzie.config.currentKataGoRules = normalizedRulesLine;
-      }
-      getSuicidalAndRules();
-      getRcentLine = false;
       return true;
     }
     try {
@@ -17428,6 +17680,9 @@ public class Leelaz {
   private static final class AutomaticRestartRound {
     private final Leelaz target;
     private final Leelaz mirror;
+    private final Leelaz rulesPrimary;
+    private final Leelaz rulesMirror;
+    private long rulesPrimaryGeneration;
     private final Board board;
     private final Object owner;
     private final ExactSnapshotRestoreAdmission admission;
@@ -17451,6 +17706,11 @@ public class Leelaz {
         EngineManager.BoardFrame capturedFrame) {
       this.target = target;
       this.mirror = mirror;
+      boolean secondaryLifecycle =
+          mirror != null && mirror == Lizzie.leelaz && target != Lizzie.leelaz;
+      this.rulesPrimary = secondaryLifecycle ? mirror : target;
+      this.rulesMirror = secondaryLifecycle ? target : mirror;
+      this.rulesPrimaryGeneration = Lizzie.capturePrimaryEngineGeneration(rulesPrimary);
       this.board = board;
       this.owner = owner;
       this.admission = admission;
@@ -17523,13 +17783,82 @@ public class Leelaz {
       return resumePonder;
     }
 
-    private void execute() {
+
+    private boolean synchronizeSessionRules() {
+      BoardHistoryList.SessionRulesTarget rulesTarget = capturedFrame.sessionRulesTarget();
+      if (rulesTarget == null) {
+        return true;
+      }
+      if (rulesPrimaryGeneration < 0L) {
+        rulesPrimaryGeneration = Lizzie.capturePrimaryEngineGeneration(rulesPrimary);
+      }
+      SessionRulesSynchronizer.Result targetResult =
+          SessionRulesSynchronizer.synchronize(rulesTarget, target, admission);
+      if (!targetResult.satisfied()) {
+        if (!capturedRulesFrameIsCurrent()) {
+          return false;
+        }
+        if (Lizzie.frame != null
+            && Lizzie.frame.requestLifecycleRulesOverride(
+                rulesTarget,
+                rulesPrimary,
+                rulesPrimaryGeneration,
+                rulesMirror,
+                targetResult)) {
+          return true;
+        }
+        return retireStaleRulesRoundOrThrow(
+            "Automatic restart rules synchronization failed: " + targetResult.failure());
+      }
+      if (mirror != null) {
+        SessionRulesSynchronizer.Result mirrorResult =
+            SessionRulesSynchronizer.synchronize(rulesTarget, mirror, admission);
+        if (!mirrorResult.satisfied()) {
+          if (!capturedRulesFrameIsCurrent()) {
+            return false;
+          }
+          if (Lizzie.frame != null
+              && Lizzie.frame.requestLifecycleRulesOverride(
+                  rulesTarget,
+                  rulesPrimary,
+                  rulesPrimaryGeneration,
+                  rulesMirror,
+                  mirrorResult)) {
+            return true;
+          }
+          return retireStaleRulesRoundOrThrow(
+              "Automatic restart mirror rules synchronization failed: " + mirrorResult.failure());
+        }
+      }
+      return true;
+    }
+
+    private boolean capturedRulesFrameIsCurrent() {
+      synchronized (board) {
+        return capturedFrame.matches(EngineManager.BoardFrame.capture(board));
+      }
+    }
+    private boolean retireStaleRulesRoundOrThrow(String message) {
+      synchronized (board) {
+        if (!capturedFrame.matches(EngineManager.BoardFrame.capture(board))) {
+          return false;
+        }
+        throw new IllegalStateException(message);
+      }
+    }
+
+
+    private boolean execute() {
+      if (!synchronizeSessionRules()) {
+        return false;
+      }
       reconcileCapturedBoardSize();
       if (preparedRestore != null) {
         board.resendMoveToEngine(target, false, preparedRestore);
       } else if (board != null) {
         executeRootReplay();
       }
+      return true;
     }
 
     private void reconcileCapturedBoardSize() {
@@ -17702,12 +18031,12 @@ public class Leelaz {
           if (Lizzie.board != board) {
             throw new IllegalStateException("Automatic restart Board changed during convergence");
           }
-          pendingRound.execute();
+          boolean rulesFrameCurrent = pendingRound.execute();
           releaseRoundReservation();
           boolean stable;
           synchronized (board) {
             EngineManager.BoardFrame currentFrame = EngineManager.BoardFrame.capture(board);
-            stable = pendingRound.capturedFrame.matches(currentFrame);
+            stable = rulesFrameCurrent && pendingRound.capturedFrame.matches(currentFrame);
             if (stable) {
               endBoardSynchronization();
             } else {
@@ -22222,6 +22551,30 @@ public class Leelaz {
     YikeSyncDebugLog.log("Leelaz togglePonder after isPondering=" + isPondering);
   }
 
+
+  /** Reissues primary analysis after a comparison restart without crossing a later user pause. */
+  public boolean ponderAfterComparisonRestartIfAnalysisControlAllows(Leelaz comparisonEngine) {
+    synchronized (analysisControlPonderLock()) {
+      if (comparisonEngine == null
+          || Lizzie.config == null
+          || !Lizzie.config.isDoubleEngineMode()
+          || Lizzie.leelaz != this
+          || activeComparisonEngine() != comparisonEngine
+          || (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused())
+          || !isPonderingOrWasPonderingBeforeTracking()
+          || !isStarted()
+          || !isLoaded()
+          || isCheckingName
+          || !comparisonEngine.isStarted()
+          || !comparisonEngine.isLoaded()
+          || comparisonEngine.isCheckingName) {
+        return false;
+      }
+      ponder();
+      return true;
+    }
+  }
+
   /**
    * Linearizes the analysis-control pause with tracking and ExclusiveGtp ponder handback.
    *
@@ -23336,84 +23689,147 @@ public class Leelaz {
     return engineRulesResult;
   }
 
+  public EngineRulesOperation engineRulesOperation() {
+    synchronized (engineRulesLock) {
+      return activeEngineRulesOperation;
+    }
+  }
+
+  public EngineRulesOperation applyEngineRulesOperation(KataGoRules rules) {
+    return applyEngineRulesOperation(rules, TimeUnit.SECONDS.toMillis(30), false);
+  }
+
   public boolean applyEngineRules(KataGoRules rules) {
-    return applyEngineRules(rules, TimeUnit.SECONDS.toMillis(30), false);
+    return applyEngineRulesOperation(rules).accepted();
+  }
+
+  EngineRulesOperation applyEngineRulesOperation(KataGoRules rules, long timeoutMillis) {
+    return applyEngineRulesOperation(rules, timeoutMillis, false);
   }
 
   boolean applyEngineRules(KataGoRules rules, long timeoutMillis) {
-    return applyEngineRules(rules, timeoutMillis, false);
+    return applyEngineRulesOperation(rules, timeoutMillis).accepted();
+  }
+
+  public EngineRulesOperation applyEngineRulesForMatchOwnerOperation(KataGoRules rules) {
+    return applyEngineRulesOperation(rules, TimeUnit.SECONDS.toMillis(30), true);
   }
 
   public boolean applyEngineRulesForMatchOwner(KataGoRules rules) {
-    return applyEngineRules(rules, TimeUnit.SECONDS.toMillis(30), true);
+    return applyEngineRulesForMatchOwnerOperation(rules).accepted();
   }
 
-  boolean applyEngineRules(KataGoRules rules, long timeoutMillis, boolean matchOwner) {
+  private EngineRulesOperation applyEngineRulesOperation(
+      KataGoRules rules, long timeoutMillis, boolean matchOwner) {
     Objects.requireNonNull(rules, "rules");
-    if (!matchOwner && isRulesMutationOccupied()) {
-      beginEngineRulesOperation(false, rules, lastObservedRules(), false);
-      failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.OCCUPIED);
-      return false;
+    EngineRulesOperation operation =
+        beginEngineRulesOperation(false, rules, lastObservedRules(), false);
+    ExactSnapshotRestoreAdmission restoreAdmission = operation.restoreAdmission;
+    boolean lifecycleOwner =
+        restoreAdmission != null && isExactSnapshotRestoreAdmissionValid(restoreAdmission);
+    if (!matchOwner && !lifecycleOwner && isRulesMutationOccupied()) {
+      failEngineRules(operation, EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.OCCUPIED);
+      return operation;
     }
     if (autoSettleMatchRulesForTest) {
-      return settleMatchRulesForTest(rules, true);
+      return settleMatchRulesForTest(operation, rules, true);
     }
     if (!waitForCommandList(timeoutMillis)) {
-      beginEngineRulesOperation(false, rules, lastObservedRules(), false);
       failEngineRules(
+          operation,
           EngineRulesResult.Status.CAPABILITY_FAILED,
           started && !isDownWithError
               ? EngineRulesResult.Reason.LIST_COMMANDS_TIMEOUT
               : EngineRulesResult.Reason.LIST_COMMANDS_FAILED);
-      return false;
+      return operation;
     }
     boolean canSet = commandLists.contains("kata-set-rules");
     boolean canQuery = commandLists.contains("kata-get-rules");
-    beginEngineRulesOperation(false, rules, lastObservedRules(), true);
-    updateEngineRulesCapabilities(canSet, canQuery);
+    updateEngineRulesCapabilities(operation, canSet, canQuery);
     if (!canSet) {
-      failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.SET_UNSUPPORTED);
-      return false;
+      failEngineRules(operation, EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.SET_UNSUPPORTED);
+      return operation;
     }
-    engineRulesAwaitingSet = true;
-    scheduleEngineRulesTimeout(engineRulesGeneration, timeoutMillis);
-    sendEngineRulesCommand("kata-set-rules " + rules.toGtpArgument(), true);
-    return true;
+    synchronized (engineRulesLock) {
+      if (isCurrentEngineRulesOperationLocked(operation)) {
+        operation.awaitingSet = true;
+      }
+    }
+    scheduleEngineRulesTimeout(operation, timeoutMillis);
+    sendEngineRulesCommand(operation, "kata-set-rules " + rules.toGtpArgument(), true);
+    return operation;
+  }
+
+  public EngineRulesOperation queryEngineRulesOperation() {
+    return queryEngineRulesOperation(TimeUnit.SECONDS.toMillis(30));
   }
 
   public boolean queryEngineRules() {
-    return queryEngineRules(TimeUnit.SECONDS.toMillis(30));
+    return queryEngineRulesOperation().accepted();
+  }
+
+  public EngineRulesOperation queryEngineRulesForMatchOwnerOperation() {
+    return queryEngineRulesOperation(TimeUnit.SECONDS.toMillis(30));
   }
 
   public boolean queryEngineRulesForMatchOwner() {
-    return queryEngineRules(TimeUnit.SECONDS.toMillis(30));
+    return queryEngineRulesForMatchOwnerOperation().accepted();
   }
 
-  boolean queryEngineRules(long timeoutMillis) {
+  EngineRulesOperation queryEngineRulesOperation(long timeoutMillis) {
+    EngineRulesOperation operation =
+        beginEngineRulesOperation(false, null, lastObservedRules(), false);
     if (autoSettleMatchRulesForTest) {
-      return settleMatchRulesForTest(null, false);
+      return settleMatchRulesForTest(operation, null, false);
     }
     if (!waitForCommandList(timeoutMillis)) {
-      beginEngineRulesOperation(false, null, lastObservedRules(), false);
       failEngineRules(
+          operation,
           EngineRulesResult.Status.CAPABILITY_FAILED,
           started && !isDownWithError
               ? EngineRulesResult.Reason.LIST_COMMANDS_TIMEOUT
               : EngineRulesResult.Reason.LIST_COMMANDS_FAILED);
-      return false;
+      return operation;
     }
     boolean canSet = commandLists.contains("kata-set-rules");
     boolean canQuery = commandLists.contains("kata-get-rules");
-    beginEngineRulesOperation(false, null, lastObservedRules(), true);
-    updateEngineRulesCapabilities(canSet, canQuery);
+    updateEngineRulesCapabilities(operation, canSet, canQuery);
     if (!canQuery) {
-      unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
-      return false;
+      unconfirmEngineRules(operation, EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      return operation;
     }
-    engineRulesAwaitingSet = false;
-    scheduleEngineRulesTimeout(engineRulesGeneration, timeoutMillis);
-    sendEngineRulesCommand("kata-get-rules", false);
-    return true;
+    synchronized (engineRulesLock) {
+      if (isCurrentEngineRulesOperationLocked(operation)) {
+        operation.awaitingSet = false;
+      }
+    }
+    scheduleEngineRulesTimeout(operation, timeoutMillis);
+    sendEngineRulesCommand(operation, "kata-get-rules", false);
+    return operation;
+  }
+
+  private EngineRulesOperation queryEngineRulesOperationImmediately(long timeoutMillis) {
+    EngineRulesOperation operation =
+        beginEngineRulesOperation(false, null, lastObservedRules(), false);
+    boolean capabilitiesKnown = endGetCommandList;
+    boolean canSet = capabilitiesKnown && commandLists.contains("kata-set-rules");
+    boolean canQuery = !capabilitiesKnown || commandLists.contains("kata-get-rules");
+    updateEngineRulesCapabilities(operation, canSet, canQuery);
+    if (!canQuery) {
+      unconfirmEngineRules(operation, EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      return operation;
+    }
+    synchronized (engineRulesLock) {
+      if (isCurrentEngineRulesOperationLocked(operation)) {
+        operation.awaitingSet = false;
+      }
+    }
+    scheduleEngineRulesTimeout(operation, timeoutMillis);
+    sendEngineRulesCommand(operation, "kata-get-rules", false);
+    return operation;
+  }
+  boolean queryEngineRules(long timeoutMillis) {
+    return queryEngineRulesOperation(timeoutMillis).accepted();
   }
 
   void confirmKataRulesAfterStartup(boolean isolated) {
@@ -23423,64 +23839,79 @@ public class Leelaz {
 
   void confirmKataRulesAfterStartup(
       boolean isolated, long capabilityWaitMillis, long commandTimeoutMillis) {
-    beginEngineRulesOperation(isolated, requestedStartupRules(), lastObservedRules(), false);
+    EngineRulesOperation operation =
+        beginEngineRulesOperation(isolated, requestedStartupRules(), lastObservedRules(), false);
     if (endGetCommandList) {
-      finishKataRulesAfterStartup(commandTimeoutMillis);
+      finishKataRulesAfterStartup(operation, commandTimeoutMillis);
       return;
     }
-    final long generation = engineRulesGeneration;
     Thread waiter =
         new Thread(
             () -> {
               boolean ready = waitForCommandList(capabilityWaitMillis);
               synchronized (engineRulesLock) {
-                if (generation != engineRulesGeneration) {
+                if (!isCurrentEngineRulesOperationLocked(operation)) {
                   return;
                 }
               }
               if (!ready) {
                 failEngineRules(
+                    operation,
                     EngineRulesResult.Status.CAPABILITY_FAILED,
                     started && !isDownWithError
                         ? EngineRulesResult.Reason.LIST_COMMANDS_TIMEOUT
                         : EngineRulesResult.Reason.LIST_COMMANDS_FAILED);
                 return;
               }
-              finishKataRulesAfterStartup(commandTimeoutMillis);
+              finishKataRulesAfterStartup(operation, commandTimeoutMillis);
             },
             "lizzie-engine-rules-startup");
     waiter.setDaemon(true);
     waiter.start();
   }
 
-  private void finishKataRulesAfterStartup(long commandTimeoutMillis) {
+  private void finishKataRulesAfterStartup(
+      EngineRulesOperation operation, long commandTimeoutMillis) {
     boolean canSet = commandLists.contains("kata-set-rules");
     boolean canQuery = commandLists.contains("kata-get-rules");
     boolean autoLoad = Lizzie.config != null && Lizzie.config.autoLoadKataRules;
     KataGoRules requested = autoLoad && canSet ? requestedStartupRules() : null;
     synchronized (engineRulesLock) {
-      engineRulesResult =
+      if (!isCurrentEngineRulesOperationLocked(operation)) {
+        return;
+      }
+      EngineRulesResult current = engineRulesResult;
+      EngineRulesResult pending =
           EngineRulesResult.pending(
-                  engineRulesResult.generation(),
+                  operation.generation,
                   requested,
-                  engineRulesResult.observed(),
+                  current.observed(),
                   canSet,
                   canQuery)
-              .withCommandIds(engineRulesResult.setCommandId(), engineRulesResult.queryCommandId());
+              .withCommandIds(current.setCommandId(), current.queryCommandId());
+      publishEngineRulesResultLocked(operation, pending);
     }
     if (autoLoad && canSet && requested != null) {
-      engineRulesAwaitingSet = true;
-      scheduleEngineRulesTimeout(engineRulesGeneration, commandTimeoutMillis);
-      sendEngineRulesCommand("kata-set-rules " + requested.toGtpArgument(), true);
+      synchronized (engineRulesLock) {
+        if (isCurrentEngineRulesOperationLocked(operation)) {
+          operation.awaitingSet = true;
+        }
+      }
+      scheduleEngineRulesTimeout(operation, commandTimeoutMillis);
+      sendEngineRulesCommand(operation, "kata-set-rules " + requested.toGtpArgument(), true);
       return;
     }
     if (canQuery) {
-      engineRulesAwaitingSet = false;
-      scheduleEngineRulesTimeout(engineRulesGeneration, commandTimeoutMillis);
-      sendEngineRulesCommand("kata-get-rules", false);
+      synchronized (engineRulesLock) {
+        if (isCurrentEngineRulesOperationLocked(operation)) {
+          operation.awaitingSet = false;
+        }
+      }
+      scheduleEngineRulesTimeout(operation, commandTimeoutMillis);
+      sendEngineRulesCommand(operation, "kata-get-rules", false);
       return;
     }
-    unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+    unconfirmEngineRules(operation, EngineRulesResult.Reason.QUERY_UNSUPPORTED);
   }
 
   public boolean isRulesMutationOccupied() {
@@ -23498,85 +23929,258 @@ public class Leelaz {
     }
     return KataGoRules.parse(Lizzie.config.kataRules).orElse(null);
   }
+  private ReaderStreamBinding captureEngineRulesStartupBinding() {
+    Object startupContext = startupPostActionCommandContext.get();
+    if (startupContext instanceof StartupPostActionLease) {
+      return ((StartupPostActionLease) startupContext).binding;
+    }
+    return startupContext instanceof ReaderStreamBinding
+        ? (ReaderStreamBinding) startupContext
+        : null;
+  }
 
-  private void beginEngineRulesOperation(
+  private EngineRulesOperation beginEngineRulesOperation(
       boolean isolated, KataGoRules requested, KataGoRules lastKnown, boolean capabilitiesKnown) {
+    ReaderStreamBinding binding = currentReaderStreamBinding();
+    EngineManager.EngineGameOwnerTransaction engineGameTransaction =
+        engineGameStartupCommandContext.get();
+    ReaderStreamBinding startupCommandBinding = captureEngineRulesStartupBinding();
+    if (startupCommandBinding == null && engineGameTransaction != null) {
+      startupCommandBinding = binding;
+    }
+    EngineRulesOperation replaced = null;
+    EngineRulesResult replacedResult = null;
+    ExactSnapshotRestoreAdmission restoreAdmission = exactSnapshotRestoreAdmissionContext.get();
+    if (restoreAdmission != null && !isExactSnapshotRestoreAdmissionValid(restoreAdmission)) {
+      restoreAdmission = null;
+    }
+    EngineRulesOperation operation;
     synchronized (engineRulesLock) {
+      replaced = activeEngineRulesOperation;
+      if (replaced != null && !replaced.isTerminalLocked()) {
+        EngineRulesResult.Status status =
+            replaced.awaitingSet ? EngineRulesResult.Status.SET_FAILED : EngineRulesResult.Status.QUERY_FAILED;
+        replacedResult = replaced.snapshot.failed(status, EngineRulesResult.Reason.REPLACED);
+        replaced.markTerminalLocked(replacedResult);
+      }
       engineRulesGeneration++;
-      engineRulesIsolated = isolated;
-      engineRulesAwaitingSet = false;
       boolean canSet = capabilitiesKnown && commandLists.contains("kata-set-rules");
       boolean canQuery = capabilitiesKnown && commandLists.contains("kata-get-rules");
-      engineRulesResult =
+      EngineRulesResult pending =
           EngineRulesResult.pending(engineRulesGeneration, requested, lastKnown, canSet, canQuery);
+      operation =
+          new EngineRulesOperation(
+              engineRulesGeneration,
+              isolated,
+              binding,
+              engineGameTransaction,
+              startupCommandBinding,
+              restoreAdmission,
+              pending);
+      operation.awaitingSet = requested != null;
+      activeEngineRulesOperation = operation;
+      publishEngineRulesResultLocked(operation, pending);
+    }
+    retireAndCompleteEngineRulesOperation(replaced, replacedResult);
+    return operation;
+  }
+
+
+  private boolean isCurrentEngineRulesOperationLocked(EngineRulesOperation operation) {
+    return operation != null
+        && activeEngineRulesOperation == operation
+        && !operation.isTerminalLocked();
+  }
+
+  private boolean isCurrentEngineRulesCommand(QueuedCommand queuedCommand) {
+    if (!(queuedCommand.onResponse instanceof EngineRulesResponseHandler)) {
+      return true;
+    }
+    EngineRulesOperation operation =
+        ((EngineRulesResponseHandler) queuedCommand.onResponse).operation;
+    synchronized (engineRulesLock) {
+      return isCurrentEngineRulesOperationLocked(operation)
+          && operation.readerBinding != null
+          && currentReaderStreamBinding() == operation.readerBinding
+          && !operation.readerBinding.terminated;
     }
   }
 
-  private void updateEngineRulesCapabilities(boolean canSet, boolean canQuery) {
-    synchronized (engineRulesLock) {
-      EngineRulesResult current = engineRulesResult;
-      engineRulesResult =
-          EngineRulesResult.pending(
-                  current.generation(), current.requested(), current.observed(), canSet, canQuery)
-              .withCommandIds(current.setCommandId(), current.queryCommandId());
+  private void publishEngineRulesResultLocked(
+      EngineRulesOperation operation, EngineRulesResult result) {
+    engineRulesResult = result;
+    if (operation != null) {
+      operation.snapshot = result;
     }
   }
 
-  private void sendEngineRulesCommand(String command, boolean setCommand) {
-    EngineRulesResponseHandler handler =
-        new EngineRulesResponseHandler(engineRulesGeneration, setCommand);
-    CommandSendFailureHandler onFailure =
-        failure ->
-            failEngineRules(
-                setCommand
-                    ? EngineRulesResult.Status.SET_FAILED
-                    : EngineRulesResult.Status.QUERY_FAILED,
-                EngineRulesResult.Reason.SEND_FAILED);
-    sendEngineRulesCommandInCurrentContext(command, handler, onFailure);
+  private void updateEngineRulesCapabilities(
+      EngineRulesOperation operation, boolean canSet, boolean canQuery) {
     synchronized (engineRulesLock) {
-      if (handler.generation != engineRulesGeneration) {
+      if (!isCurrentEngineRulesOperationLocked(operation)) {
         return;
       }
-      if (setCommand) {
-        engineRulesResult =
-            engineRulesResult.withCommandIds(handler.commandId, engineRulesResult.queryCommandId());
-      } else {
-        engineRulesResult =
-            engineRulesResult.withCommandIds(engineRulesResult.setCommandId(), handler.commandId);
-      }
+      EngineRulesResult current = engineRulesResult;
+      publishEngineRulesResultLocked(
+          operation,
+          EngineRulesResult.pending(
+                  current.generation(), current.requested(), current.observed(), canSet, canQuery)
+              .withCommandIds(current.setCommandId(), current.queryCommandId()));
     }
   }
 
-  private void sendEngineRulesCommandInCurrentContext(
+  private boolean sendEngineRulesCommand(
+      EngineRulesOperation operation, String command, boolean setCommand) {
+    EngineRulesResponseHandler handler;
+    synchronized (engineRulesLock) {
+      if (!isCurrentEngineRulesOperationLocked(operation)) {
+        return false;
+      }
+      handler = new EngineRulesResponseHandler(operation, setCommand);
+      operation.installHandlerLocked(handler, setCommand);
+    }
+    CommandSendFailureHandler onFailure =
+        failure -> {
+          failEngineRules(
+              operation,
+              setCommand
+                  ? EngineRulesResult.Status.SET_FAILED
+                  : EngineRulesResult.Status.QUERY_FAILED,
+              EngineRulesResult.Reason.SEND_FAILED);
+        };
+    boolean sent;
+    try {
+      sent = sendEngineRulesCommandInCurrentContext(operation, command, handler, onFailure);
+    } catch (RuntimeException | Error sendFailure) {
+      failEngineRules(
+          operation,
+          setCommand ? EngineRulesResult.Status.SET_FAILED : EngineRulesResult.Status.QUERY_FAILED,
+          EngineRulesResult.Reason.SEND_FAILED);
+      if (sendFailure instanceof Error) {
+        throw (Error) sendFailure;
+      }
+      return false;
+    }
+    if (!sent) {
+      failEngineRules(
+          operation,
+          setCommand ? EngineRulesResult.Status.SET_FAILED : EngineRulesResult.Status.QUERY_FAILED,
+          EngineRulesResult.Reason.SEND_FAILED);
+      return false;
+    }
+    synchronized (engineRulesLock) {
+      if (!isCurrentEngineRulesOperationLocked(operation)) {
+        return false;
+      }
+      EngineRulesResult current = engineRulesResult;
+      publishEngineRulesResultLocked(
+          operation,
+          setCommand
+              ? current.withCommandIds(handler.commandId, current.queryCommandId())
+              : current.withCommandIds(current.setCommandId(), handler.commandId));
+      operation.accepted = true;
+    }
+    return true;
+  }
+
+  private boolean sendEngineRulesCommandInCurrentContext(
+      EngineRulesOperation operation,
       String command,
       EngineRulesResponseHandler handler,
       CommandSendFailureHandler onFailure) {
-    Object startupContext = startupPostActionCommandContext.get();
-    if (startupContext instanceof StartupPostActionLease) {
-      ((StartupPostActionLease) startupContext).sendCommand(command, handler, onFailure);
-      return;
+    if (operation.restoreAdmission != null
+        && exactSnapshotRestoreAdmissionContext.get() != operation.restoreAdmission) {
+      boolean[] sent = new boolean[1];
+      withExactSnapshotRestoreAdmission(
+          operation.restoreAdmission,
+          () ->
+              sent[0] =
+                  sendEngineRulesCommandInCurrentContext(operation, command, handler, onFailure));
+      return sent[0];
     }
-    if (startupContext instanceof ReaderStreamBinding) {
-      sendStartupPostActionCommand(
-          command, (ReaderStreamBinding) startupContext, handler, onFailure);
-      return;
-    }
-    boolean failClosedStartupCommand = startupContext != null;
-    boolean sent =
-        sendCommand(command, handler, onFailure, failClosedStartupCommand, false);
-    if (failClosedStartupCommand && !sent) {
-      throw new IllegalStateException("startup command was rejected: " + command);
+    EngineRulesOperation previous = engineRulesOperationContext.get();
+    engineRulesOperationContext.set(operation);
+    try {
+      Object startupContext = startupPostActionCommandContext.get();
+      if (startupContext instanceof StartupPostActionLease) {
+        StartupPostActionLease lease = (StartupPostActionLease) startupContext;
+        if (operation.engineGameTransaction != null) {
+          runWithEngineGameStartupCommandContext(
+              operation.engineGameTransaction,
+              () ->
+                  sendStartupPostActionCommand(
+                      command, lease.binding, handler, onFailure, false));
+        } else {
+          lease.sendCommand(command, handler, onFailure);
+        }
+        return true;
+      }
+      if (startupContext instanceof ReaderStreamBinding) {
+        ReaderStreamBinding readerBinding = (ReaderStreamBinding) startupContext;
+        if (operation.engineGameTransaction != null) {
+          runWithEngineGameStartupCommandContext(
+              operation.engineGameTransaction,
+              () ->
+                  sendStartupPostActionCommand(
+                      command, readerBinding, handler, onFailure, false));
+        } else {
+          sendStartupPostActionCommand(command, readerBinding, handler, onFailure);
+        }
+        return true;
+      }
+      if (operation.startupCommandBinding != null) {
+        Object previousStartupContext = startupPostActionCommandContext.get();
+        startupPostActionCommandContext.set(operation.startupCommandBinding);
+        try {
+          if (operation.engineGameTransaction != null) {
+            runWithEngineGameStartupCommandContext(
+                operation.engineGameTransaction,
+                () ->
+                    sendStartupPostActionCommand(
+                        command, operation.startupCommandBinding, handler, onFailure, false));
+          } else {
+            sendStartupPostActionCommand(
+                command, operation.startupCommandBinding, handler, onFailure, false);
+          }
+          return true;
+        } finally {
+          if (previousStartupContext == null) {
+            startupPostActionCommandContext.remove();
+          } else {
+            startupPostActionCommandContext.set(previousStartupContext);
+          }
+        }
+      }
+      boolean failClosedStartupCommand = startupContext != null;
+      boolean sent =
+          sendCommand(
+              command,
+              handler,
+              onFailure,
+              true,
+              false,
+              TrackingReleaseReason.ORDINARY_OPERATION,
+              null,
+              false,
+              null);
+      if (failClosedStartupCommand && !sent) {
+        throw new IllegalStateException("startup command was rejected: " + command);
+      }
+      return sent;
+    } finally {
+      if (previous == null) {
+        engineRulesOperationContext.remove();
+      } else {
+        engineRulesOperationContext.set(previous);
+      }
     }
   }
 
   private void completeEngineRulesCommand(EngineRulesResponseHandler handler) {
-    synchronized (engineRulesLock) {
-      if (handler.generation != engineRulesGeneration) {
-        return;
-      }
-    }
+    EngineRulesOperation operation = handler.operation;
     if (isCurrentCommandResponseError()) {
       failEngineRules(
+          operation,
           handler.setCommand
               ? EngineRulesResult.Status.SET_FAILED
               : EngineRulesResult.Status.QUERY_FAILED,
@@ -23586,56 +24190,101 @@ public class Leelaz {
       return;
     }
     if (handler.setCommand) {
-      EngineRulesResult current = engineRulesResult;
-      if (current.canQuery()) {
-        engineRulesAwaitingSet = false;
-        sendEngineRulesCommand("kata-get-rules", false);
-        return;
+      boolean queryRequired;
+      synchronized (engineRulesLock) {
+        if (!isCurrentEngineRulesOperationLocked(operation)) {
+          return;
+        }
+        EngineRulesResult current = engineRulesResult;
+        queryRequired = current.canQuery();
+        operation.awaitingSet = false;
       }
-      unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      if (queryRequired) {
+        sendEngineRulesCommand(operation, "kata-get-rules", false);
+      } else {
+        unconfirmEngineRules(operation, EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      }
       return;
     }
-    Optional<KataGoRules> parsed = KataGoRules.parse(currentCommandResponseLine());
+    String responseLine = currentCommandResponseLine();
+    Optional<KataGoRules> parsed = KataGoRules.parse(responseLine);
     if (parsed.isEmpty()) {
       failEngineRules(
-          EngineRulesResult.Status.QUERY_FAILED, EngineRulesResult.Reason.INVALID_READBACK);
+          operation, EngineRulesResult.Status.QUERY_FAILED, EngineRulesResult.Reason.INVALID_READBACK);
       return;
     }
-    confirmEngineRules(parsed.get());
+    confirmEngineRules(operation, parsed.get(), "= " + gtpResponsePayload(responseLine));
   }
 
-  private void confirmEngineRules(KataGoRules observed) {
+  private void confirmEngineRules(EngineRulesOperation operation, KataGoRules observed) {
+    confirmEngineRules(operation, observed, observed.toResponseLine());
+  }
+
+  private void confirmEngineRules(
+      EngineRulesOperation operation, KataGoRules observed, String observedRulesLine) {
     boolean isolated;
+    EngineRulesResult completed;
     synchronized (engineRulesLock) {
-      isolated = engineRulesIsolated;
-      engineRulesResult = engineRulesResult.confirmed(observed);
-    }
-    recentRulesLine = observed.toResponseLine();
-    getSuicidalAndRules();
-    if (!isolated && this == Lizzie.leelaz && Lizzie.config != null) {
-      Lizzie.config.currentKataGoRules = recentRulesLine;
+      if (!isCurrentEngineRulesOperationLocked(operation)) {
+        return;
+      }
+      isolated = operation.isolated;
+      completed = engineRulesResult.confirmed(observed);
+      publishEngineRulesResultLocked(operation, completed);
+      recentRulesLine = observedRulesLine;
+      getRcentLine = false;
+      getSuicidalAndRules();
+      if (!isolated && this == Lizzie.leelaz && Lizzie.config != null) {
+        Lizzie.config.currentKataGoRules = recentRulesLine;
+      }
+      operation.markTerminalLocked(completed);
     }
     if (!isolated && Lizzie.frame != null) {
       Lizzie.frame.refresh();
     }
+    retireAndCompleteEngineRulesOperation(operation, completed);
   }
 
-  private void unconfirmEngineRules(EngineRulesResult.Reason reason) {
+  private void unconfirmEngineRules(
+      EngineRulesOperation operation, EngineRulesResult.Reason reason) {
+    EngineRulesResult completed;
     synchronized (engineRulesLock) {
-      engineRulesResult = engineRulesResult.unconfirmed(reason);
-    }
-  }
-
-  private void failEngineRules(EngineRulesResult.Status status, EngineRulesResult.Reason reason) {
-    synchronized (engineRulesLock) {
-      if (engineRulesResult.status() == EngineRulesResult.Status.PENDING
-          || engineRulesResult.status() == EngineRulesResult.Status.IDLE) {
-        engineRulesResult = engineRulesResult.failed(status, reason);
+      if (!isCurrentEngineRulesOperationLocked(operation)) {
+        return;
       }
+      completed = engineRulesResult.unconfirmed(reason);
+      publishEngineRulesResultLocked(operation, completed);
+      operation.markTerminalLocked(completed);
     }
+    retireAndCompleteEngineRulesOperation(operation, completed);
   }
 
-  private void scheduleEngineRulesTimeout(long generation, long timeoutMillis) {
+  private void failEngineRules(
+      EngineRulesOperation operation,
+      EngineRulesResult.Status status,
+      EngineRulesResult.Reason reason) {
+    EngineRulesResult completed;
+    synchronized (engineRulesLock) {
+      if (!isCurrentEngineRulesOperationLocked(operation)) {
+        return;
+      }
+      completed = engineRulesResult.failed(status, reason);
+      publishEngineRulesResultLocked(operation, completed);
+      operation.markTerminalLocked(completed);
+    }
+    retireAndCompleteEngineRulesOperation(operation, completed);
+  }
+
+  private void retireAndCompleteEngineRulesOperation(
+      EngineRulesOperation operation, EngineRulesResult completed) {
+    if (operation == null || completed == null) {
+      return;
+    }
+    operation.retireHandlers(this);
+    operation.complete(completed);
+  }
+
+  private void scheduleEngineRulesTimeout(EngineRulesOperation operation, long timeoutMillis) {
     Thread timeoutThread =
         new Thread(
             () -> {
@@ -23645,19 +24294,21 @@ public class Leelaz {
                 Thread.currentThread().interrupt();
                 return;
               }
+              boolean awaitingSet;
               synchronized (engineRulesLock) {
-                if (engineRulesGeneration == generation
-                    && engineRulesResult.status() == EngineRulesResult.Status.PENDING) {
-                  engineRulesResult =
-                      engineRulesResult.failed(
-                          engineRulesAwaitingSet
-                              ? EngineRulesResult.Status.SET_FAILED
-                              : EngineRulesResult.Status.QUERY_FAILED,
-                          engineRulesAwaitingSet
-                              ? EngineRulesResult.Reason.SET_TIMEOUT
-                              : EngineRulesResult.Reason.QUERY_TIMEOUT);
+                if (!isCurrentEngineRulesOperationLocked(operation)) {
+                  return;
                 }
+                awaitingSet = operation.awaitingSet;
               }
+              failEngineRules(
+                  operation,
+                  awaitingSet
+                      ? EngineRulesResult.Status.SET_FAILED
+                      : EngineRulesResult.Status.QUERY_FAILED,
+                  awaitingSet
+                      ? EngineRulesResult.Reason.SET_TIMEOUT
+                      : EngineRulesResult.Reason.QUERY_TIMEOUT);
             },
             "lizzie-engine-rules-timeout");
     timeoutThread.setDaemon(true);
@@ -23682,54 +24333,54 @@ public class Leelaz {
   }
 
   public void confirmEngineRulesForTest(KataGoRules observed) {
-    confirmEngineRules(observed);
+    EngineRulesOperation operation;
+    synchronized (engineRulesLock) {
+      operation = activeEngineRulesOperation;
+    }
+    if (operation != null) {
+      confirmEngineRules(operation, observed);
+    }
   }
 
   public void failEngineRulesForTest(
       EngineRulesResult.Status status, EngineRulesResult.Reason reason) {
-    failEngineRules(status, reason);
+    EngineRulesOperation operation;
+    synchronized (engineRulesLock) {
+      operation = activeEngineRulesOperation;
+    }
+    if (operation != null) {
+      failEngineRules(operation, status, reason);
+    }
   }
 
   public void unconfirmEngineRulesForTest(EngineRulesResult.Reason reason) {
-    unconfirmEngineRules(reason);
-  }
-
-  boolean waitUntilEngineRulesSettled(long timeoutMillis) {
-    long deadline =
-        System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(1L, timeoutMillis));
-    while (!engineRulesResult.isSettled()) {
-      if (System.nanoTime() >= deadline) {
-        failEngineRules(
-            engineRulesAwaitingSet
-                ? EngineRulesResult.Status.SET_FAILED
-                : EngineRulesResult.Status.QUERY_FAILED,
-            engineRulesAwaitingSet
-                ? EngineRulesResult.Reason.SET_TIMEOUT
-                : EngineRulesResult.Reason.QUERY_TIMEOUT);
-        return false;
-      }
-      try {
-        Thread.sleep(20L);
-      } catch (InterruptedException interrupted) {
-        Thread.currentThread().interrupt();
-        return false;
-      }
+    EngineRulesOperation operation;
+    synchronized (engineRulesLock) {
+      operation = activeEngineRulesOperation;
     }
-    return true;
+    if (operation != null) {
+      unconfirmEngineRules(operation, reason);
+    }
   }
 
-  private boolean settleMatchRulesForTest(KataGoRules requested, boolean setCommand) {
+
+  private EngineRulesOperation settleMatchRulesForTest(
+      EngineRulesOperation operation, KataGoRules requested, boolean setCommand) {
     boolean canSet = commandLists.contains("kata-set-rules");
     boolean canQuery = commandLists.contains("kata-get-rules");
-    beginEngineRulesOperation(false, requested, lastObservedRules(), true);
-    updateEngineRulesCapabilities(canSet, canQuery);
+    updateEngineRulesCapabilities(operation, canSet, canQuery);
+    synchronized (engineRulesLock) {
+      if (isCurrentEngineRulesOperationLocked(operation)) {
+        operation.accepted = true;
+      }
+    }
     if (setCommand && !canSet) {
-      failEngineRules(EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.SET_UNSUPPORTED);
-      return false;
+      failEngineRules(operation, EngineRulesResult.Status.SET_FAILED, EngineRulesResult.Reason.SET_UNSUPPORTED);
+      return operation;
     }
     if (!setCommand && !canQuery) {
-      unconfirmEngineRules(EngineRulesResult.Reason.QUERY_UNSUPPORTED);
-      return false;
+      unconfirmEngineRules(operation, EngineRulesResult.Reason.QUERY_UNSUPPORTED);
+      return operation;
     }
     MatchRulesTestHook hook = matchRulesTestHook;
     if (hook != null) {
@@ -23738,19 +24389,119 @@ public class Leelaz {
       } else {
         hook.query(this);
       }
-      EngineRulesResult result = engineRulesResult;
-      return result.isSettled() && !result.isFailed();
+      return operation;
     }
     if (setCommand) {
-      confirmEngineRules(requested);
-      return true;
+      confirmEngineRules(operation, requested);
+      return operation;
     }
     KataGoRules observed = lastObservedRules();
     if (observed == null) {
       observed = KataGoRules.parse("chinese").orElseThrow();
     }
-    confirmEngineRules(observed);
-    return true;
+    confirmEngineRules(operation, observed);
+    return operation;
+  }
+
+  public static final class EngineRulesOperation {
+    private final long generation;
+    private final boolean isolated;
+    private final ReaderStreamBinding readerBinding;
+    private final EngineManager.EngineGameOwnerTransaction engineGameTransaction;
+    private final ReaderStreamBinding startupCommandBinding;
+    private final ExactSnapshotRestoreAdmission restoreAdmission;
+    private final CompletableFuture<EngineRulesResult> completion = new CompletableFuture<>();
+    private volatile EngineRulesResult snapshot;
+    private volatile boolean accepted;
+    private boolean awaitingSet;
+    private boolean terminal;
+    private EngineRulesResponseHandler setHandler;
+    private EngineRulesResponseHandler queryHandler;
+
+    private EngineRulesOperation(
+        long generation,
+        boolean isolated,
+        ReaderStreamBinding readerBinding,
+        EngineManager.EngineGameOwnerTransaction engineGameTransaction,
+        ReaderStreamBinding startupCommandBinding,
+        ExactSnapshotRestoreAdmission restoreAdmission,
+        EngineRulesResult initial) {
+      this.generation = generation;
+      this.isolated = isolated;
+      this.readerBinding = readerBinding;
+      this.engineGameTransaction = engineGameTransaction;
+      this.startupCommandBinding = startupCommandBinding;
+      this.restoreAdmission = restoreAdmission;
+      this.snapshot = initial;
+    }
+
+    public long generation() {
+      return generation;
+    }
+
+    public boolean accepted() {
+      return accepted;
+    }
+
+    public boolean isDone() {
+      return completion.isDone();
+    }
+
+    public EngineRulesResult snapshot() {
+      return snapshot;
+    }
+
+    public EngineRulesResult result() {
+      return completion.isDone() ? snapshot : null;
+    }
+
+    public EngineRulesResult await(long timeoutMillis) throws InterruptedException {
+      try {
+        return completion.get(Math.max(1L, timeoutMillis), TimeUnit.MILLISECONDS);
+      } catch (TimeoutException timeout) {
+        return null;
+      } catch (ExecutionException failure) {
+        throw new IllegalStateException(
+            "Engine rules operation completion failed", failure.getCause());
+      }
+    }
+
+    public void onComplete(Consumer<EngineRulesResult> listener) {
+      Objects.requireNonNull(listener, "listener");
+      completion.thenAccept(listener);
+    }
+
+    private boolean isTerminalLocked() {
+      return terminal;
+    }
+
+    private void markTerminalLocked(EngineRulesResult result) {
+      terminal = true;
+      snapshot = result;
+    }
+
+    private void installHandlerLocked(EngineRulesResponseHandler handler, boolean setCommand) {
+      if (setCommand) {
+        setHandler = handler;
+      } else {
+        queryHandler = handler;
+      }
+    }
+
+    private void retireHandlers(Leelaz engine) {
+      EngineRulesResponseHandler set = setHandler;
+      EngineRulesResponseHandler query = queryHandler;
+      if (set != null) {
+        engine.retireTimedOutNormalCommand(set);
+      }
+      if (query != null && query != set) {
+        engine.retireTimedOutNormalCommand(query);
+      }
+    }
+
+    private void complete(EngineRulesResult result) {
+      completion.complete(result);
+    }
   }
 
   private boolean waitForCommandList(long waitMillis) {
@@ -23782,6 +24533,7 @@ public class Leelaz {
 
   void getParameterScadule(boolean sendCommand, long timeoutMillis) {
     final long timeoutGeneration;
+    boolean queryRules = false;
     synchronized (parameterReadTimeoutLock) {
       timeoutGeneration = ++parameterReadTimeoutGeneration;
       getRcentLine = true;
@@ -23789,10 +24541,11 @@ public class Leelaz {
         recentLineNumber = 0;
         sendCommand("kata-get-param playoutDoublingAdvantage");
         sendCommand("kata-get-param analysisWideRootNoise");
-        if (engineRulesResult.status() != EngineRulesResult.Status.PENDING) {
-          sendCommand("kata-get-rules");
-        }
+        queryRules = engineRulesResult.status() != EngineRulesResult.Status.PENDING;
       }
+    }
+    if (queryRules) {
+      queryEngineRulesOperationImmediately(timeoutMillis);
     }
     Thread timeoutThread =
         new Thread(
@@ -23833,14 +24586,16 @@ public class Leelaz {
   }
 
   private final class EngineRulesResponseHandler implements Runnable {
-    private final long generation;
+    private final EngineRulesOperation operation;
     private final boolean setCommand;
     private final int commandId;
+    private final ReaderStreamBinding readerBinding;
 
-    private EngineRulesResponseHandler(long generation, boolean setCommand) {
-      this.generation = generation;
+    private EngineRulesResponseHandler(EngineRulesOperation operation, boolean setCommand) {
+      this.operation = operation;
       this.setCommand = setCommand;
       this.commandId = engineRulesResponseCommandIds.getAndIncrement();
+      this.readerBinding = operation.readerBinding;
     }
 
     @Override

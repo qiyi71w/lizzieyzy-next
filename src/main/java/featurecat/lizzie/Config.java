@@ -1,5 +1,6 @@
 package featurecat.lizzie;
 
+import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.MoveRankEvaluationMode;
 import featurecat.lizzie.analysis.WholeGameAnalysisOptions;
 import featurecat.lizzie.gui.LizzieFrame;
@@ -135,7 +136,7 @@ public class Config {
   public String advanceBlackTimeTxt = "time_settings 120 2 1";
   public String advanceWhiteTimeTxt = "time_settings 120 2 1";
 
-  public ExtraMode extraMode = ExtraMode.Normal;
+  public volatile ExtraMode extraMode = ExtraMode.Normal;
 
   public JSONObject config;
   public JSONObject leelazConfig;
@@ -2454,8 +2455,7 @@ public class Config {
   }
 
   public void toggleExtraMode(int mode) {
-    ExtraMode previousMode = extraMode;
-    extraMode = getExtraMode(mode);
+    ExtraMode previousMode = EngineManager.publishExtraMode(this, getExtraMode(mode));
     uiConfig.put("extra-mode", getExtraModeValue(extraMode));
     if (Lizzie.frame != null) Lizzie.frame.extraMode(extraMode, previousMode);
     applyCommentPanelModePolicy();
@@ -3759,7 +3759,7 @@ public class Config {
     boolean showIndependentMain = jsonLayout.optBoolean("independent-main-board");
     boolean showIndependentSub = jsonLayout.optBoolean("independent-sub-board");
     if (showIndependentMain) {
-      extraMode = ExtraMode.Float_Board;
+      EngineManager.publishExtraMode(this, ExtraMode.Float_Board);
       if (Lizzie.frame.independentMainBoard == null
           || !Lizzie.frame.independentMainBoard.isVisible())
         Lizzie.frame.toggleIndependentMainBoard();
@@ -3769,7 +3769,7 @@ public class Config {
           jsonLayout.getJSONArray("independent-main-board-position").getInt(2),
           jsonLayout.getJSONArray("independent-main-board-position").getInt(3));
     } else {
-      extraMode = ExtraMode.Normal;
+      EngineManager.publishExtraMode(this, ExtraMode.Normal);
     }
     if (showIndependentSub) {
       if (Lizzie.frame.independentSubBoard == null || !Lizzie.frame.independentSubBoard.isVisible())
@@ -3881,7 +3881,7 @@ public class Config {
   }
 
   void loadPanelModeSettings() {
-    extraMode = readExtraMode(uiConfig.opt("extra-mode"));
+    EngineManager.publishExtraMode(this, readExtraMode(uiConfig.opt("extra-mode")));
     uiConfig.put("extra-mode", getExtraModeValue(extraMode));
     showComment = uiConfig.optBoolean("show-comment", true);
     if (shouldHideCommentPanel(extraMode)) showComment = false;

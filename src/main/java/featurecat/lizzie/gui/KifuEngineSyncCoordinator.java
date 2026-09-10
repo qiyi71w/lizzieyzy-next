@@ -5,15 +5,18 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.swing.SwingUtilities;
 
 /** Serializes post-load engine restores and only completes the newest kifu request. */
 final class KifuEngineSyncCoordinator {
   enum AttemptResult {
     COMPLETE,
-    RETRY
+    RETRY,
+    PERMANENT_FAILURE
   }
 
   interface Request {
+    // Terminal and context-change callbacks run on the EDT after the generation fence.
     boolean isCurrent();
 
     AttemptResult synchronize();
@@ -21,6 +24,10 @@ final class KifuEngineSyncCoordinator {
     default void onRetry(RuntimeException failure, int retryCount) {}
 
     void onSynchronized();
+
+    default void onFailed() {}
+
+    default void onContextChanged() {}
   }
 
   private static final long INITIAL_RETRY_DELAY_MILLIS = 250L;
@@ -73,18 +80,40 @@ final class KifuEngineSyncCoordinator {
       return;
     }
     if (result == AttemptResult.COMPLETE) {
-      request.onSynchronized();
+      SwingUtilities.invokeLater(
+          () -> {
+            if (isCurrent(requestGeneration, request)) request.onSynchronized();
+          });
+      return;
+    }
+    if (result == AttemptResult.PERMANENT_FAILURE) {
+      SwingUtilities.invokeLater(
+          () -> {
+            if (isCurrent(requestGeneration, request)) request.onFailed();
+          });
       return;
     }
     long retryDelay = retryDelayMillis(retryCount);
     executor.schedule(
-        () -> run(requestGeneration, request, retryCount + 1),
-        retryDelay,
-        TimeUnit.MILLISECONDS);
+        () -> run(requestGeneration, request, retryCount + 1), retryDelay, TimeUnit.MILLISECONDS);
   }
 
   private boolean isCurrent(long requestGeneration, Request request) {
-    return requestGeneration == generation.get() && request.isCurrent();
+    if (requestGeneration != generation.get()) {
+      return false;
+    }
+    if (!request.isCurrent()) {
+      Runnable contextChanged =
+          () -> {
+            if (requestGeneration == generation.get() && !request.isCurrent()) {
+              request.onContextChanged();
+            }
+          };
+      if (SwingUtilities.isEventDispatchThread()) contextChanged.run();
+      else SwingUtilities.invokeLater(contextChanged);
+      return false;
+    }
+    return true;
   }
 
   private static long retryDelayMillis(int retryCount) {

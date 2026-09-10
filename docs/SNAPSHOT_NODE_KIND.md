@@ -76,6 +76,9 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
   手顺和 variation 全部删除，同时保留 `GameInfo`、root comment 与非 setup SGF 属性。
 - 转换后的 history 必须通过 `Board.setHistory(...)` 正式采用，使棋盘尺寸、Kata/PK 派生
   标志和 history-overwrite 通知与新 root 保持一致；不能直接替换 history 引用。
+- 同一棋局内的起始局面转换保留 immutable 会话规则目标，不重新解释 root `RU`，也不
+  继承旧 history 的失败规则继续许可。独立转换入口在有引擎时通过既有棋谱 owner 先确认
+  规则、再同步最终 root；双方盘面确认后仅恢复转换前正在进行且用户未暂停的普通分析。
 - 设置模式内的编辑只在本地生效，不向引擎发送普通 `play`。退出设置模式后，通过
   `EngineFollowController` 排队并使用既有 exact snapshot restore 同步最终 root setup；
   setup stones 不能进入普通引擎手顺重放。
@@ -192,6 +195,21 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 用户分析暂停立即失效 pending ReadBoard resume，并继续遵守普通队列及 selected-before-write 取消规则。暂停后用户再次继续分析，也不能使旧同步回调重新取得恢复资格。
 - 一致且无需恢复的重复快照不重新捕获恢复或重启合法分析流。普通首次同步直接采用最终视图，不以先回退再延迟前进触发额外分析。
 - 无引擎时仍完成本地 board/history 更新；GMA 和对局 continuation 保持独立的路由与 ownership exclusion。手动导航、手动分析恢复及普通棋谱加载策略保持原契约。
+
+## SGF 会话规则确认（Issue #448）
+
+- adopted `BoardHistoryList` 拥有独立于 root `RU` 元数据和引擎观测的 immutable 会话规则目标；外部采用和手动成功选择递增规则 revision，普通导航、SNAPSHOT 与试下还原不重新解释 root `RU`。
+- `SGFParser` 的 `syncPrimaryEngine=false` 与 detached/edit 解析只产出棋谱，不发布会话目标或发送规则命令；GUI owner 在成功采用后显式发布。公共同步入口发布目标后进入同一规则→盘面确认顺序。
+- 导入 owner 只捕获当前前台与当时活动的比较副引擎。每侧必须获得 fresh `CONFIRMED` actual 且与目标语义相同，才执行既有 frozen position restore/fence 并最多恢复一次分析；无 `RU` 继承现状，不发送规则操作。
+- 无效声明、能力失败、set/get 错误、超时、未确认或回读不匹配均为规则永久失败，不进入盘面临时 `RETRY`。棋谱保持可浏览；用户明确按现有规则继续后仍须完成盘面确认，许可只对捕获的 history/rules revision/primary generation/比较实例有效，且不改变规则失败状态。
+- GUI 采用本地解析结果后，Board 保留与该 history 绑定的待对齐状态；等待、规则失败及拒绝继续时，普通前后导航、分支和静态节点跳转只改变本地 history，不向旧引擎盘面发送增量或隐式重建。只有当前导入／生命周期 owner 完成双方位置响应与最终 fence 并复验捕获上下文后才解除；取消请求本身不表示对齐，解析回滚恢复原对齐状态。
+- 规则失败后的显式分析继续重新使用当前失败提示，不重试 set/get，也不先开启分析 UI；拒绝或关闭仍停止，同意仅授权当前上下文并完整同步当前显示节点。等待中的重复继续请求不创建第二份恢复。
+- 试下返回先在本地恢复保存的分支节点及会话规则，再提交一次最终位置恢复；不通过 live movelist 重放恢复历史，不越过 owner 追加 ponder，用户暂停继续生效。
+- 加载活动比较副引擎若重建了双方盘面，最终 owner 在双方 fence 后恢复主引擎分析并由既有镜像通道启动副引擎，双方各一次；已暂停或捕获实例过期时不恢复。
+- lifecycle 非 Engine Game owner 把会话规则目标纳入 `BoardFrame`，每轮在盘面恢复前、Board monitor 外确认 captured target 与 mirror；规则 revision 变化触发现有 release/recheck/catch-up。Engine Game 继续使用自身 match-rules 语义。
+- 手动规则 set→get 成功且 actual 与请求语义一致时，实际观测成为当前 history 的新会话目标；失败只保留协议终态，不恢复旧导入请求。
+- 普通分析入队与活动比较集合的发布共享 selection 临界区，锁顺序为 selection → primary → history → endpoint/queue。selection 内仅尝试取得 primary；竞争时先释放 selection，再等待并复验同一 primary generation 和比较集合，不能丢弃仍有效的分析请求或阻塞 primary owner 的物理写出。规则收敛或显式继续后的盘面恢复期间退出比较模式时，既有 coordinator 只在同一 history/规则 revision/primary generation/reader 仍有效时接续剩余主引擎；已知规则失败仍须为新引擎集合重新取得显式继续许可，不自动重试 set。
+- 棋谱 coordinator 的终态及上下文失效回调在 EDT 执行前复验最新请求 generation；worker 已完成但 UI 尚未消费的旧回调，不能越过换谱或比较模式变更的确认边界。
 
 ## 初始启动导航契约（Issue #223）
 

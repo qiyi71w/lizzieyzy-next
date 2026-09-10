@@ -235,10 +235,11 @@ class LeelazKataGoThreadSettingsTest {
       engine.isCheckingName = true;
       engine.dispatchReaderLineForTest("= KataGo");
       long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
-      while (!commands().contains("kata-get-rules") && System.nanoTime() < deadline) {
+      while (!commands().contains("kata-get-param analysisWideRootNoise")
+          && System.nanoTime() < deadline) {
         Thread.sleep(5);
       }
-      assertTrue(commands().contains("kata-get-rules"), commands());
+      assertTrue(commands().contains("kata-get-param analysisWideRootNoise"), commands());
       engine.cancelParameterRead();
     }
 
