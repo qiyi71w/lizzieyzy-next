@@ -1079,6 +1079,222 @@ class PositionConfirmedRollbackTest {
   }
 
   @Test
+  void trialReturnRestoresSavedBranchAndManualRulesBeforeOneEngineRestore() throws Exception {
+    featurecat.lizzie.gui.WinrateGraph previousGraph = LizzieFrame.winrateGraph;
+    try (Harness harness = Harness.open()) {
+      LizzieFrame.winrateGraph = allocate(featurecat.lizzie.gui.WinrateGraph.class);
+      setField(LizzieFrame.toolbar, "tryPlay", new javax.swing.JButton());
+      BoardHistoryList history =
+          featurecat.lizzie.rules.SGFParser.parseSgf(
+              "(;SZ[19]RU[Japanese];B[pd](;W[dd])(;W[];AE[pd]AB[aa]PL[B];B[qq]))", true);
+      BoardHistoryNode branch =
+          history
+              .getStart()
+              .next()
+              .orElseThrow()
+              .getVariation(1)
+              .orElseThrow()
+              .next()
+              .orElseThrow()
+              .next()
+              .orElseThrow();
+      history.setHead(branch);
+      harness.board.setHistory(history);
+      KataGoRules chinese = KataGoRules.parse("Chinese").orElseThrow();
+      BoardHistoryList.ManualRulesIntent intent = history.beginManualRulesIntent();
+      history.publishManualRulesIfCurrent(intent, chinese).orElseThrow();
+      BoardData expected = branch.getData().clone();
+      harness.engine.commandLists.addAll(List.of("kata-set-rules", "kata-get-rules", "loadsgf"));
+      ExactSnapshotRestoreProtocolFixture.Transport output =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("kata-get-rules")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.queryEngineRulesOperation();
+      String query = awaitRawCommand(output, "kata-get-rules", 0);
+      harness.engine.dispatchReaderLineForTest(
+          "=" + query.substring(0, query.indexOf(' ')) + " " + chinese.toGtpArgument());
+      javax.swing.SwingUtilities.invokeAndWait(() -> harness.frame.tryPlay(false));
+      harness.board.getHistory().place(3, 3, Stone.WHITE, false);
+      javax.swing.SwingUtilities.invokeAndWait(() -> harness.frame.tryPlay(false));
+      long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+      while (harness.frame.scheduledResume == null && System.nanoTime() < deadline) {
+        javax.swing.SwingUtilities.invokeAndWait(() -> {});
+        Thread.sleep(5L);
+      }
+      assertNotNull(harness.frame.scheduledResume);
+      assertFalse(harness.frame.isTrying);
+      assertArrayEquals(expected.stones, harness.board.getData().stones);
+      assertEquals(expected.blackToPlay, harness.board.getData().blackToPlay);
+      assertTrue(
+          harness
+              .board
+              .getHistory()
+              .getCurrentHistoryNode()
+              .previous()
+              .orElseThrow()
+              .getData()
+              .isSnapshotNode());
+      assertEquals(1, payloadCount(output, "clear_board"));
+      assertEquals(1, payloadCount(output, "loadsgf"));
+      assertEquals(0, payloadCount(output, "play"));
+      assertTrue(harness.engine.engineRulesResult().isConfirmed());
+      assertEquals(0, harness.frame.rulesFailurePromptCount);
+      harness.frame.scheduledResume.run();
+      awaitRawCommand(output, "kata-analyze", 0);
+      assertEquals(1, payloadCount(output, "kata-analyze"));
+      harness.frame.shutdownKifuEngineSyncCoordinator();
+    } finally {
+      LizzieFrame.winrateGraph = previousGraph;
+    }
+  }
+
+  @Test
+  void failedImportedRulesKeepNavigationLocalUntilExplicitRestore() throws Exception {
+    try (Harness harness = Harness.open()) {
+      ExactSnapshotRestoreProtocolFixture.Transport output =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.commandLists.add("loadsgf");
+      harness.frame.rulesFailureChoice = javax.swing.JOptionPane.NO_OPTION;
+      harness.board.getHistory().publishExternalRules("Unsupported");
+      javax.swing.SwingUtilities.invokeAndWait(
+          harness.frame::synchronizeImportedSgfAfterParserLoad);
+      long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+      while (harness.frame.rulesFailurePromptCount == 0 && System.nanoTime() < deadline) {
+        javax.swing.SwingUtilities.invokeAndWait(() -> {});
+        Thread.sleep(5L);
+      }
+      assertEquals(1, harness.frame.rulesFailurePromptCount);
+      harness.frame.rulesFailureChoice = javax.swing.JOptionPane.CLOSED_OPTION;
+      javax.swing.SwingUtilities.invokeAndWait(harness.frame::togglePonderMannul);
+      assertEquals(2, harness.frame.rulesFailurePromptCount);
+      assertFalse(harness.engine.isPondering());
+      harness.frame.rulesFailureChoice = javax.swing.JOptionPane.NO_OPTION;
+      assertTrue(harness.board.previousMove(false));
+      assertSame(harness.p0, harness.board.getHistory().getCurrentHistoryNode());
+      assertTrue(harness.board.nextMove(false));
+      assertSame(harness.p1, harness.board.getHistory().getCurrentHistoryNode());
+      assertEquals(0, payloadCount(output, "play"));
+      assertEquals(0, payloadCount(output, "undo"));
+      assertEquals(0, payloadCount(output, "clear_board"));
+      javax.swing.SwingUtilities.invokeAndWait(harness.frame::togglePonderMannul);
+      assertEquals(3, harness.frame.rulesFailurePromptCount);
+      assertFalse(harness.engine.isPondering());
+      assertEquals(0, payloadCount(output, "clear_board"));
+      harness.frame.rulesFailureChoice = javax.swing.JOptionPane.YES_OPTION;
+      javax.swing.SwingUtilities.invokeAndWait(harness.frame::togglePonderMannul);
+      deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+      while (harness.frame.scheduledResume == null && System.nanoTime() < deadline) {
+        javax.swing.SwingUtilities.invokeAndWait(() -> {});
+        Thread.sleep(5L);
+      }
+      assertEquals(4, harness.frame.rulesFailurePromptCount);
+      assertNotNull(harness.frame.scheduledResume);
+      harness.frame.scheduledResume.run();
+      awaitRawCommand(output, "kata-analyze", 0);
+      assertEquals(1, payloadCount(output, "clear_board"));
+      assertEquals(1, payloadCount(output, "kata-analyze"));
+      assertEquals(
+          BoardHistoryList.SessionRulesKind.INVALID,
+          harness.board.getHistory().captureSessionRules().kind());
+      assertFalse(harness.engine.engineRulesResult().isConfirmed());
+      assertTrue(harness.board.previousMove(false));
+      assertEquals(1, payloadCount(output, "undo"));
+      harness.frame.shutdownKifuEngineSyncCoordinator();
+    }
+  }
+
+  @Test
+  void declinedRulesFailureRequiresFreshConsentAfterComparisonChanges() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Lizzie.config.uiConfig = new org.json.JSONObject();
+      harness.engine.commandLists.addAll(List.of("kata-set-rules", "kata-get-rules", "loadsgf"));
+      ExactSnapshotRestoreProtocolFixture.Transport primaryTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      Leelaz mirror = new Leelaz("");
+      mirror.started = true;
+      mirror.isLoaded = true;
+      mirror.isKatago = true;
+      mirror.commandLists.addAll(List.of("name", "kata-set-rules", "kata-get-rules", "loadsgf"));
+      setField(mirror, "endGetCommandList", true);
+      Lizzie.leelaz2 = mirror;
+      ExactSnapshotRestoreProtocolFixture.Transport mirrorTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              mirror, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      Leelaz replacement = new Leelaz("");
+      replacement.started = true;
+      replacement.isLoaded = true;
+      replacement.isKatago = true;
+      replacement.commandLists.addAll(mirror.commandLists);
+      setField(replacement, "endGetCommandList", true);
+      ExactSnapshotRestoreProtocolFixture.Transport replacementTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              replacement, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      try {
+        harness.frame.rulesFailureChoice = javax.swing.JOptionPane.NO_OPTION;
+        BoardHistoryList.SessionRulesTarget target =
+            harness.board.getHistory().publishExternalRules("Unsupported");
+        javax.swing.SwingUtilities.invokeAndWait(
+            harness.frame::synchronizeImportedSgfAfterParserLoad);
+        long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+        while (harness.frame.rulesFailurePromptCount == 0 && System.nanoTime() < deadline) {
+          javax.swing.SwingUtilities.invokeAndWait(() -> {});
+          Thread.sleep(5L);
+        }
+        assertEquals(1, harness.frame.rulesFailurePromptCount);
+        Lizzie.leelaz2 = replacement;
+        harness.frame.rulesFailureChoice = javax.swing.JOptionPane.CLOSED_OPTION;
+        javax.swing.SwingUtilities.invokeAndWait(harness.frame::togglePonderMannul);
+        assertEquals(2, harness.frame.rulesFailurePromptCount);
+        harness.frame.rulesFailureChoice = javax.swing.JOptionPane.NO_OPTION;
+        javax.swing.SwingUtilities.invokeAndWait(() -> Lizzie.config.toggleExtraMode(0));
+        javax.swing.SwingUtilities.invokeAndWait(harness.frame::togglePonderMannul);
+        assertEquals(3, harness.frame.rulesFailurePromptCount);
+        assertEquals(0, payloadCount(primaryTransport, "clear_board"));
+        assertFalse(harness.engine.isPondering());
+        harness.frame.rulesFailureChoice = javax.swing.JOptionPane.YES_OPTION;
+        javax.swing.SwingUtilities.invokeAndWait(harness.frame::togglePonderMannul);
+        deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+        while (harness.frame.scheduledResume == null && System.nanoTime() < deadline) {
+          javax.swing.SwingUtilities.invokeAndWait(() -> {});
+          Thread.sleep(5L);
+        }
+        assertEquals(4, harness.frame.rulesFailurePromptCount);
+        assertNotNull(harness.frame.scheduledResume);
+        harness.frame.scheduledResume.run();
+        awaitRawCommand(primaryTransport, "kata-analyze", 0);
+        assertEquals(1, payloadCount(primaryTransport, "clear_board"));
+        assertEquals(1, payloadCount(primaryTransport, "kata-analyze"));
+        assertEquals(0, payloadCount(mirrorTransport, "clear_board"));
+        assertEquals(0, payloadCount(mirrorTransport, "kata-analyze"));
+        assertEquals(0, payloadCount(primaryTransport, "kata-set-rules"));
+        assertEquals(0, payloadCount(primaryTransport, "kata-get-rules"));
+        assertEquals(0, payloadCount(mirrorTransport, "kata-set-rules"));
+        assertEquals(0, payloadCount(mirrorTransport, "kata-get-rules"));
+        assertEquals(0, payloadCount(replacementTransport, "clear_board"));
+        assertEquals(0, payloadCount(replacementTransport, "kata-analyze"));
+        assertEquals(0, payloadCount(replacementTransport, "kata-set-rules"));
+        assertEquals(0, payloadCount(replacementTransport, "kata-get-rules"));
+        assertSame(target, harness.board.getHistory().captureSessionRules());
+        assertFalse(harness.engine.engineRulesResult().isConfirmed());
+        assertTrue(harness.board.previousMove(false));
+        assertEquals(1, payloadCount(primaryTransport, "undo"));
+      } finally {
+        harness.frame.shutdownKifuEngineSyncCoordinator();
+        mirror.started = false;
+        mirror.isLoaded = false;
+        replacement.started = false;
+        replacement.isLoaded = false;
+      }
+    }
+  }
+
+  @Test
   void comparisonExitDuringExplicitRulesOverrideRequiresFreshConsentAndRestoresPrimary()
       throws Exception {
     try (Harness harness = Harness.open()) {
@@ -2204,6 +2420,9 @@ class PositionConfirmedRollbackTest {
 
   private static final class HeadlessBoard extends Board {
     @Override
+    public void setMovelistAll() {}
+
+    @Override
     public void clearAfterMove() {
       Lizzie.leelaz.clearPonderLimit();
     }
@@ -2215,11 +2434,20 @@ class PositionConfirmedRollbackTest {
     private boolean scheduledResumeRan;
     private boolean userAnalysisPaused;
     private volatile int rulesFailurePromptCount;
+    private int rulesFailureChoice;
+
+    @Override
+    public String getTitle() {
+      return "Trial regression";
+    }
+
+    @Override
+    public void setTitle(String title) {}
 
     @Override
     protected int showImportedRulesFailurePrompt(String message) {
       rulesFailurePromptCount++;
-      return javax.swing.JOptionPane.YES_OPTION;
+      return rulesFailureChoice;
     }
 
     @Override

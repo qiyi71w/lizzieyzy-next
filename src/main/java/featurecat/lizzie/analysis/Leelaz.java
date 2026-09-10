@@ -22529,28 +22529,6 @@ public class Leelaz {
     YikeSyncDebugLog.log("Leelaz togglePonder after isPondering=" + isPondering);
   }
 
-  /**
-   * Starts analysis on the current comparison engine while sharing the user's pause boundary.
-   */
-  public boolean ponderComparisonEngineIfAnalysisControlAllows(Leelaz comparisonEngine) {
-    synchronized (analysisControlPonderLock()) {
-      if (comparisonEngine == null
-          || Lizzie.config == null
-          || !Lizzie.config.isDoubleEngineMode()
-          || Lizzie.leelaz != this
-          || activeComparisonEngine() != comparisonEngine
-          || (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused())
-          || !isPonderingOrWasPonderingBeforeTracking()
-          || !comparisonEngine.isStarted()
-          || !comparisonEngine.isLoaded()
-          || comparisonEngine.isCheckingName) {
-        return false;
-      }
-      comparisonEngine.ponder();
-      comparisonEngine.setResponseUpToDate();
-      return true;
-    }
-  }
 
   /** Reissues primary analysis after a comparison restart without crossing a later user pause. */
   public boolean ponderAfterComparisonRestartIfAnalysisControlAllows(Leelaz comparisonEngine) {

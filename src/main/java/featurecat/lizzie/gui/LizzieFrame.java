@@ -550,6 +550,7 @@ public class LizzieFrame extends JFrame {
   private volatile int kifuAnalysisResumeGeneration = 0;
   private transient KifuEngineSyncCoordinator kifuEngineSyncCoordinator;
   private volatile BoardHistoryNode pendingKifuEngineSyncRoot;
+  private Runnable pendingKifuRulesConsent;
   private javax.swing.Timer quickAnalysisLoadRetryTimer;
   private volatile long loadedGameQuickAnalysisGeneration;
   private volatile BoardHistoryNode loadedGameQuickAnalysisRoot;
@@ -730,7 +731,7 @@ public class LizzieFrame extends JFrame {
   public boolean selectForceAllow = true;
 
   public boolean isTrying = false;
-  ArrayList<Movelist> tryMoveList;
+  List<Integer> tryHistoryPath;
   String tryString;
   BoardHistoryList.SessionRulesTarget trySessionRulesTarget;
   String titleBeforeTrying;
@@ -3324,32 +3325,51 @@ public class LizzieFrame extends JFrame {
     if (floatBoard != null && floatBoard.isVisible() && floatBoard.editMode)
       floatBoard.changeEetEditMode();
     if (!isTrying) {
-      isTrying = true;
       try {
         tryString = SGFParser.saveToString(false);
       } catch (IOException e) {
-        // TODO Auto-generated catch block
-        e.printStackTrace();
+        throw new IllegalStateException("Unable to preserve history before trial play", e);
       }
+      isTrying = true;
       titleBeforeTrying = this.getTitle();
       this.setTitle(Lizzie.resourceBundle.getString("LizzieFrame.tryTitle")); // "试下中...");
       toolbar.tryPlay.setText(
           Lizzie.resourceBundle.getString("BottomToolbar.tryplayBack")); // ("恢复");
-      tryMoveList = Lizzie.board.getMoveList();
+      tryHistoryPath = new ArrayList<>();
+      BoardHistoryNode node = Lizzie.board.getHistory().getCurrentHistoryNode();
+      while (node.previous().isPresent()) {
+        BoardHistoryNode parent = node.previous().orElseThrow();
+        tryHistoryPath.add(parent.indexOfNode(node));
+        node = parent;
+      }
       trySessionRulesTarget = Lizzie.board.getHistory().captureSessionRules();
       Lizzie.board.getHistory().getCurrentHistoryNode().getData().moveNumber = 0;
       Lizzie.board.deleteMoveNoHintAfter();
     } else {
+      Board.ClearStateSnapshot trialState = Lizzie.board.captureClearState();
       isTrying = false;
-      toolbar.tryPlay.setText(Lizzie.resourceBundle.getString("BottomToolbar.tryPlay")); // ("试下");
-      if (SGFParser.loadFromString(tryString, false)) {
-        Lizzie.board.getHistory().restoreSessionRulesTarget(trySessionRulesTarget);
-        synchronizeImportedSgfAfterParserLoad();
+      if (!SGFParser.loadFromString(tryString, false)) {
+        isTrying = true;
+        return;
       }
-      Lizzie.board.resetMoveList(tryMoveList);
+      BoardHistoryNode restored = Lizzie.board.getHistory().getStart();
+      for (int index = tryHistoryPath.size() - 1; index >= 0; index--) {
+        Optional<BoardHistoryNode> child = restored.getVariation(tryHistoryPath.get(index));
+        if (child.isEmpty()) {
+          Lizzie.board.restoreClearState(trialState);
+          isTrying = true;
+          throw new IllegalStateException("Saved trial history path no longer exists");
+        }
+        restored = child.get();
+      }
+      Lizzie.board.getHistory().restoreSessionRulesTarget(trySessionRulesTarget);
+      Lizzie.board.requireEngineAlignment();
+      Lizzie.board.moveToAnyPosition(restored);
+      isTrying = false;
+      toolbar.tryPlay.setText(Lizzie.resourceBundle.getString("BottomToolbar.tryPlay"));
       Lizzie.board.setMovelistAll();
-      if (Lizzie.board.getCurrentMovenumber() == 0 && Lizzie.leelaz.isPondering())
-        Lizzie.leelaz.ponder();
+      scheduleEngineSyncAndResumeAfterKifuLoad(
+          0, this::resumeForegroundAnalysisForConfirmedPosition, false);
       this.setTitle(titleBeforeTrying);
       if (needRefresh) refresh();
     }
@@ -5508,6 +5528,11 @@ public class LizzieFrame extends JFrame {
   }
 
   private void scheduleEngineSyncAndResumeAfterKifuLoad(int delayMillis, Runnable action) {
+    scheduleEngineSyncAndResumeAfterKifuLoad(delayMillis, action, true);
+  }
+
+  private void scheduleEngineSyncAndResumeAfterKifuLoad(
+      int delayMillis, Runnable action, boolean newAnalysisContext) {
     BoardHistoryNode root = currentHistoryRoot();
     BoardHistoryList history = Lizzie.board == null ? null : Lizzie.board.getHistory();
     if (root == null || history == null) {
@@ -5516,6 +5541,7 @@ public class LizzieFrame extends JFrame {
       return;
     }
     BoardHistoryList.SessionRulesTarget rulesTarget = history.captureSessionRules();
+    pendingKifuRulesConsent = null;
     Leelaz primary = Lizzie.leelaz;
     long primaryGeneration = Lizzie.capturePrimaryEngineGeneration(primary);
     Leelaz mirror = primary == null ? null : primary.activeComparisonEngine();
@@ -5523,8 +5549,9 @@ public class LizzieFrame extends JFrame {
     // coordinator worker. Analysis remains gated until rules and position are both confirmed.
     canGoAfterload = false;
     pendingKifuEngineSyncRoot = root;
+    Lizzie.board.requireEngineAlignment();
     stopLoadedGameQuickAnalysisRetry();
-    startNewKifuAnalysisContextAfterSuccessfulLoad();
+    if (newAnalysisContext) startNewKifuAnalysisContextAfterSuccessfulLoad();
     Runnable submit =
         () ->
             submitKifuEngineSync(
@@ -5557,6 +5584,7 @@ public class LizzieFrame extends JFrame {
           action);
       return;
     }
+    pendingKifuRulesConsent = null;
     kifuEngineSyncCoordinator()
         .submit(
             new KifuEngineSyncCoordinator.Request() {
@@ -5664,6 +5692,12 @@ public class LizzieFrame extends JFrame {
               public void onSynchronized() {
                 if (primary != null) primary.notPondering();
                 if (isCurrent()) {
+                  if (synchronizedPosition != null
+                      && !synchronizedPosition.completeEngineAlignment()) {
+                    submitKifuEngineSync(
+                        root, rulesTarget, primary, primaryGeneration, mirror, delayMillis, action);
+                    return;
+                  }
                   pendingKifuEngineSyncRoot = null;
                   canGoAfterload = true;
                   stopQuickAnalysisWarmupTimer();
@@ -5796,6 +5830,35 @@ public class LizzieFrame extends JFrame {
     if (!isCurrentKifuRulesRequest(root, rulesTarget, primary, primaryGeneration, mirror)) {
       return;
     }
+    Object primaryIncarnation = primary == null ? null : primary.engineIncarnationToken();
+    Object mirrorIncarnation = mirror == null ? null : mirror.engineIncarnationToken();
+    pendingKifuRulesConsent =
+        () -> {
+          Leelaz currentPrimary = Lizzie.leelaz;
+          long currentGeneration = Lizzie.capturePrimaryEngineGeneration(currentPrimary);
+          Leelaz currentMirror =
+              currentPrimary == null ? null : currentPrimary.activeComparisonEngine();
+          if (!isCurrentKifuRulesRequest(
+              root, rulesTarget, currentPrimary, currentGeneration, currentMirror)) {
+            return;
+          }
+          if (currentPrimary != primary
+              || currentGeneration != primaryGeneration
+              || !primary.isCurrentEngineIncarnationToken(primaryIncarnation)) {
+            scheduleEngineSyncAndResumeAfterKifuLoad(
+                0, this::resumeForegroundAnalysisForConfirmedPosition, false);
+          } else {
+            offerContinueAfterRulesFailure(
+                root,
+                rulesTarget,
+                primary,
+                primaryGeneration,
+                currentMirror,
+                failure,
+                0,
+                this::resumeForegroundAnalysisForConfirmedPosition);
+          }
+        };
     canGoAfterload = true;
     String target = sessionRulesTargetLabel(rulesTarget);
     String message =
@@ -5814,8 +5877,11 @@ public class LizzieFrame extends JFrame {
                 engineRulesStatusLabel(mirror),
                 failure.failure().name());
     int choice = showImportedRulesFailurePrompt(message);
-    if (choice == JOptionPane.YES_OPTION
-        && isCurrentKifuRulesRequest(root, rulesTarget, primary, primaryGeneration, mirror)) {
+    if (!isCurrentKifuRulesRequest(root, rulesTarget, primary, primaryGeneration, mirror)
+        || !exactEngineIncarnationsRemainCurrent(
+            primary, primaryIncarnation, mirror, mirrorIncarnation)) return;
+    if (choice == JOptionPane.YES_OPTION) {
+      pendingKifuRulesConsent = null;
       if (primary == null) {
         pendingKifuEngineSyncRoot = null;
         canGoAfterload = true;
@@ -5827,6 +5893,8 @@ public class LizzieFrame extends JFrame {
           .authorizeAnalysisWithCurrentRules(rulesTarget, primary, primaryGeneration, mirror);
       submitKifuPositionSyncAfterRulesOverride(
           root, rulesTarget, primary, primaryGeneration, mirror, failure, delayMillis, action);
+    } else {
+      userAnalysisPaused = true;
     }
   }
 
@@ -5928,6 +5996,7 @@ public class LizzieFrame extends JFrame {
       return;
     }
     if (Lizzie.board.getHistory() == history && history.captureSessionRules() == target) {
+      pendingKifuRulesConsent = null;
       pendingKifuEngineSyncRoot = null;
       kifuAnalysisResumeGeneration++;
       stopLoadedGameQuickAnalysisRetry();
@@ -6031,6 +6100,19 @@ public class LizzieFrame extends JFrame {
               public void onSynchronized() {
                 if (primary != null) primary.notPondering();
                 if (isCurrent()) {
+                  if (synchronizedPosition == null
+                      || !synchronizedPosition.completeEngineAlignment()) {
+                    submitKifuPositionSyncAfterRulesOverride(
+                        root,
+                        rulesTarget,
+                        primary,
+                        primaryGeneration,
+                        mirror,
+                        rulesFailure,
+                        delayMillis,
+                        action);
+                    return;
+                  }
                   pendingKifuEngineSyncRoot = null;
                   canGoAfterload = true;
                   scheduleResumeAnalysisAfterLoad(
@@ -6059,6 +6141,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private synchronized void cancelPendingKifuEngineSync() {
+    pendingKifuRulesConsent = null;
     pendingKifuEngineSyncRoot = null;
     if (kifuEngineSyncCoordinator != null) {
       kifuEngineSyncCoordinator.cancel();
@@ -6066,6 +6149,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public synchronized void shutdownKifuEngineSyncCoordinator() {
+    pendingKifuRulesConsent = null;
     pendingKifuEngineSyncRoot = null;
     if (kifuEngineSyncCoordinator != null) {
       kifuEngineSyncCoordinator.close();
@@ -13584,6 +13668,10 @@ public class LizzieFrame extends JFrame {
       return;
     }
     pendingForegroundResumeAfterCleanup = false;
+    if (pendingKifuEngineSyncRoot != null && pendingKifuEngineSyncRoot == currentHistoryRoot()) {
+      if (pendingKifuRulesConsent != null) pendingKifuRulesConsent.run();
+      return;
+    }
     if (!Lizzie.leelaz.isPondering()) {
       if (!syncCurrentPositionToPrimaryEngineForAnalysis()) {
         return;

@@ -11487,8 +11487,7 @@ public class EngineManager {
               });
       return () -> {
         EngineSwitchTransaction switchTransaction = lifecycleRestore.engineSwitchTransaction;
-        if (switchTransaction != null
-            && switchTransaction.synchronizationFailureSuperseded) {
+        if (switchTransaction != null && switchTransaction.synchronizationFailureSuperseded) {
           releaseFailedLifecycle.run();
           return;
         }
@@ -11507,73 +11506,67 @@ public class EngineManager {
                 : lifecycleRestore.mirrorEngine.captureEngineIncarnationFence();
         try {
           lifecycleRestore.confirmBoardSynchronization(
-                () -> {
-                  if (!confirmationSettled.compareAndSet(false, true)) {
-                    return;
-                  }
-                  boolean lifecycleReleased = false;
-                  Throwable settlementFailure = null;
-                  try {
-                    if (!engineSwitchUiTracker.isSwitching(
+              () -> {
+                if (!confirmationSettled.compareAndSet(false, true)) {
+                  return;
+                }
+                boolean lifecycleReleased = false;
+                Throwable settlementFailure = null;
+                try {
+                  if (!engineSwitchUiTracker.isSwitching(
                       lifecycleRestore.engineSwitchUiToken, lifecycleRestore.engineSwitchUiMain)) {
-                      throw new IllegalStateException(
-                          "Engine switch was superseded before final initialization");
-                    }
-                    Lizzie.PreparedEngineReadyPublication readyPublication =
-                        isMain
-                            ? lifecycleRestore.prepareAfterRestore(false, true)
-                            : null;
-                    if (isMain && readyPublication == null) {
-                      throw new IllegalStateException(
-                          "Primary engine changed before READY preparation");
-                    }
-                    lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
-                    // Final selection/ACTIVE publication is terminal. Release every fallible
-                    // lifecycle owner first so a detach/reservation failure cannot leave a failed
-                    // target published as active.
-                    releaseLifecycle.run();
-                    lifecycleReleased = true;
-                    Runnable terminalPublication =
-                        completeOrdinaryEngineSwitchAtFinalFence(
-                            lifecycleRestore,
-                            targetIncarnation,
-                            mirrorIncarnation,
-                            readyPublication);
-                    terminalPublication.run();
-                  } catch (RuntimeException | Error failure) {
-                    settlementFailure = failure;
-                    settlementFailure =
-                        runLifecycleCleanupStep(
-                            settlementFailure,
-                            () ->
-                                failLifecycleFinalInitialization(
-                                    target,
-                                    isMain,
-                                    lifecycleRestore,
-                                    targetWasUnrestored,
-                                    failure));
-                  } finally {
-                    if (!lifecycleReleased) {
-                      settlementFailure =
-                          runLifecycleCleanupStep(settlementFailure, releaseLifecycle);
-                    }
-                    settlementFailure =
-                        runLifecycleCleanupStep(settlementFailure, finishTransaction);
+                    throw new IllegalStateException(
+                        "Engine switch was superseded before final initialization");
                   }
-                  rethrowLifecycleCleanupFailure(settlementFailure);
-                },
-                (failedEngine, detail) -> {
-                  if (!confirmationSettled.compareAndSet(false, true)) {
-                    return;
+                  Lizzie.PreparedEngineReadyPublication readyPublication =
+                      isMain ? lifecycleRestore.prepareAfterRestore(false, true) : null;
+                  if (isMain && readyPublication == null) {
+                    throw new IllegalStateException(
+                        "Primary engine changed before READY preparation");
                   }
-                  failLifecycleBoardSynchronization(
-                      target,
-                      failedEngine,
-                      detail,
-                      targetWasUnrestored,
-                      releaseFailedLifecycle,
-                      engineSwitchUiToken(lifecycleRestore));
-                });
+                  if (lifecycleRestore.initialStartupSynchronization != null) {
+                    lifecycleRestore.initialStartupSynchronization
+                        .completeConfirmedEngineAlignment();
+                  }
+                  lifecycleRestore.resumePonderAfterSuccessfulSynchronization(isMain);
+                  // Final selection/ACTIVE publication is terminal. Release every fallible
+                  // lifecycle owner first so a detach/reservation failure cannot leave a failed
+                  // target published as active.
+                  releaseLifecycle.run();
+                  lifecycleReleased = true;
+                  Runnable terminalPublication =
+                      completeOrdinaryEngineSwitchAtFinalFence(
+                          lifecycleRestore, targetIncarnation, mirrorIncarnation, readyPublication);
+                  terminalPublication.run();
+                } catch (RuntimeException | Error failure) {
+                  settlementFailure = failure;
+                  settlementFailure =
+                      runLifecycleCleanupStep(
+                          settlementFailure,
+                          () ->
+                              failLifecycleFinalInitialization(
+                                  target, isMain, lifecycleRestore, targetWasUnrestored, failure));
+                } finally {
+                  if (!lifecycleReleased) {
+                    settlementFailure =
+                        runLifecycleCleanupStep(settlementFailure, releaseLifecycle);
+                  }
+                  settlementFailure = runLifecycleCleanupStep(settlementFailure, finishTransaction);
+                }
+                rethrowLifecycleCleanupFailure(settlementFailure);
+              },
+              (failedEngine, detail) -> {
+                if (!confirmationSettled.compareAndSet(false, true)) {
+                  return;
+                }
+                failLifecycleBoardSynchronization(
+                    target,
+                    failedEngine,
+                    detail,
+                    targetWasUnrestored,
+                    releaseFailedLifecycle,
+                    engineSwitchUiToken(lifecycleRestore));
+              });
         } catch (RuntimeException | Error confirmationFailure) {
           if (!confirmationSettled.compareAndSet(false, true)) {
             throw confirmationFailure;
@@ -14166,6 +14159,7 @@ public class EngineManager {
     private volatile boolean engineSwitchUiMain;
     private volatile boolean engineSwitchUiCompletionAtLifecycleFence;
     private volatile EngineSwitchTransaction engineSwitchTransaction;
+    private InitialEngineStartupSynchronization initialStartupSynchronization;
 
     private PreparedLifecycleRestore(
         Leelaz previousEngine,
@@ -14291,6 +14285,15 @@ public class EngineManager {
 
     private void confirmBoardSynchronization(
         Runnable onSuccess, java.util.function.BiConsumer<Leelaz, String> onFailure) {
+      if (initialStartupSynchronization != null) {
+        initialStartupSynchronization.confirmSwitchBoardSynchronization(onSuccess, onFailure);
+        return;
+      }
+      confirmCapturedBoardSynchronization(onSuccess, onFailure);
+    }
+
+    private void confirmCapturedBoardSynchronization(
+        Runnable onSuccess, java.util.function.BiConsumer<Leelaz, String> onFailure) {
       confirmBoardSynchronizationOnce(
           targetEngine,
           () -> {
@@ -14363,9 +14366,9 @@ public class EngineManager {
 
     private void resumePonderAfterSuccessfulSynchronization(boolean primarySwitch) {
       if (!primarySwitch) {
-        Leelaz primary = Lizzie.leelaz;
+        Leelaz primary = mirrorEngine;
         if (primary != null) {
-          primary.ponderComparisonEngineIfAnalysisControlAllows(targetEngine);
+          primary.ponderAfterComparisonRestartIfAnalysisControlAllows(targetEngine);
         }
         return;
       }
@@ -14416,6 +14419,7 @@ public class EngineManager {
       this.exactRestore = lifecycleRestore.exactRestore;
       this.lifecycleRestore = lifecycleRestore;
       this.initialStartupSynchronization = initialStartupSynchronization;
+      lifecycleRestore.initialStartupSynchronization = initialStartupSynchronization;
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
       this.boardEmpty = boardEmpty;
@@ -15253,6 +15257,53 @@ public class EngineManager {
       return readyPublication;
     }
 
+    private void confirmSwitchBoardSynchronization(
+        Runnable onSuccess, java.util.function.BiConsumer<Leelaz, String> onFailure) {
+      pendingRoute.confirmCapturedBoardSynchronization(
+          () -> {
+            boolean current;
+            synchronized (board) {
+              current = capturedFrame.matches(BoardFrame.capture(board));
+            }
+            if (current) {
+              onSuccess.run();
+              return;
+            }
+            // A final-fence callback may run on the reader. Catch-up performs GTP off that thread.
+            ForkJoinPool.commonPool()
+                .execute(
+                    () -> {
+                      try {
+                        synchronized (board) {
+                          stable = false;
+                          barriersEnded.set(false);
+                          beginSynchronizationBarriers();
+                          capturedFrame = BoardFrame.capture(board);
+                          pendingRoute = captureRoute(false);
+                        }
+                        acquireReservation();
+                        runUntilStable();
+                        confirmSwitchBoardSynchronization(onSuccess, onFailure);
+                      } catch (RuntimeException | Error failure) {
+                        onFailure.accept(
+                            targetEngine,
+                            Leelaz.safeFailureDetail(failure, "switch completion catch-up failed"));
+                      }
+                    });
+          },
+          onFailure);
+    }
+
+    private void completeConfirmedEngineAlignment() {
+      if (!engineGameInitialization
+          && rulesPrimaryGeneration >= 0L
+          && Lizzie.capturePrimaryEngineGeneration(rulesPrimaryEngine) == rulesPrimaryGeneration
+          && rulesPrimaryEngine.activeComparisonEngine() == rulesMirrorEngine) {
+        board.completeEngineAlignment(
+            capturedFrame.root, capturedFrame.current, capturedFrame.contextRevision);
+      }
+    }
+
     private void confirmFinalBoardSynchronization(
         Runnable onSuccess, java.util.function.Consumer<String> onFailure) {
       Leelaz.LifecycleCompletionClaim claim = completionClaim;
@@ -15281,7 +15332,12 @@ public class EngineManager {
           }
         }
         if (!catchUpRequired) {
-          claim.completeSuccess(onSuccess, onFailure);
+          claim.completeSuccess(
+              () -> {
+                completeConfirmedEngineAlignment();
+                onSuccess.run();
+              },
+              onFailure);
           return;
         }
         acquireReservation();

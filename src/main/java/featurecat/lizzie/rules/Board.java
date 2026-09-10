@@ -114,6 +114,29 @@ public class Board {
   private volatile int movelistRefreshGeneration = 0;
   private volatile long lastMoveNavigationAt = 0L;
   private volatile long contextRevision = 0L;
+  private volatile BoardHistoryList pendingEngineAlignmentHistory;
+
+  /** GUI adoption leaves navigation local until an acknowledged restore reaches this history. */
+  public synchronized void requireEngineAlignment() {
+    pendingEngineAlignmentHistory = history;
+    advanceContextRevision();
+  }
+
+  private boolean isEngineAlignmentPending() {
+    return pendingEngineAlignmentHistory != null && pendingEngineAlignmentHistory == history;
+  }
+
+  /** Called only by a restore owner after its captured engine set has confirmed the position. */
+  public synchronized void completeEngineAlignment(
+      BoardHistoryNode root, BoardHistoryNode node, long revision) {
+    if (history != null
+        && history.getStart() == root
+        && history.getCurrentHistoryNode() == node
+        && contextRevision == revision) {
+      pendingEngineAlignmentHistory = null;
+    }
+  }
+
   /** Test seam: after history-overwrite mutation, before engine forwarding. */
   public static volatile Runnable beforeHistoryOverwriteEngineForward;
 
@@ -133,6 +156,7 @@ public class Board {
   public static final class ClearStateSnapshot {
     private final Board owner;
     private final BoardHistoryList history;
+    private final BoardHistoryList pendingEngineAlignmentHistory;
     private final int boardWidth;
     private final int boardHeight;
     private final Zobrist.TableSnapshot zobristTables;
@@ -161,6 +185,7 @@ public class Board {
     private ClearStateSnapshot(Board board) {
       owner = board;
       history = board.history;
+      pendingEngineAlignmentHistory = board.pendingEngineAlignmentHistory;
       boardWidth = Board.boardWidth;
       boardHeight = Board.boardHeight;
       zobristTables = Zobrist.captureTables();
@@ -208,6 +233,7 @@ public class Board {
     forceRefresh2 = false;
     hasBigBranch = false;
     history = new BoardHistoryList(BoardData.empty(boardWidth, boardHeight));
+    pendingEngineAlignmentHistory = null;
     setupMode = false;
     if (isEngineGame) {
       Lizzie.board
@@ -2002,6 +2028,19 @@ public class Board {
           detail -> confirmed.completeExceptionally(new IllegalStateException(detail)));
       confirmed.join();
       return true;
+    }
+
+    /** The current import owner calls this only after execute and its context checks succeed. */
+    public boolean completeEngineAlignment() {
+      if (!matchesCurrentBoardAndPrimary()) return false;
+      synchronized (owner) {
+        if (owner.history != capturedHistory
+            || owner.contextRevision != capturedContextRevision
+            || capturedHistory.getCurrentHistoryNode() != capturedCurrentNode) return false;
+        owner.completeEngineAlignment(
+            capturedHistory.getStart(), capturedCurrentNode, capturedContextRevision);
+        return true;
+      }
     }
 
     /**
@@ -4190,7 +4229,10 @@ public class Board {
   }
 
   private boolean shouldForwardHistoryNavigationToPrimaryEngine() {
-    return !isCollectingReadBoardSync() && !isLoadingFile && isPrimaryEngineReady();
+    return !isCollectingReadBoardSync()
+        && !isLoadingFile
+        && !isEngineAlignmentPending()
+        && isPrimaryEngineReady();
   }
 
   private HistoryNavigationRestore prepareHistoryNavigationRestore(boolean stepIn) {
@@ -4306,7 +4348,8 @@ public class Board {
       }
       if (Lizzie.config.playSound) Utils.playVoiceFile();
       if (expectedChild == null) {
-        if (isCollectingReadBoardSync()) history.nextVariationWithoutEngineSync(0);
+        if (!shouldForwardHistoryNavigationToPrimaryEngine())
+          history.nextVariationWithoutEngineSync(0);
         else history.next();
       } else {
         history.nextVariationWithoutEngineSync(childIndex);
@@ -4662,7 +4705,7 @@ public class Board {
       updateWinrate();
       // Don't update winrate here as this is usually called when jumping between
       // variations
-      if ((isCollectingReadBoardSync()
+      if ((!shouldForwardHistoryNavigationToPrimaryEngine()
               ? history.nextVariationWithoutEngineSync(idx)
               : history.nextVariation(idx))
           .isPresent()) {
@@ -4671,9 +4714,10 @@ public class Board {
         updateIsBest();
         notifyReadBoardLocalHistoryNavigation();
         BoardData currentData = history.getData();
-        if (currentData.isSnapshotNode()) {
+        boolean forward = shouldForwardHistoryNavigationToPrimaryEngine();
+        if (forward && currentData.isSnapshotNode()) {
           history.getCurrentHistoryNode().clearAndSyncBoard(true);
-        } else if (currentData.isMoveNode()) {
+        } else if (forward && currentData.isMoveNode()) {
           int[] lastMove = currentData.lastMove.get();
           String name = convertCoordinatesToName(lastMove[0], lastMove[1]);
           submitOrdinaryEngineForwarding(
@@ -4682,7 +4726,7 @@ public class Board {
                 feedEngineForMainlineMove(currentData.lastMoveColor, name);
                 return true;
               });
-        } else if (isKnownPass(currentData)) {
+        } else if (forward && isKnownPass(currentData)) {
           submitOrdinaryEngineForwarding(
               Lizzie.leelaz,
               () -> {
@@ -4791,7 +4835,7 @@ public class Board {
    * @return void
    */
   public void moveToAnyPosition(BoardHistoryNode targetNode) {
-    if (isCollectingReadBoardSync()) {
+    if (isCollectingReadBoardSync() || isEngineAlignmentPending() || isLoadingFile) {
       synchronized (this) {
         if (history.getCurrentHistoryNode() == targetNode) return;
         if (Lizzie.leelaz != null) updateWinrate();
@@ -5179,6 +5223,7 @@ public class Board {
       boardHeight = snapshot.boardHeight;
       Zobrist.restoreTables(snapshot.zobristTables);
       history = snapshot.history;
+      pendingEngineAlignmentHistory = snapshot.pendingEngineAlignmentHistory;
       analysisMode = snapshot.analysisMode;
       setupMode = snapshot.setupMode;
       forceRefresh = snapshot.forceRefresh;
