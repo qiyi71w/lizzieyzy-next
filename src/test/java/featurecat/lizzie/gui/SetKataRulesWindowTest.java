@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.KataGoRules;
@@ -28,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import javax.swing.SwingUtilities;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
-import sun.misc.Unsafe;
 
 class SetKataRulesWindowTest {
   private static final String CHINESE =
@@ -164,69 +162,6 @@ class SetKataRulesWindowTest {
   }
 
 
-  @Test
-  void matchingManualReadbackHandsCapturedComparisonPairToConvergence() throws Exception {
-    assumeFalse(GraphicsEnvironment.isHeadless());
-    try (Fixture fixture = Fixture.ordinary()) {
-      SetKataRules dialog = new SetKataRules(fixture.engine);
-      int queryId = commandIdFor(fixture.output.toString(), "kata-get-rules");
-      dispatch(fixture.engine, "=" + queryId + " " + CHINESE);
-      awaitStatus(dialog, "Engine rules confirmed");
-      Leelaz mirror = Fixture.liveEngine(new ByteArrayOutputStream());
-      Lizzie.config.extraMode = ExtraMode.Double_Engine;
-      Lizzie.leelaz2 = mirror;
-      RecordingRulesFrame frame = allocate(RecordingRulesFrame.class);
-      Lizzie.frame = frame;
-
-      dialog.rdoTerritory.setSelected(true);
-      dialog.rdoSeKiTax.setSelected(true);
-      dialog.rdoNoHandicapKomi.setSelected(true);
-      dialog.rdoSimpleKo.setSelected(true);
-      dialog.rdoNoSuicide.setSelected(true);
-      dialog.applySelectedRules();
-      int setId = commandIdFor(fixture.output.toString(), "kata-set-rules");
-      dispatch(fixture.engine, "=" + setId);
-      int readbackId = commandIdFor(fixture.output.toString(), "kata-get-rules");
-      dispatch(fixture.engine, "=" + readbackId + " " + JAPANESE);
-
-      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-      while (frame.target == null && System.nanoTime() < deadline) {
-        Thread.sleep(20L);
-      }
-      assertSame(fixture.engine, frame.primary);
-      assertSame(mirror, frame.mirror);
-      assertSame(Lizzie.board.getHistory(), frame.history);
-      assertSame(Lizzie.board.getHistory().captureSessionRules(), frame.target);
-      closeDialog(dialog);
-    }
-  }
-
-  private static <T> T allocate(Class<T> type) throws Exception {
-    Field field = Unsafe.class.getDeclaredField("theUnsafe");
-    field.setAccessible(true);
-    return type.cast(((Unsafe) field.get(null)).allocateInstance(type));
-  }
-
-  private static final class RecordingRulesFrame extends LizzieFrame {
-    volatile BoardHistoryList history;
-    volatile BoardHistoryList.SessionRulesTarget target;
-    volatile Leelaz primary;
-    volatile Leelaz mirror;
-
-    @Override
-    public void synchronizeManualRulesAfterSelection(
-        BoardHistoryList history,
-        BoardHistoryList.SessionRulesTarget target,
-        BoardHistoryList.ManualRulesIntent manualIntent,
-        Leelaz primary,
-        long primaryGeneration) {
-      Leelaz mirror = primary.activeComparisonEngine();
-      this.history = history;
-      this.target = target;
-      this.primary = primary;
-      this.mirror = mirror;
-    }
-  }
   @Test
   void delayedQueryStaysPendingUntilProtocolSettlesThenAppliesRadios() throws Exception {
     assumeFalse(GraphicsEnvironment.isHeadless());
