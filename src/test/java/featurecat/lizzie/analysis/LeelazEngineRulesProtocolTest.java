@@ -395,7 +395,7 @@ class LeelazEngineRulesProtocolTest {
   void matchOwnerReadbackRetainsOwnerAdmissionAfterSetAck() throws Exception {
     try (Fixture fixture = Fixture.ordinary()) {
       GtpConsolePane previousConsole = Lizzie.gtpConsole;
-      Lizzie.gtpConsole = new SilentGtpConsole();
+      Lizzie.gtpConsole = SilentGtpConsole.create();
       try {
         EngineManager.resetEngineGameTransactionStateForTest();
         EngineManager manager = new EngineManager(List.of(fixture.engine, fixture.secondEngine()));
@@ -475,7 +475,7 @@ class LeelazEngineRulesProtocolTest {
   void matchOwnerReadbackIsRetiredWhenOwnerEndsBeforePhysicalWrite() throws Exception {
     try (Fixture fixture = Fixture.controlledOwner()) {
       GtpConsolePane previousConsole = Lizzie.gtpConsole;
-      Lizzie.gtpConsole = new SilentGtpConsole();
+      Lizzie.gtpConsole = SilentGtpConsole.create();
       ControlledOwnerLeelaz engine = (ControlledOwnerLeelaz) fixture.engine;
       try {
         EngineManager.resetEngineGameTransactionStateForTest();
@@ -636,6 +636,13 @@ class LeelazEngineRulesProtocolTest {
   private static final class SilentGtpConsole extends GtpConsolePane {
     private SilentGtpConsole() {
       super(null);
+    }
+
+    private static SilentGtpConsole create() throws Exception {
+      Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+      field.setAccessible(true);
+      return (SilentGtpConsole)
+          ((sun.misc.Unsafe) field.get(null)).allocateInstance(SilentGtpConsole.class);
     }
 
     @Override

@@ -19,6 +19,7 @@ class LizzieFrameRulesRetirementTest {
   void manualSelectionRetiresImportedRequestAndMatchingContinuePermit() throws Exception {
     Board previousBoard = Lizzie.board;
     Leelaz previousPrimary = Lizzie.leelaz;
+    boolean previousCanGoAfterload = LizzieFrame.canGoAfterload;
     try {
       Leelaz primary = new Leelaz("");
       Lizzie.leelaz = primary;
@@ -32,7 +33,7 @@ class LizzieFrameRulesRetirementTest {
       BoardHistoryNode root = history.getStart();
       setField(frame, "pendingKifuEngineSyncRoot", root);
       setField(frame, "kifuAnalysisResumeGeneration", 11);
-      setField(frame, "canGoAfterload", false);
+      LizzieFrame.canGoAfterload = false;
 
       frame.retireImportedRulesForManualSelection(history, target);
 
@@ -42,6 +43,7 @@ class LizzieFrameRulesRetirementTest {
     } finally {
       Lizzie.board = previousBoard;
       Lizzie.leelaz = previousPrimary;
+      LizzieFrame.canGoAfterload = previousCanGoAfterload;
     }
   }
 
