@@ -1,9 +1,11 @@
 package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryList;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /** Applies one captured history rules target to one captured engine instance. */
 public final class SessionRulesSynchronizer {
@@ -74,6 +76,30 @@ public final class SessionRulesSynchronizer {
     Leelaz primary = Lizzie.leelaz;
     Leelaz mirror = primary == null ? null : primary.activeComparisonEngine();
     return permitsOrdinaryAnalysis(target, history, primary, mirror, engine);
+  }
+
+  static boolean withOrdinaryAnalysisAdmission(
+      Leelaz engine, Leelaz mirroredEngine, Supplier<Boolean> admission) {
+    Board board = Lizzie.board;
+    if (board == null || board.getHistory() == null) {
+      return admission.get();
+    }
+    BoardHistoryList history = board.getHistory();
+    synchronized (history) {
+      if (Lizzie.board != board || board.getHistory() != history) {
+        return false;
+      }
+      BoardHistoryList.SessionRulesTarget target = history.captureSessionRules();
+      Leelaz primary = Lizzie.leelaz;
+      Leelaz mirror = primary == null ? null : primary.activeComparisonEngine();
+      if (!permitsOrdinaryAnalysis(target, history, primary, mirror, engine)
+          || (mirroredEngine != null
+              && !permitsOrdinaryAnalysis(
+                  target, history, primary, mirror, mirroredEngine))) {
+        return false;
+      }
+      return admission.get();
+    }
   }
 
   static boolean permitsOrdinaryAnalysis(

@@ -23,9 +23,11 @@ import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -763,6 +765,508 @@ class PositionConfirmedRollbackTest {
       assertNoAnalysis(restoreHistory.target.getData());
       replacement.started = false;
       replacement.isLoaded = false;
+    }
+  }
+
+
+  @Test
+  void rulesTargetCannotChangeDuringAnalysisQueueAdmission() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Field queueField = Leelaz.class.getDeclaredField("cmdQueue");
+      queueField.setAccessible(true);
+      Object commandQueue = queueField.get(harness.engine);
+      CountDownLatch publicationCompleted = new CountDownLatch(1);
+      AtomicReference<Throwable> analysisFailure = new AtomicReference<>();
+      AtomicReference<Throwable> publicationFailure = new AtomicReference<>();
+      Thread analysis =
+          new Thread(
+              () -> {
+                try {
+                  harness.engine.ponder();
+                } catch (Throwable thrown) {
+                  analysisFailure.set(thrown);
+                }
+              },
+              "rules-linearized-analysis-admission");
+      Thread publisher =
+          new Thread(
+              () -> {
+                try {
+                  harness.board.getHistory().publishExternalRules("japanese");
+                } catch (Throwable thrown) {
+                  publicationFailure.set(thrown);
+                } finally {
+                  publicationCompleted.countDown();
+                }
+              },
+              "rules-target-publication");
+
+      boolean publishedWhileQueueHeld;
+      synchronized (commandQueue) {
+        analysis.start();
+        long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+        while (analysis.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+          Thread.sleep(1L);
+        }
+        assertEquals(Thread.State.BLOCKED, analysis.getState());
+        publisher.start();
+        publishedWhileQueueHeld = publicationCompleted.await(500, TimeUnit.MILLISECONDS);
+      }
+      analysis.join(TimeUnit.SECONDS.toMillis(2));
+      publisher.join(TimeUnit.SECONDS.toMillis(2));
+
+      assertFalse(
+          publishedWhileQueueHeld,
+          "a session rules target cannot change between permission and queue admission");
+      assertFalse(analysis.isAlive());
+      assertFalse(publisher.isAlive());
+      assertEquals(null, analysisFailure.get());
+      assertEquals(null, publicationFailure.get());
+    }
+  }
+
+  @Test
+  void comparisonModeCannotChangeDuringAnalysisQueueAdmission() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Lizzie.config.uiConfig = new org.json.JSONObject();
+      Leelaz mirror = new Leelaz("");
+      Lizzie.leelaz2 = mirror;
+      Field queueField = Leelaz.class.getDeclaredField("cmdQueue");
+      queueField.setAccessible(true);
+      Object commandQueue = queueField.get(harness.engine);
+      CountDownLatch publicationCompleted = new CountDownLatch(1);
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+      Thread analysis =
+          new Thread(
+              () -> {
+                try {
+                  harness.engine.sendCommandNoLeelaz2("kata-analyze 10");
+                } catch (Throwable thrown) {
+                  failure.compareAndSet(null, thrown);
+                }
+              },
+              "comparison-analysis-admission");
+      Thread publisher =
+          new Thread(
+              () -> {
+                try {
+                  Lizzie.config.toggleExtraMode(0);
+                } catch (Throwable thrown) {
+                  failure.compareAndSet(null, thrown);
+                } finally {
+                  publicationCompleted.countDown();
+                }
+              },
+              "comparison-mode-publication");
+      analysis.setDaemon(true);
+      publisher.setDaemon(true);
+      boolean selectionChangedDuringAdmission;
+      try {
+        synchronized (commandQueue) {
+          analysis.start();
+          long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+          while (analysis.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+            Thread.sleep(1L);
+          }
+          assertEquals(Thread.State.BLOCKED, analysis.getState());
+          publisher.start();
+          selectionChangedDuringAdmission = publicationCompleted.await(500, TimeUnit.MILLISECONDS);
+        }
+      } finally {
+        analysis.join(TimeUnit.SECONDS.toMillis(2));
+        publisher.join(TimeUnit.SECONDS.toMillis(2));
+      }
+      assertFalse(analysis.isAlive());
+      assertFalse(publisher.isAlive());
+      assertEquals(null, failure.get());
+      assertFalse(
+          selectionChangedDuringAdmission,
+          "comparison selection must remain stable from rules permission through queue admission");
+      assertFalse(Lizzie.config.isDoubleEngineMode());
+    }
+  }
+
+  @Test
+  void defaultAnalysisCannotUseSingleEndpointAfterComparisonPublication() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.config.extraMode = ExtraMode.Normal;
+      Leelaz mirror = new Leelaz("");
+      mirror.started = true;
+      mirror.isLoaded = true;
+      mirror.isKatago = true;
+      Lizzie.leelaz2 = mirror;
+      ExactSnapshotRestoreProtocolFixture.Transport primaryTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      ExactSnapshotRestoreProtocolFixture.Transport mirrorTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              mirror, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      Field operationContext = Leelaz.class.getDeclaredField("engineRulesOperationContext");
+      operationContext.setAccessible(true);
+      Object previousContext = operationContext.get(harness.engine);
+      operationContext.set(
+          harness.engine,
+          new ThreadLocal<Object>() {
+            @Override
+            public Object get() {
+              EngineManager.publishExtraMode(Lizzie.config, ExtraMode.Double_Engine);
+              return null;
+            }
+          });
+      try {
+        harness.engine.sendCommand("kata-analyze 10");
+        assertTrue(Lizzie.config.isDoubleEngineMode());
+        assertEquals(
+            payloadCount(mirrorTransport, "kata-analyze"),
+            payloadCount(primaryTransport, "kata-analyze"),
+            "a default analysis crossing comparison entry must be paired or rejected");
+      } finally {
+        operationContext.set(harness.engine, previousContext);
+        mirror.started = false;
+        mirror.isLoaded = false;
+      }
+    }
+  }
+
+  @Test
+  void primaryOwnedPhysicalRestoreCannotDeadlockSelectionAdmission() throws Exception {
+    Path output = Files.createTempFile("lizzie-primary-selection-", ".log");
+    Process child = null;
+    try {
+      child =
+          new ProcessBuilder(
+                  Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                  "-cp",
+                  System.getProperty("java.class.path"),
+                  SelectionPrimaryProbe.class.getName())
+              .redirectErrorStream(true)
+              .redirectOutput(output.toFile())
+              .start();
+      assertTrue(child.waitFor(12, TimeUnit.SECONDS), "isolated primary/selection probe hung");
+      assertEquals(0, child.exitValue(), Files.readString(output));
+    } finally {
+      if (child != null && child.isAlive()) {
+        child.destroyForcibly();
+        child.waitFor(3, TimeUnit.SECONDS);
+      }
+      Files.deleteIfExists(output);
+    }
+  }
+
+  public static final class SelectionPrimaryProbe {
+    public static void main(String[] args) {
+      try {
+        Harness harness = Harness.open();
+        ExactSnapshotRestoreProtocolFixture.Transport transport =
+            ExactSnapshotRestoreProtocolFixture.install(
+                harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+        Field selectionField = EngineManager.class.getDeclaredField("ENGINE_SELECTION_STATE_LOCK");
+        selectionField.setAccessible(true);
+        Object selection = selectionField.get(null);
+        long generation = Lizzie.capturePrimaryEngineGeneration(harness.engine);
+        CountDownLatch primaryHeld = new CountDownLatch(1);
+        CountDownLatch allowRestore = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread analysis =
+            new Thread(
+                () -> {
+                  try {
+                    harness.engine.sendCommandNoLeelaz2("kata-analyze 10");
+                  } catch (Throwable thrown) {
+                    failure.set(thrown);
+                  }
+                },
+                "probe-analysis");
+        Thread restore =
+            new Thread(
+                () -> {
+                  try {
+                    Lizzie.runIfPrimaryEngine(
+                        harness.engine,
+                        generation,
+                        () -> {
+                          primaryHeld.countDown();
+                          try {
+                            assertTrue(allowRestore.await(3, TimeUnit.SECONDS));
+                          } catch (InterruptedException interrupted) {
+                            throw new AssertionError(interrupted);
+                          }
+                          harness.engine.sendCommandNoLeelaz2("clear_board");
+                        });
+                  } catch (Throwable thrown) {
+                    failure.set(thrown);
+                  }
+                },
+                "probe-primary-restore");
+        analysis.setDaemon(true);
+        restore.setDaemon(true);
+        synchronized (selection) {
+          analysis.start();
+          awaitFrame(analysis, "callIfCurrentAnalysisSelection");
+          restore.start();
+          assertTrue(primaryHeld.await(2, TimeUnit.SECONDS));
+        }
+        awaitFrame(analysis, "callIfPrimaryEngine", "capturePrimaryEngineGeneration");
+        allowRestore.countDown();
+        restore.join(2_000);
+        analysis.join(2_000);
+        long[] deadlocked =
+            java.lang.management.ManagementFactory.getThreadMXBean().findDeadlockedThreads();
+        if (deadlocked != null) {
+          for (var thread :
+              java.lang.management.ManagementFactory.getThreadMXBean()
+                  .getThreadInfo(deadlocked, true, true)) System.out.println(thread);
+        }
+        assertFalse(restore.isAlive(), "primary-owned physical restore deadlocked");
+        assertFalse(analysis.isAlive(), "analysis admission deadlocked");
+        assertEquals(null, failure.get());
+        assertEquals(1, payloadCount(transport, "clear_board"));
+        assertEquals(
+            1,
+            payloadCount(transport, "kata-analyze"),
+            "contention must not drop a still-current analysis request");
+        harness.close();
+        System.out.println("COMPLETED: physical restore=1, analysis=1");
+        System.exit(0);
+      } catch (Throwable failure) {
+        failure.printStackTrace();
+        System.exit(1);
+      }
+    }
+
+    private static void awaitFrame(Thread thread, String... methods) throws InterruptedException {
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (System.nanoTime() < deadline) {
+        if (thread.getState() == Thread.State.BLOCKED
+            || thread.getState() == Thread.State.WAITING) {
+          for (StackTraceElement frame : thread.getStackTrace()) {
+            for (String method : methods) if (frame.getMethodName().equals(method)) return;
+          }
+        }
+        Thread.sleep(1);
+      }
+      throw new AssertionError("Thread did not reach authority boundary: " + thread.getState());
+    }
+  }
+
+  @Test
+  void defaultAnalysisPreservesPrimaryWithLegacyComparisonPonder() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Leelaz mirror = new Leelaz("");
+      mirror.started = true;
+      mirror.isLoaded = true;
+      mirror.isLeela0110 = true;
+      Lizzie.leelaz2 = mirror;
+      ExactSnapshotRestoreProtocolFixture.Transport primaryTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      ExactSnapshotRestoreProtocolFixture.Transport mirrorTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              mirror, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      try {
+        harness.engine.sendCommand("kata-analyze 10");
+        assertEquals(1, payloadCount(primaryTransport, "kata-analyze"));
+        assertEquals(0, payloadCount(mirrorTransport, "kata-analyze"));
+        assertEquals(1, payloadCount(mirrorTransport, "time_left b 0 0"));
+      } finally {
+        mirror.leela0110StopPonder();
+        mirror.started = false;
+        mirror.isLoaded = false;
+      }
+    }
+  }
+
+  @Test
+  void comparisonExitDuringExplicitRulesOverrideRequiresFreshConsentAndRestoresPrimary()
+      throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Lizzie.config.uiConfig = new org.json.JSONObject();
+      harness.engine.commandLists.addAll(List.of("kata-set-rules", "kata-get-rules", "loadsgf"));
+      ExactSnapshotRestoreProtocolFixture.Transport primaryTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+      Leelaz mirror = new Leelaz("");
+      mirror.started = true;
+      mirror.isLoaded = true;
+      mirror.isKatago = true;
+      mirror.commandLists.addAll(List.of("name", "kata-set-rules", "kata-get-rules", "loadsgf"));
+      setField(mirror, "endGetCommandList", true);
+      Lizzie.leelaz2 = mirror;
+      ExactSnapshotRestoreProtocolFixture.Transport mirrorTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              mirror,
+              command ->
+                  command.equals("clear_board")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      try {
+        BoardHistoryList history = harness.board.getHistory();
+        BoardHistoryList.SessionRulesTarget target = history.publishExternalRules("unknown-rules");
+        setField(harness.frame, "pendingKifuEngineSyncRoot", harness.p0);
+        Method submit =
+            LizzieFrame.class.getDeclaredMethod(
+                "submitKifuEngineSync",
+                BoardHistoryNode.class,
+                BoardHistoryList.SessionRulesTarget.class,
+                Leelaz.class,
+                long.class,
+                Leelaz.class,
+                int.class,
+                Runnable.class);
+        submit.setAccessible(true);
+        submit.invoke(
+            harness.frame,
+            harness.p0,
+            target,
+            harness.engine,
+            Lizzie.capturePrimaryEngineGeneration(harness.engine),
+            mirror,
+            0,
+            (Runnable) harness.engine::ponder);
+        String pendingClear = awaitRawCommand(mirrorTransport, "clear_board", 0);
+        assertEquals(1, harness.frame.rulesFailurePromptCount);
+        assertEquals(0, payloadCount(primaryTransport, "kata-analyze"));
+        javax.swing.SwingUtilities.invokeAndWait(() -> Lizzie.config.toggleExtraMode(0));
+        acknowledge(mirror, pendingClear);
+        awaitRawCommand(primaryTransport, "clear_board", 1);
+        long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+        while (harness.frame.scheduledResume == null && System.nanoTime() < deadline) {
+          javax.swing.SwingUtilities.invokeAndWait(() -> {});
+          Thread.sleep(5L);
+        }
+        assertNotNull(harness.frame.scheduledResume);
+        assertEquals(2, harness.frame.rulesFailurePromptCount);
+        assertEquals(1, harness.frame.scheduledResumeCount);
+        harness.frame.scheduledResume.run();
+        awaitRawCommand(primaryTransport, "kata-analyze", 0);
+        assertEquals(1, payloadCount(primaryTransport, "kata-analyze"));
+        assertEquals(0, payloadCount(mirrorTransport, "kata-analyze"));
+        assertEquals(1, payloadCount(mirrorTransport, "clear_board"));
+        assertEquals(0, payloadCount(primaryTransport, "kata-set-rules"));
+        assertEquals(0, payloadCount(primaryTransport, "kata-get-rules"));
+        assertEquals(0, payloadCount(mirrorTransport, "kata-set-rules"));
+        assertEquals(0, payloadCount(mirrorTransport, "kata-get-rules"));
+        assertSame(target, history.captureSessionRules());
+        assertFalse(harness.engine.engineRulesResult().isConfirmed());
+      } finally {
+        harness.frame.shutdownKifuEngineSyncCoordinator();
+        mirror.started = false;
+        mirror.isLoaded = false;
+      }
+    }
+  }
+
+  @Test
+  void leavingComparisonDuringManualRulesConvergenceRestoresRemainingPrimary() throws Exception {
+    assertComparisonExitRestoresPrimary(false);
+  }
+
+  @Test
+  void leavingComparisonBeforeQueuedCompletionResumesRemainingPrimary() throws Exception {
+    assertComparisonExitRestoresPrimary(true);
+  }
+
+  private void assertComparisonExitRestoresPrimary(boolean exitBeforeEdtCompletion)
+      throws Exception {
+    try (Harness harness = Harness.open()) {
+      Lizzie.config.extraMode = ExtraMode.Double_Engine;
+      Lizzie.config.uiConfig = new org.json.JSONObject();
+      KataGoRules rules = KataGoRules.parse("Japanese").orElseThrow();
+      harness.engine.commandLists.addAll(List.of("kata-set-rules", "kata-get-rules", "loadsgf"));
+      ExactSnapshotRestoreProtocolFixture.Transport primaryTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              harness.engine,
+              command ->
+                  command.equals("kata-get-rules")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      harness.engine.queryEngineRulesOperation();
+      String primaryQuery = awaitRawCommand(primaryTransport, "kata-get-rules", 0);
+      harness.engine.dispatchReaderLineForTest(
+          "=" + primaryQuery.substring(0, primaryQuery.indexOf(' ')) + " " + rules.toGtpArgument());
+      assertTrue(harness.engine.engineRulesResult().isConfirmed());
+
+      Leelaz mirror = new Leelaz("");
+      mirror.started = true;
+      mirror.isLoaded = true;
+      mirror.isKatago = true;
+      mirror.commandLists.addAll(List.of("name", "kata-set-rules", "kata-get-rules", "loadsgf"));
+      setField(mirror, "endGetCommandList", true);
+      Lizzie.leelaz2 = mirror;
+      ExactSnapshotRestoreProtocolFixture.Transport mirrorTransport =
+          ExactSnapshotRestoreProtocolFixture.install(
+              mirror,
+              command ->
+                  command.equals("kata-get-rules")
+                      ? null
+                      : ExactSnapshotRestoreProtocolFixture.Response.success());
+      CountDownLatch exitEventEntered = new CountDownLatch(1);
+      CountDownLatch allowExit = new CountDownLatch(1);
+      AtomicReference<Throwable> exitFailure = new AtomicReference<>();
+      try {
+        BoardHistoryList history = harness.board.getHistory();
+        BoardHistoryList.ManualRulesIntent intent = history.beginManualRulesIntent();
+        BoardHistoryList.SessionRulesTarget target =
+            history.publishManualRulesIfCurrent(intent, rules).orElseThrow();
+        harness.frame.synchronizeManualRulesAfterSelection(
+            history,
+            target,
+            intent,
+            harness.engine,
+            Lizzie.capturePrimaryEngineGeneration(harness.engine));
+        String mirrorQuery = awaitRawCommand(mirrorTransport, "kata-get-rules", 0);
+        if (exitBeforeEdtCompletion) {
+          javax.swing.SwingUtilities.invokeLater(
+              () -> {
+                exitEventEntered.countDown();
+                try {
+                  assertTrue(allowExit.await(3, TimeUnit.SECONDS));
+                  Lizzie.config.toggleExtraMode(0);
+                } catch (Throwable failure) {
+                  exitFailure.set(failure);
+                }
+              });
+          assertTrue(exitEventEntered.await(2, TimeUnit.SECONDS));
+        } else {
+          Lizzie.config.toggleExtraMode(0);
+        }
+        mirror.dispatchReaderLineForTest(
+            "=" + mirrorQuery.substring(0, mirrorQuery.indexOf(' ')) + " " + rules.toGtpArgument());
+        if (exitBeforeEdtCompletion) {
+          Field coordinatorField = LizzieFrame.class.getDeclaredField("kifuEngineSyncCoordinator");
+          coordinatorField.setAccessible(true);
+          Object coordinator = coordinatorField.get(harness.frame);
+          Field executorField = coordinator.getClass().getDeclaredField("executor");
+          executorField.setAccessible(true);
+          java.util.concurrent.ScheduledExecutorService executor =
+              (java.util.concurrent.ScheduledExecutorService) executorField.get(coordinator);
+          executor.submit(() -> {}).get(2, TimeUnit.SECONDS);
+          allowExit.countDown();
+        }
+
+        awaitRawCommand(primaryTransport, "clear_board", 0);
+        long deadline = System.nanoTime() + OBSERVATION_TIMEOUT_NANOS;
+        while (harness.frame.scheduledResume == null && System.nanoTime() < deadline) {
+          javax.swing.SwingUtilities.invokeAndWait(() -> {});
+          Thread.sleep(5L);
+        }
+        assertNotNull(harness.frame.scheduledResume);
+        assertEquals(1, harness.frame.scheduledResumeCount);
+        assertSame(target, history.captureSessionRules());
+        assertEquals(0, payloadCount(primaryTransport, "kata-set-rules"));
+        assertEquals(1, payloadCount(mirrorTransport, "kata-set-rules"));
+        assertEquals(exitBeforeEdtCompletion ? 1 : 0, payloadCount(mirrorTransport, "clear_board"));
+        assertEquals(null, exitFailure.get());
+      } finally {
+        allowExit.countDown();
+        javax.swing.SwingUtilities.invokeAndWait(() -> {});
+        harness.frame.shutdownKifuEngineSyncCoordinator();
+        mirror.started = false;
+        mirror.isLoaded = false;
+      }
     }
   }
 
@@ -1710,6 +2214,16 @@ class PositionConfirmedRollbackTest {
     private volatile Runnable scheduledResume;
     private boolean scheduledResumeRan;
     private boolean userAnalysisPaused;
+    private volatile int rulesFailurePromptCount;
+
+    @Override
+    protected int showImportedRulesFailurePrompt(String message) {
+      rulesFailurePromptCount++;
+      return javax.swing.JOptionPane.YES_OPTION;
+    }
+
+    @Override
+    public void extraMode(ExtraMode currentMode, ExtraMode previousMode) {}
 
     @Override
     public BoardHistoryNode getDisplayNode() {

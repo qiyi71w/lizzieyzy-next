@@ -604,15 +604,16 @@ public class SetKataRules extends JDialog {
                     && Lizzie.capturePrimaryEngineGeneration(engine) == primaryGeneration
                     && Lizzie.board.getHistory() == history) {
                   synchronized (SetKataRules.this) {
+                    BoardHistoryList.SessionRulesTarget published;
                     synchronized (history) {
-                      BoardHistoryList.SessionRulesTarget published =
+                      published =
                           history
                               .publishManualRulesIfCurrent(manualIntent, result.observed())
                               .orElse(null);
-                      if (published != null && Lizzie.frame != null) {
-                        Lizzie.frame.synchronizeManualRulesAfterSelection(
-                            history, published, manualIntent, engine, primaryGeneration);
-                      }
+                    }
+                    if (published != null && Lizzie.frame != null) {
+                      Lizzie.frame.synchronizeManualRulesAfterSelection(
+                          history, published, manualIntent, engine, primaryGeneration);
                     }
                   }
                 }

@@ -12,6 +12,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class KifuEngineSyncCoordinatorTest {
@@ -150,6 +151,92 @@ class KifuEngineSyncCoordinatorTest {
       assertFalse(completed.get());
     } finally {
       coordinator.close();
+    }
+  }
+
+  @Test
+  void queuedPermanentFailureReportsContextChangeWithoutRetry() throws Exception {
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+    KifuEngineSyncCoordinator coordinator = new KifuEngineSyncCoordinator(executor);
+    CountDownLatch edtEntered = new CountDownLatch(1);
+    CountDownLatch releaseEdt = new CountDownLatch(1);
+    AtomicBoolean current = new AtomicBoolean(true);
+    AtomicInteger attempts = new AtomicInteger();
+    List<String> outcomes = new CopyOnWriteArrayList<>();
+    try {
+      SwingUtilities.invokeLater(
+          () -> {
+            edtEntered.countDown();
+            await(releaseEdt);
+          });
+      assertTrue(edtEntered.await(1, TimeUnit.SECONDS));
+      coordinator.submit(
+          new KifuEngineSyncCoordinator.Request() {
+            public boolean isCurrent() {
+              return current.get();
+            }
+
+            public KifuEngineSyncCoordinator.AttemptResult synchronize() {
+              attempts.incrementAndGet();
+              return KifuEngineSyncCoordinator.AttemptResult.PERMANENT_FAILURE;
+            }
+
+            public void onSynchronized() {
+              outcomes.add("success");
+            }
+
+            public void onFailed() {
+              outcomes.add("failure");
+            }
+
+            public void onContextChanged() {
+              outcomes.add("context-on-edt=" + SwingUtilities.isEventDispatchThread());
+            }
+          });
+      executor.submit(() -> {}).get(1, TimeUnit.SECONDS);
+      current.set(false);
+      releaseEdt.countDown();
+      SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(List.of("context-on-edt=true"), outcomes);
+      assertEquals(1, attempts.get());
+    } finally {
+      releaseEdt.countDown();
+      coordinator.close();
+      assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+      SwingUtilities.invokeAndWait(() -> {});
+    }
+  }
+
+  @Test
+  void newerRequestRetiresAlreadyQueuedTerminalCallback() throws Exception {
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+    KifuEngineSyncCoordinator coordinator = new KifuEngineSyncCoordinator(executor);
+    CountDownLatch edtEntered = new CountDownLatch(1);
+    CountDownLatch releaseEdt = new CountDownLatch(1);
+    List<String> outcomes = new CopyOnWriteArrayList<>();
+    try {
+      SwingUtilities.invokeLater(
+          () -> {
+            edtEntered.countDown();
+            await(releaseEdt);
+          });
+      assertTrue(edtEntered.await(1, TimeUnit.SECONDS));
+      coordinator.submit(
+          request(
+              () -> KifuEngineSyncCoordinator.AttemptResult.COMPLETE, () -> outcomes.add("old")));
+      executor.submit(() -> {}).get(1, TimeUnit.SECONDS);
+      coordinator.submit(
+          request(
+              () -> KifuEngineSyncCoordinator.AttemptResult.COMPLETE, () -> outcomes.add("new")));
+      executor.submit(() -> {}).get(1, TimeUnit.SECONDS);
+      releaseEdt.countDown();
+      SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(List.of("new"), outcomes);
+    } finally {
+      releaseEdt.countDown();
+      coordinator.close();
+      assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+      SwingUtilities.invokeAndWait(() -> {});
     }
   }
 

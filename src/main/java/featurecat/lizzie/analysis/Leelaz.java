@@ -3,20 +3,21 @@ package featurecat.lizzie.analysis;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.gtpconfig.GtpConfigurationProbe;
+import featurecat.lizzie.analysis.remote.EngineTransport;
+import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
 import featurecat.lizzie.enginegame.EngineGamePlayMode;
 import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.enginegame.EngineGameSideLimits;
 import featurecat.lizzie.enginegame.GameOutcome;
 import featurecat.lizzie.enginegame.ParticipantBinding;
-import featurecat.lizzie.analysis.gtpconfig.GtpConfigurationProbe;
-import featurecat.lizzie.analysis.remote.EngineTransport;
-import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
 import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.gui.EngineFailedMessage;
 import featurecat.lizzie.gui.JFontCheckBox;
 import featurecat.lizzie.gui.JFontLabel;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Message;
+import featurecat.lizzie.logging.EngineObservation;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
@@ -30,7 +31,6 @@ import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRuntimeException;
 import featurecat.lizzie.util.Utils;
 import featurecat.lizzie.util.YikeSyncDebugLog;
-import featurecat.lizzie.logging.EngineObservation;
 import java.awt.Component;
 import java.awt.GraphicsEnvironment;
 import java.io.BufferedOutputStream;
@@ -10864,6 +10864,7 @@ public class Leelaz {
       }
     }
     Leelaz mirroredEngine = mirrorToSecondEngine ? resolveDefaultCommandMirrorEngine() : null;
+    boolean defaultMirrorMustRemainAbsent = mirrorToSecondEngine && mirroredEngine == null;
     String mirroredCommand =
         mirroredEngine == null ? null : mirroredEngine.prepareDefaultMirroredCommand(command);
     if (mirroredCommand == null) {
@@ -10903,7 +10904,8 @@ public class Leelaz {
                   true,
                   false,
                   readBoardGmaResponseBinding,
-                  null);
+                  null,
+                  defaultMirrorMustRemainAbsent);
     } else {
       synchronized (engineRulesLock) {
         if (!isCurrentEngineRulesOperationLocked(rulesOperation)
@@ -10936,7 +10938,8 @@ public class Leelaz {
                     true,
                     false,
                     readBoardGmaResponseBinding,
-                    null);
+                    null,
+                    false);
       }
     }
     if (!enqueued) {
@@ -11005,6 +11008,53 @@ public class Leelaz {
     return adapted;
   }
 
+  private boolean withOrdinaryAnalysisSelectionLocks(
+      String command,
+      Leelaz mirroredEngine,
+      String mirroredCommand,
+      EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission,
+      boolean defaultMirrorMustRemainAbsent,
+      Supplier<Boolean> admission) {
+    if (startupTransactionAtAdmission != null) {
+      return admission.get();
+    }
+    if (!isOrdinaryPositionAnalysisCommand(command)
+        && (mirroredCommand == null || !isOrdinaryPositionAnalysisCommand(mirroredCommand))) {
+      return admission.get();
+    }
+    Leelaz primary = Lizzie.leelaz;
+    if (primary == null) {
+      return admission.get();
+    }
+    Leelaz activeMirror = primary.activeComparisonEngine();
+    if (mirroredEngine != null && mirroredEngine != activeMirror) {
+      return false;
+    }
+    long primaryGeneration = Lizzie.capturePrimaryEngineGeneration(primary);
+    if (primaryGeneration < 0L) {
+      return false;
+    }
+    Supplier<Boolean> rulesAdmission =
+        () ->
+            SessionRulesSynchronizer.withOrdinaryAnalysisAdmission(this, mirroredEngine, admission);
+    Supplier<Boolean> primaryAdmission =
+        () ->
+            !defaultMirrorMustRemainAbsent || resolveDefaultCommandMirrorEngine() == null
+                ? Lizzie.tryCallIfPrimaryEngine(primary, primaryGeneration, rulesAdmission)
+                : Boolean.FALSE;
+    do {
+      Boolean accepted =
+          EngineManager.callIfCurrentAnalysisSelection(
+              primary, activeMirror, mirroredEngine, primaryAdmission);
+      if (accepted != null) {
+        return accepted;
+      }
+      // A primary-owned restore may need selection for physical output. Wait only after
+      // releasing selection, then retry the same generation and comparison identity.
+    } while (Lizzie.capturePrimaryEngineGeneration(primary) == primaryGeneration);
+    return false;
+  }
+
   /** Atomically appends one ordinary command to both endpoint queues in stable lock order. */
   private boolean enqueueOrdinaryCommandWithMirror(
       String command,
@@ -11027,71 +11077,133 @@ public class Leelaz {
         engineGameStartupCommandContext.get();
     OrdinaryEnqueueEffects effects = new OrdinaryEnqueueEffects();
     OrdinaryEnqueueEffects mirroredEffects = mirroredEngine.new OrdinaryEnqueueEffects();
+    boolean analysisCommand =
+        startupTransactionAtAdmission == null
+            && (isOrdinaryPositionAnalysisCommand(command)
+                || isOrdinaryPositionAnalysisCommand(mirroredCommand));
     boolean accepted =
-        withOrderedEngineArbitrationAndQueueLocks(
-            this,
-            mirroredEngine,
-            () -> {
-              if (!canAdmitOrdinaryCommandLocked(
-                      command,
-                      releaseReason,
-                      rejectForExclusiveWinner,
-                      readBoardGmaResponseBinding,
-                      null,
-                      bootstrapReceipt,
-                      startupTransactionAtAdmission)
-                  || !mirroredEngine.canAdmitOrdinaryCommandLocked(
-                      mirroredCommand,
-                      TrackingReleaseReason.ORDINARY_OPERATION,
-                      true,
-                      null,
-                      null,
-                      mirroredBootstrapReceipt,
-                      null)) {
-                return false;
-              }
-              QueuedCommand primaryCommand =
-                  enqueueAdmittedOrdinaryCommandLocked(
-                      command,
-                      onResponse,
-                      onSendFailure,
-                      failOnSendError,
-                      settlement,
-                      releaseReason,
-                      true,
-                      false,
-                      readBoardGmaResponseBinding,
-                      null,
-                      bootstrapReceipt,
-                      effects);
-              QueuedCommand mirrorCommand =
-                  mirroredEngine.enqueueAdmittedOrdinaryCommandLocked(
-                      mirroredCommand,
-                      null,
-                      null,
-                      mirroredEngine.foregroundRestoreCommandSession.get() != null,
-                      null,
-                      TrackingReleaseReason.ORDINARY_OPERATION,
-                      true,
-                      false,
-                      null,
-                      null,
-                      mirroredBootstrapReceipt,
-                      mirroredEffects);
-              primaryCommand.installInternalSendFailureHandler(
-                  failure ->
-                      mirroredEngine.cancelPairedOrdinaryCommandBeforeOutputWrite(
-                          mirrorCommand, failure));
-              mirrorCommand.installInternalSendFailureHandler(
-                  failure -> cancelPairedOrdinaryCommandBeforeOutputWrite(primaryCommand, failure));
-              return true;
-            });
+        analysisCommand
+            ? withOrdinaryAnalysisSelectionLocks(
+                command,
+                mirroredEngine,
+                mirroredCommand,
+                null,
+                false,
+                () ->
+                    enqueueOrdinaryCommandWithMirrorUnderLocks(
+                        command,
+                        onResponse,
+                        onSendFailure,
+                        failOnSendError,
+                        settlement,
+                        releaseReason,
+                        rejectForExclusiveWinner,
+                        readBoardGmaResponseBinding,
+                        mirroredEngine,
+                        mirroredCommand,
+                        bootstrapReceipt,
+                        mirroredBootstrapReceipt,
+                        startupTransactionAtAdmission,
+                        effects,
+                        mirroredEffects))
+            : enqueueOrdinaryCommandWithMirrorUnderLocks(
+                command,
+                onResponse,
+                onSendFailure,
+                failOnSendError,
+                settlement,
+                releaseReason,
+                rejectForExclusiveWinner,
+                readBoardGmaResponseBinding,
+                mirroredEngine,
+                mirroredCommand,
+                bootstrapReceipt,
+                mirroredBootstrapReceipt,
+                startupTransactionAtAdmission,
+                effects,
+                mirroredEffects);
     if (!accepted) {
       return false;
     }
     publishOrdinaryEnqueueEffects(effects);
     mirroredEngine.publishOrdinaryEnqueueEffects(mirroredEffects);
     return true;
+  }
+
+  private boolean enqueueOrdinaryCommandWithMirrorUnderLocks(
+      String command,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure,
+      boolean failOnSendError,
+      QueuedCommandSettlement settlement,
+      TrackingReleaseReason releaseReason,
+      boolean rejectForExclusiveWinner,
+      ReaderStreamBinding readBoardGmaResponseBinding,
+      Leelaz mirroredEngine,
+      String mirroredCommand,
+      RestartBootstrapReceipt bootstrapReceipt,
+      RestartBootstrapReceipt mirroredBootstrapReceipt,
+      EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission,
+      OrdinaryEnqueueEffects effects,
+      OrdinaryEnqueueEffects mirroredEffects) {
+    return withOrderedEngineArbitrationAndQueueLocks(
+        this,
+        mirroredEngine,
+        () -> {
+          if (!canAdmitOrdinaryCommandLocked(
+                  command,
+                  releaseReason,
+                  rejectForExclusiveWinner,
+                  readBoardGmaResponseBinding,
+                  null,
+                  bootstrapReceipt,
+                  startupTransactionAtAdmission)
+              || !mirroredEngine.canAdmitOrdinaryCommandLocked(
+                  mirroredCommand,
+                  TrackingReleaseReason.ORDINARY_OPERATION,
+                  true,
+                  null,
+                  null,
+                  mirroredBootstrapReceipt,
+                  null)) {
+            return false;
+          }
+          QueuedCommand primaryCommand =
+              enqueueAdmittedOrdinaryCommandLocked(
+                  command,
+                  onResponse,
+                  onSendFailure,
+                  failOnSendError,
+                  settlement,
+                  releaseReason,
+                  true,
+                  false,
+                  readBoardGmaResponseBinding,
+                  null,
+                  bootstrapReceipt,
+                  effects);
+          QueuedCommand mirrorCommand =
+              mirroredEngine.enqueueAdmittedOrdinaryCommandLocked(
+                  mirroredCommand,
+                  null,
+                  null,
+                  mirroredEngine.foregroundRestoreCommandSession.get() != null,
+                  null,
+                  TrackingReleaseReason.ORDINARY_OPERATION,
+                  true,
+                  false,
+                  null,
+                  null,
+                  mirroredBootstrapReceipt,
+                  mirroredEffects);
+          primaryCommand.installInternalSendFailureHandler(
+              failure ->
+                  mirroredEngine.cancelPairedOrdinaryCommandBeforeOutputWrite(
+                      mirrorCommand, failure));
+          mirrorCommand.installInternalSendFailureHandler(
+              failure -> cancelPairedOrdinaryCommandBeforeOutputWrite(primaryCommand, failure));
+          return true;
+        });
   }
 
   /** Fallback for the rare legacy call site that already owns an endpoint command queue. */
@@ -11111,7 +11223,8 @@ public class Leelaz {
       boolean countCommand,
       boolean noLeelaz2Coalescing,
       ReaderStreamBinding readBoardGmaResponseBinding,
-      Object expectedLeela0110StateToken) {
+      Object expectedLeela0110StateToken,
+      boolean defaultMirrorMustRemainAbsent) {
     if (!hasGtpCapability()) {
       return false;
     }
@@ -11161,6 +11274,67 @@ public class Leelaz {
       return true;
     }
     OrdinaryEnqueueEffects effects = new OrdinaryEnqueueEffects();
+    boolean accepted =
+        isOrdinaryPositionAnalysisCommand(command)
+            ? withOrdinaryAnalysisSelectionLocks(
+                command,
+                null,
+                null,
+                startupTransactionAtAdmission,
+                defaultMirrorMustRemainAbsent,
+                () ->
+                    enqueueOrdinaryCommandUnderLocks(
+                        command,
+                        onResponse,
+                        onSendFailure,
+                        failOnSendError,
+                        settlement,
+                        releaseReason,
+                        rejectForExclusiveWinner,
+                        countCommand,
+                        noLeelaz2Coalescing,
+                        readBoardGmaResponseBinding,
+                        expectedLeela0110StateToken,
+                        bootstrapReceipt,
+                        startupTransactionAtAdmission,
+                        effects))
+            : enqueueOrdinaryCommandUnderLocks(
+                command,
+                onResponse,
+                onSendFailure,
+                failOnSendError,
+                settlement,
+                releaseReason,
+                rejectForExclusiveWinner,
+                countCommand,
+                noLeelaz2Coalescing,
+                readBoardGmaResponseBinding,
+                expectedLeela0110StateToken,
+                bootstrapReceipt,
+                startupTransactionAtAdmission,
+                effects);
+    if (!accepted) {
+      return false;
+    }
+    publishOrdinaryEnqueueEffects(effects);
+    return true;
+  }
+
+  private boolean enqueueOrdinaryCommandUnderLocks(
+      String command,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure,
+      boolean failOnSendError,
+      QueuedCommandSettlement settlement,
+      TrackingReleaseReason releaseReason,
+      boolean rejectForExclusiveWinner,
+      boolean countCommand,
+      boolean noLeelaz2Coalescing,
+      ReaderStreamBinding readBoardGmaResponseBinding,
+      Object expectedLeela0110StateToken,
+      RestartBootstrapReceipt bootstrapReceipt,
+      EngineManager.EngineGameOwnerTransaction startupTransactionAtAdmission,
+      OrdinaryEnqueueEffects effects) {
     synchronized (engineArbitrationLock()) {
       synchronized (commandQueue()) {
         if (!canAdmitOrdinaryCommandLocked(
@@ -11188,7 +11362,6 @@ public class Leelaz {
             effects);
       }
     }
-    publishOrdinaryEnqueueEffects(effects);
     return true;
   }
 
@@ -11979,7 +12152,8 @@ public class Leelaz {
         false,
         true,
         commandBinding,
-        expectedLeela0110StateToken)) {
+        expectedLeela0110StateToken,
+        false)) {
       if (startupTransaction != null) {
         throw new IllegalStateException(
             "engine-game startup command was rejected before enqueue: " + command);
@@ -24230,7 +24404,8 @@ public class Leelaz {
       } catch (TimeoutException timeout) {
         return null;
       } catch (ExecutionException failure) {
-        throw new IllegalStateException("Engine rules operation completion failed", failure.getCause());
+        throw new IllegalStateException(
+            "Engine rules operation completion failed", failure.getCause());
       }
     }
 

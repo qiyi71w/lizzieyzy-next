@@ -2,28 +2,28 @@ package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
+import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.gui.DesktopTimeControl;
-import featurecat.lizzie.gui.EngineData;
-import featurecat.lizzie.gui.EnginePkIdentity;
-import featurecat.lizzie.enginegame.EngineParticipantIdentity;
+import featurecat.lizzie.enginegame.BatchSummary;
 import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.EngineGamePlayMode;
+import featurecat.lizzie.enginegame.EngineGameSide;
+import featurecat.lizzie.enginegame.EngineGameSideLimits;
+import featurecat.lizzie.enginegame.EngineGameTimeModes;
+import featurecat.lizzie.enginegame.EngineParticipantIdentity;
+import featurecat.lizzie.enginegame.LifecycleBinding;
 import featurecat.lizzie.enginegame.MatchRulesAdmission;
 import featurecat.lizzie.enginegame.MatchRulesPrepareException;
 import featurecat.lizzie.enginegame.MatchRulesSnapshot;
-import featurecat.lizzie.enginegame.BatchSummary;
-import featurecat.lizzie.enginegame.EngineGamePlayMode;
 import featurecat.lizzie.enginegame.OpeningStanding;
-import featurecat.lizzie.enginegame.EngineGameResignPolicy;
-import featurecat.lizzie.enginegame.EngineGameSide;
-import featurecat.lizzie.enginegame.EngineGameSideLimits;
-import featurecat.lizzie.enginegame.EngineGameTimeMode;
-import featurecat.lizzie.enginegame.EngineGameTimeModes;
-import featurecat.lizzie.enginegame.LifecycleBinding;
 import featurecat.lizzie.enginegame.ParticipantBinding;
+import featurecat.lizzie.gui.DesktopTimeControl;
+import featurecat.lizzie.gui.EngineData;
+import featurecat.lizzie.gui.EnginePkIdentity;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
 import featurecat.lizzie.gui.SgfWinLossList;
+import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
@@ -34,7 +34,6 @@ import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import featurecat.lizzie.util.Utils;
-import featurecat.lizzie.logging.LogCategories;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.BufferedWriter;
@@ -50,7 +49,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -84,6 +82,31 @@ public class EngineManager {
 
   /** Serializes the provisional owner pointer and its committed index/empty-state publication. */
   private static final Object ENGINE_SELECTION_STATE_LOCK = new Object();
+
+  /** Runs analysis admission while the captured primary/comparison selection remains current. */
+  static Boolean callIfCurrentAnalysisSelection(
+      Leelaz expectedPrimary,
+      Leelaz expectedActiveMirror,
+      Leelaz mirroredCommandEndpoint,
+      Supplier<Boolean> action) {
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      if (Lizzie.leelaz != expectedPrimary
+          || expectedPrimary.activeComparisonEngine() != expectedActiveMirror
+          || (mirroredCommandEndpoint != null && mirroredCommandEndpoint != expectedActiveMirror)) {
+        return false;
+      }
+      return action.get();
+    }
+  }
+
+  /** Publishes comparison-mode membership without holding selection across UI callbacks. */
+  public static ExtraMode publishExtraMode(Config config, ExtraMode mode) {
+    synchronized (ENGINE_SELECTION_STATE_LOCK) {
+      ExtraMode previous = config.extraMode;
+      config.extraMode = mode;
+      return previous;
+    }
+  }
 
   /** Serializes token-checked engine-game UI terminal/preparing presentations. */
   private static final ReentrantLock ENGINE_GAME_UI_MUTATION_LOCK = new ReentrantLock();
@@ -1981,7 +2004,8 @@ public class EngineManager {
               ? activeEngineGameTransaction
               : retiringEngineGameTransaction;
     }
-    String batchGameName = saveTxn == null || saveTxn.batchGameName == null ? "" : saveTxn.batchGameName;
+    String batchGameName =
+        saveTxn == null || saveTxn.batchGameName == null ? "" : saveTxn.batchGameName;
     String timestamp = saveTxn == null || saveTxn.timestamp == null ? "" : saveTxn.timestamp;
     File file = new File("");
     String courseFile = "";
@@ -3255,7 +3279,8 @@ public class EngineManager {
     }
     Leelaz secondEngine = exactEngineGameParticipant(transaction, plan.secondIndex());
     if (secondEngine == null) {
-      throw new IllegalStateException("Engine-game second participant left its frozen catalog slot");
+      throw new IllegalStateException(
+          "Engine-game second participant left its frozen catalog slot");
     }
     if (secondEngine.isKatago
         && !secondEngine.recentRulesLine.isEmpty()
@@ -3970,10 +3995,12 @@ public class EngineManager {
                 }
               };
         } else if (engineDt == selectedSecondaryData) {
-          Lizzie.leelaz2 = e;
           e.preload = true;
           e.firstLoad = true;
-          currentEngineNo2 = i;
+          synchronized (ENGINE_SELECTION_STATE_LOCK) {
+            Lizzie.leelaz2 = e;
+            currentEngineNo2 = i;
+          }
         } else if (e.preload && !e.isBenchmark()) {
           new Thread() {
             public void run() {
@@ -8539,9 +8566,11 @@ public class EngineManager {
       transaction.foregroundSynchronization = handback;
       handback.beforeRestore =
           () -> {
-            if (Lizzie.board != board || Lizzie.leelaz != target
+            if (Lizzie.board != board
+                || Lizzie.leelaz != target
                 || !target.isCurrentLiveEngineIncarnation(incarnation)) {
-              throw new IllegalStateException("Stopped game foreground context changed before restore");
+              throw new IllegalStateException(
+                  "Stopped game foreground context changed before restore");
             }
           };
       handback.acquireReservation();

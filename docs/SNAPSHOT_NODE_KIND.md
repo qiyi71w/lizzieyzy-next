@@ -201,6 +201,8 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 无效声明、能力失败、set/get 错误、超时、未确认或回读不匹配均为规则永久失败，不进入盘面临时 `RETRY`。棋谱保持可浏览；用户明确按现有规则继续后仍须完成盘面确认，许可只对捕获的 history/rules revision/primary generation/比较实例有效，且不改变规则失败状态。
 - lifecycle 非 Engine Game owner 把会话规则目标纳入 `BoardFrame`，每轮在盘面恢复前、Board monitor 外确认 captured target 与 mirror；规则 revision 变化触发现有 release/recheck/catch-up。Engine Game 继续使用自身 match-rules 语义。
 - 手动规则 set→get 成功且 actual 与请求语义一致时，实际观测成为当前 history 的新会话目标；失败只保留协议终态，不恢复旧导入请求。
+- 普通分析入队与活动比较集合的发布共享 selection 临界区，锁顺序为 selection → primary → history → endpoint/queue。selection 内仅尝试取得 primary；竞争时先释放 selection，再等待并复验同一 primary generation 和比较集合，不能丢弃仍有效的分析请求或阻塞 primary owner 的物理写出。规则收敛或显式继续后的盘面恢复期间退出比较模式时，既有 coordinator 只在同一 history/规则 revision/primary generation/reader 仍有效时接续剩余主引擎；已知规则失败仍须为新引擎集合重新取得显式继续许可，不自动重试 set。
+- 棋谱 coordinator 的终态及上下文失效回调在 EDT 执行前复验最新请求 generation；worker 已完成但 UI 尚未消费的旧回调，不能越过换谱或比较模式变更的确认边界。
 
 ## 初始启动导航契约（Issue #223）
 
