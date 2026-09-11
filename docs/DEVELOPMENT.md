@@ -68,6 +68,49 @@ powershell -ExecutionPolicy Bypass -File scripts/run_local_ci.ps1 -Profile All -
 可只查看计划执行的步骤。`LIZZIE_PYTHON`、`LIZZIE_MAVEN`、`LIZZIE_BASH`
 和 `LIZZIE_POWERSHELL` 可用于指定工具路径。
 
+按职责选择 `--group all|repository|scripts|java`（PowerShell 为 `-Group`），默认
+`all` 保持原完整调用。所有组都需要 Python 和 Git，并执行 `git diff --check`；
+`--require-clean` / `-RequireClean` 保留运行前后的干净工作树检查。
+
+| Group | Portable | Windows | 额外工具 |
+| --- | --- | --- | --- |
+| `repository` | 换行自测、换行、Markdown 链接 | 换行 | 无 |
+| `scripts` | Python 辅助脚本、KataGo shell、Bash 语法 | JCEF、NVIDIA、RTX50 PowerShell 语法 | Portable 需 Bash；Windows 需 PowerShell |
+| `java` | 原完整 Maven verify | 凭据专项，再执行原完整 Maven verify | Maven、JDK 21；不查找 Bash/PowerShell |
+
+例如仅运行无 Java 的仓库检查：
+
+```bash
+bash scripts/run_local_ci.sh --profile portable --group repository --summary-dir target/local-ci/portable-repository
+```
+
+```powershell
+pwsh -File scripts/run_local_ci.ps1 -Profile Windows -Group Scripts -SummaryDir target/local-ci/windows-scripts
+```
+
+`profile=all` 合并并去重两套检查，只执行一次 Windows 全量 verify 和凭据专项，
+不表示跨 OS 验收。不要在同一 checkout 并行运行两个写入 `target` 的 Maven 调用；
+需要并行时使用独立 worktree。
+
+多次分组调用请使用不同 summary 目录；默认仍为 `target/local-ci/`。
+JSON/Markdown 摘要增加 `group`；非 Java 组不清理或读取既有 JUnit 报告，
+Java/JUnit 状态为未执行。真实 Java 调用先清除旧 Surefire/Failsafe 报告，再收集本次结果。
+Dry-run 仅生成计划，不代表检查通过。
+
+Actions 的 `ci.yml` 对所有 PR（包括仅文档改动）和 main push 执行五个独立 job：
+`repository-checks`、`script-tests`、`windows-script-tests`、`java-linux`、`java-windows`。
+Windows 脚本 job 依次运行 `windows/repository` 与 `windows/scripts`，摘要独立上传。
+两平台 Java job 保留全量测试、`LoggingProviderSmokeIT`、shaded JAR 和 JaCoCo；
+验证成功但 coverage artifact 缺失仍失败。各组失败时仍尝试上传本组摘要。
+
+`ci-required` 直接要求五项全部成功。迁移期间 `build` 汇总两个 Portable 非 Java job
+和 `java-linux`；`windows-script-validation` 汇总两个 Windows job。三个汇总器均拒绝
+失败、取消、跳过、缺失或未知结果。发布仍仅接受目标 SHA 的 `ci.yml` push 成功运行。
+
+首个 PR 合并且对应 main push CI 成功后，请 wimi321 将 main required checks 替换为
+GitHub Actions 来源的 `ci-required`，其他保护设置不变。确认设置生效后，后续 PR
+才删除两个旧汇总门禁；当前 PR 不需要管理员预先修改保护。
+
 本地预检用于在推送前尽早发现问题，不能代替受保护分支上的干净 Windows 和
 Ubuntu runner，也不能代替 macOS 签名、公证与多平台发布资产审计。
 

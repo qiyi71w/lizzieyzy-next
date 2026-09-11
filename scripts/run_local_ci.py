@@ -104,6 +104,7 @@ class Step:
     name: str
     command: tuple[str, ...]
     env: dict[str, str] | None = None
+    group: str = "scripts"
 
 
 @dataclass
@@ -241,7 +242,7 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
         "if($errors.Count -gt 0){$errors|Format-List|Out-String|Write-Error; exit 1}"
     )
     return [
-        Step("Verify repository line endings", (python, "scripts/check_line_endings.py")),
+        Step("Verify repository line endings", (python, "scripts/check_line_endings.py"), group="repository"),
         Step("Verify bundled JCEF logic", (python, "scripts/test_prepare_bundled_jcef.py")),
         Step(
             "Verify bundled NVIDIA runtime packaging",
@@ -261,6 +262,7 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
                 "-Dtest=PlatformCredentialStoreTest,RemoteComputeConfigTest,MigratingCredentialStoreTest",
                 "test",
             ),
+            group="java",
         ),
         Step(
             "Run full Windows verification gate",
@@ -276,6 +278,7 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
                 "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
+            group="java",
         ),
     ]
 
@@ -283,9 +286,9 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
 def portable_steps(maven: str, bash: str) -> list[Step]:
     python = sys.executable
     steps = [
-        Step("Test line-ending checker", (python, "scripts/test_check_line_endings.py")),
-        Step("Verify repository line endings", (python, "scripts/check_line_endings.py")),
-        Step("Verify local Markdown links", (python, "scripts/check_markdown_links.py")),
+        Step("Test line-ending checker", (python, "scripts/test_check_line_endings.py"), group="repository"),
+        Step("Verify repository line endings", (python, "scripts/check_line_endings.py"), group="repository"),
+        Step("Verify local Markdown links", (python, "scripts/check_markdown_links.py"), group="repository"),
         Step("Compile release helper Python", (python, "-m", "py_compile", *PY_COMPILE_FILES)),
     ]
     steps.extend(
@@ -326,6 +329,7 @@ def portable_steps(maven: str, bash: str) -> list[Step]:
                 "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
+            group="java",
         )
     )
     return steps
@@ -348,26 +352,25 @@ def deduplicate_steps(steps: Iterable[Step]) -> list[Step]:
     return result
 
 
-def build_steps(profile: str, maven: str, bash: str | None, powershell: str | None) -> list[Step]:
+def build_steps(
+    profile: str, maven: str, bash: str | None, powershell: str | None,
+    group: str = "all",
+) -> list[Step]:
+    if group in {"all", "scripts"}:
+        if profile in {"portable", "all"} and bash is None:
+            raise RuntimeError("The selected scripts require bash.")
+        if profile in {"windows", "all"} and powershell is None:
+            raise RuntimeError("The selected scripts require PowerShell.")
     if profile == "windows":
-        if powershell is None:
-            raise RuntimeError("The Windows profile requires PowerShell.")
-        return windows_steps(maven, powershell)
-    if profile == "portable":
-        if bash is None:
-            raise RuntimeError("The portable profile requires bash.")
-        return portable_steps(maven, bash)
-    if bash is None or powershell is None:
-        raise RuntimeError("The all profile requires both PowerShell and bash.")
-    combined = windows_steps(maven, powershell) + portable_steps(maven, bash)
-    # A local Windows run cannot become an Ubuntu run by invoking Maven twice.
-    # Keep the Windows verification gate and run every portable helper around it.
-    combined = [
-        step
-        for step in combined
-        if step.name != "Run full portable verification gate"
-    ]
-    return deduplicate_steps(combined)
+        steps = windows_steps(maven, powershell or "pwsh")
+    elif profile == "portable":
+        steps = portable_steps(maven, bash or "bash")
+    else:
+        steps = windows_steps(maven, powershell or "pwsh") + portable_steps(maven, bash or "bash")
+        # A local Windows run cannot become an Ubuntu run by invoking Maven twice.
+        steps = [step for step in steps if step.name != "Run full portable verification gate"]
+        steps = deduplicate_steps(steps)
+    return [step for step in steps if group == "all" or step.group == group]
 
 
 def git_output(*args: str) -> str:
@@ -442,6 +445,8 @@ def write_summary(
     results: list[StepResult],
     junit: JunitSummary,
     success: bool,
+    group: str,
+    junit_executed: bool,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     status = overall_result(success, results)
@@ -449,6 +454,7 @@ def write_summary(
         "schema_version": 1,
         "result": status,
         "profile": profile,
+        "group": group,
         "dry_run": dry_run,
         "started_at": started_at,
         "duration_seconds": round(duration_seconds, 3),
@@ -457,6 +463,7 @@ def write_summary(
         "java": java_details,
         "git_sha": git_output("rev-parse", "HEAD"),
         "junit": asdict(junit),
+        "junit_status": "collected" if junit_executed else "not executed",
         "steps": [asdict(result) for result in results],
     }
     (output_dir / "local-ci-summary.json").write_text(
@@ -467,12 +474,15 @@ def write_summary(
         "",
         f"- Result: **{status}**",
         f"- Profile: `{profile}`",
+        f"- Group: `{group}`",
+        f"- Java: {java_details}",
         f"- Git SHA: `{payload['git_sha']}`",
         f"- Duration: `{duration_seconds:.1f}s`",
         (
             "- JUnit: "
             f"{junit.tests} tests, {junit.failures} failures, "
             f"{junit.errors} errors, {junit.skipped} skipped"
+            if junit_executed else "- JUnit: not executed"
         ),
         "",
         "| Step | Result | Seconds |",
@@ -490,30 +500,34 @@ def run(args: argparse.Namespace) -> int:
     started_at = datetime.now(timezone.utc).isoformat()
     output_dir = (REPO_ROOT / args.summary_dir).resolve()
     results: list[StepResult] = []
-    java_details = "not checked (dry run)"
+    java_selected = args.group in {"all", "java"}
+    scripts_selected = args.group in {"all", "scripts"}
+    java_details = "not executed"
+    junit_executed = False
 
     try:
         if args.require_clean:
             require_clean_checkout()
-        if not args.dry_run:
+        if java_selected and not args.dry_run:
             reset_junit_reports()
-        maven = args.maven or ("mvn" if args.dry_run else resolve_maven())
+            junit_executed = True
+        maven = (args.maven or ("mvn" if args.dry_run else resolve_maven())) if java_selected else "mvn"
         bash = None
         powershell = None
-        if args.profile in {"portable", "all"}:
+        if scripts_selected and args.profile in {"portable", "all"}:
             bash = args.bash or ("bash" if args.dry_run else resolve_bash())
-        if args.profile in {"windows", "all"}:
+        if scripts_selected and args.profile in {"windows", "all"}:
             powershell = args.powershell or (
                 "pwsh" if args.dry_run else resolve_powershell()
             )
-        if not args.dry_run:
+        if java_selected and not args.dry_run:
             major, java_details = java_major_version(maven)
             if major != 21:
                 raise RuntimeError(
                     f"Local CI requires JDK 21, but Maven is using Java {major}. "
                     "Set JAVA_HOME to a JDK 21 installation."
                 )
-        steps = build_steps(args.profile, maven, bash, powershell)
+        steps = build_steps(args.profile, maven, bash, powershell, args.group)
         steps.append(Step("Verify working-tree diff", ("git", "diff", "--check")))
 
         for index, step in enumerate(steps, start=1):
@@ -559,7 +573,7 @@ def run(args: argparse.Namespace) -> int:
         return_code = 1
 
     try:
-        junit = JunitSummary() if args.dry_run else collect_junit_summary()
+        junit = collect_junit_summary() if junit_executed else JunitSummary()
         write_summary(
             output_dir,
             args.profile,
@@ -570,12 +584,14 @@ def run(args: argparse.Namespace) -> int:
             results,
             junit,
             return_code == 0,
+            args.group,
+            junit_executed,
         )
         print(f"Local CI report: {output_dir}", flush=True)
         print(
             "JUnit: "
             f"{junit.tests} tests, {junit.failures} failures, "
-            f"{junit.errors} errors, {junit.skipped} skipped",
+            f"{junit.errors} errors, {junit.skipped} skipped" if junit_executed else "JUnit: not executed",
             flush=True,
         )
     except (OSError, RuntimeError) as error:
@@ -588,6 +604,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile", choices=("windows", "portable", "all"), default="all"
+    )
+    parser.add_argument(
+        "--group", choices=("all", "repository", "scripts", "java"), default="all"
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--require-clean", action="store_true")
