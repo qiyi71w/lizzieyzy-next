@@ -1,6 +1,8 @@
 param(
   [ValidateSet('Windows', 'Portable', 'All')]
   [string]$Profile = 'All',
+  [ValidateSet('All', 'Repository', 'Scripts', 'Java')]
+  [string]$Group = 'All',
   [switch]$DryRun,
   [switch]$RequireClean,
   [string]$SummaryDir = 'target/local-ci'
@@ -25,7 +27,7 @@ function Test-Java21([string]$JavaHome) {
   return $version -match 'version "21(?:\.|\")'
 }
 
-if (-not (Test-Java21 $env:JAVA_HOME)) {
+if ($Group -in @('All', 'Java') -and -not $DryRun -and -not (Test-Java21 $env:JAVA_HOME)) {
   $jdkCandidates = @(
     Get-ChildItem -Path (Join-Path $repoRoot '.tools\jdk-21*') -Directory -ErrorAction SilentlyContinue
     Get-ChildItem -Path (Join-Path $env:SystemDrive 'jdk21\jdk-21*') -Directory -ErrorAction SilentlyContinue
@@ -50,31 +52,10 @@ if (-not $python) {
   throw 'Python 3 was not found. Set LIZZIE_PYTHON or add python to PATH.'
 }
 
-if (-not $env:LIZZIE_MAVEN) {
-  $maven = Get-Command mvn.cmd, mvn -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $maven) {
-    $maven = Get-ChildItem -Path (Join-Path $repoRoot '.tools\apache-maven-*\bin\mvn.cmd'), 'C:\tools\apache-maven-*\bin\mvn.cmd' -File -ErrorAction SilentlyContinue | Sort-Object FullName | Select-Object -Last 1
-  }
-  if ($maven) { $env:LIZZIE_MAVEN = $maven.FullName }
-}
-
-if (-not $env:LIZZIE_BASH) {
-  $gitBash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
-  if (Test-Path -LiteralPath $gitBash -PathType Leaf) {
-    $env:LIZZIE_BASH = $gitBash
-  } else {
-    $bash = Get-Command bash.exe, bash -ErrorAction SilentlyContinue |
-      Where-Object { $_.Source -notmatch '\\Windows\\(?:System32|Sysnative)\\bash\.exe$' } |
-      Select-Object -First 1
-  }
-  if (-not $env:LIZZIE_BASH -and $bash) {
-    $env:LIZZIE_BASH = $bash.Source
-  }
-}
-
 $arguments = @(
   (Join-Path $PSScriptRoot 'run_local_ci.py'),
   '--profile', $Profile.ToLowerInvariant(),
+  '--group', $Group.ToLowerInvariant(),
   '--summary-dir', $SummaryDir
 )
 if ($DryRun) { $arguments += '--dry-run' }

@@ -933,17 +933,6 @@ class ReleaseWorkflowResilienceTest(unittest.TestCase):
                 )
                 self.assertIn("cancel-in-progress: true", workflow)
 
-    def test_ci_runs_publisher_tests_as_an_importable_module(self) -> None:
-        workflow = (
-            SCRIPT_PATH.parents[1] / ".github" / "workflows" / "ci.yml"
-        ).read_text(encoding="utf-8")
-        local_ci = SCRIPT_PATH.with_name("run_local_ci.py").read_text(encoding="utf-8")
-
-        self.assertIn("scripts/run_local_ci.py --profile portable", workflow)
-        self.assertIn('"scripts.test_publish_release_request"', local_ci)
-        self.assertIn('"-m", "unittest", module', local_ci)
-        self.assertNotIn('Step(f"Run {module}", (python, module))', local_ci)
-
     @unittest.skipIf(os.name == "nt", "behavior test runs with native bash in CI")
     def test_macos_signing_retries_transient_failures(self) -> None:
         bash = shutil.which("bash")

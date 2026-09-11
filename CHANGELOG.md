@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Split CI into independent repository, script, and Java jobs with grouped local entrypoints and a unified `ci-required` gate; retain the existing required-check names during migration.
 - Save KataGo rule preferences on confirmation and close the settings dialog after successful application.
 - Keep SGF rule-failure navigation local until explicit confirmed restore, preserve trial-return rules and positions, and resume both comparison engines after synchronization (#448).
 - Keep thread-source controls visible and locked to CFG for empty or unrecognized local targets, without explanatory warnings (#437).

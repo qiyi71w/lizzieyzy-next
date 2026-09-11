@@ -14,38 +14,123 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows-script-validation:
-    runs-on: windows-latest
-    timeout-minutes: 30
-
+  repository-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Run repository checks
+        run: python3 scripts/run_local_ci.py --profile portable --group repository --require-clean --summary-dir target/local-ci/portable-repository
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-portable-repository
+          path: target/local-ci/portable-repository
+          if-no-files-found: warn
 
+  script-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Run portable script tests
+        run: python3 scripts/run_local_ci.py --profile portable --group scripts --require-clean --summary-dir target/local-ci/portable-scripts
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-portable-scripts
+          path: target/local-ci/portable-scripts
+          if-no-files-found: warn
+
+  windows-script-tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.x'
+      - name: Run Windows repository checks
+        shell: pwsh
+        run: python scripts/run_local_ci.py --profile windows --group repository --require-clean --summary-dir target/local-ci/windows-repository
+      - name: Run Windows script tests
+        shell: pwsh
+        run: python scripts/run_local_ci.py --profile windows --group scripts --require-clean --summary-dir target/local-ci/windows-scripts
+      - name: Upload repository summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-windows-repository
+          path: target/local-ci/windows-repository
+          if-no-files-found: warn
+      - name: Upload script summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-windows-scripts
+          path: target/local-ci/windows-scripts
+          if-no-files-found: warn
 
+  java-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
       - name: Set up Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-
-      - name: Run Windows CI preflight
-        shell: pwsh
-        run: python scripts/run_local_ci.py --profile windows --require-clean --summary-dir target/local-ci/windows
-
+      - name: Run Linux Java verification
+        run: python3 scripts/run_local_ci.py --profile portable --group java --require-clean --summary-dir target/local-ci/portable-java
       - name: Upload local CI summary
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: local-ci-summary-windows
-          path: target/local-ci/windows
+          name: local-ci-summary-portable-java
+          path: target/local-ci/portable-java
           if-no-files-found: warn
+      - name: Upload JaCoCo coverage report
+        uses: actions/upload-artifact@v6
+        with:
+          name: jacoco-coverage-report-linux
+          path: target/site/jacoco
+          if-no-files-found: error
 
+  java-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run Windows Java verification
+        shell: pwsh
+        run: python scripts/run_local_ci.py --profile windows --group java --require-clean --summary-dir target/local-ci/windows-java
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-windows-java
+          path: target/local-ci/windows-java
+          if-no-files-found: warn
       - name: Upload JaCoCo coverage report
         uses: actions/upload-artifact@v6
         with:
@@ -53,35 +138,48 @@ jobs:
           path: target/site/jacoco
           if-no-files-found: error
 
-  build:
+  ci-required:
+    if: ${{ always() }}
+    needs: [repository-checks, script-tests, windows-script-tests, java-linux, java-windows]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Require all execution jobs
+        env:
+          REPOSITORY: ${{ needs.repository-checks.result }}
+          SCRIPTS: ${{ needs.script-tests.result }}
+          WINDOWS_SCRIPTS: ${{ needs.windows-script-tests.result }}
+          JAVA_LINUX: ${{ needs.java-linux.result }}
+          JAVA_WINDOWS: ${{ needs.java-windows.result }}
+        run: |
+          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "windows-script-tests=$WINDOWS_SCRIPTS" "java-linux=$JAVA_LINUX" "java-windows=$JAVA_WINDOWS"
+          [[ "$REPOSITORY" == success && "$SCRIPTS" == success && "$WINDOWS_SCRIPTS" == success && "$JAVA_LINUX" == success && "$JAVA_WINDOWS" == success ]]
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
+  build:
+    if: ${{ always() }}
+    needs: [repository-checks, script-tests, java-linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require Linux execution jobs
+        env:
+          REPOSITORY: ${{ needs.repository-checks.result }}
+          SCRIPTS: ${{ needs.script-tests.result }}
+          JAVA_LINUX: ${{ needs.java-linux.result }}
+        run: |
+          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "java-linux=$JAVA_LINUX"
+          [[ "$REPOSITORY" == success && "$SCRIPTS" == success && "$JAVA_LINUX" == success ]]
 
-      - name: Run portable CI preflight
-        run: python3 scripts/run_local_ci.py --profile portable --require-clean --summary-dir target/local-ci/portable
-
-      - name: Upload local CI summary
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: local-ci-summary-linux
-          path: target/local-ci/portable
-          if-no-files-found: warn
-
-      - name: Upload JaCoCo coverage report
-        uses: actions/upload-artifact@v6
-        with:
-          name: jacoco-coverage-report-linux
-          path: target/site/jacoco
-          if-no-files-found: error
+  windows-script-validation:
+    if: ${{ always() }}
+    needs: [windows-script-tests, java-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require Windows execution jobs
+        env:
+          WINDOWS_SCRIPTS: ${{ needs.windows-script-tests.result }}
+          JAVA_WINDOWS: ${{ needs.java-windows.result }}
+        run: |
+          printf '%s\n' "windows-script-tests=$WINDOWS_SCRIPTS" "java-windows=$JAVA_WINDOWS"
+          [[ "$WINDOWS_SCRIPTS" == success && "$JAVA_WINDOWS" == success ]]

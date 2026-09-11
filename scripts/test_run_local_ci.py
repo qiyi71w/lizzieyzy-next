@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
+import json
 import os
 import shutil
 import subprocess
@@ -11,31 +12,19 @@ from scripts import run_local_ci
 
 
 class RunLocalCiTest(unittest.TestCase):
-    def test_shell_wrapper_accepts_profile_without_optional_arguments(self):
+    def test_shell_wrapper_default_group_keeps_complete_all_profile_plan(self):
         repository = Path(__file__).resolve().parents[1]
         bash = os.environ.get("LIZZIE_BASH") or shutil.which("bash")
         if not bash:
             self.skipTest("bash is required to exercise the POSIX local-CI wrapper")
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
-            fake_python = temporary_path / "python"
-            captured_arguments = temporary_path / "arguments.txt"
-            fake_python.write_text(
-                '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$LIZZIE_WRAPPER_ARGS"\n',
-                encoding="utf-8",
-            )
-            fake_python.chmod(0o755)
             environment = os.environ.copy()
-            environment.update(
-                {
-                    "LIZZIE_PYTHON": str(fake_python),
-                    "LIZZIE_MAVEN": "/usr/bin/true",
-                    "LIZZIE_WRAPPER_ARGS": str(captured_arguments),
-                }
-            )
+            environment["LIZZIE_PYTHON"] = run_local_ci.sys.executable
 
             completed = subprocess.run(
-                [bash, "scripts/run_local_ci.sh", "--profile", "all"],
+                [bash, "scripts/run_local_ci.sh", "--profile", "all", "--dry-run",
+                 "--summary-dir", str(temporary_path)],
                 cwd=repository,
                 env=environment,
                 capture_output=True,
@@ -45,10 +34,56 @@ class RunLocalCiTest(unittest.TestCase):
             )
 
             self.assertEqual(0, completed.returncode, completed.stderr)
-            self.assertEqual(
-                ["scripts/run_local_ci.py", "--profile", "all"],
-                captured_arguments.read_text(encoding="utf-8").splitlines(),
+            summary = json.loads((temporary_path / "local-ci-summary.json").read_text(encoding="utf-8"))
+            commands = [step["command"] for step in summary["steps"]]
+            self.assertEqual(1, sum(command[-1] == "verify" for command in commands))
+            self.assertTrue(any(command[-1] == "test" for command in commands))
+            self.assertEqual("all", summary["group"])
+            self.assertEqual("PASS", summary["result"])
+
+    def test_repository_group_preserves_stale_junit_without_java_or_shells(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            for name in ("run_local_ci.py", "check_line_endings.py"):
+                shutil.copy2(run_local_ci.REPO_ROOT / "scripts" / name, scripts / name)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "-c", "user.name=CI Test", "-c",
+                 "user.email=ci@example.invalid", "commit", "--allow-empty", "-qm", "fixture"],
+                check=True,
             )
+            stale = root / "target" / "surefire-reports" / "TEST-stale.xml"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"deliberately invalid old report")
+            environment = os.environ.copy()
+            for name in ("LIZZIE_MAVEN", "LIZZIE_BASH", "LIZZIE_POWERSHELL", "JAVA_HOME"):
+                environment[name] = str(root / "unavailable")
+            completed = subprocess.run(
+                [run_local_ci.sys.executable, str(scripts / "run_local_ci.py"),
+                 "--profile", "windows", "--group", "repository"],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            self.assertEqual(b"deliberately invalid old report", stale.read_bytes())
+            summary = json.loads((root / "target/local-ci/local-ci-summary.json").read_text(encoding="utf-8"))
+            self.assertEqual("PASS", summary["result"])
+            self.assertEqual("not executed", summary["junit_status"])
+            self.assertEqual(0, summary["junit"]["tests"])
+            self.assertEqual("not executed", summary["java"])
+
+            # A real Java selection must discard the old report even if Maven setup fails.
+            completed = subprocess.run(
+                [run_local_ci.sys.executable, str(scripts / "run_local_ci.py"),
+                 "--profile", "windows", "--group", "java"],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertFalse(stale.exists())
+            summary = json.loads((root / "target/local-ci/local-ci-summary.json").read_text(encoding="utf-8"))
+            self.assertEqual("FAIL", summary["result"])
+            self.assertEqual(0, summary["junit"]["tests"])
 
     def test_all_profile_keeps_one_maven_verification(self):
         steps = run_local_ci.build_steps("all", "mvn", "bash", "pwsh")
