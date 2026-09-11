@@ -154,32 +154,3 @@ jobs:
         run: |
           printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "windows-script-tests=$WINDOWS_SCRIPTS" "java-linux=$JAVA_LINUX" "java-windows=$JAVA_WINDOWS"
           [[ "$REPOSITORY" == success && "$SCRIPTS" == success && "$WINDOWS_SCRIPTS" == success && "$JAVA_LINUX" == success && "$JAVA_WINDOWS" == success ]]
-
-  build:
-    if: ${{ always() }}
-    needs: [repository-checks, script-tests, java-linux]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require Linux execution jobs
-        env:
-          REPOSITORY: ${{ needs.repository-checks.result }}
-          SCRIPTS: ${{ needs.script-tests.result }}
-          JAVA_LINUX: ${{ needs.java-linux.result }}
-        run: |
-          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "java-linux=$JAVA_LINUX"
-          [[ "$REPOSITORY" == success && "$SCRIPTS" == success && "$JAVA_LINUX" == success ]]
-
-  windows-script-validation:
-    if: ${{ always() }}
-    needs: [windows-script-tests, java-windows]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require Windows execution jobs
-        env:
-          WINDOWS_SCRIPTS: ${{ needs.windows-script-tests.result }}
-          JAVA_WINDOWS: ${{ needs.java-windows.result }}
-        run: |
-          printf '%s\n' "windows-script-tests=$WINDOWS_SCRIPTS" "java-windows=$JAVA_WINDOWS"
-          [[ "$WINDOWS_SCRIPTS" == success && "$JAVA_WINDOWS" == success ]]

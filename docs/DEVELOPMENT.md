@@ -103,13 +103,12 @@ Windows 脚本 job 依次运行 `windows/repository` 与 `windows/scripts`，摘
 两平台 Java job 保留全量测试、`LoggingProviderSmokeIT`、shaded JAR 和 JaCoCo；
 验证成功但 coverage artifact 缺失仍失败。各组失败时仍尝试上传本组摘要。
 
-`ci-required` 直接要求五项全部成功。迁移期间 `build` 汇总两个 Portable 非 Java job
-和 `java-linux`；`windows-script-validation` 汇总两个 Windows job。三个汇总器均拒绝
-失败、取消、跳过、缺失或未知结果。发布仍仅接受目标 SHA 的 `ci.yml` push 成功运行。
+`ci-required` 是唯一汇总门禁，直接要求五项全部成功，拒绝失败、取消、跳过、缺失或
+未知结果。发布仍仅接受目标 SHA 的完整 `ci.yml` push 成功运行。
 
-首个 PR 合并且对应 main push CI 成功后，请 wimi321 将 main required checks 替换为
-GitHub Actions 来源的 `ci-required`，其他保护设置不变。确认设置生效后，后续 PR
-才删除两个旧汇总门禁；当前 PR 不需要管理员预先修改保护。
+main 分支保护要求 GitHub Actions 来源的 `ci-required`。回退 workflow 时必须保留
+可运行且真实验证五项执行结果的 `ci-required`；不能直接回退到缺少该检查的版本。
+如需调整 required checks，由维护者协调保护设置与 workflow，始终保留有效合并门禁。
 
 本地预检用于在推送前尽早发现问题，不能代替受保护分支上的干净 Windows 和
 Ubuntu runner，也不能代替 macOS 签名、公证与多平台发布资产审计。
