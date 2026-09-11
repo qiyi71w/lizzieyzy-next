@@ -46,7 +46,7 @@ mvn -B -Dfmt.skip=true -Djava.awt.headless=true -Dtest=KataGoAccelerationLayoutT
 
 ## Windows 原生桌面
 
-先固定完整 SHA 和隔离候选，使用[仓库 Windows candidate 入口](../.codex/skills/lizzie-windows-migration-test/SKILL.md)准备及监督运行。它转交的桌面流程记录 `candidate.json`、`run.json`、构建日志和实际进程身份。准备工具是维护机器的本地设施；其他机器应记录同等提交/构建/进程证据。启动 shaded JAR；普通 JAR 没有 `Main-Class`。
+先固定完整 SHA，在独立 checkout 中按[开发指南的本地构建步骤](DEVELOPMENT.md#本地构建)生成候选，保存源码 SHA、构建命令、工具版本与构建日志。记录 shaded JAR 路径、启动时间、PID、JVM 命令、窗口标题和隔离配置目录，使截图能对应到实际构建与进程。维护机器的 candidate 工具可用时，保留其 `candidate.json`、`run.json`；其他机器记录同等证据即可。启动 shaded JAR；普通 JAR 没有 `Main-Class`。
 
 每个实际产品主题分别列 100% / 150% / 200% 档位，记录主题名称、浅/深模式和版本。按改动风险选择默认宽度、窄宽度、放大再缩小、长文案、分组及滚动场景；同一场景逐档观察：
 
