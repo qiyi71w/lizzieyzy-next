@@ -247,3 +247,5 @@ Ubuntu runner，也不能代替 macOS 签名、公证与多平台发布资产审
 - [发布检查清单](RELEASE_CHECKLIST.md)
 - [发布包说明](PACKAGES.md)
 - [已验证平台](TESTED_PLATFORMS.md)
+
+<!-- Hosted CI acceptance: documentation-only change. -->
