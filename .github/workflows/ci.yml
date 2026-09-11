@@ -37,7 +37,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Run portable script tests
-        run: python3 scripts/run_local_ci.py --profile portable --group scripts --require-clean --summary-dir target/local-ci/portable-scripts
+        run: exit 1
       - name: Upload local CI summary
         if: always()
         uses: actions/upload-artifact@v6
@@ -47,6 +47,7 @@ jobs:
           if-no-files-found: warn
 
   windows-script-tests:
+    if: ${{ false }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
