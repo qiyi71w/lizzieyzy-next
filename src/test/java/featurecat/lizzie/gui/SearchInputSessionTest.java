@@ -49,6 +49,25 @@ class SearchInputSessionTest {
     assertTrue(session.enter(key(KeyEvent.KEY_RELEASED)));
   }
 
+  @Test
+  void independentEnterAfterSpaceOrMouseCommitActivatesImmediately() {
+    SearchInputSession session = new SearchInputSession();
+    session.textChanged(
+        new InputMethodEvent(
+            input,
+            InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
+            100L,
+            new AttributedString("权重").getIterator(),
+            2,
+            null,
+            null));
+    assertFalse(
+        session.enter(new KeyEvent(input, KeyEvent.KEY_PRESSED, 200L, 0, KeyEvent.VK_ENTER, '\n')));
+    assertTrue(
+        session.enter(
+            new KeyEvent(input, KeyEvent.KEY_RELEASED, 201L, 0, KeyEvent.VK_ENTER, '\n')));
+  }
+
   private InputMethodEvent composition(String text, int committed) {
     return new InputMethodEvent(
         input,

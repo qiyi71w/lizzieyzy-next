@@ -238,7 +238,11 @@ final class FunctionSearchDialog extends JDialog {
             if (closed) return;
             expansion.setVisible(!input.getText().isBlank());
             refreshResults();
-            resizeSearch();
+            // Text views receive this document event after application listeners. Layout
+            // must wait until they have updated complex-script runs such as Thai.
+            SwingUtilities.invokeLater(() -> {
+              if (!closed) resizeSearch();
+            });
           }
         };
     input.getDocument().addDocumentListener(queryListener);
