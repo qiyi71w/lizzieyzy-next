@@ -4040,6 +4040,14 @@ public class LizzieFrame extends JFrame {
   }
 
   public static void editGameInfo() {
+    editGameInfo(false);
+  }
+
+  void editGameKomi() {
+    editGameInfo(true);
+  }
+
+  private static void editGameInfo(boolean locateKomi) {
     if (Lizzie.frame != null && Lizzie.frame.isWholeGameAnalysisStartingOrRunning()) {
       Utils.showMsg(Lizzie.resourceBundle.getString("WholeGameAnalysis.conflict.analysis"));
       return;
@@ -4048,6 +4056,7 @@ public class LizzieFrame extends JFrame {
 
     GameInfoDialog gameInfoDialog = new GameInfoDialog();
     gameInfoDialog.setGameInfo(gameInfo);
+    if (locateKomi) gameInfoDialog.locateKomi();
     gameInfoDialog.setVisible(true);
     gameInfoDialog.dispose();
   }
@@ -12905,6 +12914,14 @@ public class LizzieFrame extends JFrame {
   }
 
   public void setRules() {
+    setRules(false);
+  }
+
+  void setRulesAtEditor() {
+    setRules(true);
+  }
+
+  private void setRules(boolean locateEditor) {
     Leelaz rulesEngine = Lizzie.leelaz;
     String reason = rulesUnavailableReason(rulesEngine);
     if (reason != null) {
@@ -12913,6 +12930,7 @@ public class LizzieFrame extends JFrame {
     }
     SetKataRules rulesDialog = new SetKataRules(rulesEngine);
     setkatarules = rulesDialog;
+    if (locateEditor) rulesDialog.locateRulesEditor();
     setkatarules.setVisible(true);
   }
 

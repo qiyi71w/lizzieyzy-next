@@ -16,6 +16,9 @@ import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryList;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.awt.KeyboardFocusManager;
 import java.awt.GraphicsEnvironment;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
@@ -25,7 +28,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
 import java.util.concurrent.TimeUnit;
+import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
+import javax.swing.border.Border;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
@@ -40,6 +45,57 @@ class SetKataRulesWindowTest {
   private static final String JAPANESE =
       "{\"ko\":\"SIMPLE\",\"scoring\":\"TERRITORY\",\"tax\":\"SEKI\",\"suicide\":false,"
           + "\"hasButton\":false,\"whiteHandicapBonus\":\"0\",\"friendlyPassOk\":true}";
+
+  @Test
+  void navigationFocusesScoringControlsWithoutChangingRulesOrSaving() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    try (Fixture fixture = Fixture.ordinary()) {
+      SetKataRules dialog = new SetKataRules(fixture.engine);
+      Border areaBorder = dialog.rdoArea.getBorder();
+      Border territoryBorder = dialog.rdoTerritory.getBorder();
+      boolean areaBorderPainted = dialog.rdoArea.isBorderPainted();
+      boolean territoryBorderPainted = dialog.rdoTerritory.isBorderPainted();
+      boolean areaSelected = dialog.rdoArea.isSelected();
+      boolean territorySelected = dialog.rdoTerritory.isSelected();
+      String configBefore = Lizzie.config.uiConfig.toString();
+
+      SwingUtilities.invokeAndWait(
+          () -> {
+            dialog.locateRulesEditor();
+            dialog.setVisible(true);
+          });
+      boolean[] highlightVisible = new boolean[1];
+      SwingUtilities.invokeAndWait(
+          () -> {
+            assertTrue(dialog.rdoArea.isBorderPainted());
+            assertTrue(dialog.rdoTerritory.isBorderPainted());
+            highlightVisible[0] =
+                rendersColor(dialog.rdoArea, new Color(185, 156, 93))
+                    && rendersColor(dialog.rdoTerritory, new Color(185, 156, 93));
+          });
+      assertTrue(highlightVisible[0], "scoring controls must paint the navigation highlight");
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (System.nanoTime() < deadline
+          && KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()
+              != (territorySelected ? dialog.rdoTerritory : dialog.rdoArea)) {
+        Thread.sleep(20L);
+        SwingUtilities.invokeAndWait(() -> {});
+      }
+
+      assertSame(
+          territorySelected ? dialog.rdoTerritory : dialog.rdoArea,
+          KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner());
+      assertEquals(areaSelected, dialog.rdoArea.isSelected());
+      assertEquals(territorySelected, dialog.rdoTerritory.isSelected());
+      assertEquals(configBefore, Lizzie.config.uiConfig.toString());
+      SwingUtilities.invokeAndWait(() -> dialog.setVisible(false));
+      assertSame(areaBorder, dialog.rdoArea.getBorder());
+      assertSame(territoryBorder, dialog.rdoTerritory.getBorder());
+      assertEquals(areaBorderPainted, dialog.rdoArea.isBorderPainted());
+      assertEquals(territoryBorderPainted, dialog.rdoTerritory.isBorderPainted());
+      dialog.dispose();
+    }
+  }
 
   @Test
   void mismatchedManualReadbackDoesNotChangeSessionTarget() throws Exception {
@@ -350,6 +406,24 @@ class SetKataRulesWindowTest {
         EngineManager.class.getDeclaredMethod("resetEngineGameTransactionStateForTest");
     method.setAccessible(true);
     method.invoke(null);
+  }
+
+  private static boolean rendersColor(JComponent component, Color expected) {
+    BufferedImage image =
+        new BufferedImage(component.getWidth(), component.getHeight(), BufferedImage.TYPE_INT_ARGB);
+    java.awt.Graphics2D graphics = image.createGraphics();
+    try {
+      component.paintAll(graphics);
+    } finally {
+      graphics.dispose();
+    }
+    int expectedRgb = expected.getRGB();
+    for (int y = 0; y < image.getHeight(); y++) {
+      for (int x = 0; x < image.getWidth(); x++) {
+        if (image.getRGB(x, y) == expectedRgb) return true;
+      }
+    }
+    return false;
   }
 
   private static final class Fixture implements AutoCloseable {

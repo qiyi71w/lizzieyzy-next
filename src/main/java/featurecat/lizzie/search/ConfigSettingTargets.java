@@ -1,0 +1,121 @@
+package featurecat.lizzie.search;
+
+import featurecat.lizzie.search.FunctionCatalog.ConfigSettingTarget;
+import featurecat.lizzie.search.FunctionCatalog.SettingSection;
+import java.util.List;
+
+/** The explicit, stable mapping from searchable settings to visible editable rows. */
+final class ConfigSettingTargets {
+  private static final List<ConfigSettingTarget> ALL =
+      List.of(
+        target("config.kifu.auto-analyze", SettingSection.KIFU, "ConfigDialog2.modern.kifu.autoAnalyze", "ConfigDialog2.modern.kifu.autoAnalyzeSub", "file"),
+        target("config.kifu.jump-last", SettingSection.KIFU, "ConfigDialog2.modern.kifu.jumpLast", "ConfigDialog2.modern.kifu.jumpLastSub", "file"),
+        target("config.kifu.read-komi", SettingSection.KIFU, "ConfigDialog2.modern.kifu.readKomi", "ConfigDialog2.modern.kifu.readKomiSub", "file"),
+        target("config.analysis.winrate", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.winrate", "ConfigDialog2.modern.analysis.winrateSub", "analysis"),
+        target("settings.black-winrate", SettingSection.ENGINE, "Menu.alwaysShowBlackWinrate", "FunctionSearch.description.blackWinrate", "analysis", "FunctionSearch.aliases.blackWinrate", "FunctionSearch.weakAliases.blackWinrate"),
+        target("config.analysis.variation", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.variation", "ConfigDialog2.modern.analysis.variationSub", "analysis"),
+        target("config.analysis.blunder-bar", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.blunderBar", "ConfigDialog2.modern.analysis.blunderBarSub", "analysis"),
+        target("config.analysis.hover", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.hover", "ConfigDialog2.modern.analysis.hoverSub", "analysis"),
+        target("config.analysis.graph-fill", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.graphFill", "ConfigDialog2.modern.analysis.graphFillSub", "analysis"),
+        target("config.analysis.max-red", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.maxRed", "ConfigDialog2.modern.analysis.maxRedSub", "analysis"),
+        target("config.analysis.tracking-visits", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.trackingVisits", "ConfigDialog2.modern.analysis.trackingVisitsSub", "analysis"),
+        target("config.analysis.suggestion-limit", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.suggestionLimit", "ConfigDialog2.modern.analysis.suggestionLimitSub", "analysis"),
+        target("config.analysis.variation-limit", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.variationLimit", "ConfigDialog2.modern.analysis.variationLimitSub", "analysis"),
+        target("config.analysis.limit-time", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.limitTime", "ConfigDialog2.modern.analysis.limitTimeSub", "analysis"),
+        target("config.analysis.limit-visits", SettingSection.ENGINE, "ConfigDialog2.modern.analysis.limitVisits", "ConfigDialog2.modern.analysis.limitVisitsSub", "analysis"),
+        target("config.candidates.blue-ring", SettingSection.ENGINE, "ConfigDialog2.modern.candidates.blueRing", "ConfigDialog2.modern.candidates.blueRingSub", "analysis"),
+        target("config.candidates.color-ratio", SettingSection.ENGINE, "ConfigDialog2.modern.candidates.colorRatio", "ConfigDialog2.modern.candidates.colorRatioSub", "analysis"),
+        target("config.candidates.white-style", SettingSection.ENGINE, "ConfigDialog2.modern.candidates.whiteStyle", "ConfigDialog2.modern.candidates.whiteStyleSub", "analysis"),
+        target("config.candidates.no-suggestion-circle", SettingSection.ENGINE, "ConfigDialog2.modern.candidates.noSuggCircle", "ConfigDialog2.modern.candidates.noSuggCircleSub", "analysis"),
+        target("config.candidates.minimum-playout-ratio", SettingSection.ENGINE, "ConfigDialog2.modern.candidates.minPlayoutRatio", "ConfigDialog2.modern.candidates.minPlayoutRatioSub", "analysis"),
+        target("config.pv.mode", SettingSection.ENGINE, "ConfigDialog2.modern.pv.mode", "ConfigDialog2.modern.pv.modeSub", "analysis"),
+        target("config.pv.visit-limit", SettingSection.ENGINE, "ConfigDialog2.modern.pv.limit", "ConfigDialog2.modern.pv.limitSub", "analysis"),
+        target("config.pv.remove-dead", SettingSection.ENGINE, "ConfigDialog2.modern.pv.removeDead", "ConfigDialog2.modern.pv.removeDeadSub", "analysis"),
+        target("config.play.double-click", SettingSection.PLAY, "ConfigDialog2.modern.play.doubleClick", "ConfigDialog2.modern.play.doubleClickSub", "game"),
+        target("config.play.click-review", SettingSection.PLAY, "ConfigDialog2.modern.play.clickReview", "ConfigDialog2.modern.play.clickReviewSub", "game"),
+        target("config.play.drag-stone", SettingSection.PLAY, "ConfigDialog2.modern.play.drag", "ConfigDialog2.modern.play.dragSub", "game"),
+        target("config.play.comment-panel", SettingSection.PLAY, "ConfigDialog2.modern.play.commentPanel", "ConfigDialog2.modern.play.commentPanelSub", "game"),
+        target("config.play.hide-panel-controls", SettingSection.PLAY, "ConfigDialog2.modern.play.hidePanelControls", "ConfigDialog2.modern.play.hidePanelControlsSub", "game"),
+        target("config.play.coordinates", SettingSection.PLAY, "ConfigDialog2.modern.play.coordinates", "ConfigDialog2.modern.play.coordinatesSub", "game"),
+        target("config.play.freeze-sub-board", SettingSection.PLAY, "ConfigDialog2.modern.play.freezeSubBoard", "ConfigDialog2.modern.play.freezeSubBoardSub", "game"),
+        target("config.interaction.move-rectangle", SettingSection.PLAY, "ConfigDialog2.modern.interaction.moveRect", "ConfigDialog2.modern.interaction.moveRectSub", "game"),
+        target("config.interaction.right-click", SettingSection.PLAY, "ConfigDialog2.modern.interaction.rightClick", "ConfigDialog2.modern.interaction.rightClickSub", "game"),
+        target("config.interaction.coordinates", SettingSection.PLAY, "ConfigDialog2.modern.interaction.specialCoords", "ConfigDialog2.modern.interaction.specialCoordsSub", "game"),
+        target("config.advanced.ponder", SettingSection.ADVANCED, "ConfigDialog2.modern.advanced.ponder", "ConfigDialog2.modern.advanced.ponderSub", "engine"),
+        target("config.advanced.fast-switch", SettingSection.ADVANCED, "ConfigDialog2.modern.advanced.fastSwitch", "ConfigDialog2.modern.advanced.fastSwitchSub", "engine"),
+        target("config.advanced.cache", SettingSection.ADVANCED, "ConfigDialog2.modern.advanced.cache", "ConfigDialog2.modern.advanced.cacheSub", "engine"),
+        target("config.advanced.stop-empty", SettingSection.ADVANCED, "ConfigDialog2.modern.advanced.stopEmpty", "ConfigDialog2.modern.advanced.stopEmptySub", "engine"),
+        target("config.advanced.startup-benchmark", SettingSection.ADVANCED, "ConfigDialog2.modern.advanced.firstBenchmark", "ConfigDialog2.modern.advanced.firstBenchmarkSub", "engine"),
+        target("config.advanced.no-capture", SettingSection.ADVANCED, "ConfigDialog2.modern.advanced.noCapture", "ConfigDialog2.modern.advanced.noCaptureSub", "engine"),
+        target("config.proxy.mode", SettingSection.ADVANCED, "ConfigDialog2.modern.proxy.title", "ConfigDialog2.modern.proxy.subtitle", "view"),
+        target("config.proxy.manual-address", SettingSection.ADVANCED, "ConfigDialog2.modern.proxy.manual", "ConfigDialog2.modern.proxy.subtitle", "view"),
+        target("config.engine.always-gtp", SettingSection.ADVANCED, "ConfigDialog2.modern.engineHealth.alwaysGtp", "ConfigDialog2.modern.engineHealth.alwaysGtpSub", "engine"),
+        target("config.engine.check-alive", SettingSection.ADVANCED, "ConfigDialog2.modern.engineHealth.checkAlive", "ConfigDialog2.modern.engineHealth.checkAliveSub", "engine"),
+        target("config.engine.update-interval", SettingSection.ADVANCED, "ConfigDialog2.modern.engineHealth.interval", "ConfigDialog2.modern.engineHealth.intervalSub", "engine"),
+        target("config.engine.ssh-update-interval", SettingSection.ADVANCED, "ConfigDialog2.modern.engineHealth.intervalSsh", "ConfigDialog2.modern.engineHealth.intervalSshSub", "engine"),
+        target("config.display.always-on-top", SettingSection.DISPLAY, "ConfigDialog2.modern.display.alwaysOnTop", "ConfigDialog2.modern.display.alwaysOnTopSub", "view"),
+        target("config.display.quick-links", SettingSection.DISPLAY, "ConfigDialog2.modern.display.quickLinks", "ConfigDialog2.modern.display.quickLinksSub", "view"),
+        target("config.display.status", SettingSection.DISPLAY, "ConfigDialog2.modern.display.status", "ConfigDialog2.modern.display.statusSub", "view"),
+        target("config.display.sub-board", SettingSection.DISPLAY, "ConfigDialog2.modern.display.subBoard", "ConfigDialog2.modern.display.subBoardSub", "view"),
+        target("config.display.title-winrate", SettingSection.DISPLAY, "ConfigDialog2.modern.display.titleWr", "ConfigDialog2.modern.display.titleWrSub", "view"),
+        target("config.theme.current", SettingSection.THEME, "ConfigDialog2.modern.theme.current", "ConfigDialog2.modern.theme.currentSub", "view"),
+        target("config.theme.winrate-width", SettingSection.THEME, "ConfigDialog2.modern.theme.winrateWidth", "ConfigDialog2.modern.theme.winrateWidthSub", "view"),
+        target("config.theme.blunder-width", SettingSection.THEME, "ConfigDialog2.modern.theme.blunderWidth", "ConfigDialog2.modern.theme.blunderWidthSub", "view"),
+        target("config.theme.shadow", SettingSection.THEME, "ConfigDialog2.modern.theme.shadow", "ConfigDialog2.modern.theme.shadowSub", "view"),
+        target("config.theme.info-font", SettingSection.THEME, "ConfigDialog2.modern.theme.infoFont", "ConfigDialog2.modern.theme.infoFontSub", "view"),
+        target("config.theme.ui-font", SettingSection.THEME, "ConfigDialog2.modern.theme.uiFont", "ConfigDialog2.modern.theme.uiFontSub", "view"),
+        target("config.theme.winrate-font", SettingSection.THEME, "ConfigDialog2.modern.theme.winrateFont", "ConfigDialog2.modern.theme.winrateFontSub", "view"),
+        target("config.theme.background-image", SettingSection.THEME, "ConfigDialog2.modern.theme.backgroundImage", "ConfigDialog2.modern.theme.assetHint", "view"),
+        target("config.theme.board-image", SettingSection.THEME, "ConfigDialog2.modern.theme.boardImage", "ConfigDialog2.modern.theme.assetHint", "view"),
+        target("config.theme.black-stone-image", SettingSection.THEME, "ConfigDialog2.modern.theme.blackStoneImage", "ConfigDialog2.modern.theme.assetHint", "view"),
+        target("config.theme.white-stone-image", SettingSection.THEME, "ConfigDialog2.modern.theme.whiteStoneImage", "ConfigDialog2.modern.theme.assetHint", "view"),
+        target("config.theme.background-blur", SettingSection.THEME, "ConfigDialog2.modern.theme.blur", "ConfigDialog2.modern.theme.blurSub", "view"),
+        target("config.theme.winrate-color", SettingSection.THEME, "ConfigDialog2.modern.theme.winrateColor", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.theme.missing-color", SettingSection.THEME, "ConfigDialog2.modern.theme.missingColor", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.theme.blunder-color", SettingSection.THEME, "ConfigDialog2.modern.theme.blunderColor", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.theme.score-color", SettingSection.THEME, "ConfigDialog2.modern.theme.scoreColor", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.theme.comment-background", SettingSection.THEME, "ConfigDialog2.modern.theme.commentBackground", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.theme.comment-text", SettingSection.THEME, "ConfigDialog2.modern.theme.commentText", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.theme.best-move-color", SettingSection.THEME, "ConfigDialog2.modern.theme.bestMove", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.theme.comment-font-size", SettingSection.THEME, "ConfigDialog2.modern.theme.commentFontSize", "ConfigDialog2.modern.theme.commentFontSizeSub", "view"),
+        target("config.theme.stone-indicator", SettingSection.THEME, "ConfigDialog2.modern.theme.indicator", "ConfigDialog2.modern.theme.indicatorSub", "view"),
+        target("config.theme.comment-node-color", SettingSection.THEME, "ConfigDialog2.modern.theme.commentNode", "ConfigDialog2.modern.theme.commentNodeSub", "view"),
+        target("config.tracking.outline", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.outline", "ConfigDialog2.modern.trackingAppearance.outlineSub", "view"),
+        target("config.tracking.interior-color", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.interiorColor", "ConfigDialog2.modern.colorRowHint", "view"),
+        target("config.tracking.interior-opacity", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.interiorOpacity", "ConfigDialog2.modern.trackingAppearance.interiorOpacitySub", "view"),
+        target("config.tracking.outline-opacity", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.outlineOpacity", "ConfigDialog2.modern.trackingAppearance.outlineOpacitySub", "view"),
+        target("config.tracking.auto-text-color", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.autoTextColor", "ConfigDialog2.modern.trackingAppearance.autoTextColorSub", "view"),
+        target("config.tracking.text-color", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.textColor", "ConfigDialog2.modern.trackingAppearance.textColorSub", "view"),
+        target("config.theme.blunder-rules", SettingSection.THEME, "ConfigDialog2.modern.theme.blunderRules", "ConfigDialog2.modern.theme.blunderRulesSub", "analysis"),
+        target("config.theme.score-blunders", SettingSection.THEME, "ConfigDialog2.modern.theme.scoreBlunders", "ConfigDialog2.modern.theme.scoreBlundersSub", "analysis"));
+
+  private ConfigSettingTargets() {}
+
+  static List<ConfigSettingTarget> all() {
+    return ALL;
+  }
+
+  private static ConfigSettingTarget target(
+      String id, SettingSection section, String titleKey, String descriptionKey, String category) {
+    return new ConfigSettingTarget(
+        id, section, titleKey, descriptionKey, "FunctionSearch.category." + category);
+  }
+
+  private static ConfigSettingTarget target(
+      String id,
+      SettingSection section,
+      String titleKey,
+      String descriptionKey,
+      String category,
+      String strongAliasesKey,
+      String weakAliasesKey) {
+    return new ConfigSettingTarget(
+        id,
+        section,
+        titleKey,
+        descriptionKey,
+        "FunctionSearch.category." + category,
+        strongAliasesKey,
+        weakAliasesKey);
+  }
+}

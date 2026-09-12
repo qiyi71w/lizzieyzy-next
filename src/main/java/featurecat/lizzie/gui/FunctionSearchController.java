@@ -3,6 +3,7 @@ package featurecat.lizzie.gui;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.search.FunctionCatalog;
 import featurecat.lizzie.search.FunctionSearch;
+import featurecat.lizzie.util.NetworkProxy;
 import java.awt.Component;
 import java.awt.Dialog;
 import java.awt.KeyEventDispatcher;
@@ -93,6 +94,29 @@ final class FunctionSearchController implements KeyEventDispatcher {
     return owner.functionEntryUnavailableReason(id);
   }
 
+  String dependencyReason(String id) {
+    return switch (id) {
+      case "config.proxy.manual-address" ->
+          NetworkProxy.MODE_MANUAL.equals(
+                  Lizzie.config.uiConfig.optString(
+                      NetworkProxy.KEY_PROXY_MODE, NetworkProxy.DEFAULT_MODE))
+              ? null
+              : "FunctionSearch.dependency.manualProxy";
+      case "config.play.comment-panel" ->
+          Lizzie.config.isCommentPanelAutoHiddenByMode()
+              ? "FunctionSearch.dependency.commentPanel"
+              : null;
+      case "config.tracking.text-color" ->
+          Lizzie.config.trackingPointTextAutoColor
+              ? "FunctionSearch.dependency.trackingTextColor"
+              : null;
+      case "config.theme.background-image", "config.theme.board-image",
+          "config.theme.black-stone-image", "config.theme.white-stone-image" ->
+          "FunctionSearch.dependency.themeImage";
+      default -> null;
+    };
+  }
+
   String activate(String id) {
     return activate(id, owner);
   }
@@ -108,13 +132,16 @@ final class FunctionSearchController implements KeyEventDispatcher {
     if (entry.targetType() == FunctionCatalog.TargetType.CONTEXT) {
       return navigateBoard(entry, sourceBoard);
     }
+    if (FunctionCatalog.configSettingTarget(id) != null) {
+      if (!owner.openConfigDialog2AtSetting(id))
+        return "FunctionSearch.unavailable.targetMissing";
+      return null;
+    }
     switch (id) {
       case "weights.download" -> owner.openKataGoWeightDownload();
       case "engine.acceleration" -> owner.openKataGoAcceleration();
-      case "settings.black-winrate" -> {
-        if (!owner.openConfigDialog2AtSetting(id))
-          return "FunctionSearch.unavailable.targetMissing";
-      }
+      case "game.komi" -> owner.editGameKomi();
+      case "engine.rules" -> owner.setRulesAtEditor();
       case "game.ai-coach" -> owner.handleAiCoachToolbarAction();
       case "share.private-history" -> owner.openPrivateKifuSearch();
       case "share.public-history" -> owner.openPublicKifuSearch();

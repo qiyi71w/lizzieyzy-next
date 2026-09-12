@@ -43,8 +43,7 @@ final class FunctionSearchDialog extends JDialog {
   private final java.util.Map<String, Entry> entries =
       FunctionCatalog.entries().stream()
           .collect(java.util.stream.Collectors.toUnmodifiableMap(Entry::id, entry -> entry));
-  private final List<String> categoryKeys =
-      FunctionCatalog.entries().stream().map(Entry::categoryKey).distinct().sorted().toList();
+  private final List<String> categoryKeys = FunctionCatalog.categoryKeys();
   private final SearchInputSession inputSession = new SearchInputSession();
   private final DefaultListModel<Entry> model = new DefaultListModel<>();
   private final JTextField input;
@@ -482,6 +481,7 @@ final class FunctionSearchDialog extends JDialog {
               BorderFactory.createEmptyBorder(8, 10, 8, 10)));
       int width = Math.max(100, list.getFixedCellWidth() - 30);
       String reason = navigation.unavailableReason(entry.id());
+      String dependency = navigation.dependencyReason(entry.id());
       JTextPane heading = new JTextPane();
       heading.setEditable(false);
       heading.setFocusable(false);
@@ -519,13 +519,17 @@ final class FunctionSearchDialog extends JDialog {
                 + (entry.shortcut().isEmpty() ? "" : " · " + entry.shortcut())
                 + "\n"
                 + bundle.getString(entry.descriptionKey())
+                + (dependency == null ? "" : "\n" + bundle.getString(dependency))
                 + (reason == null ? "" : "\n" + bundle.getString(reason));
         add(wrap(detail, width), BorderLayout.CENTER);
       }
       getAccessibleContext().setAccessibleName(title(entry) + " " + path(entry));
       getAccessibleContext()
           .setAccessibleDescription(
-              reason == null ? bundle.getString(entry.descriptionKey()) : bundle.getString(reason));
+              reason != null
+                  ? bundle.getString(reason)
+                  : bundle.getString(entry.descriptionKey())
+                      + (dependency == null ? "" : " " + bundle.getString(dependency)));
       return this;
     }
   }

@@ -2,11 +2,23 @@ package featurecat.lizzie.search;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 /** Immutable metadata for the functions exposed by offline search. */
 public final class FunctionCatalog {
-  private static final List<Entry> ENTRIES =
+  private static final List<ConfigSettingTarget> CONFIG_SETTING_TARGETS =
+      ConfigSettingTargets.all();
+  private static final List<String> CATEGORY_KEYS =
       List.of(
+          "FunctionSearch.category.file",
+          "FunctionSearch.category.analysis",
+          "FunctionSearch.category.game",
+          "FunctionSearch.category.engine",
+          "FunctionSearch.category.sync",
+          "FunctionSearch.category.view");
+  private static final List<Entry> ENTRIES =
+      Stream.concat(
+          Stream.of(
           new Entry(
               "weights.download",
               "BottomToolbar.downloadWeight",
@@ -31,75 +43,64 @@ public final class FunctionCatalog {
               "",
               "FunctionSearch.aliases.acceleration",
               "FunctionSearch.weakAliases.acceleration"),
-          new Entry(
-              "settings.black-winrate",
-              "Menu.alwaysShowBlackWinrate",
-              "FunctionSearch.description.blackWinrate",
-              "FunctionSearch.category.settings",
-              TargetType.SETTING,
-              List.of(
-                  "Menu.settings", "Menu.comprehensiveSettings", "ConfigDialog2.modern.nav.engine"),
-              "",
-              "FunctionSearch.aliases.blackWinrate",
-              "FunctionSearch.weakAliases.blackWinrate"),
           toolbarEntry(
               "toolbar.change-turn",
               "Menu.btnChangeTurn.toolTipText",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-tools",
               "Menu.btnMarkup.toolTipText",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.SETTING,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-letter",
               "Accessibility.markupLetter",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-number",
               "Accessibility.markupNumber",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-cross",
               "Accessibility.markupCross",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-square",
               "Accessibility.markupSquare",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-triangle",
               "Accessibility.markupTriangle",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-eraser",
               "Accessibility.markupEraser",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.markup-clear",
               "Menu.btnMarkupClear.toolTipText",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
               "toolbar.painting",
               "Menu.drawPainting.toolTipText",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.topToolbar"),
           toolbarEntry(
@@ -225,19 +226,19 @@ public final class FunctionCatalog {
           toolbarEntry(
               "board.try-play",
               "BottomToolbar.tryPlay",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.bottomToolbar"),
           toolbarEntry(
               "board.refresh",
               "BottomToolbar.refresh",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.ACTION,
               "FunctionSearch.path.bottomToolbar"),
           toolbarEntry(
               "board.delete-without-prompt",
               "BottomToolbar.deleteMove",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "FunctionSearch.path.bottomToolbar"),
           toolbarEntry(
@@ -1322,182 +1323,183 @@ public final class FunctionCatalog {
           menuEntry(
               "menu.addBlack",
               "Menu.addBlack",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.addBlack"),
           menuEntry(
               "menu.addWhite",
               "Menu.addWhite",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.addWhite"),
           menuEntry(
               "menu.alternatelyMoves",
               "Menu.alternatelyMoves",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.alternatelyMoves"),
           menuEntry(
               "menu.allowDoubleClick",
               "Menu.allowDoubleClick",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.SETTING,
               "Menu.edit",
               "Menu.allowDoubleClick"),
           menuEntry(
               "menu.allowDrag",
               "Menu.allowDrag",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.SETTING,
               "Menu.edit",
               "Menu.allowDrag"),
           menuEntry(
               "menu.allowClickReview",
               "Menu.allowClickReview",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.SETTING,
               "Menu.edit",
               "Menu.allowClickReview"),
           menuEntry(
               "menu.insertBlack",
               "Menu.insertBlack",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.SETTING,
               "Menu.edit",
               "Menu.insertBlack"),
           menuEntry(
               "menu.insertWhite",
               "Menu.insertWhite",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.SETTING,
               "Menu.edit",
               "Menu.insertWhite"),
           menuEntry(
               "menu.clearBoard",
               "Menu.clearBoard",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.clearBoard"),
           menuEntry(
               "menu.backToMainBranch",
               "Menu.backToMainBranch",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.ACTION,
               "Menu.edit",
               "Menu.backToMainBranch"),
           menuEntry(
               "menu.setAsMain",
               "Menu.setAsMain",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.setAsMain"),
           menuEntry(
               "menu.jumpToFirst",
               "Menu.jumpToFirst",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.ACTION,
               "Menu.edit",
               "Menu.jumpToFirst"),
           menuEntry(
               "menu.jumpToLast",
               "Menu.jumpToLast",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.ACTION,
               "Menu.edit",
               "Menu.jumpToLast"),
           menuEntry(
               "menu.jumpToLeft",
               "Menu.jumpToLeft",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.ACTION,
               "Menu.edit",
               "Menu.jumpToLeft"),
           menuEntry(
               "menu.jumpToRight",
               "Menu.jumpToRight",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.ACTION,
               "Menu.edit",
               "Menu.jumpToRight"),
           menuEntry(
               "menu.delete",
               "Menu.delete",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.delete"),
           menuEntry(
               "menu.deleteBranch",
               "Menu.deleteBranch",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.deleteBranch"),
           menuEntry(
               "menu.undoDelete",
               "Menu.undoDelete",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.undoDelete"),
           menuEntry(
               "menu.redoDelete",
               "Menu.redoDelete",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.redoDelete"),
           menuEntry(
               "game.komi",
               "Menu.setInfo",
-              "FunctionSearch.category.board",
-              TargetType.WINDOW,
+              "FunctionSearch.category.game",
+              TargetType.SETTING,
               "Menu.edit",
-              "Menu.setInfo"),
+              "Menu.setInfo",
+              "GameInfoDialog.komi"),
           menuEntry(
               "menu.setBoard",
               "Menu.setBoard",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.WINDOW,
               "Menu.edit",
               "Menu.setBoard"),
           menuEntry(
               "menu.exchange",
               "Menu.exchange",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.exchange"),
           menuEntry(
               "menu.spinRight",
               "Menu.spinRight",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.spinRight"),
           menuEntry(
               "menu.spinLeft",
               "Menu.spinLeft",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.spinLeft"),
           menuEntry(
               "menu.mirrorVertical",
               "Menu.mirrorVertical",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.mirrorVertical"),
           menuEntry(
               "menu.mirrorHorizon",
               "Menu.mirrorHorizon",
-              "FunctionSearch.category.board",
+              "FunctionSearch.category.game",
               TargetType.NAVIGATION,
               "Menu.edit",
               "Menu.mirrorHorizon"),
@@ -1642,133 +1644,134 @@ public final class FunctionCatalog {
           menuEntry(
               "menu.diagnosticsAndLogs",
               "Menu.diagnosticsAndLogs",
-              "FunctionSearch.category.tools",
+              "FunctionSearch.category.view",
               TargetType.WINDOW,
               "Menu.help",
               "Menu.diagnosticsAndLogs"),
           menuEntry(
               "menu.stopFullTrace",
               "Menu.stopFullTrace",
-              "FunctionSearch.category.tools",
+              "FunctionSearch.category.view",
               TargetType.ACTION,
               "Menu.help",
               "Menu.stopFullTrace"),
           menuEntry(
               "menu.about",
               "Menu.about",
-              "FunctionSearch.category.tools",
+              "FunctionSearch.category.view",
               TargetType.WINDOW,
               "Menu.help",
               "Menu.about"),
           menuEntry(
               "menu.checkUpdate",
               "Menu.checkUpdate",
-              "FunctionSearch.category.tools",
+              "FunctionSearch.category.view",
               TargetType.WINDOW,
               "Menu.help",
               "Menu.checkUpdate"),
           menuEntry(
               "menu.clearUserData",
               "Menu.clearAllPersonalData",
-              "FunctionSearch.category.tools",
+              "FunctionSearch.category.view",
               TargetType.NAVIGATION,
               "Menu.help",
               "Menu.clearAllPersonalData"),
           menuEntry(
               "engine.configuration",
               "Menu.engineConfig",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.engine",
               TargetType.WINDOW,
               "Menu.settings",
               "Menu.engineConfig"),
           menuEntry(
               "engine.remote",
               "Menu.remoteCompute",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.engine",
               TargetType.WINDOW,
               "Menu.settings",
               "Menu.remoteCompute"),
           menuEntry(
               "engine.rules",
               "Menu.engineRules",
-              "FunctionSearch.category.settings",
-              TargetType.WINDOW,
+              "FunctionSearch.category.engine",
+              TargetType.SETTING,
               "Menu.settings",
-              "Menu.engineRules"),
+              "Menu.engineRules",
+              "SetKataRules.lblScoringRule"),
           menuEntry(
               "engine.parameters",
               "Menu.engineParameters",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.engine",
               TargetType.WINDOW,
               "Menu.settings",
               "Menu.engineParameters"),
           menuEntry(
               "menu.initSettings",
               "Menu.initSettings",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.WINDOW,
               "Menu.settings",
               "Menu.initSettings"),
           menuEntry(
               "engine.setup",
               "Menu.autoSetup",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.WINDOW,
               "Menu.settings",
               "Menu.autoSetup"),
           menuEntry(
               "settings.general",
               "Menu.comprehensiveSettings",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.WINDOW,
               "Menu.settings",
               "Menu.comprehensiveSettings"),
           menuEntry(
               "menu.theme",
               "Menu.theme",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.WINDOW,
               "Menu.settings",
               "Menu.theme"),
           menuEntry(
               "menu.language",
               "menu.language",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.SETTING,
               "Menu.settings",
               "menu.language"),
           menuEntry(
               "menu.frameFontSize",
               "menu.frameFontSize",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.SETTING,
               "Menu.settings",
               "menu.frameFontSize"),
           menuEntry(
               "menu.frameLooks",
               "menu.frameLooks",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.SETTING,
               "Menu.settings",
               "menu.frameLooks"),
           menuEntry(
               "menu.playSound",
               "Menu.playSound",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.SETTING,
               "Menu.settings",
               "Menu.playSound"),
           menuEntry(
               "menu.notPlaySoundInSync",
               "Menu.notPlaySoundInSync",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.SETTING,
               "Menu.settings",
               "Menu.notPlaySoundInSync"),
           menuEntry(
               "menu.showContribute",
               "Menu.showContribute",
-              "FunctionSearch.category.settings",
+              "FunctionSearch.category.view",
               TargetType.SETTING,
               "Menu.settings",
               "Menu.showContribute"),
@@ -1811,7 +1814,7 @@ public final class FunctionCatalog {
           menuEntry(
               "tools.quick-start",
               "Menu.quickLinks",
-              "FunctionSearch.category.tools",
+              "FunctionSearch.category.view",
               TargetType.NAVIGATION,
               "Menu.quickLinks"),
           menuEntry(
@@ -1945,7 +1948,9 @@ public final class FunctionCatalog {
               "Menu.viewMenu",
               "Menu.toolbar",
               "Menu.bottomToolBar",
-              "FunctionSearch.title.detailed-toolbar"));
+              "FunctionSearch.title.detailed-toolbar")),
+          CONFIG_SETTING_TARGETS.stream().map(ConfigSettingTarget::entry))
+      .toList();
 
   private FunctionCatalog() {}
 
@@ -1982,7 +1987,7 @@ public final class FunctionCatalog {
         id,
         titleKey,
         "FunctionSearch.description." + id,
-        "FunctionSearch.category.board",
+        "FunctionSearch.category.game",
         TargetType.CONTEXT,
         List.of(
             "FunctionSearch.path.board",
@@ -2037,6 +2042,88 @@ public final class FunctionCatalog {
   /** Returns the immutable production catalog. */
   public static List<Entry> entries() {
     return ENTRIES;
+  }
+
+  /** Canonical browse categories in their UI order. */
+  public static List<String> categoryKeys() {
+    return CATEGORY_KEYS;
+  }
+
+  /** Visible editable rows in the comprehensive settings dialog. */
+  public static List<ConfigSettingTarget> configSettingTargets() {
+    return CONFIG_SETTING_TARGETS;
+  }
+
+  public static ConfigSettingTarget configSettingTarget(String id) {
+    for (ConfigSettingTarget target : CONFIG_SETTING_TARGETS) {
+      if (target.id().equals(id)) return target;
+    }
+    return null;
+  }
+
+  public static List<ConfigSettingTarget> configSettingTargets(SettingSection section) {
+    return CONFIG_SETTING_TARGETS.stream().filter(target -> target.section() == section).toList();
+  }
+
+  /** Comprehensive-settings destinations; the section selects the rebuilt page owner. */
+  public record ConfigSettingTarget(
+      String id,
+      SettingSection section,
+      String titleKey,
+      String descriptionKey,
+      String categoryKey,
+      String strongAliasesKey,
+      String weakAliasesKey) {
+    public ConfigSettingTarget(
+        String id,
+        SettingSection section,
+        String titleKey,
+        String descriptionKey,
+        String categoryKey) {
+      this(id, section, titleKey, descriptionKey, categoryKey, "", "");
+    }
+
+    public ConfigSettingTarget {
+      id = Objects.requireNonNull(id, "id");
+      section = Objects.requireNonNull(section, "section");
+      titleKey = Objects.requireNonNull(titleKey, "titleKey");
+      descriptionKey = Objects.requireNonNull(descriptionKey, "descriptionKey");
+      categoryKey = Objects.requireNonNull(categoryKey, "categoryKey");
+      strongAliasesKey = strongAliasesKey == null ? "" : strongAliasesKey;
+      weakAliasesKey = weakAliasesKey == null ? "" : weakAliasesKey;
+    }
+
+    private Entry entry() {
+      return new Entry(
+          id,
+          titleKey,
+          descriptionKey,
+          categoryKey,
+          TargetType.SETTING,
+          List.of("Menu.settings", "Menu.comprehensiveSettings", section.pathKey(), titleKey),
+          "",
+          strongAliasesKey,
+          weakAliasesKey);
+    }
+  }
+
+  public enum SettingSection {
+    DISPLAY("ConfigDialog2.modern.nav.display"),
+    KIFU("ConfigDialog2.modern.nav.kifu"),
+    ENGINE("ConfigDialog2.modern.nav.engine"),
+    PLAY("ConfigDialog2.modern.nav.play"),
+    ADVANCED("ConfigDialog2.modern.nav.advanced"),
+    THEME("ConfigDialog2.modern.nav.theme");
+
+    private final String pathKey;
+
+    SettingSection(String pathKey) {
+      this.pathKey = pathKey;
+    }
+
+    public String pathKey() {
+      return pathKey;
+    }
   }
 
   /** The kind of destination owned by a catalog entry. */

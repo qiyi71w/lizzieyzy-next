@@ -8,6 +8,9 @@ import static java.lang.Math.max;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.LizzieFrame.HtmlKit;
+import featurecat.lizzie.search.FunctionCatalog;
+import featurecat.lizzie.search.FunctionCatalog.ConfigSettingTarget;
+import featurecat.lizzie.search.FunctionCatalog.SettingSection;
 import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.theme.Theme;
@@ -139,6 +142,7 @@ public class ConfigDialog2 extends JDialog {
   private static final String CLIENT_SKIP_TEXT_STYLE = "lizzie.config.skipTextStyle";
   private static final String CLIENT_DESIGN_ROW_CONTROL_HOST = "lizzie.config.designRowControlHost";
   private static final String CLIENT_SETTINGS_TARGET_ID = "lizzie.config.settingTargetId";
+  private static final String CLIENT_SKIP_SETTING_TARGET = "lizzie.config.skipSettingTarget";
   private static final int SETTING_HIGHLIGHT_MILLIS = 2400;
   private static final int MODERN_NAV_DISPLAY = 0;
   private static final int MODERN_NAV_KIFU = 1;
@@ -172,6 +176,7 @@ public class ConfigDialog2 extends JDialog {
   private JComponent highlightedSettingRow;
   private Border highlightedSettingOriginalBorder;
   private javax.swing.Timer settingHighlightTimer;
+  private javax.swing.Timer settingNavigationLayoutTimer;
   private boolean disposed;
   private boolean syncingShowCommentControl = false;
 
@@ -2021,24 +2026,33 @@ public class ConfigDialog2 extends JDialog {
 
   /** Selects and reveals a real setting row without changing its value. */
   public boolean locateSetting(String targetId) {
-    if (!"settings.black-winrate".equals(targetId) || disposed) return false;
+    ConfigSettingTarget target = FunctionCatalog.configSettingTarget(targetId);
+    if (target == null || disposed) return false;
     if (!SwingUtilities.isEventDispatchThread()) {
       SwingUtilities.invokeLater(() -> locateSetting(targetId));
       return true;
     }
     pendingSettingTargetId = targetId;
     pendingSettingNavigationPasses = 0;
+    if (settingNavigationLayoutTimer != null) settingNavigationLayoutTimer.stop();
+    settingNavigationLayoutTimer = null;
     settingsNavigationGeneration++;
     clearSettingHighlight();
-    activeModernNavIndex = MODERN_NAV_ENGINE;
-    if (tabbedPane == null || uiTab == null) {
+    activeModernNavIndex = navIndex(target.section());
+    if (tabbedPane == null || uiTab == null || themeTab == null) {
       pendingSettingTargetId = null;
       return false;
     }
-    if (tabbedPane.getSelectedIndex() != 0) tabbedPane.setSelectedIndex(0);
-    rebuildDisplayTabLikeDesign(MODERN_NAV_ENGINE);
+    int tabIndex = target.section() == SettingSection.THEME ? 1 : 0;
+    if (tabbedPane.getSelectedIndex() != tabIndex) tabbedPane.setSelectedIndex(tabIndex);
+    if (target.section() == SettingSection.THEME) {
+      queueSettingNavigation();
+    } else {
+      rebuildDisplayTabLikeDesign(activeModernNavIndex);
+    }
     syncModernTabSelection();
-    if (findSettingRow(uiTab, targetId) == null) {
+    JComponent root = target.section() == SettingSection.THEME ? themeTab : uiTab;
+    if (findSettingRow(root, targetId) == null) {
       pendingSettingTargetId = null;
       return false;
     }
@@ -2048,24 +2062,35 @@ public class ConfigDialog2 extends JDialog {
   private void cancelSettingNavigation() {
     pendingSettingTargetId = null;
     pendingSettingNavigationPasses = 0;
+    if (settingNavigationLayoutTimer != null) settingNavigationLayoutTimer.stop();
+    settingNavigationLayoutTimer = null;
     settingsNavigationGeneration++;
     clearSettingHighlight();
   }
 
   private void queueSettingNavigation() {
+    queueSettingNavigation(false);
+  }
+
+  private void queueSettingNavigation(boolean layoutSettled) {
     if (pendingSettingTargetId == null || disposed) return;
     String targetId = pendingSettingTargetId;
     long generation = settingsNavigationGeneration;
-    SwingUtilities.invokeLater(() -> applySettingNavigation(targetId, generation));
+    SwingUtilities.invokeLater(
+        () -> applySettingNavigation(targetId, generation, layoutSettled));
   }
 
-  private void applySettingNavigation(String targetId, long generation) {
-    if (disposed
+  private void applySettingNavigation(String targetId, long generation, boolean layoutSettled) {
+    ConfigSettingTarget target = FunctionCatalog.configSettingTarget(targetId);
+    if (target == null
+        || disposed
         || generation != settingsNavigationGeneration
         || !targetId.equals(pendingSettingTargetId)
-        || activeModernNavIndex != MODERN_NAV_ENGINE
-        || tabbedPane.getSelectedIndex() != 0) return;
-    JComponent row = findSettingRow(uiTab, targetId);
+        || activeModernNavIndex != navIndex(target.section())) return;
+    int tabIndex = target.section() == SettingSection.THEME ? 1 : 0;
+    if (tabbedPane.getSelectedIndex() != tabIndex) return;
+    JComponent root = target.section() == SettingSection.THEME ? themeTab : uiTab;
+    JComponent row = findSettingRow(root, targetId);
     if (row == null) {
       pendingSettingTargetId = null;
       return;
@@ -2075,23 +2100,23 @@ public class ConfigDialog2 extends JDialog {
     JScrollPane scrollPane = (JScrollPane) selected;
     Component view = scrollPane.getViewport().getView();
     if (view == null || !SwingUtilities.isDescendingFrom(row, view)) return;
-    uiTab.revalidate();
+    root.revalidate();
     scrollPane.revalidate();
     scrollPane.validate();
-    uiTab.validate();
+    root.validate();
     Rectangle rowBounds =
         SwingUtilities.convertRectangle(
             row, new Rectangle(0, 0, row.getWidth(), row.getHeight()), view);
     Rectangle visible = scrollPane.getViewport().getViewRect();
     if (view.getHeight() <= 0 || rowBounds.height <= 0 || visible.height <= 0) {
-      if (++pendingSettingNavigationPasses < 4) queueSettingNavigation();
+      if (++pendingSettingNavigationPasses < 4) queueSettingNavigation(layoutSettled);
       return;
     }
     highlightSettingRow(row);
-    uiTab.revalidate();
+    root.revalidate();
     scrollPane.revalidate();
     scrollPane.validate();
-    uiTab.validate();
+    root.validate();
     rowBounds =
         SwingUtilities.convertRectangle(
             row, new Rectangle(0, 0, row.getWidth(), row.getHeight()), view);
@@ -2106,13 +2131,47 @@ public class ConfigDialog2 extends JDialog {
     targetY = Math.max(0, Math.min(targetY, maxY));
     scrollPane.getViewport().setViewPosition(new java.awt.Point(visible.x, targetY));
 
-    pendingSettingTargetId = null;
-    Component focusTarget =
-        "settings.black-winrate".equals(targetId) && SwingUtilities.isDescendingFrom(chkAlwaysShowBlackWinrate, row)
-            ? chkAlwaysShowBlackWinrate
-            : row;
+    Component focusTarget = findFocusableSettingControl(row);
+    if (focusTarget == null) {
+      row.setFocusable(true);
+      focusTarget = row;
+    }
     focusTarget.requestFocusInWindow();
     if (!focusTarget.isFocusOwner()) focusTarget.requestFocus();
+    if (!layoutSettled) {
+      if (settingNavigationLayoutTimer == null) {
+        settingNavigationLayoutTimer =
+            new javax.swing.Timer(
+                75,
+                event -> {
+                  settingNavigationLayoutTimer = null;
+                  queueSettingNavigation(true);
+                });
+        settingNavigationLayoutTimer.setRepeats(false);
+        settingNavigationLayoutTimer.start();
+      }
+      return;
+    }
+    pendingSettingTargetId = null;
+    settingsNavigationGeneration++;
+  }
+
+  private Component findFocusableSettingControl(Component root) {
+    if (root.isEnabled()
+        && root.isFocusable()
+        && (root instanceof AbstractButton
+            || root instanceof JTextComponent
+            || root instanceof JComboBox
+            || root instanceof JSpinner
+            || root instanceof JTable
+            || root instanceof JSlider)) return root;
+    if (root instanceof java.awt.Container) {
+      for (Component child : ((java.awt.Container) root).getComponents()) {
+        Component match = findFocusableSettingControl(child);
+        if (match != null) return match;
+      }
+    }
+    return null;
   }
 
   private JComponent findSettingRow(Component root, String targetId) {
@@ -2127,6 +2186,55 @@ public class ConfigDialog2 extends JDialog {
       }
     }
     return null;
+  }
+
+  private int navIndex(SettingSection section) {
+    return switch (section) {
+      case DISPLAY -> MODERN_NAV_DISPLAY;
+      case KIFU -> MODERN_NAV_KIFU;
+      case ENGINE -> MODERN_NAV_ENGINE;
+      case PLAY -> MODERN_NAV_PLAY;
+      case ADVANCED -> MODERN_NAV_ADVANCED;
+      case THEME -> MODERN_NAV_THEME;
+    };
+  }
+
+  private SettingSection settingSection(int navIndex) {
+    return switch (navIndex) {
+      case MODERN_NAV_KIFU -> SettingSection.KIFU;
+      case MODERN_NAV_ENGINE -> SettingSection.ENGINE;
+      case MODERN_NAV_PLAY -> SettingSection.PLAY;
+      case MODERN_NAV_ADVANCED -> SettingSection.ADVANCED;
+      case MODERN_NAV_THEME -> SettingSection.THEME;
+      default -> SettingSection.DISPLAY;
+    };
+  }
+
+  private void bindSettingRows(Component root, SettingSection section) {
+    List<JComponent> rows = new ArrayList<>();
+    collectDesignRows(root, rows);
+    List<ConfigSettingTarget> targets = FunctionCatalog.configSettingTargets(section);
+    if (rows.size() != targets.size()) {
+      throw new IllegalStateException(
+          "Setting catalog mismatch for " + section + ": " + targets.size() + " targets, "
+              + rows.size() + " rows");
+    }
+    for (int index = 0; index < rows.size(); index++) {
+      rows.get(index).putClientProperty(CLIENT_SETTINGS_TARGET_ID, targets.get(index).id());
+    }
+  }
+
+  private void collectDesignRows(Component root, List<JComponent> rows) {
+    if (root instanceof JComponent component
+        && component.getClientProperty(CLIENT_DESIGN_ROW_CONTROL_HOST) != null) {
+      if (!Boolean.TRUE.equals(component.getClientProperty(CLIENT_SKIP_SETTING_TARGET))) {
+        rows.add(component);
+      }
+      return;
+    }
+    if (root instanceof java.awt.Container container) {
+      for (Component child : container.getComponents()) collectDesignRows(child, rows);
+    }
   }
 
   private void highlightSettingRow(JComponent row) {
@@ -2874,6 +2982,7 @@ public class ConfigDialog2 extends JDialog {
     modernSectionAnchors.clear();
 
     JPanel section = createDisplaySection(navIndex);
+    bindSettingRows(section, settingSection(navIndex));
     modernSectionAnchors.put(navIndex, section);
 
     JPanel content = new JPanel();
@@ -3600,6 +3709,8 @@ public class ConfigDialog2 extends JDialog {
       JButton btnRemove,
       JButton btnReset) {
     if (themeTab == null) return;
+    clearSettingHighlight();
+    settingsNavigationGeneration++;
     themeTab.removeAll();
     themeTab.setOpaque(true);
     themeTab.setBackground(SETTINGS_BG);
@@ -3620,7 +3731,8 @@ public class ConfigDialog2 extends JDialog {
     addComponentRow(profile, configText("ConfigDialog2.modern.theme.current", "当前主题"), configText("ConfigDialog2.modern.theme.currentSub", "切换或管理主题方案"), rowOf(cmbThemes, btnAddTheme, btnDeleteTheme));
     pnlBoardPreview.setPreferredSize(new Dimension(220, 180));
     pnlBoardPreview.setMinimumSize(new Dimension(220, 180));
-    addLargeComponentRow(profile, configText("ConfigDialog2.modern.theme.preview", "棋盘预览"), configText("ConfigDialog2.modern.theme.previewSub", "检查背景、棋盘和棋子纹理"), detachComponent(pnlBoardPreview), 208);
+    JPanel previewRow = addLargeComponentRow(profile, configText("ConfigDialog2.modern.theme.preview", "棋盘预览"), configText("ConfigDialog2.modern.theme.previewSub", "检查背景、棋盘和棋子纹理"), detachComponent(pnlBoardPreview), 208);
+    previewRow.putClientProperty(CLIENT_SKIP_SETTING_TARGET, Boolean.TRUE);
     content.add(profile);
     content.add(javax.swing.Box.createVerticalStrut(12));
 
@@ -3744,12 +3856,14 @@ public class ConfigDialog2 extends JDialog {
     addToggleInputRow(
         blunders, configText("ConfigDialog2.modern.theme.scoreBlunders", "同时考虑胜率与目数"), configText("ConfigDialog2.modern.theme.scoreBlundersSub", "目数剧烈波动也标记为错误节点"), chkUseScoreDiff, txtPercentScoreDiff);
     content.add(blunders);
+    bindSettingRows(content, SettingSection.THEME);
 
     Dimension contentSize = content.getPreferredSize();
     themeTab.setPreferredSize(new Dimension(900, contentSize.height + 28));
     themeTab.add(content, BorderLayout.NORTH);
     themeTab.revalidate();
     themeTab.repaint();
+    queueSettingNavigation();
   }
 
   private JPanel rowOf(Component... components) {
@@ -3798,7 +3912,7 @@ public class ConfigDialog2 extends JDialog {
     card.add(row);
   }
 
-  private void addLargeComponentRow(
+  private JPanel addLargeComponentRow(
       JPanel card, String title, String subtitle, Component component, int height) {
     JPanel row = createDesignRow(title, subtitle);
     nameInteractiveComponents(component, title, subtitle);
@@ -3806,6 +3920,7 @@ public class ConfigDialog2 extends JDialog {
     row.setPreferredSize(new Dimension(760, height));
     addDesignRowControl(row, component);
     card.add(row);
+    return row;
   }
 
   private void addColorRow(JPanel card, String title, ColorLabel colorLabel) {
@@ -5011,8 +5126,10 @@ public class ConfigDialog2 extends JDialog {
         btnDeleteTheme, btnAddTheme, pnlScrollBlunderNodes, btnAdd, btnRemove, btnReset);
     Utils.changeFontRecursive(themeTab, Config.sysDefaultFontName);
     modernizeComponentTree(themeTab);
+    long initialThemeRebuildGeneration = settingsNavigationGeneration;
     SwingUtilities.invokeLater(
         () -> {
+          if (disposed || settingsNavigationGeneration != initialThemeRebuildGeneration) return;
           rebuildThemeTabLikeDesign(
               btnDeleteTheme, btnAddTheme, pnlScrollBlunderNodes, btnAdd, btnRemove, btnReset);
           Utils.changeFontRecursive(themeTab, Config.sysDefaultFontName);

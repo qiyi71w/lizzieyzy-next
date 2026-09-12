@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import featurecat.lizzie.Lizzie;
+import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dialog;
 import java.awt.GraphicsEnvironment;
@@ -26,6 +27,7 @@ import javax.swing.JDialog;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.MenuSelectionManager;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -168,6 +170,7 @@ public final class FunctionSearchNavigationTest {
     checkMainBoardContext(controller, evidence);
     checkIndependentBoardContext(controller, evidence);
     checkDestructiveCancellation(controller, evidence);
+    checkKomiNavigation(controller, evidence);
     Files.writeString(resultPath, evidence.toString(), StandardCharsets.UTF_8);
   }
 
@@ -184,14 +187,13 @@ public final class FunctionSearchNavigationTest {
     String expectedConfig = runOnEdt(() -> Lizzie.config.uiConfig.toString());
     String reason = runOnEdt(() -> controller.activate(SETTING_TARGET));
     List<JMenuItem> path = runOnEdt(() -> LizzieFrame.menu.functionPath(SETTING_TARGET));
-    Thread.sleep(250);
-    flushEdt();
     if (path == null
         || path.isEmpty()
         || !(path.get(path.size() - 1) instanceof JCheckBoxMenuItem)) {
       throw new AssertionError("setting target did not resolve to a checkbox menu item");
     }
     JCheckBoxMenuItem control = (JCheckBoxMenuItem) path.get(path.size() - 1);
+    await(control::isShowing, "setting menu target visibility", 4_000);
     boolean selected = runOnEdt(control::isSelected);
     boolean visible = runOnEdt(control::isShowing);
     boolean unchanged =
@@ -225,6 +227,53 @@ public final class FunctionSearchNavigationTest {
               + ", unchanged="
               + unchanged);
     }
+  }
+
+  private static void checkKomiNavigation(
+      FunctionSearchController controller, StringBuilder evidence) throws Exception {
+    closeVisibleDialogs();
+    double beforeKomi = runOnEdt(() -> Lizzie.board.getHistory().getGameInfo().getKomi());
+    String beforeConfig = runOnEdt(() -> Lizzie.config.uiConfig.toString());
+    SwingUtilities.invokeLater(() -> controller.activate("game.komi"));
+    JDialog shown = awaitDialog(GameInfoDialog.class, "komi field navigation", 4_000);
+    if (!(shown instanceof GameInfoDialog)) {
+      throw new AssertionError("game.komi opened " + shown.getClass().getName());
+    }
+    String komiName = Lizzie.resourceBundle.getString("GameInfoDialog.komi");
+    Component target = runOnEdt(() -> findAccessibleTextField(shown, komiName));
+    if (!(target instanceof JTextField field)) {
+      throw new AssertionError("game.komi did not expose the komi text field");
+    }
+    await(field::isFocusOwner, "komi field focus", 4_000);
+    boolean unchanged =
+        runOnEdt(
+            () ->
+                Double.parseDouble(field.getText()) == beforeKomi
+                    && Lizzie.board.getHistory().getGameInfo().getKomi() == beforeKomi
+                    && beforeConfig.equals(Lizzie.config.uiConfig.toString()));
+    evidence
+        .append("komi.focus=")
+        .append(runOnEdt(field::isFocusOwner))
+        .append('\n')
+        .append("komi.unchanged=")
+        .append(unchanged)
+        .append('\n');
+    if (!unchanged) throw new AssertionError("komi navigation changed game or configuration state");
+    runOnEdtAction(shown::dispose);
+    await(() -> !shown.isShowing(), "komi dialog cleanup", 4_000);
+  }
+
+  private static Component findAccessibleTextField(Component root, String name) {
+    if (root instanceof JTextField
+        && root.getAccessibleContext() != null
+        && name.equals(root.getAccessibleContext().getAccessibleName())) return root;
+    if (root instanceof Container container) {
+      for (Component child : container.getComponents()) {
+        Component match = findAccessibleTextField(child, name);
+        if (match != null) return match;
+      }
+    }
+    return null;
   }
 
   private static void checkHiddenTopNavigation(
@@ -317,7 +366,8 @@ public final class FunctionSearchNavigationTest {
     String beforeConfig = runOnEdt(() -> Lizzie.config.uiConfig.toString());
     runOnEdtAction(() -> Lizzie.frame.RightClickMenu.setCoords(new int[] {4, 4}));
     SwingUtilities.invokeLater(() -> controller.activate("board.insert-black", Lizzie.frame));
-    JDialog prompt = awaitDialog("main board context prompt", 4_000);
+    JDialog prompt =
+        awaitOptionPaneDialog(Lizzie.frame, "main board context prompt", 4_000);
     boolean correctOwner = runOnEdt(() -> prompt.getOwner() == Lizzie.frame);
     dismissMessage(prompt);
     await(() -> !prompt.isShowing(), "main board context prompt cleanup", 4_000);
@@ -353,7 +403,8 @@ public final class FunctionSearchNavigationTest {
     Window independent = runOnEdt(() -> Lizzie.frame.independentMainBoard);
     SwingUtilities.invokeLater(
         () -> controller.activate("board.delete-stone", Lizzie.frame.independentMainBoard));
-    JDialog prompt = awaitDialog("independent board context prompt", 4_000);
+    JDialog prompt =
+        awaitOptionPaneDialog(independent, "independent board context prompt", 4_000);
     boolean correctOwner = runOnEdt(() -> prompt.getOwner() == independent);
     dismissMessage(prompt);
     await(() -> !prompt.isShowing(), "independent context prompt cleanup", 4_000);
@@ -378,45 +429,69 @@ public final class FunctionSearchNavigationTest {
   private static void checkDestructiveCancellation(
       FunctionSearchController controller, StringBuilder evidence) throws Exception {
     closeVisibleDialogs();
-    runOnEdtAction(() -> Lizzie.board.place(5, 5));
     Object beforeNode = runOnEdt(() -> Lizzie.board.getHistory().getCurrentHistoryNode());
     String beforeConfig = runOnEdt(() -> Lizzie.config.uiConfig.toString());
     assertTrue(runOnEdt(() -> Lizzie.board.hasRealMoveOrPassHistory()));
-    SwingUtilities.invokeLater(() -> controller.activate("menu.convertCurrentPosition"));
-    JDialog confirmation = awaitDialog("destructive conversion confirmation", 4_000);
-    boolean correctOwner = runOnEdt(() -> confirmation.getOwner() == Lizzie.frame);
-    JOptionPane pane = runOnEdt(() -> optionPane(confirmation));
-    if (pane == null) {
-      throw new AssertionError("destructive prompt did not contain a JOptionPane");
-    }
-    runOnEdtAction(() -> pane.setValue(JOptionPane.NO_OPTION));
-    await(() -> !confirmation.isShowing(), "destructive confirmation cancellation", 4_000);
+    LizzieFrame productionFrame = Lizzie.frame;
+    TrackingFrame cancellationFrame = allocateWithoutConstructor(TrackingFrame.class);
+    String reason =
+        runOnEdt(
+            () -> {
+              Lizzie.frame = cancellationFrame;
+              try {
+                return controller.activate("menu.convertCurrentPosition");
+              } finally {
+                Lizzie.frame = productionFrame;
+              }
+            });
     boolean cancelled =
-        beforeNode == runOnEdt(() -> Lizzie.board.getHistory().getCurrentHistoryNode())
+        reason == null
+            && cancellationFrame.startingPositionConversionConfirmations == 1
+            && beforeNode == runOnEdt(() -> Lizzie.board.getHistory().getCurrentHistoryNode())
             && beforeConfig.equals(runOnEdt(() -> Lizzie.config.uiConfig.toString()));
     evidence
-        .append("conversion.owner=")
-        .append(correctOwner)
+        .append("conversion.confirmations=")
+        .append(cancellationFrame.startingPositionConversionConfirmations)
         .append('\n')
         .append("conversion.cancelled=")
         .append(cancelled)
         .append('\n');
-    if (!correctOwner || !cancelled) {
+    if (!cancelled) {
       throw new AssertionError("cancelled destructive navigation changed game or configuration");
     }
   }
 
-  private static JDialog awaitDialog(String label, long timeoutMillis) throws Exception {
-    await(() -> findShowingDialog() != null, label, timeoutMillis);
-    return runOnEdt(FunctionSearchNavigationTest::findShowingDialog);
+
+  private static JDialog awaitOptionPaneDialog(
+      Window owner, String label, long timeoutMillis) throws Exception {
+    await(() -> findShowingOptionPaneDialog(owner) != null, label, timeoutMillis);
+    return runOnEdt(() -> findShowingOptionPaneDialog(owner));
   }
 
-  private static JDialog findShowingDialog() {
+  private static JDialog findShowingOptionPaneDialog(Window owner) {
     for (Window window : Window.getWindows()) {
-      if (window instanceof JDialog dialog && dialog.isShowing()) return dialog;
+      if (window instanceof JDialog dialog
+          && dialog.isShowing()
+          && dialog.getOwner() == owner
+          && optionPane(dialog) != null) return dialog;
     }
     return null;
   }
+
+  private static JDialog awaitDialog(
+      Class<? extends JDialog> type, String label, long timeoutMillis) throws Exception {
+    await(() -> findShowingDialog(type) != null, label, timeoutMillis);
+    return runOnEdt(() -> findShowingDialog(type));
+  }
+
+  private static JDialog findShowingDialog(Class<? extends JDialog> type) {
+    for (Window window : Window.getWindows()) {
+      if (type.isInstance(window) && window.isShowing()) return (JDialog) window;
+    }
+    return null;
+  }
+
+
 
   private static JOptionPane optionPane(Container root) {
     if (root instanceof JOptionPane pane) return pane;
@@ -429,6 +504,7 @@ public final class FunctionSearchNavigationTest {
     }
     return null;
   }
+
 
   private static void dismissMessage(JDialog dialog) throws Exception {
     JOptionPane pane = runOnEdt(() -> optionPane(dialog));
@@ -498,6 +574,34 @@ public final class FunctionSearchNavigationTest {
       Thread.sleep(50);
     }
     throw new AssertionError("Timed out waiting for " + label);
+  }
+
+  private static <T> T allocateWithoutConstructor(Class<T> type) throws InstantiationException {
+    return type.cast(UnsafeHolder.UNSAFE.allocateInstance(type));
+  }
+
+  private static final class TrackingFrame extends LizzieFrame {
+    private int startingPositionConversionConfirmations;
+
+    @Override
+    protected boolean confirmStartingPositionConversion() {
+      startingPositionConversionConfirmations++;
+      return false;
+    }
+  }
+
+  private static final class UnsafeHolder {
+    private static final sun.misc.Unsafe UNSAFE = loadUnsafe();
+
+    private static sun.misc.Unsafe loadUnsafe() {
+      try {
+        java.lang.reflect.Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        field.setAccessible(true);
+        return (sun.misc.Unsafe) field.get(null);
+      } catch (ReflectiveOperationException ex) {
+        throw new IllegalStateException("Failed to access Unsafe", ex);
+      }
+    }
   }
 
   @FunctionalInterface

@@ -34,6 +34,50 @@ class FunctionSearchTest {
   }
 
   @Test
+  void productionCatalogHasOneCanonicalCategoryAndTargetPerVisibleSetting() {
+    assertEquals(
+        List.of(
+            "FunctionSearch.category.file",
+            "FunctionSearch.category.analysis",
+            "FunctionSearch.category.game",
+            "FunctionSearch.category.engine",
+            "FunctionSearch.category.sync",
+            "FunctionSearch.category.view"),
+        FunctionCatalog.categoryKeys());
+    assertEquals(80, FunctionCatalog.configSettingTargets().size());
+    assertEquals(
+        80,
+        FunctionCatalog.configSettingTargets().stream()
+            .map(FunctionCatalog.ConfigSettingTarget::id)
+            .distinct()
+            .count());
+    for (FunctionCatalog.ConfigSettingTarget target : FunctionCatalog.configSettingTargets()) {
+      FunctionCatalog.Entry entry = FunctionCatalog.entry(target.id());
+      assertEquals(FunctionCatalog.TargetType.SETTING, entry.targetType(), target.id());
+      assertEquals(target.categoryKey(), entry.categoryKey(), target.id());
+    }
+    assertTrue(
+        FunctionCatalog.entries().stream()
+            .allMatch(entry -> FunctionCatalog.categoryKeys().contains(entry.categoryKey())));
+    assertEquals(1, FunctionCatalog.entries().stream().filter(entry -> entry.id().equals("game.komi")).count());
+    assertEquals(1, FunctionCatalog.entries().stream().filter(entry -> entry.id().equals("engine.rules")).count());
+  }
+
+  @Test
+  void productionBrowseAndCuratedCrossLanguageAliasesCoverTheSharedCatalog() {
+    FunctionSearch search = new FunctionSearch();
+    List<FunctionSearch.Match> browse = search.search("", Locale.US);
+    assertEquals(FunctionCatalog.entries().size(), browse.size());
+    assertEquals(browse.size(), browse.stream().map(FunctionSearch.Match::id).distinct().count());
+    assertEquals("weights.download", search.search("quanzhong", Locale.US).getFirst().id());
+    assertEquals("weights.download", search.search("qz", Locale.US).getFirst().id());
+    assertEquals("sync.board", search.search("lianpan", Locale.US).getFirst().id());
+    assertTrue(
+        search.search("GTP", Locale.JAPAN).stream()
+            .anyMatch(match -> match.id().equals("config.engine.always-gtp")));
+  }
+
+  @Test
   void wholeGameBatchAndSyncTasksResolveToDistinctFunctions() {
     FunctionSearch search = new FunctionSearch();
     assertEquals("whole-game-deep-analysis", search.search("全盘深度分析", Locale.CHINESE).get(0).id());
