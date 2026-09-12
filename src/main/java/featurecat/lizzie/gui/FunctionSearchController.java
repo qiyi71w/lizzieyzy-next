@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.search.FunctionCatalog;
 import featurecat.lizzie.search.FunctionSearch;
 import java.awt.Component;
 import java.awt.Dialog;
@@ -24,6 +25,9 @@ final class FunctionSearchController implements KeyEventDispatcher {
   private FunctionSearch index;
   private FunctionSearchDialog dialog;
   private boolean openQueued;
+  private javax.swing.JComponent highlightedTarget;
+  private javax.swing.border.Border originalTargetBorder;
+  private javax.swing.Timer highlightTimer;
 
   FunctionSearchController(LizzieFrame owner) {
     this.owner = owner;
@@ -33,6 +37,7 @@ final class FunctionSearchController implements KeyEventDispatcher {
           @Override
           public void windowClosed(WindowEvent event) {
             openQueued = false;
+            clearHighlight();
             if (dialog != null) dialog.dispose();
             swallowedKeys.clear();
             KeyboardFocusManager.getCurrentKeyboardFocusManager()
@@ -60,7 +65,7 @@ final class FunctionSearchController implements KeyEventDispatcher {
     String selected = current.selectedTarget();
     if (dialog == current) dialog = null;
     if (selected != null && owner.isDisplayable()) {
-      String reason = activate(selected);
+      String reason = activate(selected, anchor);
       if (reason != null)
         javax.swing.JOptionPane.showMessageDialog(
             owner,
@@ -82,18 +87,27 @@ final class FunctionSearchController implements KeyEventDispatcher {
   String unavailableReason(String id) {
     if (!owner.isDisplayable()) return "FunctionSearch.unavailable.application";
     if (hasOtherModal()) return "FunctionSearch.unavailable.modal";
-    return switch (id) {
-      case "weights.download", "engine.acceleration", "settings.black-winrate" -> null;
-      default -> "FunctionSearch.unavailable.targetMissing";
-    };
+    FunctionCatalog.Entry entry = FunctionCatalog.entry(id);
+    if (entry == null) return "FunctionSearch.unavailable.targetMissing";
+    if (entry.targetType() == FunctionCatalog.TargetType.CONTEXT) return null;
+    return owner.functionEntryUnavailableReason(id);
   }
 
   String activate(String id) {
+    return activate(id, owner);
+  }
+
+  String activate(String id, Window sourceBoard) {
     if (!SwingUtilities.isEventDispatchThread()) {
       throw new IllegalStateException("Function navigation requires the EDT");
     }
     String reason = unavailableReason(id);
+    clearHighlight();
     if (reason != null) return reason;
+    FunctionCatalog.Entry entry = FunctionCatalog.entry(id);
+    if (entry.targetType() == FunctionCatalog.TargetType.CONTEXT) {
+      return navigateBoard(entry, sourceBoard);
+    }
     switch (id) {
       case "weights.download" -> owner.openKataGoWeightDownload();
       case "engine.acceleration" -> owner.openKataGoAcceleration();
@@ -101,7 +115,94 @@ final class FunctionSearchController implements KeyEventDispatcher {
         if (!owner.openConfigDialog2AtSetting(id))
           return "FunctionSearch.unavailable.targetMissing";
       }
-      default -> throw new IllegalArgumentException(id);
+      case "game.ai-coach" -> owner.handleAiCoachToolbarAction();
+      case "share.private-history" -> owner.openPrivateKifuSearch();
+      case "share.public-history" -> owner.openPublicKifuSearch();
+      default -> {
+        if (entry.targetType() == FunctionCatalog.TargetType.SETTING
+            || entry.targetType() == FunctionCatalog.TargetType.NAVIGATION) {
+          if (LizzieFrame.menu.functionPath(id) != null) {
+            if (!LizzieFrame.menu.locateFunction(id))
+              return "FunctionSearch.unavailable.targetMissing";
+          } else if (owner.toolbar.functionTarget(id) != null) {
+            if (!owner.toolbar.locateFunction(id)) return "FunctionSearch.unavailable.toolbar";
+            highlight(owner.toolbar.functionTarget(id));
+          } else {
+            if (!LizzieFrame.menu.locateTopFunction(id))
+              return "FunctionSearch.unavailable.toolbar";
+            highlight(LizzieFrame.menu.topFunctionTarget(id));
+          }
+        } else {
+          java.util.List<javax.swing.JMenuItem> path = LizzieFrame.menu.refreshFunctionPath(id);
+          javax.swing.JComponent control =
+              path != null && !path.isEmpty()
+                  ? path.get(path.size() - 1)
+                  : owner.toolbar.functionTarget(id);
+          if (control == null) control = LizzieFrame.menu.topFunctionTarget(id);
+          if (!(control instanceof javax.swing.AbstractButton target))
+            return "FunctionSearch.unavailable.targetMissing";
+          reason = unavailableReason(id);
+          if (reason != null) return reason;
+          if (!target.isEnabled()) return "FunctionSearch.unavailable.context";
+          target.doClick(0);
+        }
+      }
+    }
+    return null;
+  }
+
+  private void highlight(javax.swing.JComponent target) {
+    clearHighlight();
+    if (target == null || !target.isShowing()) return;
+    highlightedTarget = target;
+    originalTargetBorder = target.getBorder();
+    target.setBorder(
+        javax.swing.BorderFactory.createCompoundBorder(
+            javax.swing.BorderFactory.createLineBorder(new java.awt.Color(185, 156, 93), 2),
+            originalTargetBorder));
+    highlightTimer = new javax.swing.Timer(2400, event -> clearHighlight());
+    highlightTimer.setRepeats(false);
+    highlightTimer.start();
+  }
+
+  private void clearHighlight() {
+    if (highlightTimer != null) highlightTimer.stop();
+    highlightTimer = null;
+    if (highlightedTarget != null) {
+      highlightedTarget.setBorder(originalTargetBorder);
+      highlightedTarget.repaint();
+    }
+    highlightedTarget = null;
+    originalTargetBorder = null;
+  }
+
+  private String navigateBoard(FunctionCatalog.Entry entry, Window sourceBoard) {
+    Window target = sourceBoard;
+    if (target == owner && Lizzie.config.isFloatBoardMode()) target = owner.independentMainBoard;
+    if (target == null
+        || (target != owner && target != owner.independentMainBoard)
+        || !target.isShowing()) return "FunctionSearch.unavailable.board";
+    String boardName =
+        Lizzie.resourceBundle.getString(
+            target == owner ? "FunctionSearch.path.board" : "IndependentMainBoard.title");
+    String path =
+        entry.pathKeys().stream()
+            .map(
+                key ->
+                    "FunctionSearch.path.board".equals(key)
+                        ? boardName
+                        : Lizzie.resourceBundle.getString(key))
+            .collect(java.util.stream.Collectors.joining(" → "));
+    javax.swing.JOptionPane.showMessageDialog(
+        target,
+        String.format(
+            Lizzie.resourceBundle.getString("FunctionSearch.navigate.board"), boardName, path),
+        Lizzie.resourceBundle.getString(entry.titleKey()),
+        javax.swing.JOptionPane.INFORMATION_MESSAGE);
+    if (target.isShowing()) {
+      target.toFront();
+      if (target == owner) owner.mainPanel.requestFocusInWindow();
+      else target.requestFocus();
     }
     return null;
   }

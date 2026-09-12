@@ -25,16 +25,82 @@ class FunctionSearchTest {
           "weak");
 
   @Test
-  void catalogIsImmutableAndContainsTheThreeStableTargets() {
+  void catalogAndPathsCannotBeModifiedByConsumers() {
     List<FunctionCatalog.Entry> entries = FunctionCatalog.entries();
-    assertEquals(3, entries.size());
-    assertTrue(entries.stream().anyMatch(entry -> entry.id().equals("weights.download")));
-    assertTrue(entries.stream().anyMatch(entry -> entry.id().equals("engine.acceleration")));
-    assertTrue(entries.stream().anyMatch(entry -> entry.id().equals("settings.black-winrate")));
     assertThrows(UnsupportedOperationException.class, () -> entries.add(entries.get(0)));
     FunctionCatalog.Entry pathEntry =
         entries.stream().filter(entry -> !entry.pathKeys().isEmpty()).findFirst().orElseThrow();
     assertThrows(UnsupportedOperationException.class, () -> pathEntry.pathKeys().add("other"));
+  }
+
+  @Test
+  void wholeGameBatchAndSyncTasksResolveToDistinctFunctions() {
+    FunctionSearch search = new FunctionSearch();
+    assertEquals("whole-game-deep-analysis", search.search("全盘深度分析", Locale.CHINESE).get(0).id());
+    assertEquals("batch-analysis", search.search("批量分析", Locale.CHINESE).get(0).id());
+    assertEquals("sync.board", search.search("同步棋盘", Locale.CHINESE).get(0).id());
+    assertEquals("sync.settings", search.search("配置同步", Locale.CHINESE).get(0).id());
+    assertEquals("engine.remote", search.search("远程算力", Locale.CHINESE).get(0).id());
+    assertEquals("engine.select", search.search("引擎选择", Locale.CHINESE).get(0).id());
+    assertEquals("files.recent", search.search("最近棋谱", Locale.CHINESE).get(0).id());
+    assertEquals("tools.quick-start", search.search("快速启动", Locale.CHINESE).get(0).id());
+  }
+
+  @Test
+  void distinctGameIntentAndSharedToolbarSurfaceRemainSearchable() {
+    FunctionSearch search = new FunctionSearch();
+    assertEquals("game.stop-human", search.search("终止人机对局", Locale.CHINA).getFirst().id());
+    assertEquals("analysis.toggle", search.search("暂停分析", Locale.CHINA).getFirst().id());
+    for (Locale locale :
+        List.of(
+            Locale.US,
+            Locale.CHINA,
+            Locale.TAIWAN,
+            Locale.forLanguageTag("zh-HK"),
+            Locale.JAPAN,
+            Locale.KOREA,
+            Locale.forLanguageTag("th-TH"))) {
+      ResourceBundle bundle = ResourceBundle.getBundle("l10n.DisplayStrings", locale);
+      assertEquals(
+          "toolbar.detailed",
+          search.search(bundle.getString("Accessibility.toolbarDetails"), locale).getFirst().id());
+      assertEquals(
+          "game.stop-human",
+          search.search(bundle.getString("Menu.breakGame"), locale).getFirst().id());
+    }
+  }
+
+  @Test
+  void saveAsAndWholeGameAnalysisAdvertiseTheirExistingKeyboardCommands() {
+    assertEquals("S", FunctionCatalog.entry("files.save-as").shortcut());
+    assertEquals("Ctrl+Shift+B", FunctionCatalog.entry("whole-game-deep-analysis").shortcut());
+  }
+
+  @Test
+  void everyLocalizedDestinationCanBeRenderedAndFoundByItsRealTitle() {
+    FunctionSearch search = new FunctionSearch();
+    for (Locale locale :
+        List.of(
+            Locale.ROOT,
+            Locale.US,
+            Locale.CHINA,
+            Locale.TAIWAN,
+            Locale.forLanguageTag("zh-HK"),
+            Locale.JAPAN,
+            Locale.KOREA,
+            Locale.forLanguageTag("th-TH"))) {
+      ResourceBundle bundle = ResourceBundle.getBundle("l10n.DisplayStrings", locale);
+      for (FunctionCatalog.Entry entry : FunctionCatalog.entries()) {
+        String title = bundle.getString(entry.titleKey());
+        bundle.getString(entry.categoryKey());
+        bundle.getString(entry.descriptionKey());
+        for (String path : entry.pathKeys()) bundle.getString(path);
+        List<FunctionSearch.Match> matches = search.search(title, locale);
+        assertTrue(
+            matches.stream().anyMatch(match -> entry.id().equals(match.id())),
+            () -> locale + ": " + title + " must find " + entry.id());
+      }
+    }
   }
 
   @Test

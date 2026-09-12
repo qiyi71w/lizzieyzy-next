@@ -12905,18 +12905,10 @@ public class LizzieFrame extends JFrame {
   }
 
   public void setRules() {
-    if (SetKataRules.rejectEngineGameInteraction()) return;
-    if (isWholeGameAnalysisStartingOrRunning()) {
-      Utils.showMsg(Lizzie.resourceBundle.getString("WholeGameAnalysis.conflict.analysis"));
-      return;
-    }
     Leelaz rulesEngine = Lizzie.leelaz;
-    if (!isRulesEngineReady(rulesEngine)) {
-      Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.setParamNoEngineHint"));
-      return;
-    }
-    if (!rulesEngine.isKatago) {
-      Utils.showMsg(Lizzie.resourceBundle.getString("SetKataRules.notKataGoHint"));
+    String reason = rulesUnavailableReason(rulesEngine);
+    if (reason != null) {
+      Utils.showMsg(Lizzie.resourceBundle.getString(reason));
       return;
     }
     SetKataRules rulesDialog = new SetKataRules(rulesEngine);
@@ -12924,8 +12916,139 @@ public class LizzieFrame extends JFrame {
     setkatarules.setVisible(true);
   }
 
+  private String rulesUnavailableReason(Leelaz rulesEngine) {
+    if (EngineManager.occupiesEngineGameAdmission())
+      return "AnalysisSettings.reuseStatus.engine_game";
+    if (isWholeGameAnalysisStartingOrRunning()) return "WholeGameAnalysis.conflict.analysis";
+    if (!isRulesEngineReady(rulesEngine)) return "LizzieFrame.setParamNoEngineHint";
+    if (!rulesEngine.isKatago) return "SetKataRules.notKataGoHint";
+    return null;
+  }
+
   static boolean isRulesEngineReady(Leelaz engine) {
     return engine != null && engine.isLoaded() && engine.isStarted();
+  }
+
+  /** Read-only presentation of the same live state used by the original feature owners. */
+  String functionEntryUnavailableReason(String id) {
+    if (id.startsWith("legacy.") && !Lizzie.config.isChinese)
+      return "FunctionSearch.unavailable.toolbar";
+    if (id.startsWith("review.") && EngineGamePresentation.current().startingOrPlaying())
+      return "AnalysisSettings.reuseStatus.engine_game";
+    switch (id) {
+      case "sync.exit-web-trial":
+        return Lizzie.webBoardManager != null
+                && Lizzie.webBoardManager.isRunning()
+                && isTrialActive()
+            ? null
+            : "FunctionSearch.unavailable.webBoard";
+      case "toolbar.game-pause", "toolbar.game-stop":
+        return EngineGameDesktop.batchActive()
+                || isPlayingAgainstLeelaz
+                || isAnaPlayingAgainstLeelaz
+            ? null
+            : "FunctionSearch.unavailable.game";
+      case "toolbar.game-resign", "game.stop-human":
+        return isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz
+            ? null
+            : "FunctionSearch.unavailable.game";
+      case "engine.pda", "toolbar.wrn":
+        if (EngineGamePresentation.current().startingOrPlaying())
+          return "AnalysisSettings.reuseStatus.engine_game";
+        if (!isRulesEngineReady(Lizzie.leelaz)) return "LizzieFrame.setParamNoEngineHint";
+        return Lizzie.leelaz.isKatago ? null : "SetKataRules.notKataGoHint";
+      case "toolbar.force-allow",
+      "toolbar.force-avoid",
+      "toolbar.force-clear",
+      "toolbar.force-allow-options",
+      "toolbar.force-avoid-options":
+        if (!isRulesEngineReady(Lizzie.leelaz)) return "LizzieFrame.setParamNoEngineHint";
+        return id.contains("avoid") && (Lizzie.leelaz.isKatago || Lizzie.leelaz.isZen)
+            ? "FunctionSearch.unavailable.context"
+            : null;
+      case "legacy.engine-game-pause", "legacy.engine-game-intervene":
+        return EngineGamePresentation.current().playing()
+            ? null
+            : "FunctionSearch.unavailable.game";
+      case "board.try-play", "board.delete-without-prompt":
+        return EngineGamePresentation.current().startingOrPlaying()
+            ? "AnalysisSettings.reuseStatus.engine_game"
+            : null;
+      case "engine.rules":
+        return rulesUnavailableReason(Lizzie.leelaz);
+      case "engine.parameters", "menu.showHeatmap":
+        return EngineManager.isEmpty || Lizzie.leelaz == null || !Lizzie.leelaz.isLoaded()
+            ? "LizzieFrame.setParamNoEngineHint"
+            : null;
+      case "sync.board":
+        if (!isNativeBoardSyncSupported()) return "FunctionSearch.unavailable.windows";
+        return isNativeReadBoardAvailable() ? null : "FunctionSearch.unavailable.readBoard";
+      case "game.komi",
+      "lightning-analysis-settings",
+      "whole-game-lightning-overview",
+      "all-branches-lightning-analysis",
+      "partial-lightning-analysis":
+        return isWholeGameAnalysisStartingOrRunning()
+            ? "WholeGameAnalysis.conflict.analysis"
+            : null;
+      case "whole-game-deep-analysis":
+        if (wholeGameAnalysisDialog != null && wholeGameAnalysisDialog.isDisplayable()) return null;
+        return Lizzie.board == null
+                || Lizzie.board.getHistory() == null
+                || WholeGameAnalysisPlan.countMainlineMoves(Lizzie.board.getHistory().getStart())
+                    == 0
+            ? "WholeGameAnalysis.noGame"
+            : null;
+      case "engine.select-secondary":
+        if (!Lizzie.config.isDoubleEngineMode()) return "FunctionSearch.unavailable.secondary";
+        return Lizzie.readMode ? "FunctionSearch.unavailable.context" : null;
+      case "engine.select":
+        return Lizzie.readMode ? "FunctionSearch.unavailable.context" : null;
+      case "menu.webBoardCopyUrl":
+        return Lizzie.webBoardManager.isRunning() ? null : "FunctionSearch.unavailable.webBoard";
+      case "menu.diagnosticsAndLogs":
+        return featurecat.lizzie.logging.LoggingRuntime.current().isPresent()
+            ? null
+            : "FunctionSearch.unavailable.logging";
+      case "menu.stopFullTrace":
+        return featurecat.lizzie.logging.LoggingRuntime.current()
+                .map(featurecat.lizzie.logging.LoggingRuntime::fullTraceActive)
+                .orElse(false)
+            ? null
+            : "FunctionSearch.unavailable.fullTrace";
+      case "menu.undoDelete":
+        return Lizzie.board.boardstatbeforeedit.isEmpty()
+            ? "FunctionSearch.unavailable.undoEdit"
+            : null;
+      case "menu.redoDelete":
+        return Lizzie.board.boardstatafteredit.isEmpty()
+            ? "FunctionSearch.unavailable.redoEdit"
+            : null;
+      case "menu.commitPane":
+        return Lizzie.config.isCommentPanelAutoHiddenByMode()
+            ? "FunctionSearch.unavailable.context"
+            : null;
+      case "menu.maxTreeWidth", "menu.ignoreOutOfWidth":
+        return Lizzie.config.showScrollVariation ? null : "FunctionSearch.unavailable.context";
+      case "menu.moveNumberAlwaysFromOne", "menu.showAllMoveNumberInBranch":
+        return Lizzie.config.allowMoveNumber == -1 ? "FunctionSearch.unavailable.allMoveNumbers" : null;
+      case "toolbar.detailed":
+        return Lizzie.config.isChinese ? null : "FunctionSearch.unavailable.context";
+      case "menu.pauseEngineGame", "menu.changeEngineGameNumbers", "menu.breakEngineGame":
+        return EngineGamePresentation.current().playing()
+            ? null
+            : "FunctionSearch.unavailable.context";
+      default:
+        return null;
+    }
+  }
+
+  void exitWebTrialFromToolbar() {
+    if (Lizzie.webBoardManager == null || !Lizzie.webBoardManager.isRunning()) return;
+    Lizzie.webBoardManager.forceExitTrial();
+    featurecat.lizzie.gui.web.WebBoardDataCollector collector =
+        Lizzie.webBoardManager.getCollector();
+    if (collector != null) collector.broadcastTrialState(null);
   }
 
   public void endHumanSlGameIfActive() {
@@ -14004,9 +14127,10 @@ public class LizzieFrame extends JFrame {
   }
 
   public void reSetLoc() {
-    SwingUtilities.invokeLater(
-        new Thread() {
-          public void run() {
+    SwingUtilities.invokeLater(this::reSetLocNow);
+  }
+
+  void reSetLocNow() {
             Insets insets = getInsets();
             int width =
                 resolvedContentLength(
@@ -14097,8 +14221,6 @@ public class LizzieFrame extends JFrame {
               noneMaxWidth = Lizzie.frame.getWidth();
               noneMaxHeight = Lizzie.frame.getHeight();
             }
-          }
-        });
   }
 
   public void testFilter(Integer txtFieldIntValue) {

@@ -543,6 +543,7 @@ public class BottomToolbar extends JPanel {
         continue;
       }
       JFontMenuItem item = new JFontMenuItem(label);
+      item.putClientProperty("BottomToolbar.originalButton", button);
       item.addActionListener(
           new ActionListener() {
             @Override
@@ -558,6 +559,120 @@ public class BottomToolbar extends JPanel {
 
   private boolean isDetailExpanded() {
     return Lizzie.frame != null && Lizzie.frame.toolbarHeight > MAIN_BAR_HEIGHT;
+  }
+
+  javax.swing.JComponent functionTarget(String id) {
+    if (id == null) return null;
+    switch (id) {
+      case "review.previous-ten":
+        return backward10;
+      case "review.next-ten":
+        return forward10;
+      case "review.previous":
+        return backward1;
+      case "review.next":
+        return forward1;
+      case "review.goto":
+        return txtMoveNumber;
+      case "board.try-play":
+        return tryPlay;
+      case "board.refresh":
+        return refresh;
+      case "board.delete-without-prompt":
+        return deleteMove;
+      case "toolbar.detailed":
+        return Lizzie.config.isChinese ? detail : null;
+      case "sync.exit-web-trial":
+        for (Component component : yike.getComponents()) {
+          if (component instanceof javax.swing.JMenuItem item
+              && id.equals(item.getClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY))) return item;
+        }
+        return null;
+      case "legacy.auto-analysis":
+      case "legacy.auto-analysis-start":
+      case "legacy.auto-play":
+      case "legacy.auto-main":
+      case "legacy.auto-sub":
+      case "legacy.engine-game":
+      case "legacy.engine-game-start":
+      case "legacy.engine-game-settings":
+      case "legacy.engine-game-pause":
+      case "legacy.engine-game-intervene":
+        if (!Lizzie.config.isChinese) return null;
+        switch (id) {
+          case "legacy.auto-analysis":
+            return anaPanel;
+          case "legacy.auto-analysis-start":
+            return start;
+          case "legacy.auto-play":
+            return autoPlayPanel;
+          case "legacy.auto-main":
+            return chkAutoMain;
+          case "legacy.auto-sub":
+            return chkAutoSub;
+          case "legacy.engine-game":
+            return enginePkPanel;
+          case "legacy.engine-game-start":
+            return btnStartPk;
+          case "legacy.engine-game-settings":
+            return btnEnginePkConfig;
+          case "legacy.engine-game-pause":
+            return btnEnginePkStop;
+          case "legacy.engine-game-intervene":
+            return btnEngineMannul;
+          default:
+            return null;
+        }
+      default:
+        return null;
+    }
+  }
+
+  boolean locateFunction(String id) {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      throw new IllegalStateException("Function navigation requires the EDT");
+    }
+    javax.swing.JComponent target = functionTarget(id);
+    if (target == null || !Lizzie.frame.isDisplayable()) return false;
+    setVisible(true);
+    int requiredHeight =
+        id.startsWith("legacy.") ? MAIN_BAR_HEIGHT + DETAIL_PANEL_HEIGHT : MAIN_BAR_HEIGHT;
+    if (Lizzie.frame.toolbarHeight < requiredHeight) Lizzie.frame.toolbarHeight = requiredHeight;
+    Lizzie.frame.reSetLocNow();
+    Lizzie.frame.validate();
+    Lizzie.frame.toFront();
+    if (target instanceof javax.swing.JMenuItem item) {
+      yike.show(this, 0, -yike.getPreferredSize().height);
+      javax.swing.MenuSelectionManager.defaultManager()
+          .setSelectedPath(new javax.swing.MenuElement[] {yike, item});
+      return item.isShowing();
+    }
+    if (target.isShowing()) {
+      target.setFocusable(true);
+      target.requestFocusInWindow();
+      return true;
+    }
+    if (target instanceof JButton button && moreActionsPopup != null) {
+      List<JButton> buttons = new ArrayList<>();
+      for (Component component : moreActionsPopup.getComponents()) {
+        if (component instanceof javax.swing.JMenuItem item
+            && item.getClientProperty("BottomToolbar.originalButton") instanceof JButton original)
+          buttons.add(original);
+      }
+      buttons.add(button);
+      rebuildMoreActionsPopup(buttons);
+      for (Component component : moreActionsPopup.getComponents()) {
+        if (component instanceof javax.swing.JMenuItem proxy
+            && proxy.getClientProperty("BottomToolbar.originalButton") == target) {
+          moreActionsPopup.show(
+              this, Math.max(0, getWidth() - moreActionsPopup.getPreferredSize().width), 0);
+          javax.swing.MenuSelectionManager.defaultManager()
+              .setSelectedPath(new javax.swing.MenuElement[] {moreActionsPopup, proxy});
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   static int reconcilePersistedToolbarHeight(int currentHeight, int layoutDesiredHeight) {
@@ -1143,15 +1258,8 @@ public class BottomToolbar extends JPanel {
 
     final JFontMenuItem forceExitTrial =
         new JFontMenuItem(Lizzie.resourceBundle.getString("Menu.webBoardForceExitTrial"));
-    forceExitTrial.addActionListener(
-        e -> {
-          if (Lizzie.webBoardManager != null && Lizzie.webBoardManager.isRunning()) {
-            Lizzie.webBoardManager.forceExitTrial();
-            featurecat.lizzie.gui.web.WebBoardDataCollector c =
-                Lizzie.webBoardManager.getCollector();
-            if (c != null) c.broadcastTrialState(null);
-          }
-        });
+    forceExitTrial.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "sync.exit-web-trial");
+    forceExitTrial.addActionListener(e -> Lizzie.frame.exitWebTrialFromToolbar());
     yike.add(forceExitTrial);
 
     yike.addPopupMenuListener(

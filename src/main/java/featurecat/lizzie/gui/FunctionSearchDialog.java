@@ -8,6 +8,7 @@ import featurecat.lizzie.search.FunctionSearch;
 import featurecat.lizzie.util.LocaleFontSupport;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
@@ -201,6 +202,7 @@ final class FunctionSearchDialog extends JDialog {
             copy("browse"),
             () -> {
               expansion.setVisible(true);
+              refreshResults();
               resizeSearch();
             },
             false);
@@ -253,8 +255,8 @@ final class FunctionSearchDialog extends JDialog {
             },
             KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
             JComponent.WHEN_IN_FOCUSED_WINDOW);
-    refreshResults();
     expansion.setVisible(false);
+    refreshResults();
     resizeSearch();
     setLocation(
         Math.max(
@@ -316,6 +318,7 @@ final class FunctionSearchDialog extends JDialog {
       }
       if (key == KeyEvent.VK_UP || key == KeyEvent.VK_DOWN) {
         expansion.setVisible(true);
+        if (model.isEmpty()) refreshResults();
         resizeSearch();
         if (!model.isEmpty()) {
           int next =
@@ -337,6 +340,10 @@ final class FunctionSearchDialog extends JDialog {
   private void refreshResults() {
     Entry previous = results.getSelectedValue();
     model.clear();
+    if (input.getText().isBlank() && !expansion.isVisible()) {
+      refreshSelection();
+      return;
+    }
     String category =
         categories.getSelectedIndex() == 0
             ? null
@@ -344,12 +351,14 @@ final class FunctionSearchDialog extends JDialog {
     List<FunctionSearch.Match> matches = index.search(input.getText(), effectiveLocale);
     int total = 0;
     boolean browsing = input.getText().isBlank();
+    List<Entry> visible = new ArrayList<>(browsing ? matches.size() : Math.min(50, matches.size()));
     for (FunctionSearch.Match match : matches) {
       Entry entry = entries.get(match.id());
       if (category != null && !category.equals(entry.categoryKey())) continue;
       total++;
-      if (browsing || model.size() < 50) model.addElement(entry);
+      if (browsing || visible.size() < 50) visible.add(entry);
     }
+    model.addAll(visible);
     count.setText(String.format(effectiveLocale, copy("results"), total));
     if (previous != null && model.contains(previous)) results.setSelectedValue(previous, true);
     else if (!model.isEmpty()) results.setSelectedIndex(0);
@@ -501,9 +510,12 @@ final class FunctionSearchDialog extends JDialog {
       if (selected) {
         String detail =
             copy(
-                    entry.targetType() == FunctionCatalog.TargetType.SETTING
-                        ? "type.setting"
-                        : "type.window")
+                    switch (entry.targetType()) {
+                      case SETTING -> "type.setting";
+                      case ACTION -> "type.action";
+                      case NAVIGATION, CONTEXT -> "type.navigation";
+                      case WINDOW -> "type.window";
+                    })
                 + (entry.shortcut().isEmpty() ? "" : " · " + entry.shortcut())
                 + "\n"
                 + bundle.getString(entry.descriptionKey())

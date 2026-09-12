@@ -34,6 +34,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.Optional;
@@ -1408,6 +1409,8 @@ public class Menu extends JMenuBar {
           }
         });
     Suggestions.add(showMaxValueReverse);
+    showMaxValueReverse.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showMaxValueReverse");
 
     final JFontCheckBoxMenuItem showWhiteSuggestWhite =
         new JFontCheckBoxMenuItem(
@@ -2834,7 +2837,7 @@ public class Menu extends JMenuBar {
             if (Lizzie.config.showMoveAllInBranch || allMoveNum.isSelected())
               showAllMoveNumberInBranch.setState(true);
             else showAllMoveNumberInBranch.setState(false);
-            if (allMoveNum.isSelected()) showAllMoveNumberInBranch.setEnabled(false);
+            showAllMoveNumberInBranch.setEnabled(!allMoveNum.isSelected());
 
             if (Lizzie.config.showSuggestionOrder) showSuggestionOrder.setState(true);
             else showSuggestionOrder.setState(false);
@@ -6554,6 +6557,424 @@ public class Menu extends JMenuBar {
       engineMenu2.setVisible(false);
       engineMenu.setVisible(false);
     }
+
+    newBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "files.new");
+    open.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "files.open");
+    openUrl.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "files.url");
+    save.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "files.save");
+    saveAs.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "files.save-as");
+    saveRaw.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.saveRaw");
+    saveCommentRaw.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.saveCommentRaw");
+    saveBranchRaw.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.saveBranchRaw");
+    saveMainBoardScreen.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.saveMainBoardScreen");
+    saveSubBoardScreen.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.saveSubBoardScreen");
+    saveWinrate.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.saveWinrate");
+    saveAndLoad.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.saveAndLoad");
+    copyBoardScreen.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.copyBoardScreen");
+    copySubBoardScreen.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.copySubBoardScreen");
+    copySgf.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.copySgf");
+    pasteSgf.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.pasteSgf");
+    loadKomi.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.loadKomi");
+    forceExit.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.forceExit");
+    exit.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.exit");
+    mainBoardPos.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.mainBoardPos");
+    coordsMenu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.coordsMenu");
+    boardStyleMenu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.boardStyleMenu");
+    moveMenu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.moveMenu");
+    moveRankMenu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.moveRankMenu");
+    nextMoveHint.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.nextMoveHint");
+    makeAutoPlay.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.makeAutoPlay");
+    deletePersistFile.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.deletePersistFile");
+    toggleAppleStyle.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.toggleAppleStyle");
+    toggleClassicColors.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.toggleClassicColors");
+    setCustomBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setCustomBoard");
+    clearCustomBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.clearCustomBoard");
+    moveNumberAlwaysFromOne.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.moveNumberAlwaysFromOne");
+    moveNumberInBranchFromOne.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.moveNumberInBranchFromOne");
+    showAllMoveNumberInBranch.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showAllMoveNumberInBranch");
+    showMoveNumberOnVariationPane.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showMoveNumberOnVariationPane");
+    largeSubBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.largeSubBoard");
+    largeWinrateGraph.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.largeWinrateGraph");
+    appendWinrateToComment.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.appendWinrateToComment");
+    showNameInBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showNameInBoard");
+    showCommentConrolPane.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showCommentConrolPane");
+    alwaysOnTop.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.alwaysOnTop");
+    showNewBoardConfirmDialog.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showNewBoardConfirmDialog");
+    showReplaceFileConfirmDialog.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showReplaceFileConfirmDialog");
+    suggestion1.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.suggestion1");
+    suggestion2.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.suggestion2");
+    suggestion3.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.suggestion3");
+    showScoreAsDiff.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showScoreAsDiff");
+    customInfoOrdr.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.customInfoOrdr");
+    setCandidatesDelay.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setCandidatesDelay");
+    subboard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.subboard");
+    winrateGraph.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.winrateGraph");
+    commitPane.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.commitPane");
+    variationPane.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.variationPane");
+    showScrollVariation.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showScrollVariation");
+    maxTreeWidth.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.maxTreeWidth");
+    ignoreOutOfWidth.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.ignoreOutOfWidth");
+    listPane.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.listPane");
+    informationPane.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.informationPane");
+    statusPanel.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.statusPanel");
+    gtpPanel.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.gtpPanel");
+    ctrlPanel.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.ctrlPanel");
+    visualizedPanelSettings.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.visualizedPanelSettings");
+    independentMainBoard.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.independentMainBoard");
+    independentMainBoard2.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.independentMainBoard2");
+    independentSubBoard.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.independentSubBoard");
+    hawkEye.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "analysis.bad-moves");
+    SuggestionList.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.SuggestionList");
+    restoreDefaultPanelSizes.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.restoreDefaultPanelSizes");
+    showSuggestionOrder.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showSuggestionOrder");
+    showWhiteSuggestWhite.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showWhiteSuggestWhite");
+    showVariationOnMouse.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showVariationOnMouse");
+    noRefreshOnMouse.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.noRefreshOnMouse");
+    showWinRateOrScoreLeadLine.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showWinRateOrScoreLeadLine");
+    showWinrateGraphFill.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showWinrateGraphFill");
+    showBlunderBar.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showBlunderBar");
+    showMouseOverWinrateGraph.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showMouseOverWinrateGraph");
+    initialMaxScoreLead.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.initialMaxScoreLead");
+    setReplayInterval.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setReplayInterval");
+    heatMapSettings.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.heatMapSettings");
+    subBoardShowVar.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.subBoardShowVar");
+    layoutModeMenu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.layoutModeMenu");
+    independentBoardMode.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.independentBoardMode");
+    kataScolreLead.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataScolreLead");
+    kataEstimate.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataEstimate");
+    kataEstimateSaveState.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataEstimateSaveState");
+    kataEstimateByTransparentSmall.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataEstimateByTransparentSmall");
+    kataEstimateInPureNet.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataEstimateInPureNet");
+    useMovesOwnership.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.useMovesOwnership");
+    useKataEstimateShortcut.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.useKataEstimateShortcut");
+    continueGameAgainstAi.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.continueGameAgainstAi");
+    newGenmoveGame.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.newGenmoveGame");
+    newEngineGame.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.newEngineGame");
+    newHumanSlGame.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.newHumanSlGame");
+    scoreGame.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.scoreGame");
+    setAiTime.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setAiTime");
+    breakEngineGame.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.breakEngineGame");
+    pauseEngineGame.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.pauseEngineGame");
+    changeEngineGameNumbers.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.changeEngineGameNumbers");
+    intervention.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.intervention");
+    playBestMove.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.playBestMove");
+    playPassMove.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.playPassMove");
+    setupModeToggle.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setupModeToggle");
+    setupClearAll.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setupClearAll");
+    setupBlackToPlay.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setupBlackToPlay");
+    setupWhiteToPlay.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setupWhiteToPlay");
+    convertCurrentPosition.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.convertCurrentPosition");
+    continueLadder.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.continueLadder");
+    togglePonder.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "analysis.toggle");
+    aiCommentary.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "analysis.commentary");
+    tsumeGoMenu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "game.tsumego");
+    captureTsumeGo.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.captureTsumeGo");
+    autoAnalyze.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "auto-analysis");
+    batchAnalyze.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "batch-analysis");
+    batchAnalysisMode.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "batch-deep-analysis");
+    stopAutoAnalyze.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "stop-analysis");
+    batchAnalyzeTable.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "batch-progress");
+    flashAnalyzePartGame.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "partial-lightning-analysis");
+    flashAnalyzeAllBranches.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "all-branches-lightning-analysis");
+    flashAnalyzeSettings.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "lightning-analysis-settings");
+    playerStrengthEstimate.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.playerStrengthEstimate");
+    showHeatmap.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showHeatmap");
+    showPolicy.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showPolicy");
+    clearAllLizzieCache.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.clearAllLizzieCache");
+    clearThisLizzieCache.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.clearThisLizzieCache");
+    clearAllLizzieBestmoves.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.clearAllLizzieBestmoves");
+    clearThisLizzieBestmoves.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.clearThisLizzieBestmoves");
+    addBlack.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.addBlack");
+    addWhite.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.addWhite");
+    alternatelyMoves.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.alternatelyMoves");
+    allowDoubleClick.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.allowDoubleClick");
+    allowDrag.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.allowDrag");
+    allowClickReview.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.allowClickReview");
+    insertBlack.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.insertBlack");
+    insertWhite.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.insertWhite");
+    clearBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.clearBoard");
+    backToMainBranch.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.backToMainBranch");
+    setAsMain.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setAsMain");
+    jumpToFirst.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.jumpToFirst");
+    jumpToLast.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.jumpToLast");
+    jumpToLeft.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.jumpToLeft");
+    jumpToRight.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.jumpToRight");
+    delete.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.delete");
+    deleteBranch.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.deleteBranch");
+    undoDelete.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.undoDelete");
+    redoDelete.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.redoDelete");
+    setInfo.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "game.komi");
+    setBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setBoard");
+    exchange.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.exchange");
+    spinRight.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.spinRight");
+    spinLeft.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.spinLeft");
+    mirrorVertical.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.mirrorVertical");
+    mirrorHorizon.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.mirrorHorizon");
+    yikeLive.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.yikeLive");
+    yikeLiveWeb.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.yikeLiveWeb");
+    yikeRoom.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.yikeRoom");
+    foxKifu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.foxKifu");
+    tencentKifu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.tencentKifu");
+    readBoard.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "sync.board");
+    webBoardToggle.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.webBoardToggle");
+    webBoardCopyUrl.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.webBoardCopyUrl");
+    EnableEnterYikeGame.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.EnableEnterYikeGame");
+    alwaysGoToLastMove.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.alwaysGoToLastMove");
+    readBoardSettings.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "sync.settings");
+    alwaysKeepBoardStatSync.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.alwaysKeepBoardStatSync");
+    readBoardGetFocus.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.readBoardGetFocus");
+    topToolBar.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.topToolBar");
+    autoWrap.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.autoWrap");
+    bottomToolBar.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.bottomToolBar");
+    customTopToolBar.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.customTopToolBar");
+    customToolbarItem.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.customToolbarItem");
+    diagnosticsAndLogs.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.diagnosticsAndLogs");
+    stopFullTrace.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.stopFullTrace");
+    about.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.about");
+    checkUpdate.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.checkUpdate");
+    clearUserData.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.clearUserData");
+    engineConfig.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "engine.configuration");
+    remoteCompute.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "engine.remote");
+    engineRules.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "engine.rules");
+    engineParameters.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "engine.parameters");
+    initSettings.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.initSettings");
+    autoSetup.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "engine.setup");
+    comprehensiveSettings.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "settings.general");
+    theme.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.theme");
+    language.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.language");
+    frameFontSize.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.frameFontSize");
+    frameLooks.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.frameLooks");
+    playSound.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.playSound");
+    notPlaySoundInSync.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.notPlaySoundInSync");
+    showContribute.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.showContribute");
+    kataGoDistributedTraining.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataGoDistributedTraining");
+    kataGoTrainingSettings.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataGoTrainingSettings");
+    kataGoOfficialWebsite.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.kataGoOfficialWebsite");
+    openRecent.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "files.recent");
+    minPlayoutsForNextMove.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.minPlayoutsForNextMove");
+    quickLinks.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "tools.quick-start");
+    engineMenu.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "engine.select");
+    engineMenu2.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "engine.select-secondary");
+    aiCoachButton.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "game.ai-coach");
+    restartCurrentEngine.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.restartCurrentEngine");
+    shutdownCurrentEngine.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.shutdownCurrentEngine");
+    shutdownOtherEngine.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.shutdownOtherEngine");
+    shutdownAllEngine.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.shutdownAllEngine");
+    restartCurrentEngine2.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.restartCurrentEngine2");
+    shutdownCurrentEngine2.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.shutdownCurrentEngine2");
+    wholeGameDeepAnalysis.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "whole-game-deep-analysis");
+    flashAnalyzeAllGame.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "whole-game-lightning-overview");
+    newAnalyzeModeGame.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "menu.newAnalyzeModeGame");
+    setupToolBlack.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setupToolBlack");
+    setupToolWhite.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setupToolWhite");
+    setupToolErase.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.setupToolErase");
+    customeMode1.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.custom-layout-1");
+    customeMode2.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "menu.custom-layout-2");
+    detailedBar.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.detailed");
+    alwaysShowBlackWinrate.putClientProperty(
+        AutoAnalyzeMenu.ACTION_PROPERTY, "settings.black-winrate");
+    hawkEye2.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "analysis.bad-moves");
+    breakGame.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "game.stop-human");
+    aiCommentaryButton.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "analysis.commentary");
+  }
+
+  /** Resolves the current menu objects; dynamic menu instances are never cached by search. */
+  List<JMenuItem> functionPath(String id) {
+    for (Component component : getComponents()) {
+      if (component instanceof JMenuItem item) {
+        List<JMenuItem> path = functionPath(item, id);
+        if (path != null) return path;
+      }
+    }
+    return null;
+  }
+
+  private static List<JMenuItem> functionPath(JMenuItem item, String id) {
+    if (id.equals(item.getClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY))) {
+      return new ArrayList<>(List.of(item));
+    }
+    if (item instanceof JMenu menu) {
+      for (Component component : menu.getMenuComponents()) {
+        if (component instanceof JMenuItem child) {
+          List<JMenuItem> path = functionPath(child, id);
+          if (path != null) {
+            path.add(0, menu);
+            return path;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Refreshes through the original menu owners before resolving a rebuilt destination. */
+  List<JMenuItem> refreshFunctionPath(String id) {
+    if ("files.recent".equals(id)) updateRecentFileMenu();
+    if ("tools.quick-start".equals(id)) refreshQuickLinkItems();
+    List<JMenuItem> path = functionPath(id);
+    if (path == null) return null;
+    for (JMenuItem item : path) {
+      if (item instanceof JMenu menu) {
+        MenuEvent event = new MenuEvent(menu);
+        for (MenuListener listener : menu.getMenuListeners()) listener.menuSelected(event);
+      }
+    }
+    return functionPath(id);
+  }
+
+  /** Shows and selects a real menu path without invoking any action or changing a setting. */
+  boolean locateFunction(String id) {
+    List<JMenuItem> path = refreshFunctionPath(id);
+    if (path == null || path.isEmpty() || !(path.get(0) instanceof JMenu first)) return false;
+    Lizzie.frame.toFront();
+    boolean attached = first.isVisible();
+    if (attached && Lizzie.frame.windowMenuStrip.isShowing()) {
+      if (!Lizzie.frame.windowMenuStrip.showMenu(first)) return false;
+      attached = false;
+    } else if (first.isShowing()) {
+      first.setPopupMenuVisible(true);
+    } else {
+      attached = false;
+      first.getPopupMenu().show(Lizzie.frame.getRootPane(), 0, 0);
+    }
+    List<MenuElement> selected = new ArrayList<>();
+    if (attached && isShowing()) selected.add(this);
+    for (JMenuItem item : path) {
+      if (attached || item != first) selected.add(item);
+      if (item instanceof JMenu menu) selected.add(menu.getPopupMenu());
+    }
+    MenuSelectionManager.defaultManager().setSelectedPath(selected.toArray(MenuElement[]::new));
+    return true;
+  }
+
+  JComponent topFunctionTarget(String id) {
+    return switch (id) {
+      case "toolbar.force-allow" -> selectAllow;
+      case "toolbar.force-avoid" -> selectAvoid;
+      case "toolbar.force-clear" -> clearSelect;
+      case "toolbar.game-pause" -> doubleMenuPauseGame;
+      case "toolbar.game-stop" -> doubleMenuStopGame;
+      case "toolbar.game-resign" -> doubleMenuResign;
+      case "engine.pda" -> more2;
+      case "toolbar.wrn" -> chkWRN;
+      case "toolbar.time-limit" -> chkTime;
+      case "toolbar.visit-limit" -> chkPlayOut;
+      case "toolbar.analyze-sides" -> chkAnalyzeBlack;
+      case "toolbar.candidate-sides" -> chkShowBlack;
+      case "toolbar.candidate-info" -> chkShowWinrate;
+      default -> findTopFunction(Lizzie.frame.topPanel, id);
+    };
+  }
+
+  private static JComponent findTopFunction(java.awt.Container parent, String id) {
+    for (Component child : parent.getComponents()) {
+      if (child instanceof JComponent component
+          && id.equals(component.getClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY)))
+        return component;
+      if (child instanceof java.awt.Container container) {
+        JComponent found = findTopFunction(container, id);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  /** Reveals the original toolbar surface; the destination's value and action are untouched. */
+  boolean locateTopFunction(String id) {
+    if (!id.startsWith("toolbar.") && !"engine.pda".equals(id)) return false;
+    switch (id) {
+      case "toolbar.force-allow",
+          "toolbar.force-avoid",
+          "toolbar.force-clear",
+          "toolbar.force-allow-options",
+          "toolbar.force-avoid-options" ->
+          Lizzie.config.showForceMenu = true;
+      case "toolbar.game-pause", "toolbar.game-stop", "toolbar.game-resign" ->
+          Lizzie.config.showDoubleMenuGameControl = true;
+      case "engine.pda" -> Lizzie.config.showPDAInMenu = true;
+      case "toolbar.wrn" -> Lizzie.config.showWRNInMenu = true;
+      case "toolbar.time-limit" -> Lizzie.config.showTimeControlInMenu = true;
+      case "toolbar.visit-limit" -> Lizzie.config.showPlayoutControlInMenu = true;
+      case "toolbar.analyze-sides" -> Lizzie.config.showAnalyzeController = true;
+      case "toolbar.candidate-sides" -> Lizzie.config.showDoubleMenuVar = true;
+      case "toolbar.candidate-info" -> Lizzie.config.showDoubleMenuMoveInfo = true;
+      default -> {
+        Lizzie.config.showBasicBtn = true;
+        if (!"toolbar.markup-tools".equals(id) && !"toolbar.change-turn".equals(id))
+          Lizzie.config.isShowingMarkupTools = true;
+      }
+    }
+    Lizzie.config.showTopToolBar = true;
+    Lizzie.config.showDoubleMenu = true;
+    doubleMenu(false);
+    applyDoubleMenuGameStatus();
+    Lizzie.frame.reSetLocNow();
+    Lizzie.frame.validate();
+    JComponent target = topFunctionTarget(id);
+    if (target == null || !target.isShowing()) return false;
+    target.scrollRectToVisible(new java.awt.Rectangle(target.getSize()));
+    target.setFocusable(true);
+    target.requestFocusInWindow();
+    return true;
   }
 
   private void openTencentKifu() {
@@ -8013,6 +8434,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnChangeTurn = new JFontButton(iconChangeTurn);
+      btnChangeTurn.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.change-turn");
       btnChangeTurn.setPreferredSize(new Dimension(Config.menuHeight, Config.menuHeight));
       btnChangeTurn.setFocusable(false);
       btnChangeTurn.setToolTipText(
@@ -8036,6 +8458,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkup = new JFontButton();
+      btnMarkup.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-tools");
       if (Lizzie.config.isShowingMarkupTools) btnMarkup.setIcon(iconMarkup2);
       else btnMarkup.setIcon(iconMarkup1);
       btnMarkup.setFocusable(false);
@@ -8052,6 +8475,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkupLabel = new JFontButton();
+      btnMarkupLabel.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-letter");
       if (Lizzie.frame.markupType == 1) btnMarkupLabel.setIcon(markupLabel2);
       else btnMarkupLabel.setIcon(markupLabel1);
       btnMarkupLabel.setFocusable(false);
@@ -8067,6 +8491,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkupLabelNum = new JFontButton();
+      btnMarkupLabelNum.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-number");
       if (Lizzie.frame.markupType == 7) btnMarkupLabelNum.setIcon(markupLabelNum2);
       else btnMarkupLabelNum.setIcon(markupLabelNum1);
       btnMarkupLabelNum.setFocusable(false);
@@ -8097,6 +8522,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkupX = new JFontButton();
+      btnMarkupX.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-cross");
       if (Lizzie.frame.markupType == 3) btnMarkupX.setIcon(markupX2);
       else btnMarkupX.setIcon(markupX1);
       btnMarkupX.setFocusable(false);
@@ -8112,6 +8538,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkupSquare = new JFontButton();
+      btnMarkupSquare.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-square");
       if (Lizzie.frame.markupType == 4) btnMarkupSquare.setIcon(markupSquare2);
       else btnMarkupSquare.setIcon(markupSquare1);
       btnMarkupSquare.setFocusable(false);
@@ -8127,6 +8554,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkupTri = new JFontButton();
+      btnMarkupTri.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-triangle");
       if (Lizzie.frame.markupType == 5) btnMarkupTri.setIcon(markupsanjiao2);
       else btnMarkupTri.setIcon(markupsanjiao1);
       btnMarkupTri.setFocusable(false);
@@ -8142,6 +8570,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkupEraser = new JFontButton();
+      btnMarkupEraser.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-eraser");
       if (Lizzie.frame.markupType == 6) btnMarkupEraser.setIcon(eraser2);
       else btnMarkupEraser.setIcon(eraser1);
       btnMarkupEraser.setFocusable(false);
@@ -8157,6 +8586,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnMarkupClear = new JFontButton(clear);
+      btnMarkupClear.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.markup-clear");
       btnMarkupClear.setFocusable(false);
       btnMarkupClear.setPreferredSize(new Dimension(Config.menuHeight, Config.menuHeight));
       btnMarkupClear.setToolTipText(
@@ -8170,6 +8600,7 @@ public class Menu extends JMenuBar {
           });
 
       JFontButton btnDrawPainting = new JFontButton(drawPaint);
+      btnDrawPainting.putClientProperty(AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.painting");
       btnDrawPainting.setFocusable(false);
       btnDrawPainting.setPreferredSize(new Dimension(Config.menuHeight, Config.menuHeight));
       btnDrawPainting.setToolTipText(resourceBundle.getString("Menu.drawPainting.toolTipText"));
@@ -8416,6 +8847,8 @@ public class Menu extends JMenuBar {
           });
 
       JButton selectAllowMore = new JButton(horizonDown);
+      selectAllowMore.putClientProperty(
+          AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.force-allow-options");
       selectAllowMore.setFocusable(false);
       selectAllowMore.setToolTipText(resourceBundle.getString("Accessibility.allowMoveOptions"));
       selectAllowMore.setPreferredSize(
@@ -8582,6 +9015,8 @@ public class Menu extends JMenuBar {
           });
 
       JButton selectAvoidMore = new JButton(horizonDown);
+      selectAvoidMore.putClientProperty(
+          AutoAnalyzeMenu.ACTION_PROPERTY, "toolbar.force-avoid-options");
       selectAvoidMore.setFocusable(false);
       selectAvoidMore.setToolTipText(resourceBundle.getString("Accessibility.avoidMoveOptions"));
       selectAvoidMore.setPreferredSize(
@@ -9834,9 +10269,10 @@ public class Menu extends JMenuBar {
 
   public void toggleDoubleMenuGameStatus() {
     // if (!Lizzie.config.showDoubleMenu) return;
-    SwingUtilities.invokeLater(
-        new Thread() {
-          public void run() {
+    SwingUtilities.invokeLater(this::applyDoubleMenuGameStatus);
+  }
+
+  private void applyDoubleMenuGameStatus() {
             EngineGameSnapshot snapshot = EngineGamePresentation.current();
             if (!Lizzie.frame.isAnaPlayingAgainstLeelaz
                 && !Lizzie.frame.isPlayingAgainstLeelaz
@@ -9873,8 +10309,6 @@ public class Menu extends JMenuBar {
               if (snapshot.paused()) engineMenu.setIcon(ready2);
               else engineMenu.setIcon(Playing2);
             }
-          }
-        });
   }
 
   public void refreshDoubleMoveInfoStatus() {
@@ -10446,12 +10880,11 @@ public class Menu extends JMenuBar {
   }
 
   public void updateFastLinks() {
-    if (!Lizzie.config.showQuickLinks) {
-      quickLinks.setVisible(false);
-      return;
-    } else {
-      quickLinks.setVisible(true);
-    }
+    quickLinks.setVisible(Lizzie.config.showQuickLinks);
+    if (Lizzie.config.showQuickLinks) refreshQuickLinkItems();
+  }
+
+  private void refreshQuickLinkItems() {
     ArrayList<ProgramData> programData = getProgramData();
     quickLinks.removeAll();
     for (int i = 0; i < programData.size(); i++) {
