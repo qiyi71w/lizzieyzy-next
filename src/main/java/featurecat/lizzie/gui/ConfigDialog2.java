@@ -138,6 +138,8 @@ public class ConfigDialog2 extends JDialog {
   private static final String CLIENT_SECTION_HEADING = "lizzie.config.sectionHeading";
   private static final String CLIENT_SKIP_TEXT_STYLE = "lizzie.config.skipTextStyle";
   private static final String CLIENT_DESIGN_ROW_CONTROL_HOST = "lizzie.config.designRowControlHost";
+  private static final String CLIENT_SETTINGS_TARGET_ID = "lizzie.config.settingTargetId";
+  private static final int SETTING_HIGHLIGHT_MILLIS = 2400;
   private static final int MODERN_NAV_DISPLAY = 0;
   private static final int MODERN_NAV_KIFU = 1;
   private static final int MODERN_NAV_ENGINE = 2;
@@ -164,6 +166,13 @@ public class ConfigDialog2 extends JDialog {
   private final List<ModernTabComponent> modernNavItems = new ArrayList<>();
   private final Map<Integer, JComponent> modernSectionAnchors = new HashMap<>();
   private int activeModernNavIndex = 0;
+  private long settingsNavigationGeneration;
+  private int pendingSettingNavigationPasses;
+  private String pendingSettingTargetId;
+  private JComponent highlightedSettingRow;
+  private Border highlightedSettingOriginalBorder;
+  private javax.swing.Timer settingHighlightTimer;
+  private boolean disposed;
   private boolean syncingShowCommentControl = false;
 
   javax.swing.Timer timer;
@@ -1971,7 +1980,12 @@ public class ConfigDialog2 extends JDialog {
     setBoardSize();
     setShowMoveNumber();
     rebuildDisplayTabLikeDesign();
-    SwingUtilities.invokeLater(() -> rebuildDisplayTabLikeDesign(activeModernNavIndex));
+    long initialDisplayRebuildGeneration = settingsNavigationGeneration;
+    SwingUtilities.invokeLater(
+        () -> {
+          if (disposed || settingsNavigationGeneration != initialDisplayRebuildGeneration) return;
+          rebuildDisplayTabLikeDesign(activeModernNavIndex);
+        });
     syncModernTabSelection();
     modernizeComponentTree(this);
     AccessibilitySupport.applyToTree(getContentPane());
@@ -1990,6 +2004,169 @@ public class ConfigDialog2 extends JDialog {
             if (timer != null) timer.stop();
           }
         });
+  }
+
+  @Override
+  public void setVisible(boolean visible) {
+    if (!visible) cancelSettingNavigation();
+    super.setVisible(visible);
+  }
+
+  @Override
+  public void dispose() {
+    disposed = true;
+    cancelSettingNavigation();
+    super.dispose();
+  }
+
+  /** Selects and reveals a real setting row without changing its value. */
+  public boolean locateSetting(String targetId) {
+    if (!"settings.black-winrate".equals(targetId) || disposed) return false;
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> locateSetting(targetId));
+      return true;
+    }
+    pendingSettingTargetId = targetId;
+    pendingSettingNavigationPasses = 0;
+    settingsNavigationGeneration++;
+    clearSettingHighlight();
+    activeModernNavIndex = MODERN_NAV_ENGINE;
+    if (tabbedPane == null || uiTab == null) {
+      pendingSettingTargetId = null;
+      return false;
+    }
+    if (tabbedPane.getSelectedIndex() != 0) tabbedPane.setSelectedIndex(0);
+    rebuildDisplayTabLikeDesign(MODERN_NAV_ENGINE);
+    syncModernTabSelection();
+    if (findSettingRow(uiTab, targetId) == null) {
+      pendingSettingTargetId = null;
+      return false;
+    }
+    return true;
+  }
+
+  private void cancelSettingNavigation() {
+    pendingSettingTargetId = null;
+    pendingSettingNavigationPasses = 0;
+    settingsNavigationGeneration++;
+    clearSettingHighlight();
+  }
+
+  private void queueSettingNavigation() {
+    if (pendingSettingTargetId == null || disposed) return;
+    String targetId = pendingSettingTargetId;
+    long generation = settingsNavigationGeneration;
+    SwingUtilities.invokeLater(() -> applySettingNavigation(targetId, generation));
+  }
+
+  private void applySettingNavigation(String targetId, long generation) {
+    if (disposed
+        || generation != settingsNavigationGeneration
+        || !targetId.equals(pendingSettingTargetId)
+        || activeModernNavIndex != MODERN_NAV_ENGINE
+        || tabbedPane.getSelectedIndex() != 0) return;
+    JComponent row = findSettingRow(uiTab, targetId);
+    if (row == null) {
+      pendingSettingTargetId = null;
+      return;
+    }
+    Component selected = tabbedPane.getSelectedComponent();
+    if (!(selected instanceof JScrollPane)) return;
+    JScrollPane scrollPane = (JScrollPane) selected;
+    Component view = scrollPane.getViewport().getView();
+    if (view == null || !SwingUtilities.isDescendingFrom(row, view)) return;
+    uiTab.revalidate();
+    scrollPane.revalidate();
+    scrollPane.validate();
+    uiTab.validate();
+    Rectangle rowBounds =
+        SwingUtilities.convertRectangle(
+            row, new Rectangle(0, 0, row.getWidth(), row.getHeight()), view);
+    Rectangle visible = scrollPane.getViewport().getViewRect();
+    if (view.getHeight() <= 0 || rowBounds.height <= 0 || visible.height <= 0) {
+      if (++pendingSettingNavigationPasses < 4) queueSettingNavigation();
+      return;
+    }
+    highlightSettingRow(row);
+    uiTab.revalidate();
+    scrollPane.revalidate();
+    scrollPane.validate();
+    uiTab.validate();
+    rowBounds =
+        SwingUtilities.convertRectangle(
+            row, new Rectangle(0, 0, row.getWidth(), row.getHeight()), view);
+    visible = scrollPane.getViewport().getViewRect();
+    int targetY = visible.y;
+    if (rowBounds.y < visible.y) {
+      targetY = rowBounds.y;
+    } else if (rowBounds.y + rowBounds.height > visible.y + visible.height) {
+      targetY = rowBounds.y + rowBounds.height - visible.height;
+    }
+    int maxY = Math.max(0, view.getHeight() - visible.height);
+    targetY = Math.max(0, Math.min(targetY, maxY));
+    scrollPane.getViewport().setViewPosition(new java.awt.Point(visible.x, targetY));
+
+    pendingSettingTargetId = null;
+    Component focusTarget =
+        "settings.black-winrate".equals(targetId) && SwingUtilities.isDescendingFrom(chkAlwaysShowBlackWinrate, row)
+            ? chkAlwaysShowBlackWinrate
+            : row;
+    focusTarget.requestFocusInWindow();
+    if (!focusTarget.isFocusOwner()) focusTarget.requestFocus();
+  }
+
+  private JComponent findSettingRow(Component root, String targetId) {
+    if (root instanceof JComponent
+        && targetId.equals(((JComponent) root).getClientProperty(CLIENT_SETTINGS_TARGET_ID))) {
+      return (JComponent) root;
+    }
+    if (root instanceof java.awt.Container) {
+      for (Component child : ((java.awt.Container) root).getComponents()) {
+        JComponent match = findSettingRow(child, targetId);
+        if (match != null) return match;
+      }
+    }
+    return null;
+  }
+
+  private void highlightSettingRow(JComponent row) {
+    clearSettingHighlight();
+    highlightedSettingRow = row;
+    highlightedSettingOriginalBorder = row.getBorder();
+    row.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(SETTINGS_GOLD_SOFT, 2),
+            BorderFactory.createEmptyBorder(7, 0, 7, 0)));
+    row.revalidate();
+    row.repaint();
+    settingHighlightTimer =
+        new javax.swing.Timer(
+            SETTING_HIGHLIGHT_MILLIS,
+            e -> {
+              if (highlightedSettingRow != row) return;
+              row.setBorder(highlightedSettingOriginalBorder);
+              row.revalidate();
+              row.repaint();
+              highlightedSettingRow = null;
+              highlightedSettingOriginalBorder = null;
+              settingHighlightTimer = null;
+            });
+    settingHighlightTimer.setRepeats(false);
+    settingHighlightTimer.start();
+  }
+
+  private void clearSettingHighlight() {
+    if (settingHighlightTimer != null) {
+      settingHighlightTimer.stop();
+      settingHighlightTimer = null;
+    }
+    if (highlightedSettingRow != null) {
+      highlightedSettingRow.setBorder(highlightedSettingOriginalBorder);
+      highlightedSettingRow.revalidate();
+      highlightedSettingRow.repaint();
+      highlightedSettingRow = null;
+      highlightedSettingOriginalBorder = null;
+    }
   }
 
   private JPanel createModernHeader() {
@@ -2286,13 +2463,21 @@ public class ConfigDialog2 extends JDialog {
   }
 
   private void selectModernSettingsSection(int navIndex, int targetTabIndex, int scrollY) {
+    cancelSettingNavigation();
     activeModernNavIndex = navIndex;
     if (targetTabIndex == 0 && navIndex <= MODERN_NAV_ADVANCED) {
       rebuildDisplayTabLikeDesign(navIndex);
+    } else {
+      settingsNavigationGeneration++;
     }
     tabbedPane.setSelectedIndex(targetTabIndex);
+    long selectionGeneration = settingsNavigationGeneration;
     SwingUtilities.invokeLater(
         () -> {
+          if (disposed
+              || selectionGeneration != settingsNavigationGeneration
+              || activeModernNavIndex != navIndex
+              || tabbedPane.getSelectedIndex() != targetTabIndex) return;
           Component selected = tabbedPane.getSelectedComponent();
           if (selected instanceof JScrollPane) {
             JScrollPane scrollPane = (JScrollPane) selected;
@@ -2679,6 +2864,8 @@ public class ConfigDialog2 extends JDialog {
 
   private void rebuildDisplayTabLikeDesign(int navIndex) {
     if (uiTab == null) return;
+    clearSettingHighlight();
+    settingsNavigationGeneration++;
     uiTab.removeAll();
     uiTab.setOpaque(true);
     uiTab.setBackground(SETTINGS_BG);
@@ -2699,6 +2886,7 @@ public class ConfigDialog2 extends JDialog {
     uiTab.add(content, BorderLayout.NORTH);
     uiTab.revalidate();
     uiTab.repaint();
+    queueSettingNavigation();
   }
 
   private void addModernCard(JPanel content, JPanel card) {
@@ -2754,6 +2942,13 @@ public class ConfigDialog2 extends JDialog {
             configText("ConfigDialog2.modern.analysis.winrate", "显示胜率曲线"),
             configText("ConfigDialog2.modern.analysis.winrateSub", "在主界面展示当前棋局胜率变化"),
             chkShowWinrate);
+        JPanel blackWinrateRow =
+            addToggleRow(
+                analysis,
+                resourceBundle.getString("Menu.alwaysShowBlackWinrate"),
+                configText("FunctionSearch.description.blackWinrate", "始终显示黑方胜率"),
+                chkAlwaysShowBlackWinrate);
+        blackWinrateRow.putClientProperty(CLIENT_SETTINGS_TARGET_ID, "settings.black-winrate");
         addToggleRow(
             analysis,
             configText("ConfigDialog2.modern.analysis.variation", "显示分支面板"),
@@ -3052,12 +3247,13 @@ public class ConfigDialog2 extends JDialog {
     return card;
   }
 
-  private void addToggleRow(JPanel card, String title, String subtitle, JCheckBox toggle) {
+  private JPanel addToggleRow(JPanel card, String title, String subtitle, JCheckBox toggle) {
     JPanel row = createDesignRow(title, subtitle);
     AccessibilitySupport.button(toggle, title, subtitle);
     addDesignRowControl(row, prepareDesignSwitch(toggle));
     installToggleRowClickTargets(row, toggle);
     card.add(row);
+    return row;
   }
 
   private void addInputRow(
@@ -6432,6 +6628,7 @@ public class ConfigDialog2 extends JDialog {
   }
 
   public void switchTab(int index) {
+    cancelSettingNavigation();
     if (index == 1) loadThemeTab();
     activeModernNavIndex = defaultModernNavIndexForTab(index);
     tabbedPane.setSelectedIndex(index);

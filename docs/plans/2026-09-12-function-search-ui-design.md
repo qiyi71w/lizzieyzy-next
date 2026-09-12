@@ -1,8 +1,8 @@
 # 搜索导航 UI 设计依据
 
-Design version: 00-r2 (approval candidate)
-Status: blocked — user approval and Windows system-scale 150%/200% acceptance pending
-Scope: ticket 00, isolated Swing prototype; 01 must not start.
+Design version: 00-r2 (approved)
+Status: approved by user on 2026-09-12; Windows system-scale 150%/200% acceptance pending
+Scope: ticket 00 visual authority; user authorized 01 implementation with system-scale acceptance retained as a closure gate.
 
 ## 方向与参照
 
@@ -107,4 +107,4 @@ pwsh -NoProfile -File prototype/function-search-ui/run.ps1
 
 修复模式审查结论：`SUCCESS`。Standards 与 Spec 分别完成 FULL_REVIEW 和针对修复的 VERIFICATION，父代理核对两轮冻结输入未变。STANDARDS-C1（独立目标计时器）、SPEC-001（紧凑入口及真实工具栏适配）、SPEC-002（长译文与字形）、SPEC-004（交互录屏）均 resolved；SPEC-003 与 STANDARDS-C1 重复，合并记账。视觉 V1/V2/V3 均 resolved，finish disposition 为 `ship`；当前不可用的 Impeccable finish agent 由通用只读 reviewer 按同一视觉修复范围替代。开放 IN_SCOPE 0，DEFERRED 0，follow-up 0。此结论只覆盖原型修复，不清除外部验收门禁。
 
-设计候选为 00-r2，对应原型 `1cb47df6`，用户确认尚未发生。Windows 系统缩放 150%/200% 未验；00 保持 blocked，01 不可开工。本地 `.scratch` 是票据依据；提交到 `docs/plans/2026-09-12-function-search-ui-design.md` 的同版快照用于跨工作树交接。完整 acceptance 状态在票据 Completion record；原生运行记录在证据目录 `acceptance-record.json`，本地副本来源封存在 `prototype-provenance.json`。
+用户于 2026-09-12 本会话批准设计 00-r2 与原型 `1cb47df6`，随后明确同意 01 现在开工；Windows 系统缩放 150%/200% 保留为未完成验收门禁，补验前不关闭相关票据。本地 `.scratch` 是票据依据；提交到 `docs/plans/2026-09-12-function-search-ui-design.md` 的同版快照用于跨工作树交接。完整 acceptance 状态在票据 Completion record；原生运行记录在证据目录 `acceptance-record.json`，本地副本来源封存在 `prototype-provenance.json`。

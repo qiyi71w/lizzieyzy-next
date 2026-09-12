@@ -862,6 +862,7 @@ public class LizzieFrame extends JFrame {
   public static boolean isTempForcing = false;
   public FoxKifuDownload foxKifuDownload;
   public KataGoAutoSetupDialog kataGoAutoSetupDialog;
+  private FunctionSearchController functionSearch;
   public int noneMaxX, noneMaxY, noneMaxWidth, noneMaxHeight;
 
   private boolean tempShowBlack;
@@ -1965,6 +1966,7 @@ public class LizzieFrame extends JFrame {
         toolbar,
         humanSlTrainingBar,
         engineStartupStatusButton);
+    functionSearch = new FunctionSearchController(this);
     Lizzie.engineStartupStatus.addListener(this::updateEngineStartupStatus);
     mainPanel.setVisible(false);
     commentScrollPane.setVisible(false);
@@ -3208,13 +3210,41 @@ public class LizzieFrame extends JFrame {
   }
 
   public void openConfigDialog2(int index) {
-    boolean oriPonder = Lizzie.leelaz.isPondering();
-    if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.togglePonder();
-    configDialog2 = new ConfigDialog2();
-    configDialog2.switchTab(index);
-    Utils.changeFontRecursive(configDialog2, Config.sysDefaultFontName);
-    configDialog2.setVisible(true);
-    if (oriPonder) Lizzie.leelaz.togglePonder();
+    openConfigDialog2(dialog -> {
+      dialog.switchTab(index);
+      return true;
+    });
+  }
+
+  public boolean openConfigDialog2AtSetting(String targetId) {
+    if (configDialog2 != null && configDialog2.isShowing()) {
+      if (!configDialog2.locateSetting(targetId)) return false;
+      configDialog2.toFront();
+      return true;
+    }
+    return openConfigDialog2(dialog -> dialog.locateSetting(targetId));
+  }
+
+  private boolean openConfigDialog2(java.util.function.Predicate<ConfigDialog2> prepare) {
+    Leelaz engine = Lizzie.leelaz;
+    boolean oriPonder = engine != null && engine.isPondering();
+    if (oriPonder) engine.togglePonder();
+    try {
+      configDialog2 = new ConfigDialog2();
+      if (!prepare.test(configDialog2)) {
+        configDialog2.dispose();
+        return false;
+      }
+      Utils.changeFontRecursive(configDialog2, Config.sysDefaultFontName);
+      configDialog2.setVisible(true);
+      return true;
+    } finally {
+      if (oriPonder && Lizzie.leelaz == engine && !engine.isPondering()) engine.togglePonder();
+    }
+  }
+
+  public void openFunctionSearch() {
+    if (functionSearch != null) functionSearch.open();
   }
 
   public static void openMoreEngineDialog() {
@@ -21001,6 +21031,12 @@ public class LizzieFrame extends JFrame {
     kataGoAutoSetupDialog.setVisible(true);
     kataGoAutoSetupDialog.ensureVisibleOnScreen();
     kataGoAutoSetupDialog.toFront();
+  }
+
+  /** Generic navigation changes section only; it never transfers a repair request. */
+  public void openKataGoAcceleration() {
+    openKataGoAutoSetup();
+    kataGoAutoSetupDialog.showAccelerationSection();
   }
 
   private void resumeAnalysisAfterLoad() {

@@ -28,6 +28,7 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.Toolkit;
 import java.awt.event.*;
 import java.io.File;
 import java.io.IOException;
@@ -5257,6 +5258,14 @@ public class Menu extends JMenuBar {
     settings.setFont(baseMenuFont);
     // settings.setFont(headFont);
     this.add(settings);
+    JFontMenuItem searchFeatures =
+        new JFontMenuItem(resourceBundle.getString("FunctionSearch.title"));
+    // The window-scoped dispatcher owns Ctrl/Command+K; a JMenuItem accelerator
+    // would also steal it from text editors in the main window.
+    searchFeatures.setToolTipText(
+        KeyEvent.getKeyModifiersText(Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()) + "+K");
+    searchFeatures.addActionListener(event -> Lizzie.frame.openFunctionSearch());
+    settings.add(searchFeatures);
 
     final JFontMenuItem engineConfig =
         new JFontMenuItem(resourceBundle.getString("Menu.engineConfig")); // ("引擎(Alt+X)");
@@ -8180,6 +8189,33 @@ public class Menu extends JMenuBar {
       Lizzie.frame.topPanel.leftArea.add(btnPlayerStrengthEstimate);
       Lizzie.frame.topPanel.centerArea.add(btnAutoSetup);
       Lizzie.frame.topPanel.centerArea.add(btnFlashAnalyze);
+      String searchFeaturesTitle = resourceBundle.getString("FunctionSearch.title");
+      JFontButton searchFeaturesButton = new JFontButton() {
+        private final ComponentAdapter resize = new ComponentAdapter() {
+          @Override
+          public void componentResized(ComponentEvent event) {
+            setText(Lizzie.frame.getWidth() < 900 ? "" : searchFeaturesTitle);
+          }
+        };
+        @Override
+        public void addNotify() {
+          super.addNotify();
+          Lizzie.frame.addComponentListener(resize);
+          setText(Lizzie.frame.getWidth() < 900 ? "" : searchFeaturesTitle);
+        }
+        @Override
+        public void removeNotify() {
+          Lizzie.frame.removeComponentListener(resize);
+          super.removeNotify();
+        }
+      };
+      searchFeaturesButton.setIcon(new FunctionSearchDialog.SearchIcon());
+      searchFeaturesButton.setFocusable(false);
+      searchFeaturesButton.setToolTipText(searchFeaturesTitle);
+      searchFeaturesButton.getAccessibleContext().setAccessibleName(searchFeaturesTitle);
+      searchFeaturesButton.addActionListener(event -> Lizzie.frame.openFunctionSearch());
+      searchFeaturesButton.setText(Lizzie.frame.getWidth() < 900 ? "" : searchFeaturesTitle);
+      Lizzie.frame.topPanel.centerArea.add(searchFeaturesButton);
 
       Lizzie.frame.topPanel.rightArea.add(btnHawkeye);
       Lizzie.frame.topPanel.rightArea.add(btnRankMark);
