@@ -46,6 +46,7 @@ final class FunctionSearchDialog extends JDialog {
   private final List<String> categoryKeys = FunctionCatalog.categoryKeys();
   private final SearchInputSession inputSession = new SearchInputSession();
   private final DefaultListModel<Entry> model = new DefaultListModel<>();
+  private final java.util.Map<String, Availability> availability = new java.util.HashMap<>();
   private final JTextField input;
   private final JList<Entry> results;
   private final JPanel expansion = new JPanel(new BorderLayout(0, 4));
@@ -60,7 +61,8 @@ final class FunctionSearchDialog extends JDialog {
   private final DocumentListener queryListener;
   private boolean closed;
   private String target;
-  private String lastReason;
+
+  private record Availability(String reason, String dependency) {}
 
   FunctionSearchDialog(
       Window owner, Window anchor, FunctionSearch index, FunctionSearchController navigation) {
@@ -241,9 +243,10 @@ final class FunctionSearchDialog extends JDialog {
             refreshResults();
             // Text views receive this document event after application listeners. Layout
             // must wait until they have updated complex-script runs such as Thai.
-            SwingUtilities.invokeLater(() -> {
-              if (!closed) resizeSearch();
-            });
+            SwingUtilities.invokeLater(
+                () -> {
+                  if (!closed) resizeSearch();
+                });
           }
         };
     input.getDocument().addDocumentListener(queryListener);
@@ -264,14 +267,7 @@ final class FunctionSearchDialog extends JDialog {
                 ownerBounds.x + (ownerBounds.width - searchWidth) / 2,
                 workArea.x + workArea.width - searchWidth - 16)),
         anchorY);
-    stateTimer =
-        new Timer(
-            250,
-            event -> {
-              Entry entry = results.getSelectedValue();
-              String reason = entry == null ? null : navigation.unavailableReason(entry.id());
-              if (!java.util.Objects.equals(reason, lastReason)) refreshSelection();
-            });
+    stateTimer = new Timer(250, event -> refreshVisibleAvailability());
     addWindowListener(
         new WindowAdapter() {
           @Override
@@ -339,6 +335,7 @@ final class FunctionSearchDialog extends JDialog {
   private void refreshResults() {
     Entry previous = results.getSelectedValue();
     model.clear();
+    availability.clear();
     boolean browsing = index.isEmptyQuery(input.getText());
     if (browsing && !expansion.isVisible()) {
       refreshSelection();
@@ -357,6 +354,7 @@ final class FunctionSearchDialog extends JDialog {
       total++;
       if (browsing || visible.size() < 50) visible.add(entry);
     }
+    for (Entry entry : visible) refreshAvailability(entry);
     model.addAll(visible);
     count.setText(String.format(effectiveLocale, copy("results"), total));
     if (previous != null && model.contains(previous)) results.setSelectedValue(previous, true);
@@ -369,11 +367,36 @@ final class FunctionSearchDialog extends JDialog {
 
   private void refreshSelection() {
     Entry entry = results.getSelectedValue();
-    lastReason = entry == null ? null : navigation.unavailableReason(entry.id());
-    activate.setEnabled(entry != null && lastReason == null);
+    if (entry != null) refreshAvailability(entry);
+    activate.setEnabled(entry != null && availability.get(entry.id()).reason() == null);
     results.setCellRenderer(new ResultRenderer());
     results.revalidate();
     results.repaint();
+  }
+
+  private boolean refreshAvailability(Entry entry) {
+    String reason = navigation.unavailableReason(entry.id());
+    String dependency = navigation.dependencyReason(entry.id());
+    Availability previous = availability.get(entry.id());
+    if (previous != null
+        && java.util.Objects.equals(reason, previous.reason())
+        && java.util.Objects.equals(dependency, previous.dependency())) return false;
+    availability.put(entry.id(), new Availability(reason, dependency));
+    return true;
+  }
+
+  private void refreshVisibleAvailability() {
+    int first = results.getFirstVisibleIndex();
+    int last = results.getLastVisibleIndex();
+    boolean changed = false;
+    for (int i = first; i >= 0 && i <= last; i++) {
+      changed |= refreshAvailability(model.get(i));
+    }
+    int selected = results.getSelectedIndex();
+    if (selected >= 0 && (selected < first || selected > last)) {
+      changed |= refreshAvailability(model.get(selected));
+    }
+    if (changed) refreshSelection();
   }
 
   private void activateSelection() {
@@ -480,8 +503,9 @@ final class FunctionSearchDialog extends JDialog {
               BorderFactory.createLineBorder(focus ? TEAL : selected ? LINE : PAPER),
               BorderFactory.createEmptyBorder(8, 10, 8, 10)));
       int width = Math.max(100, list.getFixedCellWidth() - 30);
-      String reason = navigation.unavailableReason(entry.id());
-      String dependency = navigation.dependencyReason(entry.id());
+      Availability state = availability.get(entry.id());
+      String reason = state.reason();
+      String dependency = state.dependency();
       JTextPane heading = new JTextPane();
       heading.setEditable(false);
       heading.setFocusable(false);

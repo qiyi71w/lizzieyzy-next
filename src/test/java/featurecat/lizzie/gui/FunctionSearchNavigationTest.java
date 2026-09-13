@@ -173,6 +173,7 @@ public final class FunctionSearchNavigationTest {
     checkBusyOwnerStateGates(controller, evidence);
     checkNormalizedWhitespaceBrowse(controller, evidence);
     checkDynamicActionRefresh(controller, evidence);
+    checkActionPaintingIsReadOnly(controller, evidence);
     checkAvailabilityIsReadOnly(controller, evidence);
     checkOwnerStateGate(controller, evidence);
     checkActivationTimeModal(controller, evidence);
@@ -443,8 +444,7 @@ public final class FunctionSearchNavigationTest {
     JMenuItem stop = path.get(path.size() - 1);
     try {
       runtime.stopFullTrace();
-      runOnEdtAction(
-          () -> LizzieFrame.menu.refreshFunctionPath("menu.stopFullTrace"));
+      runOnEdtAction(() -> LizzieFrame.menu.refreshFunctionPath("menu.stopFullTrace"));
       if (runOnEdt(stop::isEnabled)) {
         throw new AssertionError("Stop Full Logs action stayed enabled while trace was inactive");
       }
@@ -462,6 +462,81 @@ public final class FunctionSearchNavigationTest {
         throw new AssertionError("Stop Full Logs action did not stop the live trace");
       }
     } finally {
+      runtime.stopFullTrace();
+    }
+  }
+
+  private static void checkActionPaintingIsReadOnly(
+      FunctionSearchController controller, StringBuilder evidence) throws Exception {
+    LoggingRuntime runtime = LoggingRuntime.current().orElseThrow();
+    runtime.stopFullTrace();
+    SwingUtilities.invokeLater(controller::open);
+    JDialog dialog = awaitDialog(FunctionSearchDialog.class, "action search", 4_000);
+    try {
+      JTextField input =
+          (JTextField)
+              findAccessibleTextField(
+                  dialog, Lizzie.resourceBundle.getString("FunctionSearch.title"));
+      JList<?> results = findResultList(dialog);
+      JButton activate =
+          findButton(dialog, Lizzie.resourceBundle.getString("FunctionSearch.activate"));
+      runOnEdtAction(
+          () -> {
+            input.setText(
+                Lizzie.resourceBundle.getString(
+                    FunctionCatalog.entry("menu.stopFullTrace").titleKey()));
+            for (int i = 0; i < results.getModel().getSize(); i++) {
+              if (((FunctionCatalog.Entry) results.getModel().getElementAt(i))
+                  .id()
+                  .equals("menu.stopFullTrace")) {
+                results.setSelectedIndex(i);
+                results.ensureIndexIsVisible(i);
+                return;
+              }
+            }
+            throw new AssertionError("Stop Full Logs result missing");
+          });
+      assertTrue(runOnEdt(() -> !activate.isEnabled()), "inactive trace must disable action");
+      runtime.startFullTrace(java.util.Set.of());
+      await(activate::isEnabled, "live trace action availability", 4_000);
+      runOnEdtAction(
+          () -> {
+            List<JMenuItem> path = LizzieFrame.menu.functionPath("menu.stopFullTrace");
+            javax.swing.JMenu menu = (javax.swing.JMenu) path.get(0);
+            java.util.concurrent.atomic.AtomicInteger refreshes =
+                new java.util.concurrent.atomic.AtomicInteger();
+            javax.swing.event.MenuListener listener =
+                new javax.swing.event.MenuListener() {
+                  public void menuSelected(javax.swing.event.MenuEvent event) {
+                    refreshes.incrementAndGet();
+                  }
+
+                  public void menuDeselected(javax.swing.event.MenuEvent event) {}
+
+                  public void menuCanceled(javax.swing.event.MenuEvent event) {}
+                };
+            menu.addMenuListener(listener);
+            java.awt.image.BufferedImage image =
+                new java.awt.image.BufferedImage(
+                    results.getWidth(),
+                    results.getHeight(),
+                    java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D graphics = image.createGraphics();
+            try {
+              results.paint(graphics);
+              assertEquals(
+                  0, refreshes.get(), "painting search results must not refresh business menus");
+            } finally {
+              graphics.dispose();
+              menu.removeMenuListener(listener);
+            }
+          });
+      runtime.stopFullTrace();
+      await(() -> !activate.isEnabled(), "stopped trace action availability", 4_000);
+      evidence.append("action-paint.read-only=true\n");
+      evidence.append("action-availability.live-transitions=true\n");
+    } finally {
+      runOnEdtAction(dialog::dispose);
       runtime.stopFullTrace();
     }
   }
@@ -523,8 +598,7 @@ public final class FunctionSearchNavigationTest {
     String beforeConfig = runOnEdt(() -> Lizzie.config.uiConfig.toString());
     runOnEdtAction(() -> Lizzie.frame.RightClickMenu.setCoords(new int[] {4, 4}));
     SwingUtilities.invokeLater(() -> controller.activate("board.insert-black", Lizzie.frame));
-    JDialog prompt =
-        awaitOptionPaneDialog(Lizzie.frame, "main board context prompt", 4_000);
+    JDialog prompt = awaitOptionPaneDialog(Lizzie.frame, "main board context prompt", 4_000);
     boolean correctOwner = runOnEdt(() -> prompt.getOwner() == Lizzie.frame);
     dismissMessage(prompt);
     await(() -> !prompt.isShowing(), "main board context prompt cleanup", 4_000);
@@ -560,8 +634,7 @@ public final class FunctionSearchNavigationTest {
     Window independent = runOnEdt(() -> Lizzie.frame.independentMainBoard);
     SwingUtilities.invokeLater(
         () -> controller.activate("board.delete-stone", Lizzie.frame.independentMainBoard));
-    JDialog prompt =
-        awaitOptionPaneDialog(independent, "independent board context prompt", 4_000);
+    JDialog prompt = awaitOptionPaneDialog(independent, "independent board context prompt", 4_000);
     boolean correctOwner = runOnEdt(() -> prompt.getOwner() == independent);
     dismissMessage(prompt);
     await(() -> !prompt.isShowing(), "independent context prompt cleanup", 4_000);
@@ -618,9 +691,8 @@ public final class FunctionSearchNavigationTest {
     }
   }
 
-
-  private static JDialog awaitOptionPaneDialog(
-      Window owner, String label, long timeoutMillis) throws Exception {
+  private static JDialog awaitOptionPaneDialog(Window owner, String label, long timeoutMillis)
+      throws Exception {
     await(() -> findShowingOptionPaneDialog(owner) != null, label, timeoutMillis);
     return runOnEdt(() -> findShowingOptionPaneDialog(owner));
   }
@@ -648,8 +720,6 @@ public final class FunctionSearchNavigationTest {
     return null;
   }
 
-
-
   private static JOptionPane optionPane(Container root) {
     if (root instanceof JOptionPane pane) return pane;
     for (java.awt.Component child : root.getComponents()) {
@@ -661,7 +731,6 @@ public final class FunctionSearchNavigationTest {
     }
     return null;
   }
-
 
   private static void dismissMessage(JDialog dialog) throws Exception {
     JOptionPane pane = runOnEdt(() -> optionPane(dialog));
