@@ -4,6 +4,8 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Show engine startup diagnostics for primary and secondary engines outside first-launch onboarding, including missing executable and model/config path errors.
+- Ignore delayed primary-engine startup diagnostics after engine replacement so they cannot cancel a newer engine game.
 - Add offline function search from the toolbar, Settings menu, and `Ctrl+K`/`Command+K`, covering menus, toolbars, board actions, and settings with multilingual queries, categorized browsing, current availability, and navigation to original controls and confirmations.
 - Bind searchable settings to stable IDs when their rows are created, preserving navigation across row reordering and checking for missing or duplicate targets.
 - Refresh function-search availability outside result painting while keeping visible states live and rechecking actions before activation.

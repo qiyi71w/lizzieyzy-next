@@ -2,6 +2,7 @@ package featurecat.lizzie.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -18,23 +19,12 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class EngineStartupDialogPolicyTest {
   @TempDir Path tempDir;
-
-  @Test
-  void primaryEngineFailuresStayInTheAccessibleRepairStatus() {
-    assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, false));
-    assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, true));
-  }
-
-  @Test
-  void secondaryEngineDiagnosticsRemainAvailableOutsideFirstLaunch() {
-    assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(false, false));
-    assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(false, true));
-  }
 
   @Test
   void headlessSecondaryDiagnosticPreservesStatusAndClearsPendingEngineGame() throws Exception {
@@ -65,6 +55,65 @@ class EngineStartupDialogPolicyTest {
       assertEquals(EngineStartupStatus.State.READY, Lizzie.engineStartupStatus.snapshot().state);
       assertFalse(EngineManager.hasActiveEngineGameTransaction());
       assertFalse(Lizzie.board.isPkBoard);
+    } finally {
+      EngineManager.resetEngineGameTransactionStateForTest();
+      Lizzie.config = previousConfig;
+      Lizzie.setPrimaryEngine(previousPrimary);
+      Lizzie.engineManager = previousManager;
+      Lizzie.board = previousBoard;
+      Lizzie.frame = previousFrame;
+      forceFirstLaunchSession(previousFirstLaunch);
+      Lizzie.engineStartupStatus.ready();
+    }
+  }
+
+  @Test
+  void stalePrimaryDiagnosticCannotCancelReplacementEngineGame() throws Exception {
+    assumeTrue(GraphicsEnvironment.isHeadless());
+    Config previousConfig = Lizzie.config;
+    Leelaz previousPrimary = Lizzie.leelaz;
+    EngineManager previousManager = Lizzie.engineManager;
+    Board previousBoard = Lizzie.board;
+    LizzieFrame previousFrame = Lizzie.frame;
+    boolean previousFirstLaunch = forceFirstLaunchSession(false);
+    try {
+      Lizzie.config = ConfigTestHelper.createForTests(tempDir.resolve("stale-primary-diagnostic"));
+      Lizzie.config.autoCheckEngineAlive = false;
+      Leelaz oldPrimary = new Leelaz("");
+      Leelaz replacement = new Leelaz("");
+      Leelaz opponent = new Leelaz("");
+      Lizzie.setPrimaryEngine(oldPrimary);
+      long capturedGeneration = Lizzie.capturePrimaryEngineGeneration(oldPrimary);
+      Object capturedIncarnation = oldPrimary.captureEngineIncarnationFence();
+      Lizzie.setPrimaryEngine(replacement);
+      Lizzie.engineManager = new EngineManager(List.of(replacement, opponent));
+      Lizzie.board = new Board();
+      Lizzie.board.isPkBoard = true;
+      Lizzie.frame = null;
+      EngineManager.beginEngineGameTransaction(
+          Lizzie.engineManager, EngineGamePlans.harness(0, 1, false), null, true);
+      Lizzie.engineStartupStatus.ready();
+
+      Method diagnostic =
+          Leelaz.class.getDeclaredMethod(
+              "showDiagnosticOnEventDispatchThread",
+              String.class, boolean.class, long.class, boolean.class, Object.class, boolean.class);
+      diagnostic.setAccessible(true);
+      SwingUtilities.invokeAndWait(
+          () -> {
+            try {
+              diagnostic.invoke(
+                  oldPrimary, "old startup failure", false, capturedGeneration, true,
+                  capturedIncarnation, true);
+            } catch (ReflectiveOperationException failure) {
+              throw new AssertionError(failure);
+            }
+          });
+
+      assertSame(replacement, Lizzie.leelaz);
+      assertTrue(EngineManager.hasActiveEngineGameTransaction());
+      assertTrue(Lizzie.board.isPkBoard);
+      assertEquals(EngineStartupStatus.State.READY, Lizzie.engineStartupStatus.snapshot().state);
     } finally {
       EngineManager.resetEngineGameTransactionStateForTest();
       Lizzie.config = previousConfig;
