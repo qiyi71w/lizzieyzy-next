@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.logging.LoggingRuntime;
+import featurecat.lizzie.search.FunctionCatalog;
+import featurecat.lizzie.search.FunctionSearch;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dialog;
@@ -21,13 +24,15 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import javax.swing.JButton;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
+import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
-import javax.swing.MenuSelectionManager;
 import javax.swing.JTextField;
+import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -165,6 +170,10 @@ public final class FunctionSearchNavigationTest {
     evidence.append("presentation=").append(presentation).append('\n');
     checkSettingNavigation(controller, evidence);
     checkHiddenTopNavigation(controller, evidence);
+    checkBusyOwnerStateGates(controller, evidence);
+    checkNormalizedWhitespaceBrowse(controller, evidence);
+    checkDynamicActionRefresh(controller, evidence);
+    checkAvailabilityIsReadOnly(controller, evidence);
     checkOwnerStateGate(controller, evidence);
     checkActivationTimeModal(controller, evidence);
     checkMainBoardContext(controller, evidence);
@@ -334,6 +343,154 @@ public final class FunctionSearchNavigationTest {
       clearMenuSelection();
     } finally {
       runOnEdtAction(() -> Lizzie.config.allowMoveNumber = previous);
+    }
+  }
+
+  private static void checkNormalizedWhitespaceBrowse(
+      FunctionSearchController controller, StringBuilder evidence) throws Exception {
+    FunctionSearchDialog dialog =
+        runOnEdt(
+            () ->
+                new FunctionSearchDialog(
+                    Lizzie.frame, Lizzie.frame, new FunctionSearch(), controller));
+    try {
+      JTextField input =
+          (JTextField)
+              findAccessibleTextField(
+                  dialog, Lizzie.resourceBundle.getString("FunctionSearch.title"));
+      JList<?> results = findResultList(dialog);
+      JButton browse = findButton(dialog, Lizzie.resourceBundle.getString("FunctionSearch.browse"));
+      if (input == null || results == null || browse == null) {
+        throw new AssertionError("function search controls were not constructed");
+      }
+      for (String query : List.of("\u00a0", "\u0085")) {
+        runOnEdtAction(() -> input.setText(query));
+        flushEdt();
+        runOnEdtAction(
+            () -> {
+              if (browse.isVisible()) browse.doClick(0);
+            });
+        int visibleRows = runOnEdt(() -> results.getModel().getSize());
+        int expectedRows = FunctionCatalog.entries().size();
+        evidence
+            .append("normalized-empty.U+")
+            .append(String.format("%04X", query.codePointAt(0)))
+            .append(".rows=")
+            .append(visibleRows)
+            .append('/')
+            .append(expectedRows)
+            .append('\n');
+        if (visibleRows != expectedRows) {
+          throw new AssertionError(
+              "normalized-empty query was capped: U+"
+                  + String.format("%04X", query.codePointAt(0))
+                  + " rows="
+                  + visibleRows
+                  + "/"
+                  + expectedRows);
+        }
+      }
+    } finally {
+      runOnEdtAction(dialog::dispose);
+    }
+  }
+
+  private static void checkBusyOwnerStateGates(
+      FunctionSearchController controller, StringBuilder evidence) throws Exception {
+    List<JMenuItem> webBoardPath =
+        runOnEdt(() -> LizzieFrame.menu.refreshFunctionPath("menu.webBoardToggle"));
+    if (webBoardPath == null || webBoardPath.isEmpty()) {
+      throw new AssertionError("Web Board toggle did not resolve");
+    }
+    JMenuItem webBoardToggle = webBoardPath.get(webBoardPath.size() - 1);
+    boolean previousEnabled = runOnEdt(webBoardToggle::isEnabled);
+    try {
+      runOnEdtAction(() -> webBoardToggle.setEnabled(false));
+      String busyReason = runOnEdt(() -> controller.unavailableReason("menu.webBoardToggle"));
+      evidence.append("web-board.busy.reason=").append(busyReason).append('\n');
+      if (busyReason == null
+          || !busyReason.equals(runOnEdt(() -> controller.activate("menu.webBoardToggle")))) {
+        throw new AssertionError("Web Board busy owner gate was not projected");
+      }
+    } finally {
+      runOnEdtAction(() -> webBoardToggle.setEnabled(previousEnabled));
+    }
+
+    boolean previousHumanGame = runOnEdt(() -> Lizzie.frame.isPlayingAgainstLeelaz);
+    try {
+      runOnEdtAction(() -> Lizzie.frame.isPlayingAgainstLeelaz = true);
+      String coachReason = runOnEdt(() -> controller.unavailableReason("game.ai-coach"));
+      evidence.append("ai-coach.game.reason=").append(coachReason).append('\n');
+      if (coachReason == null
+          || !coachReason.equals(runOnEdt(() -> controller.activate("game.ai-coach")))) {
+        throw new AssertionError("AI Coach game-state owner gate was not projected");
+      }
+    } finally {
+      runOnEdtAction(() -> Lizzie.frame.isPlayingAgainstLeelaz = previousHumanGame);
+    }
+  }
+
+  private static void checkDynamicActionRefresh(
+      FunctionSearchController controller, StringBuilder evidence) throws Exception {
+    LoggingRuntime runtime =
+        LoggingRuntime.current()
+            .orElseThrow(() -> new AssertionError("logging runtime was not initialized"));
+    List<JMenuItem> path =
+        runOnEdt(() -> LizzieFrame.menu.refreshFunctionPath("menu.stopFullTrace"));
+    if (path == null || path.isEmpty()) {
+      throw new AssertionError("Stop Full Logs action did not resolve");
+    }
+    JMenuItem stop = path.get(path.size() - 1);
+    try {
+      runtime.stopFullTrace();
+      runOnEdtAction(
+          () -> LizzieFrame.menu.refreshFunctionPath("menu.stopFullTrace"));
+      if (runOnEdt(stop::isEnabled)) {
+        throw new AssertionError("Stop Full Logs action stayed enabled while trace was inactive");
+      }
+      runtime.startFullTrace(java.util.Set.of());
+      if (!runtime.fullTraceActive()) {
+        throw new AssertionError("Full Logs did not start for dynamic action check");
+      }
+      String reason = runOnEdt(() -> controller.unavailableReason("menu.stopFullTrace"));
+      evidence.append("stop-full-trace.refreshed.reason=").append(reason).append('\n');
+      if (reason != null) {
+        throw new AssertionError("live Stop Full Logs action remained unavailable: " + reason);
+      }
+      assertEquals(null, runOnEdt(() -> controller.activate("menu.stopFullTrace")));
+      if (runtime.fullTraceActive()) {
+        throw new AssertionError("Stop Full Logs action did not stop the live trace");
+      }
+    } finally {
+      runtime.stopFullTrace();
+    }
+  }
+
+  private static void checkAvailabilityIsReadOnly(
+      FunctionSearchController controller, StringBuilder evidence) throws Exception {
+    String key = "txt-move-rank-mark-last-move";
+    boolean hadValue = runOnEdt(() -> Lizzie.config.uiConfig.has(key));
+    Object previous = runOnEdt(() -> Lizzie.config.uiConfig.opt(key));
+    try {
+      runOnEdtAction(() -> Lizzie.config.uiConfig.remove(key));
+      String reason = runOnEdt(() -> controller.unavailableReason("menu.moveRankMenu"));
+      boolean mutated = runOnEdt(() -> Lizzie.config.uiConfig.has(key));
+      evidence
+          .append("setting-availability.reason=")
+          .append(reason)
+          .append('\n')
+          .append("setting-availability.mutated=")
+          .append(mutated)
+          .append('\n');
+      if (mutated) {
+        throw new AssertionError("setting availability mutated UI configuration");
+      }
+    } finally {
+      runOnEdtAction(
+          () -> {
+            if (hadValue) Lizzie.config.uiConfig.put(key, previous);
+            else Lizzie.config.uiConfig.remove(key);
+          });
     }
   }
 
@@ -533,6 +690,28 @@ public final class FunctionSearchNavigationTest {
     } catch (Throwable ignored) {
       // Process termination remains the final cleanup boundary for a failed child probe.
     }
+  }
+
+  private static JButton findButton(Component root, String text) {
+    if (root instanceof JButton button && text.equals(button.getText())) return button;
+    if (root instanceof Container container) {
+      for (Component child : container.getComponents()) {
+        JButton match = findButton(child, text);
+        if (match != null) return match;
+      }
+    }
+    return null;
+  }
+
+  private static JList<?> findResultList(Component root) {
+    if (root instanceof JList<?> list) return list;
+    if (root instanceof Container container) {
+      for (Component child : container.getComponents()) {
+        JList<?> match = findResultList(child);
+        if (match != null) return match;
+      }
+    }
+    return null;
   }
 
   private static <T> T runOnEdt(Callable<T> action) throws Exception {

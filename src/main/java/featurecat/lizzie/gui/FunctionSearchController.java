@@ -91,7 +91,22 @@ final class FunctionSearchController implements KeyEventDispatcher {
     FunctionCatalog.Entry entry = FunctionCatalog.entry(id);
     if (entry == null) return "FunctionSearch.unavailable.targetMissing";
     if (entry.targetType() == FunctionCatalog.TargetType.CONTEXT) return null;
-    return owner.functionEntryUnavailableReason(id);
+    String reason = owner.functionEntryUnavailableReason(id);
+    if (reason != null) return reason;
+    if (entry.targetType() != FunctionCatalog.TargetType.ACTION) return null;
+    javax.swing.JComponent control = currentActionTarget(id);
+    return control instanceof javax.swing.AbstractButton target && !target.isEnabled()
+        ? "FunctionSearch.unavailable.context"
+        : null;
+  }
+
+  private javax.swing.JComponent currentActionTarget(String id) {
+    java.util.List<javax.swing.JMenuItem> path = LizzieFrame.menu.refreshFunctionPath(id);
+    javax.swing.JComponent control =
+        path != null && !path.isEmpty()
+            ? path.get(path.size() - 1)
+            : owner.toolbar.functionTarget(id);
+    return control != null ? control : LizzieFrame.menu.topFunctionTarget(id);
   }
 
   String dependencyReason(String id) {

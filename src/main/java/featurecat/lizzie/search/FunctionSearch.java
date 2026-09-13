@@ -48,6 +48,11 @@ public final class FunctionSearch {
     indexedEntries = buildIndex(entrySnapshot, bundleSnapshot);
   }
 
+  /** Returns whether matching normalization treats the query as empty category browsing. */
+  public boolean isEmptyQuery(String query) {
+    return Query.of(query).empty();
+  }
+
   /** Searches all indexed functions, returning one best-ranked match per stable ID. */
   public List<Match> search(String query, Locale effectiveLocale) {
     Query normalizedQuery = Query.of(query);

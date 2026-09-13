@@ -12947,6 +12947,12 @@ public class LizzieFrame extends JFrame {
     return engine != null && engine.isLoaded() && engine.isStarted();
   }
 
+  private boolean aiCoachBlockedByGame() {
+    return EngineGamePresentation.current().playing()
+        || isPlayingAgainstLeelaz
+        || isAnaPlayingAgainstLeelaz;
+  }
+
   /** Read-only presentation of the same live state used by the original feature owners. */
   String functionEntryUnavailableReason(String id) {
     if (id.startsWith("legacy.") && !Lizzie.config.isChinese)
@@ -12954,6 +12960,8 @@ public class LizzieFrame extends JFrame {
     if (id.startsWith("review.") && EngineGamePresentation.current().startingOrPlaying())
       return "AnalysisSettings.reuseStatus.engine_game";
     switch (id) {
+      case "game.ai-coach":
+        return aiCoachBlockedByGame() ? "AnalysisSettings.reuseStatus.engine_game" : null;
       case "sync.exit-web-trial":
         return Lizzie.webBoardManager != null
                 && Lizzie.webBoardManager.isRunning()
@@ -13139,9 +13147,7 @@ public class LizzieFrame extends JFrame {
       humanSlGame.showControlPanel();
       return;
     }
-    if (EngineGamePresentation.current().playing()
-        || Lizzie.frame.isPlayingAgainstLeelaz
-        || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
+    if (aiCoachBlockedByGame()) {
       Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.engineGameStopFirstHint"));
       return;
     }

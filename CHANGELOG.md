@@ -4,7 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
-- Expand function search across menus, toolbars, and board context actions with localized descriptions, current availability, and navigation to original controls and confirmations.
+- Add offline function search from the toolbar, Settings menu, and `Ctrl+K`/`Command+K`, covering menus, toolbars, board actions, and settings with multilingual queries, categorized browsing, current availability, and navigation to original controls and confirmations.
 - Split CI into independent repository, script, and Java jobs with grouped local entrypoints and a unified `ci-required` gate; retain the existing required-check names during migration.
 - Save KataGo rule preferences on confirmation and close the settings dialog after successful application.
 - Keep SGF rule-failure navigation local until explicit confirmed restore, preserve trial-return rules and positions, and resume both comparison engines after synchronization (#448).

@@ -237,7 +237,7 @@ final class FunctionSearchDialog extends JDialog {
 
           private void changed() {
             if (closed) return;
-            expansion.setVisible(!input.getText().isBlank());
+            expansion.setVisible(!index.isEmptyQuery(input.getText()));
             refreshResults();
             // Text views receive this document event after application listeners. Layout
             // must wait until they have updated complex-script runs such as Thai.
@@ -339,7 +339,8 @@ final class FunctionSearchDialog extends JDialog {
   private void refreshResults() {
     Entry previous = results.getSelectedValue();
     model.clear();
-    if (input.getText().isBlank() && !expansion.isVisible()) {
+    boolean browsing = index.isEmptyQuery(input.getText());
+    if (browsing && !expansion.isVisible()) {
       refreshSelection();
       return;
     }
@@ -349,7 +350,6 @@ final class FunctionSearchDialog extends JDialog {
             : categoryKeys.get(categories.getSelectedIndex() - 1);
     List<FunctionSearch.Match> matches = index.search(input.getText(), effectiveLocale);
     int total = 0;
-    boolean browsing = input.getText().isBlank();
     List<Entry> visible = new ArrayList<>(browsing ? matches.size() : Math.min(50, matches.size()));
     for (FunctionSearch.Match match : matches) {
       Entry entry = entries.get(match.id());
