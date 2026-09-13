@@ -54,6 +54,7 @@ PY_COMPILE_FILES = (
     "scripts/test_validate_windows_release_assets.py",
     "scripts/test_validate_release_workflow_identity.py",
     "scripts/test_windows_launcher_packaging.py",
+    "scripts/test_windows_ci_diagnostics.py",
     "scripts/validate_release_notes.py",
     "scripts/validate_windows_release_assets.py",
     "scripts/validate_release_workflow_identity.py",
@@ -251,6 +252,10 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
         Step(
             "Parse RTX 50 benchmark PowerShell",
             (powershell, "-NoProfile", "-Command", parser_script),
+        ),
+        Step(
+            "Verify Windows CI process supervision",
+            (python, "-m", "unittest", "scripts.test_windows_ci_diagnostics"),
         ),
         Step(
             "Verify Windows credential persistence",

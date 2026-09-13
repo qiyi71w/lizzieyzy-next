@@ -75,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_local_ci.ps1 -Profile All -
 | Group | Portable | Windows | 额外工具 |
 | --- | --- | --- | --- |
 | `repository` | 换行自测、换行、Markdown 链接 | 换行 | 无 |
-| `scripts` | Python 辅助脚本、KataGo shell、Bash 语法 | JCEF、NVIDIA、RTX50 PowerShell 语法 | Portable 需 Bash；Windows 需 PowerShell |
+| `scripts` | Python 辅助脚本、KataGo shell、Bash 语法 | JCEF、NVIDIA、RTX50 PowerShell 语法、原生 CI 进程监督检查 | Portable 需 Bash；Windows 需 PowerShell 7 |
 | `java` | 原完整 Maven verify | 凭据专项，再执行原完整 Maven verify | Maven、JDK 21；不查找 Bash/PowerShell |
 
 例如仅运行无 Java 的仓库检查：
@@ -114,6 +114,46 @@ main 分支保护要求 GitHub Actions 来源的 `ci-required`。回退 workflow
 Ubuntu runner，也不能代替 macOS 签名、公证与多平台发布资产审计。
 
 如果你改了打包、引擎路径、首次启动流程、野狐抓谱流程，建议再做对应平台的手工验证。
+
+### Windows Java 停滞取证
+
+`java-windows` 使用 `scripts/run_windows_ci_diagnostics.ps1` 包裹原有完整 Java 检查，
+不重试失败用例，也不把抓栈成功视为测试通过。job 上限仍为 30 分钟：第一步记录
+27 分钟的绝对截止时间，监督器取它与自身 23 分钟预算的较早值，运行步骤另设
+25 分钟上限，为摘要与 artifact 上传留出时间。
+
+测试 JVM 通过 test-scope JUnit listener 逐条刷新 `PLAN_STARTED`、`START`、`FINISH`、
+`SKIPPED`、`PLAN_FINISHED` 事件，包含 PID、时间、JUnit unique ID 和用例名称。
+只有设置了 `LIZZIE_CI_EVIDENCE_DIR` 才启用；普通本地测试不写取证文件。
+监督器仅给受监督进程设置该变量，读取完整 JSONL 行并按 PID 跟踪嵌套测试计划。
+存在活动计划时，控制台输出不算测试进展。
+
+默认 120 秒无进展后，保留两次相隔 30 秒的进程/CPU 快照，并对所属 JVM 调用
+`JAVA_HOME/bin/jcmd.exe Thread.print -l`，单次最多等待 10 秒。第一次停滞取证不终止
+任务，同一段未恢复的停滞不重复抓取；到执行预算前也会尝试取证。截止时终止所属
+Windows Job Object，独立写出失败摘要，即使 Python 执行器尚未生成自己的摘要。
+命令正常完成则保留退出码；命令退出后仍留有子进程会失败并清理，不误报成功。
+
+Actions 始终尝试上传 `windows-java-diagnostics`（保留 14 天），包含：
+
+- `target/ci-diagnostics/summary.json`：退出状态、预算、运行身份及进程清理结果。
+- `console.stdout.log`、`console.stderr.log` 和 `junit-<pid>.jsonl`：原始控制台与用例事件。
+- `snapshot-<episode>-<1|2>.json` 和成功抓取的 `threads-<episode>-<1|2>-<pid>.txt`。
+- `target/surefire-reports`、`target/failsafe-reports` 中已落盘的测试报告。
+
+先从 JSONL 找最后启动但未结束的用例，再比较两份线程栈与 CPU 时间。`jcmd` 缺失或
+失败会记入快照，仍保留第二份进程快照和其余证据。原始日志没有通用秘密脱敏；
+不要让测试输出凭据。runner 丢失、强制取消或磁盘写入失败时，不能保证摘要及上传完成。
+
+本地需要 Windows、PowerShell 7、Python、Maven 和 JDK 21。在干净工作树运行：
+
+```powershell
+pwsh -NoProfile -File scripts/run_windows_ci_diagnostics.ps1 -OutputDirectory target/ci-diagnostics-local
+```
+
+输出目录必须不存在或为空；再次运行请换新目录，避免混入旧证据。
+原生监督器回归检查由 `windows/scripts` 组执行，无需启动 Maven 或 JDK。
+
 
 ## 换行规则
 
