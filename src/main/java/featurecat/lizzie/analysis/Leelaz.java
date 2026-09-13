@@ -7088,6 +7088,26 @@ public class Leelaz {
     return true;
   }
 
+  private boolean consumeCommandListResponseLine(String line) {
+    if (!startGetCommandList) {
+      return false;
+    }
+    if (line.trim().isEmpty()) {
+      startGetCommandList = false;
+      endGetCommandList = true;
+      if (Lizzie.frame != null && Lizzie.frame.readBoard != null) {
+        Lizzie.frame.readBoard.onReadBoardGmaCapabilityReady();
+      }
+      return true;
+    }
+    String command = line.trim();
+    if (command.startsWith("=") || command.startsWith("?")) {
+      return false;
+    }
+    commandLists.add(command);
+    return true;
+  }
+
   private void parseLine(String line) {
     parseLine(line, captureEngineIncarnationFence());
   }
@@ -7461,13 +7481,6 @@ public class Leelaz {
         }
       } else if (line.startsWith("=")) {
         isCommandLine = true;
-        if (startGetCommandList) {
-          startGetCommandList = false;
-          endGetCommandList = true;
-          if (Lizzie.frame != null && Lizzie.frame.readBoard != null) {
-            Lizzie.frame.readBoard.onReadBoardGmaCapabilityReady();
-          }
-        }
         String[] params = line.trim().split(" ");
         if (params.length == 1) return;
         if (!endGetCommandList && params.length == 2 && params[1].equals("protocol_version")) {
@@ -9596,6 +9609,11 @@ public class Leelaz {
           endReaderLine(binding);
           continue;
         }
+        if (consumeCommandListResponseLine(line)) {
+          lineInProgress = false;
+          endReaderLine(binding);
+          continue;
+        }
         if (shouldQuarantineUnmatchedStrictResponseCarrier(line, binding)) {
           // An exact engine-game or parameter-read request owns this terminal frame until its
           // matching numbered response arrives. Do not let an unframed or wrong-id predecessor
@@ -9624,10 +9642,6 @@ public class Leelaz {
           }
 
         } else {
-          if (startGetCommandList) {
-            String cmd = line.trim();
-            if (!cmd.equals("") && !cmd.equals("=")) commandLists.add(cmd);
-          }
           try {
             String readerLine = line;
             runWithRestartBootstrapReceipt(
@@ -10644,6 +10658,10 @@ public class Leelaz {
   }
 
   void dispatchReaderLineForTest(String line) throws IOException {
+    if (consumeCommandListResponseLine(line)) {
+      isCommandLine = false;
+      return;
+    }
     ReaderStreamBinding binding = currentReaderStreamBinding();
     if (shouldQuarantineUnmatchedStrictResponseCarrier(line, binding)) {
       isCommandLine = false;
