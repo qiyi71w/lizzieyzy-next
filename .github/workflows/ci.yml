@@ -109,6 +109,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
+      - name: Set Windows diagnostic deadline
+        shell: pwsh
+        run: |
+          $deadline = [DateTimeOffset]::UtcNow.AddMinutes(27).ToUnixTimeSeconds()
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LIZZIE_CI_DEADLINE_UNIX_SECONDS=$deadline" -Encoding utf8
       - name: Checkout
         uses: actions/checkout@v5
       - name: Set up Python
@@ -123,7 +128,19 @@ jobs:
           cache: maven
       - name: Run Windows Java verification
         shell: pwsh
-        run: python scripts/run_local_ci.py --profile windows --group java --require-clean --summary-dir target/local-ci/windows-java
+        timeout-minutes: 25
+        run: ./scripts/run_windows_ci_diagnostics.ps1
+      - name: Upload Windows Java diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-java-diagnostics
+          retention-days: 14
+          path: |
+            target/ci-diagnostics
+            target/surefire-reports
+            target/failsafe-reports
+          if-no-files-found: warn
       - name: Upload local CI summary
         if: always()
         uses: actions/upload-artifact@v6
