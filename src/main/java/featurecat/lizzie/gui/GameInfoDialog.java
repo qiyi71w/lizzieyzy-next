@@ -21,6 +21,9 @@ public class GameInfoDialog extends JDialog {
   // create formatters
   public static final DecimalFormat FORMAT_HANDICAP = new DecimalFormat("0");
   private final ResourceBundle resourceBundle = Lizzie.resourceBundle;
+  private static final Color TARGET_GOLD = new Color(185, 156, 93);
+  private Border komiOriginalBorder;
+  private Timer komiHighlightTimer;
 
   static {
     FORMAT_HANDICAP.setMaximumIntegerDigits(1);
@@ -145,6 +148,40 @@ public class GameInfoDialog extends JDialog {
     textFieldHandicap.setText(FORMAT_HANDICAP.format(gameInfo.getHandicap()));
     textFieldKomi.setText(String.valueOf(gameInfo.getKomi()));
     // textFieldKomi.setText(FORMAT_KOMI.format(gameInfo.getKomi()));
+  }
+
+  void locateKomi() {
+    clearKomiHighlight();
+    komiOriginalBorder = textFieldKomi.getBorder();
+    textFieldKomi.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(TARGET_GOLD, 2), komiOriginalBorder));
+    komiHighlightTimer = new Timer(2400, event -> clearKomiHighlight());
+    komiHighlightTimer.setRepeats(false);
+    komiHighlightTimer.start();
+    SwingUtilities.invokeLater(
+        () -> {
+          if (isDisplayable()) {
+            textFieldKomi.requestFocusInWindow();
+            textFieldKomi.selectAll();
+          }
+        });
+  }
+
+  private void clearKomiHighlight() {
+    if (komiHighlightTimer != null) komiHighlightTimer.stop();
+    komiHighlightTimer = null;
+    if (komiOriginalBorder != null && textFieldKomi != null) {
+      textFieldKomi.setBorder(komiOriginalBorder);
+      textFieldKomi.repaint();
+    }
+    komiOriginalBorder = null;
+  }
+
+  @Override
+  public void dispose() {
+    clearKomiHighlight();
+    super.dispose();
   }
 
   public void apply() {

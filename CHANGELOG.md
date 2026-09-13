@@ -4,6 +4,9 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Add offline function search from the toolbar, Settings menu, and `Ctrl+K`/`Command+K`, covering menus, toolbars, board actions, and settings with multilingual queries, categorized browsing, current availability, and navigation to original controls and confirmations.
+- Bind searchable settings to stable IDs when their rows are created, preserving navigation across row reordering and checking for missing or duplicate targets.
+- Refresh function-search availability outside result painting while keeping visible states live and rechecking actions before activation.
 - Preserve Windows CI stall evidence with per-test JUnit events, paired process/thread snapshots, bounded execution, and owned-process cleanup before artifact upload.
 - Split CI into independent repository, script, and Java jobs with grouped local entrypoints and a unified `ci-required` gate; retain the existing required-check names during migration.
 - Save KataGo rule preferences on confirmation and close the settings dialog after successful application.

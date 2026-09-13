@@ -18,8 +18,11 @@ import java.io.IOException;
 import java.util.ResourceBundle;
 import javax.imageio.ImageIO;
 import javax.swing.ButtonGroup;
+import javax.swing.BorderFactory;
 import javax.swing.JDialog;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
+import javax.swing.border.Border;
 import org.json.JSONObject;
 
 public class SetKataRules extends JDialog {
@@ -53,6 +56,11 @@ public class SetKataRules extends JDialog {
   private volatile KataGoRules requestedManualRules;
   private volatile Leelaz.EngineRulesOperation manualRulesOperation;
   private volatile Leelaz.EngineRulesOperation manualMismatchOperation;
+  private Border areaOriginalBorder;
+  private Border territoryOriginalBorder;
+  private boolean areaOriginalBorderPainted;
+  private boolean territoryOriginalBorderPainted;
+  private Timer rulesHighlightTimer;
 
   public SetKataRules() {
     this(Lizzie.leelaz, false, null);
@@ -431,6 +439,61 @@ public class SetKataRules extends JDialog {
       refreshStatus();
       watchEngineRulesStatus();
     }
+  }
+
+  void locateRulesEditor() {
+    clearRulesHighlight();
+    areaOriginalBorder = rdoArea.getBorder();
+    territoryOriginalBorder = rdoTerritory.getBorder();
+    areaOriginalBorderPainted = rdoArea.isBorderPainted();
+    territoryOriginalBorderPainted = rdoTerritory.isBorderPainted();
+    rdoArea.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new java.awt.Color(185, 156, 93), 2),
+            areaOriginalBorder));
+    rdoTerritory.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new java.awt.Color(185, 156, 93), 2),
+            territoryOriginalBorder));
+    rdoArea.setBorderPainted(true);
+    rdoTerritory.setBorderPainted(true);
+    rulesHighlightTimer = new Timer(2400, event -> clearRulesHighlight());
+    rulesHighlightTimer.setRepeats(false);
+    rulesHighlightTimer.start();
+    SwingUtilities.invokeLater(
+        () -> {
+          JFontRadioButton target = rdoTerritory.isSelected() ? rdoTerritory : rdoArea;
+          if (isDisplayable()) target.requestFocusInWindow();
+        });
+  }
+
+  private void clearRulesHighlight() {
+    if (rulesHighlightTimer != null) rulesHighlightTimer.stop();
+    rulesHighlightTimer = null;
+    if (areaOriginalBorder != null) {
+      rdoArea.setBorder(areaOriginalBorder);
+      rdoArea.setBorderPainted(areaOriginalBorderPainted);
+    }
+    if (territoryOriginalBorder != null) {
+      rdoTerritory.setBorder(territoryOriginalBorder);
+      rdoTerritory.setBorderPainted(territoryOriginalBorderPainted);
+    }
+    areaOriginalBorder = null;
+    territoryOriginalBorder = null;
+    if (rdoArea != null) rdoArea.repaint();
+    if (rdoTerritory != null) rdoTerritory.repaint();
+  }
+
+  @Override
+  public void setVisible(boolean visible) {
+    if (!visible) clearRulesHighlight();
+    super.setVisible(visible);
+  }
+
+  @Override
+  public void dispose() {
+    clearRulesHighlight();
+    super.dispose();
   }
 
   private void closeDialog() {
