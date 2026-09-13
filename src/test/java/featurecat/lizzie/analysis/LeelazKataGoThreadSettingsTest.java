@@ -231,7 +231,7 @@ class LeelazKataGoThreadSettingsTest {
 
     void initialize() throws Exception {
       engine.dispatchReaderLineForTest("= protocol_version");
-      engine.dispatchReaderLineForTest("=");
+      engine.dispatchReaderLineForTest("");
       engine.isCheckingName = true;
       engine.dispatchReaderLineForTest("= KataGo");
       long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.LizzieFrame;
+import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.rules.Board;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -18,6 +19,30 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class PositionConfirmedAnalysisTest {
+  @Test
+  void commandDiscoveryOwnsPayloadWhileNumberedPositionResponseIsPending() throws Exception {
+    try (Fixture fixture = new Fixture()) {
+      fixture.engine.dispatchReaderLineForTest("= protocol_version");
+      fixture.engine.sendCommand("set_position B D4");
+      fixture.engine.sendCommand("kata-analyze B 10");
+      assertEquals(List.of("set_position B D4"), fixture.transport.commands());
+
+      fixture.engine.dispatchReaderLineForTest("play");
+      fixture.engine.dispatchReaderLineForTest("");
+
+      assertEquals(List.of("play"), fixture.engine.commandLists);
+      assertTrue(fixture.engine.isRulesCapabilityDiscoveryComplete());
+
+      String raw = fixture.transport.rawCommands().get(0);
+      String id = raw.substring(0, raw.indexOf(' '));
+      fixture.engine.dispatchReaderLineForTest("=" + id);
+
+      assertEquals(List.of("play"), fixture.engine.commandLists);
+      assertEquals(
+          List.of("set_position B D4", "kata-analyze B 10"), fixture.transport.commands());
+    }
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"undo", "play B D4", "play W pass", "set_position B D4"})
   void positionMustSucceedBeforeSuccessorAnalysisIsWritten(String mutation) throws Exception {
@@ -329,6 +354,7 @@ class PositionConfirmedAnalysisTest {
     private final Config previousConfig = Lizzie.config;
     private final Board previousBoard = Lizzie.board;
     private final LizzieFrame previousFrame = Lizzie.frame;
+    private final GtpConsolePane previousGtpConsole = Lizzie.gtpConsole;
     private final Leelaz previousEngine = Lizzie.leelaz;
     private final Leelaz previousMirror = Lizzie.leelaz2;
     private final Leelaz engine;
@@ -347,6 +373,7 @@ class PositionConfirmedAnalysisTest {
 
     private Fixture(Leelaz engine, boolean withMirror) throws Exception {
       Lizzie.config = allocate(Config.class);
+      Lizzie.gtpConsole = allocate(GtpConsolePane.class);
       this.engine = engine;
       this.mirror = withMirror ? new Leelaz("") : null;
       Lizzie.leelaz = engine;
@@ -401,6 +428,7 @@ class PositionConfirmedAnalysisTest {
       Lizzie.config = previousConfig;
       Lizzie.board = previousBoard;
       Lizzie.frame = previousFrame;
+      Lizzie.gtpConsole = previousGtpConsole;
       Lizzie.leelaz = previousEngine;
       Lizzie.leelaz2 = previousMirror;
     }
