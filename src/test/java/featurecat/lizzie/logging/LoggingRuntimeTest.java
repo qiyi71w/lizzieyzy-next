@@ -26,6 +26,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.slf4j.helpers.NOPLoggerFactory;
 import org.slf4j.spi.SLF4JServiceProvider;
@@ -377,20 +379,22 @@ class LoggingRuntimeTest {
     assertEquals(1, count(err, "APP:failure"));
   }
 
-  @Test
-  void queueSaturationThenSuccessfulWriteMarksRecovered() throws Exception {
+  @ParameterizedTest
+  @ValueSource(longs = {0L, 600L})
+  void queueSaturationThenSuccessfulWriteMarksRecovered(long writeDelayMillis) throws Exception {
     LoggingRuntime runtime =
         LoggingRuntime.initialize(
             new WorkDirectoryResolution(tempDir, List.of()),
             new LoggingLimits(32, 4, 4, 4, 7, 10000, 1000));
     runtime.startFullTrace(EnumSet.of(TraceScope.ENGINE_GTP));
-    runtime.awaitIdle();
+    assertTrue(runtime.awaitIdle(10, TimeUnit.SECONDS), "trace startup must be persisted");
     CountDownLatch handoffEntered = new CountDownLatch(1);
     CountDownLatch handoffHold = new CountDownLatch(1);
     runtime.pauseHandoffForTests(LogStream.ENGINE_TRACE, handoffEntered, handoffHold);
     org.slf4j.Logger trace = LoggerFactory.getLogger(LogCategories.ENGINE_TRACE);
     trace.info("accepted-before-saturation");
     assertTrue(handoffEntered.await(1, TimeUnit.SECONDS));
+    runtime.delayNestedAppendForTests(LogStream.ENGINE_TRACE, writeDelayMillis);
     try {
       for (int i = 0; i < 64; i++) {
         trace.info("flood-{}", i);
@@ -400,20 +404,27 @@ class LoggingRuntimeTest {
       assertTrue(blocked.droppedCount() > 0);
       assertEquals("queue saturation", blocked.reason());
       assertFalse(blocked.recovered());
+      assertFalse(
+          runtime.awaitIdle(10, TimeUnit.MILLISECONDS),
+          "the completion barrier must not pass while the writer is held");
     } finally {
       handoffHold.countDown();
     }
-    runtime.awaitIdle();
+    // Wait for the admitted watermark, not the legacy best-effort 400 ms drain.
+    assertTrue(runtime.awaitIdle(10, TimeUnit.SECONDS), "saturated queue must fully drain");
     LoggingStatus.StreamStatus drained =
         runtime.status().stream(LogStream.ENGINE_TRACE).orElseThrow();
     assertFalse(
         drained.recovered(),
         "events admitted before saturation must not report that the stream recovered");
+    runtime.delayNestedAppendForTests(LogStream.ENGINE_TRACE, 0L);
     trace.info("after-drain");
-    runtime.awaitIdle();
+    assertTrue(runtime.awaitIdle(10, TimeUnit.SECONDS), "recovery event must be persisted");
     LoggingStatus.StreamStatus recovered =
         runtime.status().stream(LogStream.ENGINE_TRACE).orElseThrow();
     assertTrue(recovered.recovered());
+    assertTrue(read("logs/engine-trace.log").contains("after-drain"));
+    assertEquals(drained.droppedCount(), recovered.droppedCount());
     assertTrue(recovered.droppedCount() > 0);
     assertEquals("queue saturation", recovered.reason());
     assertNotNull(recovered.firstOccurrence());
