@@ -1,8 +1,8 @@
 # 搜索导航 UI 设计依据
 
 Design version: 00-r2 (approved)
-Status: approved by user on 2026-09-12; Windows system-scale 150%/200% acceptance pending
-Scope: ticket 00 visual authority; user authorized 01 implementation with system-scale acceptance retained as a closure gate.
+Status: approved and acceptance resolved on 2026-09-12
+Scope: ticket 00 visual authority; by explicit user decision, final production-candidate native DPI144/DPI192 evidence satisfies the former system-scale gate without asserting a prototype native-scale run.
 
 ## 方向与参照
 
@@ -62,7 +62,7 @@ flowchart TD
 4. 设置演示窗口滚动到目标行、请求焦点、金色边框高亮 2.4 秒；结束后边框恢复，反馈显示值未改变。每个目标窗口拥有自己的计时器，关闭旧窗口不取消新窗口的高亮结束。
 5. Esc 取消搜索，焦点回到打开入口，动作计数不增加。
 
-目标窗口、行滚动、焦点和计时高亮是真实 Swing 操作；目标内容和可用性是模拟。没有配置保存、引擎、下载、ReadBoard 或棋谱操作。原型不承诺 IME Enter 隔离、完整目录排序、真实危险动作保护、生产焦点恢复和生命周期；这些仍是 01–04 门禁，不能以本票演示通过替代。
+目标窗口、行滚动、焦点和计时高亮是真实 Swing 操作；目标内容和可用性是模拟。没有配置保存、引擎、下载、ReadBoard 或棋谱操作。原型不承诺 IME Enter 隔离、完整目录排序、真实危险动作保护、生产焦点恢复和生命周期；这些由 01–04 按规格中的门禁与环境证据边界验收，不能以本票演示通过替代。
 
 ## 六语言、DPI 与主题证据边界
 
@@ -70,7 +70,7 @@ flowchart TD
 
 已运行 Windows JDK 21 gallery：三档 `sun.java2d.uiScale=1/1.5/2` × 常见 14pt/紧凑 22pt × 六语言。输出位于上述运行根目录的 `final-{1,1.5,2}-{normal14,compact22}/`，含 collapsed、locale-1…6、unavailable、no-results、surround-1/2、target-highlight、target-ended。这是 Windows 原生 Swing 在强制 Java 缩放下的可见窗口截图；没有更改 Windows 系统缩放，也不证明跨显示器 DPI 切换。
 
-修复后 NativeSmoke 的紧凑泰文 22pt 行子控件水平溢出由 177 px 降为 0；可见提示文字通过字体字形检查，上下箭头用绘制图标。列表、无结果及目标反馈都使用原生文本换行。Windows 当前原生系统环境测得 96 DPI、1.0× device transform；150%/200% 系统设置尚未切换，不能用 Java 强制缩放代替该项验收。继续该项需要在 Windows 桌面将显示缩放设为 150%、200% 后分别重启原型并采集，最后恢复 100%；本轮未改用户的系统显示设置。
+修复后 NativeSmoke 的紧凑泰文 22pt 行子控件水平溢出由 177 px 降为 0；可见提示文字通过字体字形检查，上下箭头用绘制图标。列表、无结果及目标反馈都使用原生文本换行。原型执行时的 Windows 原生系统环境测得 96 DPI、1.0× device transform；没有切换 150%/200%，Java 强制缩放不证明系统缩放。最终用户批准以生产候选的原生 DPI144/DPI192 证据替代该原型检查，详见“审查与确认”；不追记原型未运行场景。
 
 真实主题 API 对照：独立 `Config.createForTests` 内存状态（无生产主窗口/引擎/配置读写），依次调用真实 `AppleStyleSupport.applyUiDefaults`，以默认/Apple/Morandi 三组默认值创建原型；对每个自绘按钮执行真实 `preserveCustomButtonStyle` + `installButtonStyle`，验证绘制器保留并截图。类别和语言等标准控件显式设置本地纸色/墨色，不继承 Apple 的白字到浅底。证据 `actual-theme-final/actual-style-api-{0,1,2}.png`。这验证真实样式 API 与原型的组合，不声称生产搜索已注册全局主题刷新生命周期。真实应用三主题参照另在 `reference-themes/real-main-style-{0,1,2}.png`；原型底部外观选择器仅切换示意衬底。
 
@@ -105,6 +105,6 @@ pwsh -NoProfile -File prototype/function-search-ui/run.ps1
 
 ## 审查与确认
 
-修复模式审查结论：`SUCCESS`。Standards 与 Spec 分别完成 FULL_REVIEW 和针对修复的 VERIFICATION，父代理核对两轮冻结输入未变。STANDARDS-C1（独立目标计时器）、SPEC-001（紧凑入口及真实工具栏适配）、SPEC-002（长译文与字形）、SPEC-004（交互录屏）均 resolved；SPEC-003 与 STANDARDS-C1 重复，合并记账。视觉 V1/V2/V3 均 resolved，finish disposition 为 `ship`；当前不可用的 Impeccable finish agent 由通用只读 reviewer 按同一视觉修复范围替代。开放 IN_SCOPE 0，DEFERRED 0，follow-up 0。此结论只覆盖原型修复，不清除外部验收门禁。
+修复模式审查结论：`SUCCESS`。Standards 与 Spec 分别完成 FULL_REVIEW 和针对修复的 VERIFICATION，父代理核对两轮冻结输入未变。STANDARDS-C1（独立目标计时器）、SPEC-001（紧凑入口及真实工具栏适配）、SPEC-002（长译文与字形）、SPEC-004（交互录屏）均 resolved；SPEC-003 与 STANDARDS-C1 重复，合并记账。视觉 V1/V2/V3 均 resolved，finish disposition 为 `ship`；当前不可用的 Impeccable finish agent 由通用只读 reviewer 按同一视觉修复范围替代。开放 IN_SCOPE 0，DEFERRED 0，follow-up 0。该审查本身只覆盖原型修复；外部验收门禁由后述用户范围决定与生产候选证据关闭。
 
-用户于 2026-09-12 本会话批准设计 00-r2 与原型 `1cb47df6`，随后明确同意 01 现在开工；Windows 系统缩放 150%/200% 保留为未完成验收门禁，补验前不关闭相关票据。本地 `.scratch` 是票据依据；提交到 `docs/plans/2026-09-12-function-search-ui-design.md` 的同版快照用于跨工作树交接。完整 acceptance 状态在票据 Completion record；原生运行记录在证据目录 `acceptance-record.json`，本地副本来源封存在 `prototype-provenance.json`。
+用户于 2026-09-12 本会话批准设计 00-r2 与原型 `1cb47df6`，随后明确同意 01 开工。最终又明确批准以生产候选 `5e1cbedc16212fbb321642b8ee956ba31daf4c2a` 在 Windows 系统 DPI144/DPI192 的原生证据替代原型系统 150%/200% 检查；这是验收范围变更，不声称原型曾在该系统缩放下运行。原型本身保留 DPI96 实景与 Java forced-scale 六语言矩阵，生产候选证据位于 `D:\dev\weiqi\acceptance\function-search-04-5e1cbedc\scale-{150,200}-*\evidence`，恢复 100% 后 DPI96 复核通过。本地 `.scratch` 是票据依据；提交到 `docs/plans/2026-09-12-function-search-ui-design.md` 的同版快照用于跨工作树交接。完整 acceptance 状态在票据 Completion record；原生运行记录在证据目录 `acceptance-record.json`，本地副本来源封存在 `prototype-provenance.json`。
