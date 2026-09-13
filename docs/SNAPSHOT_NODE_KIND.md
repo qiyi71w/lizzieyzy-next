@@ -134,6 +134,12 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - lifecycle exact/root 抛错时，owner 将 frozen target 标为 unavailable，并在既有 completion boundary 释放 reservation；不因本票据新建 `ENGINE_STATE_UNRESTORED` 或通用 retry。ReadBoard GMA 固定点既有 quarantine/retirement 行为保持独立。
 - ponder 只由 lifecycle owner 在全部目标恢复和自身 board fence 成功后按 capture 时的 disposition 决定；restore module 不擅自停止或启动 ponder。
 - tail replay 的 module 完成边界不等同于每条 GTP response 完成；后续 response/error、超时和 late-response isolation 继续由 `Leelaz` 管理。
+- exact module 在任何 `clear_board`、Remote Compute restore 或其他 engine mutation 之前，为全部本地 target 完成 SGF 落盘、可读性检查与 process-incarnation 复验；任一 target 无安全路径或落盘失败时，清理本轮已创建文件并以 snapshot-preparation failure 终止，不能留下半恢复状态。
+- `Leelaz` 在最终 `ProcessBuilder` 配置（含 bundled runtime cwd override）完成后，把本地文件系统类别与显式 cwd 绑定到实际 reader/process incarnation；pre-start 捕获的 restore route 在执行时只采用新 admitted incarnation 的证据。落盘后 process rebind、退休或 admission 失效时，旧文件不能生成替换实例的 `loadsgf` 命令。
+- GTP 文件参数必须是非空 printable ASCII（字符 33–126）且不含 `#`。候选顺序固定为：安全的默认临时目录绝对路径；有最终 cwd 证据时该 cwd 下的唯一 ASCII 相对文件名；既有应用 runtime / Windows 共享目录约定下的安全绝对路径。相对参数保持相对，不能在 dispatch 时重新绝对化。
+- direct local engine 即使没有可信 cwd，仍可使用安全共享绝对路径；已知 SSH、WSL、Wine、container 或其他隔离文件系统 transport 必须 fail-closed。Remote Compute 继续只用既有 in-band restore，不走 host `loadsgf`。
+- 双引擎 cwd 相同且安全绝对路径可用时共享同一物理文件；cwd 不同时可各自持有独立文件。所有本轮物理文件的删除边界覆盖全部 target 的 ACK/error/timeout/late-response retirement 以及真实 tail replay，首个 ACK 不能提前删除任一文件。
+- 安全路径选择只改变物理文件地址与 GTP 参数；SGF 语义仍由 frozen plan 唯一生成，必须保留 `SZ`、可用 `KM`、`PL`、`AB/AW` 与 rectangular / extended-coordinate 行为。
 - `exact snapshot restore` 的 `loadsgf` 生命周期按固定顺序执行：
   1. `loadsgf` 临时 SGF 准备完成后，命令先入队再发出。
   2. 命令发出前，当前次 `loadsgf` 的 pending response handler 与 dispatch 归属绑定完成，并持续到退休或完成。

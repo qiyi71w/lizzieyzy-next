@@ -1,9 +1,13 @@
 package featurecat.lizzie.analysis;
 
+import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.rules.BoardHistoryNode;
+import featurecat.lizzie.util.Utils;
+import java.text.MessageFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import javax.swing.SwingUtilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,6 +92,28 @@ public class EngineFollowController {
       currentEngineNode = target;
     } catch (RuntimeException ex) {
       LOGGER.error("forceResync failed", ex);
+      presentSnapshotPreparationFailure(ex);
     }
+  }
+
+  public static boolean presentSnapshotPreparationFailure(Throwable failure) {
+    String message = snapshotPreparationFailureMessage(failure);
+    if (message == null) {
+      return false;
+    }
+    SwingUtilities.invokeLater(() -> Utils.showMsg(message));
+    return true;
+  }
+
+  static String snapshotPreparationFailureMessage(Throwable failure) {
+    if (!(failure instanceof ExactSnapshotEngineRestore.Failure exactFailure)
+        || exactFailure.category()
+            != ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION
+        || Lizzie.resourceBundle == null) {
+      return null;
+    }
+    return MessageFormat.format(
+        Lizzie.resourceBundle.getString("EngineFollow.snapshotPreparationFailed"),
+        failure.getMessage());
   }
 }

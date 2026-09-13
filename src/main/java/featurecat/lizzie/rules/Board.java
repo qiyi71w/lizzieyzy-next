@@ -4192,7 +4192,7 @@ public class Board {
       }
     }
     if (failure != null && !staleOwner || dispositionFailure != null) {
-      showHistoryRestoreFailure();
+      showHistoryRestoreFailure(failure != null ? failure : dispositionFailure);
     }
     if (dispositionFailure != null) {
       return;
@@ -4209,10 +4209,13 @@ public class Board {
         historyNavigationHistory = null;
       }
     }
-    showHistoryRestoreFailure();
+    showHistoryRestoreFailure(null);
   }
 
-  private static void showHistoryRestoreFailure() {
+  private static void showHistoryRestoreFailure(Throwable failure) {
+    if (EngineFollowController.presentSnapshotPreparationFailure(failure)) {
+      return;
+    }
     if (Lizzie.resourceBundle != null
         && Lizzie.frame != null
         && Lizzie.frame.isDisplayable()) {
@@ -4458,7 +4461,7 @@ public class Board {
             try {
               restore.run();
             } catch (RuntimeException failure) {
-              SwingUtilities.invokeLater(Board::showHistoryRestoreFailure);
+              SwingUtilities.invokeLater(() -> showHistoryRestoreFailure(failure));
             }
           });
     } else {

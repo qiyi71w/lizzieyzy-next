@@ -601,6 +601,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
             }
           } catch (Exception ex) {
             observe(() -> ReadBoardObservation.recordFailure("parse-line", ex));
+            EngineFollowController.presentSnapshotPreparationFailure(ex);
           }
           line = new StringBuilder();
         }
@@ -4202,6 +4203,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
         case ADMISSION_STALE -> ReadBoardGmaSession.FailureCategory.ADMISSION_STALE;
         case UNSUPPORTED_REMOTE_POSITION ->
             ReadBoardGmaSession.FailureCategory.UNSUPPORTED_REMOTE_POSITION;
+        case SNAPSHOT_PREPARATION -> ReadBoardGmaSession.FailureCategory.SNAPSHOT_PREPARATION;
         case SEND_FAILED -> ReadBoardGmaSession.FailureCategory.SEND_FAILED;
         case GTP_ERROR -> ReadBoardGmaSession.FailureCategory.GTP_ERROR;
         case TIMEOUT -> ReadBoardGmaSession.FailureCategory.TIMEOUT;

@@ -127,6 +127,8 @@ public final class ReadBoardGmaSession {
     PROCESS_TERMINATED,
     /** A stale admission was rejected before any physical side effect. */
     ADMISSION_STALE,
+    /** An engine-readable snapshot file could not be prepared before mutation. */
+    SNAPSHOT_PREPARATION,
     /** The remote protocol cannot represent the captured position without inventing a move. */
     UNSUPPORTED_REMOTE_POSITION
   }
