@@ -117,7 +117,7 @@ NVIDIA and TensorRT notes:
 
 ## Find functions and settings
 
-Click the search button in the top bar, choose **Settings → Search features**, or press `Ctrl+K` (`Command+K` on macOS). Search offline with a function name in any supported language; with an empty query, press Down or choose **Browse features** to view the complete catalog by category. Use the arrow keys to select a result. After committing an IME candidate, press `Enter` again as a separate action to activate it. Menu and dialog results open their existing entry points; setting results only locate and focus the control and never change its value. Unavailable results remain visible with a reason, and `Esc` closes search and restores the previous focus.
+Click the search button in the top bar or press `Ctrl+K` (`Command+K` on macOS). Search offline with a function name in any supported language; with an empty query, press Down or choose **Browse features** to view the complete catalog by category. Use the arrow keys to select a result. After committing an IME candidate, press `Enter` again as a separate action to activate it. Menu and dialog results open their existing entry points; setting results only locate and focus the control and never change its value. Unavailable results remain visible with a reason, and `Esc` closes search and restores the previous focus.
 
 ## Interface preview
 
