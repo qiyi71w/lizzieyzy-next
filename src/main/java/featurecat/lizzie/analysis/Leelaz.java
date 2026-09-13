@@ -23152,7 +23152,7 @@ public class Leelaz {
       boolean mayClearEngineGame) {
     closeBundledStartupDialog(primaryGeneration, expectedEngineIncarnation);
     if (primaryEngine) {
-      Lizzie.runIfPrimaryEngine(
+      boolean currentPrimary = Lizzie.runIfPrimaryEngine(
           this,
           primaryGeneration,
           () -> {
@@ -23164,10 +23164,12 @@ public class Leelaz {
                   "EngineStartup.failed", "AI failed to start - click to repair", message);
             }
           });
+      if (!currentPrimary) {
+        return;
+      }
     }
     TensorRtRepairContext repairContext = pendingTensorRtRepairContext.get();
-    if (!shouldOpenInteractiveDiagnostic(
-        primaryEngine, Lizzie.isFirstLaunchSession(), repairContext)) {
+    if (!shouldOpenInteractiveDiagnostic(Lizzie.isFirstLaunchSession(), repairContext)) {
       return;
     }
     if (mayClearEngineGame
@@ -23194,18 +23196,12 @@ public class Leelaz {
     if (isDeferredEngineGameRecoveryStartup()) {
       return false;
     }
-    return shouldOpenInteractiveDiagnostic(this == Lizzie.leelaz, Lizzie.isFirstLaunchSession());
-  }
-
-  static boolean shouldOpenInteractiveDiagnostic(
-      boolean primaryEngine, boolean firstLaunchSession) {
-    return !primaryEngine && !firstLaunchSession;
+    return shouldOpenInteractiveDiagnostic(Lizzie.isFirstLaunchSession(), null);
   }
 
   public static boolean shouldOpenInteractiveDiagnostic(
-      boolean primaryEngine, boolean firstLaunchSession, TensorRtRepairContext repairContext) {
-    return EngineFailedMessage.shouldOfferTensorRtRepair(repairContext)
-        || shouldOpenInteractiveDiagnostic(primaryEngine, firstLaunchSession);
+      boolean firstLaunchSession, TensorRtRepairContext repairContext) {
+    return EngineFailedMessage.shouldOfferTensorRtRepair(repairContext) || !firstLaunchSession;
   }
 
   static boolean hasMissingLocalStartupAsset(
