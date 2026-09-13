@@ -4,7 +4,7 @@ import featurecat.lizzie.search.FunctionCatalog.ConfigSettingTarget;
 import featurecat.lizzie.search.FunctionCatalog.SettingSection;
 import java.util.List;
 
-/** The explicit, stable mapping from searchable settings to visible editable rows. */
+/** Stable setting metadata; UI rows bind these IDs at creation, independently of list order. */
 final class ConfigSettingTargets {
   private static final List<ConfigSettingTarget> ALL =
       List.of(

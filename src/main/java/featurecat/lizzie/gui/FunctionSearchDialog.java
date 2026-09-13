@@ -494,13 +494,15 @@ final class FunctionSearchDialog extends JDialog {
       StyleConstants.setFontSize(style, font.getSize());
       StyleConstants.setBold(style, true);
       StyleConstants.setForeground(style, reason == null ? INK : MUTED);
+      String title = title(entry);
+      String path = path(entry);
       try {
-        heading.getStyledDocument().insertString(0, title(entry), style);
+        heading.getStyledDocument().insertString(0, title, style);
         StyleConstants.setBold(style, false);
         StyleConstants.setForeground(style, MUTED);
         heading
             .getStyledDocument()
-            .insertString(heading.getDocument().getLength(), "  " + path(entry), style);
+            .insertString(heading.getDocument().getLength(), "  " + path, style);
       } catch (javax.swing.text.BadLocationException impossible) {
         throw new AssertionError(impossible);
       }
@@ -523,7 +525,7 @@ final class FunctionSearchDialog extends JDialog {
                 + (reason == null ? "" : "\n" + bundle.getString(reason));
         add(wrap(detail, width), BorderLayout.CENTER);
       }
-      getAccessibleContext().setAccessibleName(title(entry) + " " + path(entry));
+      getAccessibleContext().setAccessibleName(title + " " + path);
       getAccessibleContext()
           .setAccessibleDescription(
               reason != null

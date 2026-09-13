@@ -145,6 +145,7 @@ public final class ConfigDialog2NavigationTest {
     runOnEdt(
         () -> {
           ConfigDialog2 dialog = new ConfigDialog2();
+          verifySettingBindingsSurviveReordering(dialog);
           firstRef.set(dialog);
           unknown.set(dialog.locateSetting("settings.not-real"));
         });
@@ -504,6 +505,45 @@ public final class ConfigDialog2NavigationTest {
       }
     }
     return false;
+  }
+
+  private static void verifySettingBindingsSurviveReordering(ConfigDialog2 dialog) {
+    try {
+      var create = ConfigDialog2.class.getDeclaredMethod("createDisplaySection", int.class);
+      var validate = ConfigDialog2.class.getDeclaredMethod(
+          "validateSettingRows", Component.class, FunctionCatalog.SettingSection.class);
+      create.setAccessible(true);
+      validate.setAccessible(true);
+      Component section = (Component) create.invoke(dialog, 1);
+      String firstId = "config.kifu.auto-analyze";
+      String secondId = "config.kifu.jump-last";
+      JComponent first = (JComponent) findTargetRow(section, firstId);
+      JComponent second = (JComponent) findTargetRow(section, secondId);
+      assertTrue(first != null && second != null, "settings must be bound when created");
+      Container card = first.getParent();
+      card.setComponentZOrder(second, card.getComponentZOrder(first));
+      validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU);
+      assertTrue(findTargetRow(section, firstId) == first, "reordering must retain auto-analyze target");
+      assertTrue(findTargetRow(section, secondId) == second, "reordering must retain jump-last target");
+
+      for (String invalid : new String[] {null, "settings.not-real", firstId}) {
+        second.putClientProperty(TARGET_ROW_PROPERTY, invalid);
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(
+            java.lang.reflect.InvocationTargetException.class,
+            () -> validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU));
+        assertTrue(failure.getCause() instanceof IllegalStateException);
+      }
+      second.putClientProperty(TARGET_ROW_PROPERTY, secondId);
+      card.remove(second);
+      var missing = org.junit.jupiter.api.Assertions.assertThrows(
+          java.lang.reflect.InvocationTargetException.class,
+          () -> validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU));
+      assertTrue(missing.getCause() instanceof IllegalStateException);
+      card.add(second);
+      validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU);
+    } catch (ReflectiveOperationException failure) {
+      throw new AssertionError(failure);
+    }
   }
 
   private static void runOnEdt(Runnable action) throws Exception {
