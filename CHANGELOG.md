@@ -5,6 +5,7 @@ All notable maintenance updates to this fork are documented here.
 ## Unreleased
 
 - Preserve GTP command-list response boundaries during startup so automatic analysis and foreground quick-analysis capability discovery complete correctly.
+- Resume current-position analysis after automatic SGF quick analysis returns a shared foreground engine, preserving user pause and avoiding duplicate position replay or analysis restarts.
 - Add offline function search from the toolbar, Settings menu, and `Ctrl+K`/`Command+K`, covering menus, toolbars, board actions, and settings with multilingual queries, categorized browsing, current availability, and navigation to original controls and confirmations.
 - Bind searchable settings to stable IDs when their rows are created, preserving navigation across row reordering and checking for missing or duplicate targets.
 - Refresh function-search availability outside result painting while keeping visible states live and rechecking actions before activation.

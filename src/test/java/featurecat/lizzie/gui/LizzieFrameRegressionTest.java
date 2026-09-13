@@ -1968,6 +1968,35 @@ class LizzieFrameRegressionTest {
   }
 
   @Test
+  void completedSharedQuickAnalysisStartsIdleForegroundWithoutReplayingPosition() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+
+      SwingUtilities.invokeAndWait(frame::resumeForegroundAnalysisAfterQuickAnalysisComplete);
+      assertTrue(leelaz.isPondering());
+      assertEquals(1, leelaz.ponderCount);
+      assertEquals(0, board.syncCount);
+
+      SwingUtilities.invokeAndWait(frame::resumeForegroundAnalysisAfterQuickAnalysisComplete);
+      assertEquals(1, leelaz.ponderCount);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
   void completedQuickAnalysisRefreshesFinalProgressWithoutOverridingUserPause()
       throws Exception {
     TestEnvironment env = TestEnvironment.open();
