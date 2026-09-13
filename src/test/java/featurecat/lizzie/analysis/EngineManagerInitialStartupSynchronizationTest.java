@@ -1190,51 +1190,96 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
   }
 
-  @Test
+  @org.junit.jupiter.api.RepeatedTest(20)
   void failedInitialPrimaryCanBeRetriedAfterItsBinaryIsRepaired() throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       FailOnceSelectedInitialStartupLeelaz engine =
           new FailOnceSelectedInitialStartupLeelaz();
-      Lizzie.board = boardWithHistory(emptyRootHistory(0));
-      Lizzie.leelaz = null;
-      EngineManager.isEmpty = true;
-      EngineManager.currentEngineNo = -1;
-      EngineManager manager =
-          new EngineManager(
-              Lizzie.config,
-              0,
-              false,
-              new ArrayList<>(List.of(engineData(31, "repairable-selected-startup", false))),
-              command -> engine);
-      Lizzie.engineManager = manager;
+      CountDownLatch workerCompleted = new CountDownLatch(1);
+      EngineManager.setInitialEngineStartupSchedulerForTest(
+          new EngineManager.InitialEngineStartupScheduler() {
+            @Override
+            public Thread create(Runnable work, String name) {
+              return new Thread(
+                  () -> {
+                    try {
+                      work.run();
+                    } finally {
+                      workerCompleted.countDown();
+                    }
+                  },
+                  name);
+            }
 
-      assertTrue(engine.firstStartCompleted.await(2, TimeUnit.SECONDS));
-      long failureDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-      while ((manager.engineSwitchUiSnapshot(true).phase()
-                  != EngineManager.EngineSwitchUiPhase.FAILED
-              || Lizzie.leelaz != null)
-          && System.nanoTime() < failureDeadline) {
-        Thread.sleep(10L);
-      }
-      assertNull(Lizzie.leelaz);
-      assertTrue(EngineManager.isEmpty);
-      assertEquals(-1, EngineManager.currentEngineNo);
+            @Override
+            public void configure(Thread worker) {
+              worker.setDaemon(true);
+            }
 
-      assertTrue(manager.retryUnavailablePrimaryEngine());
-      assertTrue(engine.secondStartCompleted.await(2, TimeUnit.SECONDS));
-      assertTrue(((StartupSyncLeelaz) engine).analysisStarted.await(2, TimeUnit.SECONDS));
-      long activeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-      while (manager.engineSwitchUiSnapshot(true).phase()
-                  != EngineManager.EngineSwitchUiPhase.ACTIVE
-              && System.nanoTime() < activeDeadline) {
-        Thread.sleep(10L);
+            @Override
+            public void start(Thread worker) {
+              worker.start();
+            }
+
+            @Override
+            public void dispatch(Runnable work) {
+              SwingUtilities.invokeLater(work);
+            }
+          });
+      try {
+        Lizzie.board = boardWithHistory(emptyRootHistory(0));
+        Lizzie.leelaz = null;
+        EngineManager.isEmpty = true;
+        EngineManager.currentEngineNo = -1;
+        EngineManager manager =
+            new EngineManager(
+                Lizzie.config,
+                0,
+                false,
+                new ArrayList<>(List.of(engineData(31, "repairable-selected-startup", false))),
+                command -> engine);
+        Lizzie.engineManager = manager;
+
+        assertTrue(engine.firstStartCompleted.await(2, TimeUnit.SECONDS));
+        assertTrue(engine.cleanupEntered.await(2, TimeUnit.SECONDS));
+        assertEquals(
+            EngineManager.EngineSwitchUiPhase.FAILED,
+            manager.engineSwitchUiSnapshot(true).phase());
+        assertNull(Lizzie.leelaz);
+        assertTrue(EngineManager.isEmpty);
+        assertEquals(-1, EngineManager.currentEngineNo);
+
+        // FAILED is published before lifecycle cleanup finishes, not permission to rebind yet.
+        assertNotNull(managerAtomicReferenceValue(manager, "engineSwitchTransaction"));
+        assertFalse(manager.retryUnavailablePrimaryEngine());
+        assertEquals(1, engine.startAttempts.get());
+        engine.allowCleanup.countDown();
+        assertTrue(workerCompleted.await(2, TimeUnit.SECONDS));
+        assertNull(managerAtomicReferenceValue(manager, "engineSwitchTransaction"));
+        assertLifecycleReservationReleased(engine);
+        assertTrue(manager.retryUnavailablePrimaryEngine());
+        assertTrue(engine.secondStartCompleted.await(2, TimeUnit.SECONDS));
+        assertTrue(((StartupSyncLeelaz) engine).analysisStarted.await(2, TimeUnit.SECONDS));
+        long activeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (manager.engineSwitchUiSnapshot(true).phase()
+                    != EngineManager.EngineSwitchUiPhase.ACTIVE
+                && System.nanoTime() < activeDeadline) {
+          Thread.sleep(10L);
+        }
+        assertSame(engine, Lizzie.leelaz);
+        assertEquals(0, EngineManager.currentEngineNo);
+        assertFalse(EngineManager.isEmpty);
+        assertEquals(
+            EngineManager.EngineSwitchUiPhase.ACTIVE,
+            manager.engineSwitchUiSnapshot(true).phase());
+      } finally {
+        engine.allowCleanup.countDown();
+        try {
+          assertTrue(workerCompleted.await(2, TimeUnit.SECONDS));
+        } finally {
+          EngineManager.setInitialEngineStartupSchedulerForTest(null);
+        }
       }
-      assertSame(engine, Lizzie.leelaz);
-      assertEquals(0, EngineManager.currentEngineNo);
-      assertFalse(EngineManager.isEmpty);
-      assertEquals(
-          EngineManager.EngineSwitchUiPhase.ACTIVE,
-          manager.engineSwitchUiSnapshot(true).phase());
     }
   }
 
@@ -7446,8 +7491,26 @@ class EngineManagerInitialStartupSynchronizationTest {
     private final AtomicInteger startAttempts = new AtomicInteger();
     private final CountDownLatch firstStartCompleted = new CountDownLatch(1);
     private final CountDownLatch secondStartCompleted = new CountDownLatch(1);
+    private final CountDownLatch cleanupEntered = new CountDownLatch(1);
+    private final CountDownLatch allowCleanup = new CountDownLatch(1);
 
     private FailOnceSelectedInitialStartupLeelaz() throws Exception {}
+
+    @Override
+    void detachInitialEngineSyncAdmission(EngineManager.InitialEngineSyncAdmission admission) {
+      super.detachInitialEngineSyncAdmission(admission);
+      if (startAttempts.get() == 1) {
+        cleanupEntered.countDown();
+        try {
+          if (!allowCleanup.await(2, TimeUnit.SECONDS)) {
+            throw new AssertionError("failed-start cleanup was not released by the test");
+          }
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw new AssertionError(interrupted);
+        }
+      }
+    }
 
     @Override
     public void startEngine(int index) {
