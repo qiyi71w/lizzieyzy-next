@@ -97,23 +97,54 @@ public class EngineFollowController {
   }
 
   public static boolean presentSnapshotPreparationFailure(Throwable failure) {
-    String message = snapshotPreparationFailureMessage(failure);
+    if (!(failure instanceof ExactSnapshotEngineRestore.Failure exactFailure)
+        || exactFailure.category()
+            != ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION) {
+      return false;
+    }
+    return presentSnapshotPreparationFailureDetail(failure.getMessage());
+  }
+
+  static boolean presentSnapshotPreparationFailureDetail(String detail) {
+    String message = snapshotPreparationFailureMessage(detail);
     if (message == null) {
       return false;
     }
-    SwingUtilities.invokeLater(() -> Utils.showMsg(message));
+    if (SwingUtilities.isEventDispatchThread()) {
+      Utils.showMsg(message);
+    } else {
+      SwingUtilities.invokeLater(() -> Utils.showMsg(message));
+    }
     return true;
   }
 
   static String snapshotPreparationFailureMessage(Throwable failure) {
     if (!(failure instanceof ExactSnapshotEngineRestore.Failure exactFailure)
         || exactFailure.category()
-            != ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION
-        || Lizzie.resourceBundle == null) {
+            != ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION) {
+      return null;
+    }
+    return snapshotPreparationFailureMessage(failure.getMessage());
+  }
+
+  private static String snapshotPreparationFailureMessage(String detail) {
+    if (Lizzie.resourceBundle == null) {
       return null;
     }
     return MessageFormat.format(
         Lizzie.resourceBundle.getString("EngineFollow.snapshotPreparationFailed"),
-        failure.getMessage());
+        localizedSnapshotPreparationDetail(detail));
+  }
+
+  private static String localizedSnapshotPreparationDetail(String detail) {
+    if (ExactSnapshotEngineRestore.NO_WRITABLE_SNAPSHOT_LOCATION_DETAIL.equals(detail)) {
+      return Lizzie.resourceBundle.getString(
+          "EngineFollow.snapshotPreparation.noWritableLocation");
+    }
+    if (ExactSnapshotEngineRestore.UNSUPPORTED_SNAPSHOT_TRANSPORT_DETAIL.equals(detail)) {
+      return Lizzie.resourceBundle.getString(
+          "EngineFollow.snapshotPreparation.unsupportedTransport");
+    }
+    return detail;
   }
 }

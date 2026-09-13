@@ -3,6 +3,7 @@ package featurecat.lizzie.analysis;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import featurecat.lizzie.AppLocale;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryNode;
@@ -219,6 +220,29 @@ public class EngineFollowControllerTest {
           null,
           EngineFollowController.snapshotPreparationFailureMessage(
               new IllegalStateException("other failure")));
+    } finally {
+      Lizzie.resourceBundle = previousResourceBundle;
+    }
+  }
+
+  @Test
+  void authoredSnapshotPreparationDetailsFollowActiveLocale() {
+    var previousResourceBundle = Lizzie.resourceBundle;
+    try {
+      Lizzie.resourceBundle = AppLocale.SIMPLIFIED_CHINESE.loadBundle();
+
+      assertEquals(
+          "无法准备引擎可读取的局面快照文件：没有可写的快照位置。请检查临时目录、引擎工作目录和应用运行目录的权限。",
+          EngineFollowController.snapshotPreparationFailureMessage(
+              new ExactSnapshotEngineRestore.Failure(
+                  ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+                  ExactSnapshotEngineRestore.NO_WRITABLE_SNAPSHOT_LOCATION_DETAIL)));
+      assertEquals(
+          "无法准备引擎可读取的局面快照文件：此引擎命令无法证明能访问本地快照文件。请使用远程算力或直接运行本地引擎可执行文件。",
+          EngineFollowController.snapshotPreparationFailureMessage(
+              new ExactSnapshotEngineRestore.Failure(
+                  ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+                  ExactSnapshotEngineRestore.UNSUPPORTED_SNAPSHOT_TRANSPORT_DETAIL)));
     } finally {
       Lizzie.resourceBundle = previousResourceBundle;
     }

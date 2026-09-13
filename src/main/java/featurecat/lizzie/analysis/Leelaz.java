@@ -508,6 +508,7 @@ public class Leelaz {
   public String oriEngineCommand = "";
   public String engineCommand;
   private List<String> commands;
+  private boolean directLocalSnapshotFileAccessForTest;
   //	private String currentWeightFile = "";
   //	private String currentWeight = "";
   // public boolean switching = false;
@@ -3795,8 +3796,10 @@ public class Leelaz {
         classifySnapshotFileAccess(commands));
   }
 
-  private static SnapshotFileAccessKind classifySnapshotFileAccess(List<String> launchCommands) {
-    if (launchCommands == null || launchCommands.isEmpty()) {
+  private SnapshotFileAccessKind classifySnapshotFileAccess(List<String> launchCommands) {
+    if (directLocalSnapshotFileAccessForTest
+        || launchCommands == null
+        || launchCommands.isEmpty()) {
       return SnapshotFileAccessKind.DIRECT_LOCAL;
     }
     String executable = new File(launchCommands.get(0)).getName().toLowerCase(Locale.ROOT);
@@ -3808,12 +3811,56 @@ public class Leelaz {
         || executable.endsWith(".sh")) {
       return SnapshotFileAccessKind.UNSUPPORTED;
     }
+    if (isInterpreterHostExecutable(executable)) {
+      return SnapshotFileAccessKind.UNSUPPORTED;
+    }
     return switch (executable) {
       case "ssh", "plink", "wsl", "wslhost", "docker", "podman", "wine", "wine64",
           "flatpak", "snap", "cmd", "powershell", "pwsh", "sh", "bash", "zsh", "fish",
           "env", "nohup" -> SnapshotFileAccessKind.UNSUPPORTED;
       default -> SnapshotFileAccessKind.DIRECT_LOCAL;
     };
+  }
+
+  private static boolean isInterpreterHostExecutable(String executable) {
+    if (switch (executable) {
+      case "py", "nodejs", "bun", "deno", "cscript", "wscript", "dotnet", "mono" -> true;
+      default -> false;
+    }) {
+      return true;
+    }
+    return hasNumericVersionSuffix(executable, "pythonw")
+        || hasNumericVersionSuffix(executable, "python")
+        || hasNumericVersionSuffix(executable, "pypy")
+        || hasNumericVersionSuffix(executable, "javaw")
+        || hasNumericVersionSuffix(executable, "java")
+        || hasNumericVersionSuffix(executable, "node")
+        || hasNumericVersionSuffix(executable, "ruby")
+        || hasNumericVersionSuffix(executable, "perl")
+        || hasNumericVersionSuffix(executable, "php");
+  }
+
+  private static boolean hasNumericVersionSuffix(String executable, String baseName) {
+    if (!executable.startsWith(baseName)) {
+      return false;
+    }
+    if (executable.length() == baseName.length()) {
+      return true;
+    }
+    boolean sawDigit = false;
+    boolean previousDot = false;
+    for (int index = baseName.length(); index < executable.length(); index++) {
+      char value = executable.charAt(index);
+      if (value >= '0' && value <= '9') {
+        sawDigit = true;
+        previousDot = false;
+      } else if (value == '.' && sawDigit && !previousDot && index + 1 < executable.length()) {
+        previousDot = true;
+      } else {
+        return false;
+      }
+    }
+    return sawDigit;
   }
 
   private void initializeStreams(InputStream stdout, OutputStream stdin, InputStream stderr) {
@@ -11770,9 +11817,7 @@ public class Leelaz {
         || binding.snapshotFileAccessKind == SnapshotFileAccessKind.UNSUPPORTED) {
       throw new ExactSnapshotEngineRestore.Failure(
           ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
-          "Cannot prepare an engine-readable snapshot file for a remote or isolated engine "
-              + "transport. Use Remote Compute for in-band restore or a direct local engine "
-              + "command.");
+          ExactSnapshotEngineRestore.UNSUPPORTED_SNAPSHOT_TRANSPORT_DETAIL);
     }
     Path workingDirectory =
         binding.snapshotFileAccessKind == SnapshotFileAccessKind.DIRECT_LOCAL
@@ -11780,6 +11825,12 @@ public class Leelaz {
             : null;
     return new SnapshotFileAccess(this, binding, workingDirectory);
   }
+
+  void trustDirectLocalSnapshotFileAccessForTest() {
+    directLocalSnapshotFileAccessForTest = true;
+  }
+
+  void beforeExactSnapshotPreclearForTest() {}
 
   void beforeSnapshotFileAccessValidationForTest() {}
 
@@ -12167,6 +12218,15 @@ public class Leelaz {
   boolean sendCommandToCapturedRestoreTarget(
       String command, ExactSnapshotRestoreAdmission admission) {
     return sendExactSnapshotRestoreCommand(command, admission);
+  }
+
+  boolean sendCommandToCapturedRestoreTarget(
+      String command, ExactSnapshotRestoreAdmission admission, SnapshotFileAccess fileAccess) {
+    if (fileAccess == null) {
+      return sendCommandToCapturedRestoreTarget(command, admission);
+    }
+    requireSnapshotFileAccessCurrent(fileAccess, admission);
+    return sendExactSnapshotRestoreCommand(command, null, null, admission, fileAccess.binding);
   }
 
   void onCapturedRestoreClearCommandSent() {

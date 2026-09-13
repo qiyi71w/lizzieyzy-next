@@ -850,7 +850,8 @@ class ExactSnapshotEngineRestoreContractTest {
                           engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
                       .execute());
 
-      assertTrue(thrown.getMessage().contains("engine-readable snapshot"));
+      assertEquals(
+          ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION, thrown.category());
       assertTrue(output.commands().isEmpty());
     }
   }
@@ -878,6 +879,47 @@ class ExactSnapshotEngineRestoreContractTest {
       assertEquals(
           ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION, thrown.category());
       assertTrue(output.commands().isEmpty());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+  @Test
+  void unprovenInterpreterWrapperFailsBeforePreclearOrLoadSgf() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      for (List<String> launchCommands :
+          List.of(
+              List.of("python", "remote_bridge.py"),
+              List.of("pythonw.exe", "remote_bridge.py"),
+              List.of("python3.11", "remote_bridge.py"))) {
+        Leelaz engine = new Leelaz(String.join(" ", launchCommands));
+        ScriptedResponseOutputStream output =
+            new ScriptedResponseOutputStream(engine, null, null, AUTO_ID_RESPONSE);
+        engine.installFreshCommandOutputForTest(output, null, launchCommands);
+
+        ExactSnapshotEngineRestore.Failure thrown =
+            assertThrows(
+                ExactSnapshotEngineRestore.Failure.class,
+                () ->
+                    ExactSnapshotEngineRestore.prepareCurrentPosition(
+                            engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                        .execute(),
+                String.join(" ", launchCommands));
+
+        assertEquals(
+            ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+            thrown.category(),
+            String.join(" ", launchCommands));
+        assertTrue(output.commands().isEmpty(), String.join(" ", launchCommands));
+      }
     } finally {
       if (previousTempDirectory == null) {
         System.clearProperty("java.io.tmpdir");
@@ -1158,50 +1200,63 @@ class ExactSnapshotEngineRestoreContractTest {
   }
 
   @Test
-  void secondTargetPreparationFailurePrecedesPreclearAndCleansFirstSnapshot() throws Exception {
+  void processRebindAfterFinalValidationRejectsBeforePreclearAndDeletesSnapshot() throws Exception {
     String previousTempDirectory = System.getProperty("java.io.tmpdir");
-    Path primaryWorkingDirectory = Files.createTempDirectory("主 引擎 #");
-    Path mirrorWorkingDirectory = primaryWorkingDirectory.resolve("副 引擎 #.file");
-    Path runtimeDirectory = primaryWorkingDirectory.resolve("应用 运行 #");
-    Files.writeString(mirrorWorkingDirectory, "not a directory");
-    Files.writeString(runtimeDirectory, "not a directory");
-    try (TestHarness harness = TestHarness.open(true)) {
-      System.setProperty("java.io.tmpdir", primaryWorkingDirectory.toString());
-      Lizzie.config = minimalConfig(true, runtimeDirectory);
-      Leelaz primary = new Leelaz("");
-      Leelaz mirror = new Leelaz("");
-      Lizzie.leelaz = primary;
-      Lizzie.leelaz2 = mirror;
-      RecordingOutputStream primaryOutput = new RecordingOutputStream(null);
-      RecordingOutputStream mirrorOutput = new RecordingOutputStream(null);
-      primary.installFreshCommandOutputForTest(primaryOutput, primaryWorkingDirectory);
-      mirror.installFreshCommandOutputForTest(mirrorOutput, mirrorWorkingDirectory);
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      RebindingOnValidationLeelaz engine = new RebindingOnValidationLeelaz();
+      RecordingOutputStream initialOutput = new RecordingOutputStream(null);
+      setOutputStream(engine, initialOutput);
+      engine.armRebindBeforePreclear();
 
       ExactSnapshotEngineRestore.Failure thrown =
           assertThrows(
               ExactSnapshotEngineRestore.Failure.class,
               () ->
                   ExactSnapshotEngineRestore.prepareCurrentPosition(
-                          primary.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                          engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
                       .execute());
 
-      assertEquals(
-          ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION, thrown.category());
-      assertTrue(primaryOutput.commands().isEmpty());
-      assertTrue(mirrorOutput.commands().isEmpty());
-      assertTrue(snapshotSgfFiles(primaryWorkingDirectory).isEmpty());
-      ExactSnapshotEngineRestore.prepareCurrentPosition(
-              primary.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
-          .discard();
+      assertEquals(ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE, thrown.category());
+      assertTrue(initialOutput.commands().isEmpty());
+      assertTrue(engine.replacementOutput.commands().isEmpty());
+      assertTrue(snapshotSgfFiles(tempDirectory).isEmpty());
     } finally {
       if (previousTempDirectory == null) {
         System.clearProperty("java.io.tmpdir");
       } else {
         System.setProperty("java.io.tmpdir", previousTempDirectory);
       }
-      Files.deleteIfExists(runtimeDirectory);
-      Files.deleteIfExists(mirrorWorkingDirectory);
-      Files.deleteIfExists(primaryWorkingDirectory);
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+  @Test
+  void secondTargetPreparationFailurePrecedesPreclearAndCleansFirstSnapshot() throws Exception {
+    String javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+    ProcessBuilder childBuilder =
+        new ProcessBuilder(
+                javaExecutable,
+                "-cp",
+                System.getProperty("java.class.path"),
+                SecondTargetPreparationFailureProbe.class.getName())
+            .redirectErrorStream(true);
+    childBuilder
+        .environment()
+        .keySet()
+        .removeIf(key -> key.equalsIgnoreCase("PUBLIC") || key.equalsIgnoreCase("ProgramData"));
+
+    Process child = childBuilder.start();
+    try {
+      assertTrue(child.waitFor(30, TimeUnit.SECONDS), "child probe timed out");
+      String output = new String(child.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+      assertEquals(0, child.exitValue(), output);
+    } finally {
+      if (child.isAlive()) {
+        child.destroyForcibly();
+        child.waitFor(2, TimeUnit.SECONDS);
+      }
     }
   }
 
@@ -3082,6 +3137,57 @@ class ExactSnapshotEngineRestoreContractTest {
     }
   }
 
+  public static final class SecondTargetPreparationFailureProbe {
+    private SecondTargetPreparationFailureProbe() {}
+
+    public static void main(String[] args) throws Exception {
+      String previousTempDirectory = System.getProperty("java.io.tmpdir");
+      Path primaryWorkingDirectory = Files.createTempDirectory("主 引擎 #");
+      Path mirrorWorkingDirectory = primaryWorkingDirectory.resolve("副 引擎 #.file");
+      Path runtimeDirectory = primaryWorkingDirectory.resolve("应用 运行 #");
+      Files.writeString(mirrorWorkingDirectory, "not a directory");
+      Files.writeString(runtimeDirectory, "not a directory");
+      try (TestHarness harness = TestHarness.open(true)) {
+        System.setProperty("java.io.tmpdir", primaryWorkingDirectory.toString());
+        Lizzie.config = minimalConfig(true, runtimeDirectory);
+        Leelaz primary = new Leelaz("");
+        Leelaz mirror = new Leelaz("");
+        Lizzie.leelaz = primary;
+        Lizzie.leelaz2 = mirror;
+        RecordingOutputStream primaryOutput = new RecordingOutputStream(null);
+        RecordingOutputStream mirrorOutput = new RecordingOutputStream(null);
+        primary.installFreshCommandOutputForTest(primaryOutput, primaryWorkingDirectory);
+        mirror.installFreshCommandOutputForTest(mirrorOutput, mirrorWorkingDirectory);
+
+        ExactSnapshotEngineRestore.Failure thrown =
+            assertThrows(
+                ExactSnapshotEngineRestore.Failure.class,
+                () ->
+                    ExactSnapshotEngineRestore.prepareCurrentPosition(
+                            primary.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                        .execute());
+
+        assertEquals(
+            ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION, thrown.category());
+        assertTrue(primaryOutput.commands().isEmpty());
+        assertTrue(mirrorOutput.commands().isEmpty());
+        assertTrue(snapshotSgfFiles(primaryWorkingDirectory).isEmpty());
+        ExactSnapshotEngineRestore.prepareCurrentPosition(
+                primary.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+            .discard();
+      } finally {
+        if (previousTempDirectory == null) {
+          System.clearProperty("java.io.tmpdir");
+        } else {
+          System.setProperty("java.io.tmpdir", previousTempDirectory);
+        }
+        Files.deleteIfExists(runtimeDirectory);
+        Files.deleteIfExists(mirrorWorkingDirectory);
+        Files.deleteIfExists(primaryWorkingDirectory);
+      }
+    }
+  }
+
   public static final class SnapshotLoadChild {
     private SnapshotLoadChild() {}
 
@@ -3164,20 +3270,38 @@ class ExactSnapshotEngineRestoreContractTest {
   }
   private static final class RebindingOnValidationLeelaz extends Leelaz {
     private final RecordingOutputStream replacementOutput = new RecordingOutputStream(null);
-    private boolean rebind;
+    private int validationCount;
+    private int rebindValidation;
+    private boolean rebindBeforePreclear;
 
     private RebindingOnValidationLeelaz() throws IOException {
       super("");
     }
 
     private void armRebind() {
-      rebind = true;
+      armRebindOnValidation(1);
+    }
+
+    private void armRebindOnValidation(int validation) {
+      rebindValidation = validation;
+    }
+
+    private void armRebindBeforePreclear() {
+      rebindBeforePreclear = true;
+    }
+
+    @Override
+    void beforeExactSnapshotPreclearForTest() {
+      if (rebindBeforePreclear) {
+        rebindBeforePreclear = false;
+        installFreshCommandOutputForTest(replacementOutput);
+      }
     }
 
     @Override
     void beforeSnapshotFileAccessValidationForTest() {
-      if (rebind) {
-        rebind = false;
+      validationCount++;
+      if (validationCount == rebindValidation) {
         installFreshCommandOutputForTest(replacementOutput);
       }
     }

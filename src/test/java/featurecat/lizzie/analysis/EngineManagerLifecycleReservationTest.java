@@ -7700,6 +7700,11 @@ class EngineManagerLifecycleReservationTest {
       manager.switchEngine(2, false);
       target.isCheckingName = false;
       target.failResponseFreshening = true;
+      ExactSnapshotEngineRestore.Failure preparationFailure =
+          new ExactSnapshotEngineRestore.Failure(
+              ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+              "controlled staging failure");
+      target.responseFresheningFailure = preparationFailure;
       manager.synchronizationWork.run();
       assertNotNull(manager.failurePresentation);
       manager.blockFailurePresentation = true;
@@ -7740,6 +7745,7 @@ class EngineManagerLifecycleReservationTest {
 
       assertNull(rebindFailure.get());
       assertEquals(1, manager.failureCount);
+      assertSame(preparationFailure, manager.presentedFailure);
       assertTrue(target.started);
       assertTrue(target.isLoaded);
       assertSame(secondary, Lizzie.leelaz2);
@@ -8756,6 +8762,7 @@ class EngineManagerLifecycleReservationTest {
     private Runnable synchronizationWork;
     private Runnable failurePresentation;
     private int failureCount;
+    private Throwable presentedFailure;
     private int uiPublicationCount;
     private EngineSwitchUiSnapshot lastPublishedSnapshot;
     private boolean blockFailurePresentation;
@@ -8781,6 +8788,12 @@ class EngineManagerLifecycleReservationTest {
     @Override
     protected void enqueueEngineSynchronizationFailurePresentation(Runnable presentation) {
       failurePresentation = presentation;
+    }
+
+    @Override
+    protected void showEngineSynchronizationFailure(Leelaz engine, Throwable failure) {
+      presentedFailure = failure;
+      showEngineSynchronizationFailure(engine);
     }
 
     @Override
@@ -9514,7 +9527,21 @@ class EngineManagerLifecycleReservationTest {
     }
   }
 
-  private static final class FailingOuterUpdateSchedulerEngineManager extends EngineManager {
+  private static class TrustedUpdateEngineManager extends EngineManager {
+    private TrustedUpdateEngineManager(List<Leelaz> engines) {
+      super(engines);
+    }
+
+    @Override
+    protected Leelaz createUnstartedEngine(EngineData engineData) throws IOException {
+      Leelaz engine = super.createUnstartedEngine(engineData);
+      engine.trustDirectLocalSnapshotFileAccessForTest();
+      return engine;
+    }
+  }
+
+  private static final class FailingOuterUpdateSchedulerEngineManager
+      extends TrustedUpdateEngineManager {
     private final AssertionError schedulingFailure =
         new AssertionError("controlled outer update synchronization scheduling failure");
     private final AssertionError lifecycleCloseFailure =
@@ -10578,7 +10605,8 @@ class EngineManagerLifecycleReservationTest {
       BoardHistoryList history = historyWithStone(3, 3, 6.5);
       history.add(moveNode(15, 15, Stone.WHITE, true, 1));
       board.setHistory(history);
-      manager = schedulerManager == null ? new EngineManager(List.of()) : schedulerManager;
+      manager =
+          schedulerManager == null ? new TrustedUpdateEngineManager(List.of()) : schedulerManager;
     }
 
     private void install() {
@@ -11255,6 +11283,7 @@ class EngineManagerLifecycleReservationTest {
         new AssertionError("controlled synchronization failure");
     boolean failSynchronization;
     private boolean failResponseFreshening;
+    private RuntimeException responseFresheningFailure;
     private int normalQuitCount;
     int notPonderingCount;
     private int responseFresheningCount;
@@ -11279,6 +11308,9 @@ class EngineManagerLifecycleReservationTest {
     public void setResponseUpToDate() {
       responseFresheningCount++;
       if (failResponseFreshening) {
+        if (responseFresheningFailure != null) {
+          throw responseFresheningFailure;
+        }
         throw synchronizationFailure;
       }
       super.setResponseUpToDate();

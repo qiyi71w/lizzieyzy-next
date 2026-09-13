@@ -983,7 +983,8 @@ public class EngineManager {
                   uiToken,
                   engineFailedText(),
                   startupAuthority,
-                  restoreBoard);
+                  restoreBoard,
+                  null);
               return;
             }
             if (!isCurrentInitialManagerStartup(startupAuthority, restoreBoard)) {
@@ -1000,7 +1001,8 @@ public class EngineManager {
                     uiToken,
                     "Initial engine startup was superseded",
                     startupAuthority,
-                    restoreBoard);
+                    restoreBoard,
+                    null);
                 return;
               }
               synchronized (INITIAL_MANAGER_STARTUP_LOCK) {
@@ -1038,7 +1040,7 @@ public class EngineManager {
                   } catch (RuntimeException | Error failure) {
                     if (isCurrentInitialManagerStartup(startupAuthority, restoreBoard)) {
                       failEngineSwitchUi(uiToken, true, engineSwitchFailureDetail(failure));
-                      showEngineSynchronizationFailure(engine);
+                      showEngineSynchronizationFailure(engine, failure);
                     } else {
                       staleRuntimeStop =
                           quarantineStaleInitialEngineIncarnation(
@@ -1064,7 +1066,8 @@ public class EngineManager {
                         uiToken,
                         detail,
                         startupAuthority,
-                        restoreBoard));
+                        restoreBoard,
+                        null));
             finalFenceOwnsCleanup = true;
           } catch (IOException | RuntimeException | Error failure) {
             failure.printStackTrace();
@@ -1076,7 +1079,8 @@ public class EngineManager {
                   uiToken,
                   engineSwitchFailureDetail(failure),
                   startupAuthority,
-                  restoreBoard);
+                  restoreBoard,
+                  failure);
             } else {
               settleInitialEngineStartFailure(
                   engine,
@@ -1217,7 +1221,8 @@ public class EngineManager {
           uiToken,
           engineSwitchFailureDetail(schedulingFailure),
           startupAuthority,
-          restoreBoard);
+          restoreBoard,
+          schedulingFailure);
     } catch (RuntimeException | Error cleanupFailure) {
       suppressEngineStartCleanupFailure(schedulingFailure, cleanupFailure);
     }
@@ -1255,7 +1260,8 @@ public class EngineManager {
           uiToken,
           engineSwitchFailureDetail(primaryFailure),
           startupAuthority,
-          restoreBoard);
+          restoreBoard,
+          primaryFailure);
     } catch (RuntimeException | Error cleanupFailure) {
       suppressEngineStartCleanupFailure(primaryFailure, cleanupFailure);
     } finally {
@@ -1277,7 +1283,8 @@ public class EngineManager {
       long uiToken,
       String detail,
       InitialManagerStartupAuthority startupAuthority,
-      Board restoreBoard) {
+      Board restoreBoard,
+      Throwable failure) {
     boolean currentStartup = isCurrentInitialManagerStartup(startupAuthority, restoreBoard);
     boolean failureSuperseded =
         transaction != null && transaction.synchronizationFailureSuperseded;
@@ -1315,7 +1322,7 @@ public class EngineManager {
         && (transaction == null || !transaction.targetStartFailureCleanupClaimed)) {
       cleanupFailure =
           runLifecycleCleanupStep(
-              cleanupFailure, () -> showEngineSynchronizationFailure(engine));
+              cleanupFailure, () -> showEngineSynchronizationFailure(engine, failure));
     }
     rethrowLifecycleCleanupFailure(cleanupFailure);
   }
@@ -3819,7 +3826,7 @@ public class EngineManager {
         if (preparedMirror != null) {
           preparedMirror.isLoaded = false;
         }
-        showEngineSynchronizationFailure(preparedTarget);
+        showEngineSynchronizationFailure(preparedTarget, startupFailure);
         return;
       }
     }
@@ -12809,7 +12816,13 @@ public class EngineManager {
       runFailedSwitchCleanup(
           () ->
               publishUpdateEngineStartFailureIfCurrent(
-                  expectedTargetIndex, target, targetAttempt, mirror, mirrorAttempt, detail));
+                  expectedTargetIndex,
+                  target,
+                  targetAttempt,
+                  mirror,
+                  mirrorAttempt,
+                  detail,
+                  failure));
     } catch (RuntimeException | Error reportingFailure) {
       suppressEngineStartCleanupFailure(failure, reportingFailure);
     }
@@ -12861,7 +12874,8 @@ public class EngineManager {
             target,
             expectedIncarnation,
             expectedPrimaryGeneration,
-            statusNotification.get());
+            statusNotification.get(),
+            failure);
       }
     } catch (RuntimeException | Error reportingFailure) {
       suppressEngineStartCleanupFailure(failure, reportingFailure);
@@ -12874,7 +12888,8 @@ public class EngineManager {
       Leelaz.UpdateEngineStartAttempt targetAttempt,
       Leelaz mirror,
       Leelaz.UpdateEngineStartAttempt mirrorAttempt,
-      String detail) {
+      String detail,
+      Throwable synchronizationFailure) {
     AtomicReference<EngineStartupStatus.PreparedNotification> statusNotification =
         new AtomicReference<>();
     AtomicReference<Throwable> lifecycleMarkFailure = new AtomicReference<>();
@@ -12929,7 +12944,8 @@ public class EngineManager {
           target,
           targetAttempt,
           expectedPrimaryGeneration,
-          statusNotification.get());
+          statusNotification.get(),
+          synchronizationFailure);
     }
     if (lifecycleMarkFailure.get() != null) {
       lifecycleMarkFailure.get().printStackTrace();
@@ -12941,7 +12957,8 @@ public class EngineManager {
       Leelaz target,
       Leelaz.UpdateEngineStartAttempt targetAttempt,
       long expectedPrimaryGeneration,
-      EngineStartupStatus.PreparedNotification failureNotification) {
+      EngineStartupStatus.PreparedNotification failureNotification,
+      Throwable failure) {
     dispatchUpdateEngineFailurePresentation(
         () -> {
           if (!isCurrentStartFailure(failureNotification)) {
@@ -12958,7 +12975,7 @@ public class EngineManager {
                 () -> targetAttempt.runIfCurrentRuntime(() -> exactRuntime.set(true)));
           }
           if (exactRuntime.get() && isCurrentStartFailure(failureNotification)) {
-            showEngineSynchronizationFailure(target);
+            showEngineSynchronizationFailure(target, failure);
           }
         });
   }
@@ -12968,7 +12985,8 @@ public class EngineManager {
       Leelaz target,
       Object expectedIncarnation,
       long expectedPrimaryGeneration,
-      EngineStartupStatus.PreparedNotification failureNotification) {
+      EngineStartupStatus.PreparedNotification failureNotification,
+      Throwable failure) {
     dispatchUpdateEngineFailurePresentation(
         () -> {
           if (!isCurrentStartFailure(failureNotification)) {
@@ -12987,7 +13005,7 @@ public class EngineManager {
                         expectedIncarnation, () -> exactRuntime.set(true)));
           }
           if (exactRuntime.get() && isCurrentStartFailure(failureNotification)) {
-            showEngineSynchronizationFailure(target);
+            showEngineSynchronizationFailure(target, failure);
           }
         });
   }
@@ -13306,7 +13324,7 @@ public class EngineManager {
   }
 
   private void enqueueTransactionlessEngineSynchronizationFailureIfCurrent(
-      TransactionlessEngineSynchronizationFailureFence failureFence) {
+      TransactionlessEngineSynchronizationFailureFence failureFence, Throwable failure) {
     Runnable presentation =
         () -> {
           EngineSynchronizationFailurePresentationLease presentationLease = null;
@@ -13314,7 +13332,7 @@ public class EngineManager {
             presentationLease =
                 claimTransactionlessEngineSynchronizationFailurePresentation(failureFence);
             if (presentationLease != null) {
-              showEngineSynchronizationFailure(failureFence.engine);
+              showEngineSynchronizationFailure(failureFence.engine, failure);
             }
           } finally {
             if (presentationLease != null) {
@@ -13428,7 +13446,7 @@ public class EngineManager {
           Throwable presentationFailure = null;
           try {
             enqueueTransactionlessEngineSynchronizationFailureIfCurrent(
-                transactionlessFailureFence);
+                transactionlessFailureFence, primaryFailure);
           } catch (RuntimeException | Error failure) {
             presentationFailure = failure;
           }
@@ -13445,7 +13463,7 @@ public class EngineManager {
       return () -> {
         Throwable presentationFailure = null;
         try {
-          enqueueEngineSynchronizationFailureIfCurrent(failureFence);
+          enqueueEngineSynchronizationFailureIfCurrent(failureFence, primaryFailure);
         } catch (RuntimeException | Error failure) {
           presentationFailure = failure;
         }
@@ -13627,7 +13645,7 @@ public class EngineManager {
   }
 
   private void enqueueEngineSynchronizationFailureIfCurrent(
-      EngineSynchronizationFailureFence failureFence) {
+      EngineSynchronizationFailureFence failureFence, Throwable failure) {
     EngineSwitchUiSnapshot failedSnapshot;
     EngineSwitchUiSnapshot peerSnapshot;
     EngineStartupStatus.Snapshot startupStatus;
@@ -13675,7 +13693,7 @@ public class EngineManager {
                 failedSnapshot,
                 peerSnapshot,
                 startupStatus)) {
-              showEngineSynchronizationFailure(failureFence.engine);
+              showEngineSynchronizationFailure(failureFence.engine, failure);
             }
           } finally {
             claimedPresentation.close();
@@ -14052,6 +14070,12 @@ public class EngineManager {
   PkEngineSynchronization startEngineForPkSynchronizationForTest(
       EngineGameOwnerTransaction transaction, int index, Leelaz expectedEngine) {
     return startEngineForPkSynchronization(transaction, index, expectedEngine);
+  }
+
+  protected void showEngineSynchronizationFailure(Leelaz engine, Throwable failure) {
+    if (!EngineFollowController.presentSnapshotPreparationFailure(failure)) {
+      showEngineSynchronizationFailure(engine);
+    }
   }
 
   protected long engineSynchronizationTimeoutMillis(Leelaz engine) {

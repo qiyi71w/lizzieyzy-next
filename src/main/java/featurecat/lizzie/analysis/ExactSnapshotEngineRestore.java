@@ -30,6 +30,12 @@ public final class ExactSnapshotEngineRestore {
   private static final int SGF_EXTENDED_COORD_THRESHOLD = 52;
   private static final String SGF_COORD_ALPHABET =
       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  static final String NO_WRITABLE_SNAPSHOT_LOCATION_DETAIL =
+      "No writable snapshot location is available. Check permissions for the temporary, engine "
+          + "working, and application runtime directories.";
+  static final String UNSUPPORTED_SNAPSHOT_TRANSPORT_DETAIL =
+      "This engine command cannot prove access to local snapshot files. Use Remote Compute or a "
+          + "direct local engine executable.";
   private static final ScheduledExecutorService DELETE_EXECUTOR =
       Executors.newSingleThreadScheduledExecutor(ExactSnapshotEngineRestore::newCleanupThread);
 
@@ -162,9 +168,10 @@ public final class ExactSnapshotEngineRestore {
           StagedSnapshot stagedSnapshot = stageSnapshotSgf(plan, localTargets);
           lifecycle = new RestoreLifecycle(stagedSnapshot);
           stagedSnapshot.requireCurrent(plan.admission);
+          localTargets.get(0).beforeExactSnapshotPreclearForTest();
         }
         if (plan.preclear) {
-          clearCapturedTargets(plan);
+          clearCapturedTargets(plan, lifecycle == null ? null : lifecycle.stagedSnapshot);
         }
         if (!remoteTargets.isEmpty()) {
           restoreRemoteSnapshotInBand(plan, remoteTargets);
@@ -298,20 +305,28 @@ public final class ExactSnapshotEngineRestore {
     return Board.coordsAsName(x) + (boardHeight - y);
   }
 
-  private static void clearCapturedTargets(RestorePlan plan) {
+  private static void clearCapturedTargets(RestorePlan plan, StagedSnapshot stagedSnapshot) {
     for (Leelaz targetEngine : plan.targetEngines) {
-      sendCapturedRestoreCommand(plan, targetEngine, "clear_board", "preclear");
+      Leelaz.SnapshotFileAccess fileAccess =
+          targetEngine.useRemoteCompute || stagedSnapshot == null
+              ? null
+              : stagedSnapshot.forEngine(targetEngine).fileAccess;
+      sendCapturedRestoreCommand(plan, targetEngine, fileAccess, "clear_board", "preclear");
       targetEngine.onCapturedRestoreClearCommandSent();
     }
   }
 
   private static void sendCapturedRestoreCommand(
-      RestorePlan plan, Leelaz target, String command, String phase) {
+      RestorePlan plan,
+      Leelaz target,
+      Leelaz.SnapshotFileAccess fileAccess,
+      String command,
+      String phase) {
     final RuntimeException[] failure = new RuntimeException[1];
     target.withExactSnapshotRestoreAdmission(
         plan.admission,
         () -> {
-          if (!target.sendCommandToCapturedRestoreTarget(command, plan.admission)) {
+          if (!target.sendCommandToCapturedRestoreTarget(command, plan.admission, fileAccess)) {
             failure[0] =
                 new Failure(
                     FailureCategory.TAIL_REJECTED,
@@ -355,9 +370,7 @@ public final class ExactSnapshotEngineRestore {
       failures.forEach(cause::addSuppressed);
       throw new Failure(
           FailureCategory.SNAPSHOT_PREPARATION,
-          "Could not prepare an engine-readable snapshot SGF before restoring the engine board. "
-              + "Check write access to the temporary, engine working, and application runtime "
-              + "directories.",
+          NO_WRITABLE_SNAPSHOT_LOCATION_DETAIL,
           cause);
     }
     try {
