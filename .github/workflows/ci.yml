@@ -155,9 +155,46 @@ jobs:
           path: target/site/jacoco
           if-no-files-found: error
 
+  desktop-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Install display and font dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth fonts-dejavu-core fonts-noto-cjk
+      - name: Run Linux desktop smoke verification
+        timeout-minutes: 10
+        env:
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+        run: xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' python3 scripts/run_local_ci.py --profile portable --group desktop --require-clean --summary-dir target/local-ci/portable-desktop
+      - name: Upload desktop smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: desktop-smoke
+          path: target/desktop-smoke
+          if-no-files-found: warn
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-portable-desktop
+          path: target/local-ci/portable-desktop
+          if-no-files-found: warn
+
   ci-required:
     if: ${{ always() }}
-    needs: [repository-checks, script-tests, windows-script-tests, java-linux, java-windows]
+    needs: [repository-checks, script-tests, windows-script-tests, java-linux, java-windows, desktop-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -168,6 +205,7 @@ jobs:
           WINDOWS_SCRIPTS: ${{ needs.windows-script-tests.result }}
           JAVA_LINUX: ${{ needs.java-linux.result }}
           JAVA_WINDOWS: ${{ needs.java-windows.result }}
+          DESKTOP: ${{ needs.desktop-smoke.result }}
         run: |
-          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "windows-script-tests=$WINDOWS_SCRIPTS" "java-linux=$JAVA_LINUX" "java-windows=$JAVA_WINDOWS"
-          [[ "$REPOSITORY" == success && "$SCRIPTS" == success && "$WINDOWS_SCRIPTS" == success && "$JAVA_LINUX" == success && "$JAVA_WINDOWS" == success ]]
+          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "windows-script-tests=$WINDOWS_SCRIPTS" "java-linux=$JAVA_LINUX" "java-windows=$JAVA_WINDOWS" "desktop-smoke=$DESKTOP"
+          [[ "$REPOSITORY" == success && "$SCRIPTS" == success && "$WINDOWS_SCRIPTS" == success && "$JAVA_LINUX" == success && "$JAVA_WINDOWS" == success && "$DESKTOP" == success ]]

@@ -25,6 +25,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 JAVA_REQUIRED_TESTS = (
     ("featurecat.lizzie.logging.LoggingProviderSmokeIT", "shadedArtifactWritesOneProviderEvent"),
 )
+DESKTOP_REQUIRED_TESTS = (
+    (
+        "featurecat.lizzie.gui.FunctionSearchNavigationTest",
+        "navigationPreservesRealStateAcrossNativeAndCustomMenus",
+    ),
+    (
+        "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
+        "blackWinrateRemainsReachableAcrossRebuildsAndRecreation",
+    ),
+)
 
 PY_COMPILE_FILES = (
     "scripts/audit_katago_binary_version.py",
@@ -367,6 +377,26 @@ def build_steps(
     profile: str, maven: str, bash: str | None, powershell: str | None,
     group: str = "all",
 ) -> list[Step]:
+    if group == "desktop":
+        evidence_dir = REPO_ROOT / "target" / "desktop-smoke" / "probes"
+        reports_dir = REPO_ROOT / "target" / "desktop-smoke" / "surefire-reports"
+        return [
+            Step(
+                "Run desktop smoke tests",
+                (
+                    maven,
+                    "-B",
+                    "-Dfmt.skip=true",
+                    "-Djava.awt.headless=false",
+                    "-Dlizzie.desktop.required=true",
+                    f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
+                    f"-Dsurefire.reportsDirectory={reports_dir}",
+                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest",
+                    "test",
+                ),
+                group="desktop",
+            )
+        ]
     if group in {"all", "scripts"}:
         if profile in {"portable", "all"} and bash is None:
             raise RuntimeError("The selected scripts require bash.")
@@ -465,6 +495,8 @@ def reset_junit_reports(root: Path = REPO_ROOT / "target") -> None:
             shutil.rmtree(directory)
 
 
+
+
 def overall_result(success: bool, results: Sequence[StepResult]) -> str:
     if success and all(result.status in {"passed", "planned"} for result in results):
         return "PASS"
@@ -537,17 +569,27 @@ def run(args: argparse.Namespace) -> int:
     output_dir = (REPO_ROOT / args.summary_dir).resolve()
     results: list[StepResult] = []
     java_selected = args.group in {"all", "java"}
+    desktop_selected = args.group == "desktop"
     scripts_selected = args.group in {"all", "scripts"}
+    needs_java = java_selected or desktop_selected
     java_details = "not executed"
     junit_executed = False
 
     try:
         if args.require_clean:
             require_clean_checkout()
+        if desktop_selected and not args.dry_run:
+            if sys.platform.startswith("linux") and not os.environ.get("DISPLAY", "").strip():
+                raise RuntimeError(
+                    "Desktop CI requires DISPLAY on Linux. Start Xvfb or set DISPLAY."
+                )
         if java_selected and not args.dry_run:
             reset_junit_reports()
             junit_executed = True
-        maven = (args.maven or ("mvn" if args.dry_run else resolve_maven())) if java_selected else "mvn"
+        elif desktop_selected and not args.dry_run:
+            reset_junit_reports(REPO_ROOT / "target" / "desktop-smoke")
+            junit_executed = True
+        maven = (args.maven or ("mvn" if args.dry_run else resolve_maven())) if needs_java else "mvn"
         bash = None
         powershell = None
         if scripts_selected and args.profile in {"portable", "all"}:
@@ -556,7 +598,7 @@ def run(args: argparse.Namespace) -> int:
             powershell = args.powershell or (
                 "pwsh" if args.dry_run else resolve_powershell()
             )
-        if java_selected and not args.dry_run:
+        if needs_java and not args.dry_run:
             major, java_details = java_major_version(maven)
             if major != 21:
                 raise RuntimeError(
@@ -611,7 +653,15 @@ def run(args: argparse.Namespace) -> int:
     junit = JunitSummary()
     try:
         if junit_executed:
-            junit = collect_junit_summary(required_tests=JAVA_REQUIRED_TESTS)
+            required_tests = (
+                DESKTOP_REQUIRED_TESTS if desktop_selected else JAVA_REQUIRED_TESTS
+            )
+            if desktop_selected:
+                junit = collect_junit_summary(
+                    REPO_ROOT / "target" / "desktop-smoke", required_tests=required_tests
+                )
+            else:
+                junit = collect_junit_summary(required_tests=required_tests)
     except (OSError, RuntimeError) as error:
         if isinstance(error, RequiredJunitExecutionError):
             junit = error.summary
@@ -651,7 +701,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--profile", choices=("windows", "portable", "all"), default="all"
     )
     parser.add_argument(
-        "--group", choices=("all", "repository", "scripts", "java"), default="all"
+        "--group", choices=("all", "repository", "scripts", "java", "desktop"), default="all"
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--require-clean", action="store_true")

@@ -68,8 +68,8 @@ powershell -ExecutionPolicy Bypass -File scripts/run_local_ci.ps1 -Profile All -
 可只查看计划执行的步骤。`LIZZIE_PYTHON`、`LIZZIE_MAVEN`、`LIZZIE_BASH`
 和 `LIZZIE_POWERSHELL` 可用于指定工具路径。
 
-按职责选择 `--group all|repository|scripts|java`（PowerShell 为 `-Group`），默认
-`all` 保持原完整调用。所有组都需要 Python 和 Git，并执行 `git diff --check`；
+按职责选择 `--group all|repository|scripts|java|desktop`（PowerShell 为 `-Group`），默认
+`all` 保持原完整 headless 调用，不包含 `desktop`。所有组都需要 Python 和 Git，并执行 `git diff --check`；
 `--require-clean` / `-RequireClean` 保留运行前后的干净工作树检查。
 
 | Group | Portable | Windows | 额外工具 |
@@ -77,6 +77,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_local_ci.ps1 -Profile All -
 | `repository` | 换行自测、换行、Markdown 链接 | 换行 | 无 |
 | `scripts` | Python 辅助脚本、KataGo shell、Bash 语法 | JCEF、NVIDIA、RTX50 PowerShell 语法、原生 CI 进程监督检查 | Portable 需 Bash；Windows 需 PowerShell 7 |
 | `java` | 原完整 Maven verify | 凭据专项，再执行原完整 Maven verify | Maven、JDK 21；不查找 Bash/PowerShell |
+| `desktop` | 两个生产窗口导航测试 | 相同显式测试选择；不代表 Windows 原生 UI 验收 | Maven、JDK 21、可用显示环境；Linux 使用 Xvfb |
 
 例如仅运行无 Java 的仓库检查：
 
@@ -103,17 +104,33 @@ Portable 脚本组逐文件执行 Bash 语法检查，失败步骤直接显示�
 确实成功执行：关键用例缺失，或关键类任一用例 skipped/失败/报错，均使预检失败并写出失败摘要。
 其他需要显示环境的可选用例仍可在 headless gate 跳过；不固定全仓测试或 skip 数量。
 
-Actions 的 `ci.yml` 对所有 PR（包括仅文档改动）和 main push 执行五个独立 job：
-`repository-checks`、`script-tests`、`windows-script-tests`、`java-linux`、`java-windows`。
+`desktop` 必须有可用显示环境且 `java.awt.headless=false`；缺失显示、关键用例缺失或 skipped/失败/报错均失败。
+Linux 安装 `xvfb xauth fonts-dejavu-core fonts-noto-cjk` 后运行：
+
+```bash
+LANG=C.UTF-8 LC_ALL=C.UTF-8 xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' bash scripts/run_local_ci.sh --profile portable --group desktop --summary-dir target/local-ci/portable-desktop
+```
+
+该组要求 `FunctionSearchNavigationTest.navigationPreservesRealStateAcrossNativeAndCustomMenus`
+和 `ConfigDialog2NavigationTest.blackWinrateRemainsReachableAcrossRebuildsAndRecreation` 成功执行。
+每个子 JVM 的独立工作目录、配置、应用日志、stdout/stderr 和阶段/结果保留于 `target/desktop-smoke/probes/`。
+每个探针等待最多 90 秒；超时后分别尝试有界 jcmd 栈和截图，再终止所拥有的进程，不依赖 EDT 响应。
+诊断不可用会记录失败，不掩盖探针失败。没有父进程输出读取线程。
+desktop 的新鲜 XML 单独放在 `target/desktop-smoke/surefire-reports/`；只清除该 lane 的旧报告，保留探针日志。
+原 headless Java 报告与 desktop 报告互不替代；所有调用仍须遵守单 checkout 单 Maven 写入约束。
+这证明 Linux 生产窗口导航，不替代 Windows DPI/IME/theme、真实搜索输入或引擎/GPU 验收。
+
+Actions 的 `ci.yml` 对所有 PR（包括仅文档改动）和 main push 执行六个独立 job：
+`repository-checks`、`script-tests`、`windows-script-tests`、`java-linux`、`java-windows`、`desktop-smoke`。
 Windows 脚本 job 依次运行 `windows/repository` 与 `windows/scripts`，摘要独立上传。
 两平台 Java job 保留全量测试、`LoggingProviderSmokeIT`、shaded JAR 和 JaCoCo；
 验证成功但 coverage artifact 缺失仍失败。各组失败时仍尝试上传本组摘要。
 
-`ci-required` 是唯一汇总门禁，直接要求五项全部成功，拒绝失败、取消、跳过、缺失或
+`ci-required` 是唯一汇总门禁，直接要求六项全部成功，拒绝失败、取消、跳过、缺失或
 未知结果。发布仍仅接受目标 SHA 的完整 `ci.yml` push 成功运行。
 
 main 分支保护要求 GitHub Actions 来源的 `ci-required`。回退 workflow 时必须保留
-可运行且真实验证五项执行结果的 `ci-required`；不能直接回退到缺少该检查的版本。
+可运行且真实验证六项执行结果的 `ci-required`；不能直接回退到缺少该检查的版本。
 如需调整 required checks，由维护者协调保护设置与 workflow，始终保留有效合并门禁。
 
 本地预检用于在推送前尽早发现问题，不能代替受保护分支上的干净 Windows 和

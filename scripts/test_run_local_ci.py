@@ -263,5 +263,179 @@ class RunLocalCiTest(unittest.TestCase):
         )
 
 
+    def test_desktop_fails_closed_without_display_on_linux_and_dry_run_remains_planning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = run_local_ci.parse_args([
+                "--profile", "portable", "--group", "desktop", "--summary-dir", temporary,
+            ])
+            with (
+                patch.object(run_local_ci.sys, "platform", "linux"),
+                patch.dict(os.environ, {"DISPLAY": ""}),
+            ):
+                self.assertEqual(1, run_local_ci.run(args))
+            summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+            self.assertEqual("FAIL", summary["result"])
+
+            dry_run_args = run_local_ci.parse_args([
+                "--profile", "portable", "--group", "desktop", "--dry-run", "--summary-dir", temporary,
+            ])
+            with (
+                patch.object(run_local_ci.sys, "platform", "linux"),
+                patch.dict(os.environ, {"DISPLAY": ""}),
+            ):
+                self.assertEqual(0, run_local_ci.run(dry_run_args))
+            summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+            self.assertEqual("PASS", summary["result"])
+            self.assertEqual("not executed", summary["junit_status"])
+            self.assertTrue(all(s["status"] == "planned" for s in summary["steps"]))
+
+    def test_desktop_gate_fails_when_successful_commands_leave_no_required_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            subprocess.run(["git", "init", "-q", temporary], check=True)
+            subprocess.run(
+                ["git", "-C", temporary, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                 "commit", "--allow-empty", "-qm", "test fixture"], check=True,
+            )
+            args = run_local_ci.parse_args([
+                "--profile", "portable", "--group", "desktop", "--summary-dir", temporary,
+            ])
+            target = Path(temporary) / "target"
+            desktop_reports = target / "desktop-smoke" / "surefire-reports"
+            desktop_reports.mkdir(parents=True)
+            stale = desktop_reports / "TEST-stale.xml"
+            stale.write_text('<testsuite tests="1"><testcase classname="stale" name="stale"/></testsuite>')
+
+            fn_class, fn_method = run_local_ci.DESKTOP_REQUIRED_TESTS[0]
+            cfg_class, cfg_method = run_local_ci.DESKTOP_REQUIRED_TESTS[1]
+
+            def make_step(xml_content: str | None = None) -> list[run_local_ci.Step]:
+                if xml_content is None:
+                    cmd = (run_local_ci.sys.executable, "-c", "pass")
+                else:
+                    script = (
+                        "import pathlib; "
+                        f"p = pathlib.Path(r'{desktop_reports}'); "
+                        "p.mkdir(parents=True, exist_ok=True); "
+                        f"(p / 'TEST-desktop.xml').write_text('''{xml_content}''', encoding='utf-8')"
+                    )
+                    cmd = (run_local_ci.sys.executable, "-c", script)
+                return [run_local_ci.Step("mock desktop run", cmd)]
+
+            with (
+                patch.object(run_local_ci, "resolve_maven", return_value="mvn"),
+                patch.object(run_local_ci, "java_major_version", return_value=(21, "Java21")),
+                patch.object(run_local_ci, "REPO_ROOT", Path(temporary)),
+                patch.dict(os.environ, {"DISPLAY": ":99"}),
+            ):
+                # 1. Successful command without writing fresh required reports fails
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(None)):
+                    self.assertEqual(1, run_local_ci.run(args))
+                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+                    self.assertEqual("FAIL", summary["result"])
+                    self.assertFalse(stale.exists())
+
+                # 2. Missing one required case fails
+                partial_xml = f'<testsuite tests="1"><testcase classname="{fn_class}" name="{fn_method}"/></testsuite>'
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(partial_xml)):
+                    self.assertEqual(1, run_local_ci.run(args))
+                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+                    self.assertEqual("FAIL", summary["result"])
+
+                # 3. Required case skipped fails
+                skipped_xml = (
+                    f'<testsuite tests="2">'
+                    f'<testcase classname="{fn_class}" name="{fn_method}"/>'
+                    f'<testcase classname="{cfg_class}" name="{cfg_method}"><skipped/></testcase>'
+                    f'</testsuite>'
+                )
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(skipped_xml)):
+                    self.assertEqual(1, run_local_ci.run(args))
+                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+                    self.assertEqual("FAIL", summary["result"])
+
+                # 4. Both required cases pass
+                pass_xml = (
+                    f'<testsuite tests="2">'
+                    f'<testcase classname="{fn_class}" name="{fn_method}"/>'
+                    f'<testcase classname="{cfg_class}" name="{cfg_method}"/>'
+                    f'</testsuite>'
+                )
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(pass_xml)):
+                    self.assertEqual(0, run_local_ci.run(args))
+                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+                    self.assertEqual("PASS", summary["result"])
+                    self.assertEqual(2, summary["junit"]["tests"])
+
+    def test_desktop_and_java_and_nonjava_report_isolation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            subprocess.run(["git", "init", "-q", temporary], check=True)
+            subprocess.run(
+                ["git", "-C", temporary, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                 "commit", "--allow-empty", "-qm", "test fixture"], check=True,
+            )
+            target = Path(temporary) / "target"
+            java_reports = target / "surefire-reports"
+            desktop_reports = target / "desktop-smoke" / "surefire-reports"
+            java_reports.mkdir(parents=True)
+            desktop_reports.mkdir(parents=True)
+            java_stale = java_reports / "TEST-java-stale.xml"
+            desktop_stale = desktop_reports / "TEST-desktop-stale.xml"
+            java_stale.write_text("stale-java", encoding="utf-8")
+            desktop_stale.write_text("stale-desktop", encoding="utf-8")
+
+            fn_class, fn_method = run_local_ci.DESKTOP_REQUIRED_TESTS[0]
+            cfg_class, cfg_method = run_local_ci.DESKTOP_REQUIRED_TESTS[1]
+
+            pass_xml = (
+                f'<testsuite tests="2">'
+                f'<testcase classname="{fn_class}" name="{fn_method}"/>'
+                f'<testcase classname="{cfg_class}" name="{cfg_method}"/>'
+                f'</testsuite>'
+            )
+            write_script = (
+                "import pathlib; "
+                f"p = pathlib.Path(r'{desktop_reports}'); "
+                "p.mkdir(parents=True, exist_ok=True); "
+                f"(p / 'TEST-pass.xml').write_text('''{pass_xml}''', encoding='utf-8')"
+            )
+            desktop_step = [
+                run_local_ci.Step(
+                    "write desktop reports",
+                    (run_local_ci.sys.executable, "-c", write_script),
+                )
+            ]
+
+            args_desktop = run_local_ci.parse_args([
+                "--profile", "portable", "--group", "desktop", "--summary-dir", temporary,
+            ])
+            with (
+                patch.object(run_local_ci, "resolve_maven", return_value="mvn"),
+                patch.object(run_local_ci, "java_major_version", return_value=(21, "Java21")),
+                patch.object(run_local_ci, "build_steps", return_value=desktop_step),
+                patch.object(run_local_ci, "REPO_ROOT", Path(temporary)),
+                patch.dict(os.environ, {"DISPLAY": ":99"}),
+            ):
+                self.assertEqual(0, run_local_ci.run(args_desktop))
+                # Desktop stale was wiped, fresh written, and java stale is UNTOUCHED
+                self.assertFalse(desktop_stale.exists())
+                self.assertTrue(java_stale.is_file())
+                self.assertEqual("stale-java", java_stale.read_text(encoding="utf-8"))
+                self.assertTrue((desktop_reports / "TEST-pass.xml").is_file())
+
+            # Non-Java group preserves all reports and avoids Java
+            noop_step = [run_local_ci.Step("noop", (run_local_ci.sys.executable, "-c", "pass"))]
+            args_repo = run_local_ci.parse_args([
+                "--profile", "portable", "--group", "repository", "--summary-dir", temporary,
+            ])
+            with patch.object(run_local_ci, "build_steps", return_value=noop_step):
+                self.assertEqual(0, run_local_ci.run(args_repo))
+                self.assertTrue(java_stale.is_file())
+                self.assertEqual("stale-java", java_stale.read_text(encoding="utf-8"))
+                self.assertTrue((desktop_reports / "TEST-pass.xml").is_file())
+                summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+                self.assertEqual("not executed", summary["junit_status"])
+                self.assertEqual("not executed", summary["java"])
+
+
 if __name__ == "__main__":
     unittest.main()
