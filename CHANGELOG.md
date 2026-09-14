@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Check each release shell script individually, discover ordinary integration tests automatically, and reject missing or skipped critical logging-smoke execution in local and hosted CI.
 - Restore exact engine snapshots through safe per-target absolute or working-directory-relative SGF addresses, rejecting isolated local transports before board mutation.
 - Show engine startup diagnostics for primary and secondary engines outside first-launch onboarding, including missing executable and model/config path errors.
 - Ignore delayed primary-engine startup diagnostics after engine replacement so they cannot cancel a newer engine game.

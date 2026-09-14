@@ -1,15 +1,12 @@
 package featurecat.lizzie.gui;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.search.FunctionCatalog;
-import java.awt.Component;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Container;
-import java.awt.GraphicsEnvironment;
 import java.awt.KeyboardFocusManager;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
@@ -21,10 +18,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JScrollPane;
-import javax.swing.border.Border;
 import javax.swing.SwingUtilities;
+import javax.swing.border.Border;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /** Runs the navigation check against a real application startup in an isolated JVM. */
 public final class ConfigDialog2NavigationTest {
@@ -33,34 +29,12 @@ public final class ConfigDialog2NavigationTest {
   private static final Color HIGHLIGHT_COLOR = new Color(239, 219, 170);
   private static final String TARGET_ROW_PROPERTY = "lizzie.config.settingTargetId";
 
-  @TempDir Path tempDir;
-
   @Test
   void blackWinrateRemainsReachableAcrossRebuildsAndRecreation() throws Exception {
-    assumeFalse(GraphicsEnvironment.isHeadless());
-    Path work = Files.createDirectories(tempDir.resolve("work"));
-    Path marker = tempDir.resolve("navigation-result.txt");
-    String javaExecutable =
-        Path.of(
-                System.getProperty("java.home"),
-                "bin",
-                System.getProperty("os.name", "").startsWith("Windows") ? "java.exe" : "java")
-            .toString();
-    String classPath =
-        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path", ""));
-    Process process =
-        new ProcessBuilder(
-                javaExecutable,
-                "-cp",
-                classPath,
-                ConfigDialog2NavigationTest.class.getName(),
-                "probe",
-                work.toAbsolutePath().toString(),
-                marker.toAbsolutePath().toString())
-            .redirectErrorStream(true)
-            .start();
-    String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-    assertEquals(0, process.waitFor(), output);
+    DesktopProbeProcess.requireDisplay();
+    Path marker =
+        DesktopProbeProcess.run(
+            ConfigDialog2NavigationTest.class, "config-dialog", List.of(), List.of("probe"));
     String result = Files.readString(marker);
     assertTrue(result.contains("unknown=false"), result);
     assertTrue(result.contains("theme.located=true"), result);
@@ -95,7 +69,9 @@ public final class ConfigDialog2NavigationTest {
     Path resultPath = Path.of(args[2]);
     int exitCode = 1;
     try {
+      DesktopProbeProcess.phase(resultPath, "production-startup");
       runProbe(work, resultPath);
+      DesktopProbeProcess.phase(resultPath, "navigation-complete");
       exitCode = 0;
     } catch (Throwable failure) {
       Files.writeString(
@@ -163,9 +139,7 @@ public final class ConfigDialog2NavigationTest {
     JCheckBox firstControl = firstObservation.control;
     AtomicReference<Boolean> highlightClearedRef = new AtomicReference<>();
     runOnEdt(
-        () ->
-            highlightClearedRef.set(
-                targetRow(first).getBorder() == originalTargetBorder.get()));
+        () -> highlightClearedRef.set(targetRow(first).getBorder() == originalTargetBorder.get()));
     boolean highlightCleared = Boolean.TRUE.equals(highlightClearedRef.get());
     CatalogObservation catalogObservation = showAndObserveAll(first);
 
@@ -319,6 +293,7 @@ public final class ConfigDialog2NavigationTest {
         () -> {
           int[] next = {0};
           String[] pending = {null};
+          long[] deadline = {0};
           boolean[] visible = {true};
           boolean[] focused = {true};
           boolean[] title = {true};
@@ -328,11 +303,16 @@ public final class ConfigDialog2NavigationTest {
                 try {
                   if (pending[0] != null) {
                     JComponent row = targetRow(dialog, pending[0]);
-                    visible[0] &= fullyVisible(dialog, row);
                     Component focus =
                         KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
                     boolean currentFocused =
-                        focus == row || (focus != null && SwingUtilities.isDescendingFrom(focus, row));
+                        focus == row
+                            || (focus != null && SwingUtilities.isDescendingFrom(focus, row));
+                    boolean currentVisible = fullyVisible(dialog, row);
+                    if ((!currentFocused || !currentVisible) && System.nanoTime() < deadline[0]) {
+                      return;
+                    }
+                    visible[0] &= currentVisible;
                     if (!currentFocused) {
                       throw new AssertionError(
                           "setting target did not receive focus: "
@@ -349,8 +329,7 @@ public final class ConfigDialog2NavigationTest {
                   if (next[0] == targets.size()) {
                     timer.stop();
                     observation.set(
-                        new CatalogObservation(
-                            targets.size(), visible[0], focused[0], title[0]));
+                        new CatalogObservation(targets.size(), visible[0], focused[0], title[0]));
                     dialog.setVisible(false);
                     return;
                   }
@@ -358,6 +337,8 @@ public final class ConfigDialog2NavigationTest {
                   if (!dialog.locateSetting(pending[0])) {
                     throw new AssertionError("setting target was not attached: " + pending[0]);
                   }
+                  deadline[0] =
+                      System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
                 } catch (Throwable error) {
                   failure.set(error);
                   timer.stop();
@@ -463,6 +444,7 @@ public final class ConfigDialog2NavigationTest {
     }
     return (JComponent) row;
   }
+
   private static Component findTargetRow(Component root, String targetId) {
     if (root instanceof JComponent
         && targetId.equals(((JComponent) root).getClientProperty(TARGET_ROW_PROPERTY))) {
@@ -478,6 +460,8 @@ public final class ConfigDialog2NavigationTest {
   }
 
   private static boolean fullyVisible(ConfigDialog2 dialog, Component component) {
+    if (!component.isShowing() || component.getWidth() <= 0 || component.getHeight() <= 0)
+      return false;
     if (!(dialog.tabbedPane.getSelectedComponent() instanceof JScrollPane)) return false;
     JScrollPane scrollPane = (JScrollPane) dialog.tabbedPane.getSelectedComponent();
     Component view = scrollPane.getViewport().getView();
@@ -489,12 +473,14 @@ public final class ConfigDialog2NavigationTest {
   }
 
   private static boolean rendersColor(JComponent component, Color expected) {
+    if (component.getWidth() <= 0 || component.getHeight() <= 0) return false;
     BufferedImage image =
         new BufferedImage(component.getWidth(), component.getHeight(), BufferedImage.TYPE_INT_ARGB);
     java.awt.Graphics2D graphics = image.createGraphics();
     try {
-      component.getBorder().paintBorder(
-          component, graphics, 0, 0, component.getWidth(), component.getHeight());
+      component
+          .getBorder()
+          .paintBorder(component, graphics, 0, 0, component.getWidth(), component.getHeight());
     } finally {
       graphics.dispose();
     }
@@ -510,8 +496,9 @@ public final class ConfigDialog2NavigationTest {
   private static void verifySettingBindingsSurviveReordering(ConfigDialog2 dialog) {
     try {
       var create = ConfigDialog2.class.getDeclaredMethod("createDisplaySection", int.class);
-      var validate = ConfigDialog2.class.getDeclaredMethod(
-          "validateSettingRows", Component.class, FunctionCatalog.SettingSection.class);
+      var validate =
+          ConfigDialog2.class.getDeclaredMethod(
+              "validateSettingRows", Component.class, FunctionCatalog.SettingSection.class);
       create.setAccessible(true);
       validate.setAccessible(true);
       Component section = (Component) create.invoke(dialog, 1);
@@ -523,21 +510,25 @@ public final class ConfigDialog2NavigationTest {
       Container card = first.getParent();
       card.setComponentZOrder(second, card.getComponentZOrder(first));
       validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU);
-      assertTrue(findTargetRow(section, firstId) == first, "reordering must retain auto-analyze target");
-      assertTrue(findTargetRow(section, secondId) == second, "reordering must retain jump-last target");
+      assertTrue(
+          findTargetRow(section, firstId) == first, "reordering must retain auto-analyze target");
+      assertTrue(
+          findTargetRow(section, secondId) == second, "reordering must retain jump-last target");
 
       for (String invalid : new String[] {null, "settings.not-real", firstId}) {
         second.putClientProperty(TARGET_ROW_PROPERTY, invalid);
-        var failure = org.junit.jupiter.api.Assertions.assertThrows(
-            java.lang.reflect.InvocationTargetException.class,
-            () -> validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU));
+        var failure =
+            org.junit.jupiter.api.Assertions.assertThrows(
+                java.lang.reflect.InvocationTargetException.class,
+                () -> validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU));
         assertTrue(failure.getCause() instanceof IllegalStateException);
       }
       second.putClientProperty(TARGET_ROW_PROPERTY, secondId);
       card.remove(second);
-      var missing = org.junit.jupiter.api.Assertions.assertThrows(
-          java.lang.reflect.InvocationTargetException.class,
-          () -> validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU));
+      var missing =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              java.lang.reflect.InvocationTargetException.class,
+              () -> validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU));
       assertTrue(missing.getCause() instanceof IllegalStateException);
       card.add(second);
       validate.invoke(dialog, section, FunctionCatalog.SettingSection.KIFU);

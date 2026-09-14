@@ -2,8 +2,6 @@ package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.logging.LoggingRuntime;
@@ -12,16 +10,12 @@ import featurecat.lizzie.search.FunctionSearch;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dialog;
-import java.awt.GraphicsEnvironment;
 import java.awt.Window;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import javax.swing.JButton;
@@ -35,7 +29,6 @@ import javax.swing.JTextField;
 import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /** Exercises function-search navigation against a real production startup in an isolated JVM. */
 public final class FunctionSearchNavigationTest {
@@ -43,75 +36,16 @@ public final class FunctionSearchNavigationTest {
   private static final String HIDDEN_TOP_TARGET = "toolbar.time-limit";
   private static final String MOVE_NUMBER_TARGET = "menu.showAllMoveNumberInBranch";
   private static final String MODAL_REASON = "FunctionSearch.unavailable.modal";
-  private static final long CHILD_TIMEOUT_SECONDS = 90;
-  private static final long CHILD_CLEANUP_TIMEOUT_SECONDS = 5;
-
-  @TempDir Path tempDir;
 
   @Test
   void navigationPreservesRealStateAcrossNativeAndCustomMenus() throws Exception {
-    assumeFalse(GraphicsEnvironment.isHeadless());
-
+    DesktopProbeProcess.requireDisplay();
     for (String presentation : List.of("native", "custom")) {
-      Path work = Files.createDirectories(tempDir.resolve("work-" + presentation));
-      Path resultPath = tempDir.resolve("result-" + presentation + ".txt");
-      Process child = null;
-      ByteArrayOutputStream output = new ByteArrayOutputStream();
-      Thread outputReader = null;
-      try {
-        String javaExecutable =
-            Path.of(
-                    System.getProperty("java.home"),
-                    "bin",
-                    System.getProperty("os.name", "").startsWith("Windows") ? "java.exe" : "java")
-                .toString();
-        String classPath =
-            System.getProperty(
-                "surefire.test.class.path", System.getProperty("java.class.path", ""));
-        child =
-            new ProcessBuilder(
-                    javaExecutable,
-                    "-D" + MenuPresentationMode.OVERRIDE_PROPERTY + "=" + presentation,
-                    "-cp",
-                    classPath,
-                    FunctionSearchNavigationTest.class.getName(),
-                    "probe",
-                    presentation,
-                    work.toAbsolutePath().toString(),
-                    resultPath.toAbsolutePath().toString())
-                .redirectErrorStream(true)
-                .start();
-        Process childProcess = child;
-        outputReader =
-            new Thread(
-                () -> {
-                  try {
-                    childProcess.getInputStream().transferTo(output);
-                  } catch (IOException ignored) {
-                    // The parent owns process cleanup; a forced child exit may close the stream.
-                  }
-                },
-                "function-search-navigation-output-" + presentation);
-        outputReader.setDaemon(true);
-        outputReader.start();
-
-        if (!child.waitFor(CHILD_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-          child.destroyForcibly();
-          child.waitFor(CHILD_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-          fail("isolated " + presentation + " navigation probe timed out");
-        }
-        outputReader.join(TimeUnit.SECONDS.toMillis(CHILD_CLEANUP_TIMEOUT_SECONDS));
-        String childOutput = output.toString(StandardCharsets.UTF_8);
-        assertEquals(0, child.exitValue(), childOutput);
-      } finally {
-        if (child != null && child.isAlive()) {
-          child.destroyForcibly();
-          child.waitFor(CHILD_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        }
-        if (outputReader != null) {
-          outputReader.join(TimeUnit.SECONDS.toMillis(CHILD_CLEANUP_TIMEOUT_SECONDS));
-        }
-      }
+      DesktopProbeProcess.run(
+          FunctionSearchNavigationTest.class,
+          "function-search-" + presentation,
+          List.of("-D" + MenuPresentationMode.OVERRIDE_PROPERTY + "=" + presentation),
+          List.of("probe", presentation));
     }
   }
 
@@ -126,7 +60,9 @@ public final class FunctionSearchNavigationTest {
     Path resultPath = Path.of(args[3]);
     int exitCode = 1;
     try {
+      DesktopProbeProcess.phase(resultPath, "production-startup");
       runProbe(presentation, work, resultPath);
+      DesktopProbeProcess.phase(resultPath, "navigation-complete");
       exitCode = 0;
     } catch (Throwable failure) {
       Files.writeString(
@@ -168,17 +104,21 @@ public final class FunctionSearchNavigationTest {
 
     StringBuilder evidence = new StringBuilder();
     evidence.append("presentation=").append(presentation).append('\n');
+    DesktopProbeProcess.phase(resultPath, "settings-and-toolbar");
     checkSettingNavigation(controller, evidence);
     checkHiddenTopNavigation(controller, evidence);
+    DesktopProbeProcess.phase(resultPath, "state-and-read-only-gates");
     checkBusyOwnerStateGates(controller, evidence);
     checkNormalizedWhitespaceBrowse(controller, evidence);
     checkDynamicActionRefresh(controller, evidence);
     checkActionPaintingIsReadOnly(controller, evidence);
     checkAvailabilityIsReadOnly(controller, evidence);
     checkOwnerStateGate(controller, evidence);
+    DesktopProbeProcess.phase(resultPath, "modal-and-board-contexts");
     checkActivationTimeModal(controller, evidence);
     checkMainBoardContext(controller, evidence);
     checkIndependentBoardContext(controller, evidence);
+    DesktopProbeProcess.phase(resultPath, "cancellation-and-komi");
     checkDestructiveCancellation(controller, evidence);
     checkKomiNavigation(controller, evidence);
     Files.writeString(resultPath, evidence.toString(), StandardCharsets.UTF_8);

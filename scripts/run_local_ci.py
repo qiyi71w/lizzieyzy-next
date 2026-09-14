@@ -22,6 +22,19 @@ import xml.etree.ElementTree as ET
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+JAVA_REQUIRED_TESTS = (
+    ("featurecat.lizzie.logging.LoggingProviderSmokeIT", "shadedArtifactWritesOneProviderEvent"),
+)
+DESKTOP_REQUIRED_TESTS = (
+    (
+        "featurecat.lizzie.gui.FunctionSearchNavigationTest",
+        "navigationPreservesRealStateAcrossNativeAndCustomMenus",
+    ),
+    (
+        "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
+        "blackWinrateRemainsReachableAcrossRebuildsAndRecreation",
+    ),
+)
 
 PY_COMPILE_FILES = (
     "scripts/audit_katago_binary_version.py",
@@ -133,6 +146,12 @@ class JunitSummary:
             errors=self.errors + other.errors,
             skipped=self.skipped + other.skipped,
         )
+
+
+class RequiredJunitExecutionError(RuntimeError):
+    def __init__(self, message: str, summary: JunitSummary):
+        super().__init__(message)
+        self.summary = summary
 
 
 def command_display(command: Sequence[str]) -> str:
@@ -279,8 +298,6 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
                 f"-Dlizzie.work.dir={temp / 'full-tests'}",
                 "-DskipTests=false",
                 "-DskipITs=false",
-                "-Dit.test=LoggingProviderSmokeIT",
-                "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
             group="java",
@@ -314,11 +331,12 @@ def portable_steps(maven: str, bash: str) -> list[Step]:
         )
         for module in UNITTEST_MODULES
     )
-    steps.append(
+    steps.extend(
         Step(
-            "Parse release shell scripts",
-            bash_login_command(bash, "bash", "-n", *BASH_SYNTAX_FILES),
+            f"Parse {script}",
+            bash_login_command(bash, "bash", "-n", script),
         )
+        for script in BASH_SYNTAX_FILES
     )
     steps.append(
         Step(
@@ -330,8 +348,6 @@ def portable_steps(maven: str, bash: str) -> list[Step]:
                 "-Djava.awt.headless=true",
                 "-DskipTests=false",
                 "-DskipITs=false",
-                "-Dit.test=LoggingProviderSmokeIT",
-                "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
             group="java",
@@ -361,6 +377,26 @@ def build_steps(
     profile: str, maven: str, bash: str | None, powershell: str | None,
     group: str = "all",
 ) -> list[Step]:
+    if group == "desktop":
+        evidence_dir = REPO_ROOT / "target" / "desktop-smoke" / "probes"
+        reports_dir = REPO_ROOT / "target" / "desktop-smoke" / "surefire-reports"
+        return [
+            Step(
+                "Run desktop smoke tests",
+                (
+                    maven,
+                    "-B",
+                    "-Dfmt.skip=true",
+                    "-Djava.awt.headless=false",
+                    "-Dlizzie.desktop.required=true",
+                    f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
+                    f"-Dsurefire.reportsDirectory={reports_dir}",
+                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest",
+                    "test",
+                ),
+                group="desktop",
+            )
+        ]
     if group in {"all", "scripts"}:
         if profile in {"portable", "all"} and bash is None:
             raise RuntimeError("The selected scripts require bash.")
@@ -414,17 +450,42 @@ def parse_suite(element: ET.Element) -> JunitSummary:
     )
 
 
-def collect_junit_summary(root: Path = REPO_ROOT / "target") -> JunitSummary:
+def collect_junit_summary(
+    root: Path = REPO_ROOT / "target",
+    required_tests: Sequence[tuple[str, str]] = (),
+) -> JunitSummary:
     summary = JunitSummary()
+    missing = set(required_tests)
+    required_classes = {classname for classname, _ in required_tests}
+    unsuccessful: list[str] = []
     files: list[Path] = []
     for directory in (root / "surefire-reports", root / "failsafe-reports"):
         if directory.is_dir():
             files.extend(sorted(directory.glob("TEST-*.xml")))
     for path in files:
         try:
-            summary = summary.plus(parse_suite(ET.parse(path).getroot()))
+            report = ET.parse(path).getroot()
+            summary = summary.plus(parse_suite(report))
+            for case in report.iter("testcase"):
+                classname = case.attrib.get("classname", "")
+                if classname not in required_classes:
+                    continue
+                name = case.attrib.get("name", "")
+                if any(case.find(status) is not None for status in ("skipped", "failure", "error")):
+                    unsuccessful.append(f"{classname}.{name}")
+                else:
+                    missing.discard((classname, name))
         except (ET.ParseError, OSError, ValueError) as error:
             raise RuntimeError(f"Unable to parse JUnit report {path}: {error}") from error
+    if missing or unsuccessful:
+        details = []
+        if missing:
+            details.append("missing successful cases: " + ", ".join(f"{c}.{n}" for c, n in sorted(missing)))
+        if unsuccessful:
+            details.append("unsuccessful required-class cases: " + ", ".join(unsuccessful))
+        raise RequiredJunitExecutionError(
+            "Required JUnit execution not satisfied: " + "; ".join(details), summary
+        )
     return summary
 
 
@@ -432,6 +493,8 @@ def reset_junit_reports(root: Path = REPO_ROOT / "target") -> None:
     for directory in (root / "surefire-reports", root / "failsafe-reports"):
         if directory.exists():
             shutil.rmtree(directory)
+
+
 
 
 def overall_result(success: bool, results: Sequence[StepResult]) -> str:
@@ -506,17 +569,27 @@ def run(args: argparse.Namespace) -> int:
     output_dir = (REPO_ROOT / args.summary_dir).resolve()
     results: list[StepResult] = []
     java_selected = args.group in {"all", "java"}
+    desktop_selected = args.group == "desktop"
     scripts_selected = args.group in {"all", "scripts"}
+    needs_java = java_selected or desktop_selected
     java_details = "not executed"
     junit_executed = False
 
     try:
         if args.require_clean:
             require_clean_checkout()
+        if desktop_selected and not args.dry_run:
+            if sys.platform.startswith("linux") and not os.environ.get("DISPLAY", "").strip():
+                raise RuntimeError(
+                    "Desktop CI requires DISPLAY on Linux. Start Xvfb or set DISPLAY."
+                )
         if java_selected and not args.dry_run:
             reset_junit_reports()
             junit_executed = True
-        maven = (args.maven or ("mvn" if args.dry_run else resolve_maven())) if java_selected else "mvn"
+        elif desktop_selected and not args.dry_run:
+            reset_junit_reports(REPO_ROOT / "target" / "desktop-smoke")
+            junit_executed = True
+        maven = (args.maven or ("mvn" if args.dry_run else resolve_maven())) if needs_java else "mvn"
         bash = None
         powershell = None
         if scripts_selected and args.profile in {"portable", "all"}:
@@ -525,7 +598,7 @@ def run(args: argparse.Namespace) -> int:
             powershell = args.powershell or (
                 "pwsh" if args.dry_run else resolve_powershell()
             )
-        if java_selected and not args.dry_run:
+        if needs_java and not args.dry_run:
             major, java_details = java_major_version(maven)
             if major != 21:
                 raise RuntimeError(
@@ -577,8 +650,25 @@ def run(args: argparse.Namespace) -> int:
         print(f"Local CI failed: {error}", file=sys.stderr, flush=True)
         return_code = 1
 
+    junit = JunitSummary()
     try:
-        junit = collect_junit_summary() if junit_executed else JunitSummary()
+        if junit_executed:
+            required_tests = (
+                DESKTOP_REQUIRED_TESTS if desktop_selected else JAVA_REQUIRED_TESTS
+            )
+            if desktop_selected:
+                junit = collect_junit_summary(
+                    REPO_ROOT / "target" / "desktop-smoke", required_tests=required_tests
+                )
+            else:
+                junit = collect_junit_summary(required_tests=required_tests)
+    except (OSError, RuntimeError) as error:
+        if isinstance(error, RequiredJunitExecutionError):
+            junit = error.summary
+        print(f"Local CI failed: {error}", file=sys.stderr, flush=True)
+        return_code = 1
+
+    try:
         write_summary(
             output_dir,
             args.profile,
@@ -611,7 +701,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--profile", choices=("windows", "portable", "all"), default="all"
     )
     parser.add_argument(
-        "--group", choices=("all", "repository", "scripts", "java"), default="all"
+        "--group", choices=("all", "repository", "scripts", "java", "desktop"), default="all"
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--require-clean", action="store_true")

@@ -1,7 +1,7 @@
 param(
   [ValidateSet('Windows', 'Portable', 'All')]
   [string]$Profile = 'All',
-  [ValidateSet('All', 'Repository', 'Scripts', 'Java')]
+  [ValidateSet('All', 'Repository', 'Scripts', 'Java', 'Desktop')]
   [string]$Group = 'All',
   [switch]$DryRun,
   [switch]$RequireClean,
@@ -27,7 +27,7 @@ function Test-Java21([string]$JavaHome) {
   return $version -match 'version "21(?:\.|\")'
 }
 
-if ($Group -in @('All', 'Java') -and -not $DryRun -and -not (Test-Java21 $env:JAVA_HOME)) {
+if ($Group -in @('All', 'Java', 'Desktop') -and -not $DryRun -and -not (Test-Java21 $env:JAVA_HOME)) {
   $jdkCandidates = @(
     Get-ChildItem -Path (Join-Path $repoRoot '.tools\jdk-21*') -Directory -ErrorAction SilentlyContinue
     Get-ChildItem -Path (Join-Path $env:SystemDrive 'jdk21\jdk-21*') -Directory -ErrorAction SilentlyContinue
