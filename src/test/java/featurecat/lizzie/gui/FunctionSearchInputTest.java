@@ -200,7 +200,6 @@ public final class FunctionSearchInputTest {
     AbstractButton toolbarEntry = findUniqueToolbarEntry(title);
     Robot robot = new Robot();
     robot.setAutoDelay(35);
-    robot.setAutoWaitForIdle(true);
 
     evidence.put("locale", localeName);
     evidence.put("presentation", presentation);
@@ -257,7 +256,7 @@ public final class FunctionSearchInputTest {
     evidence.put(path + ".open-focus", "true");
     assertBoardAndConfigUnchanged(beforeNode, configBefore, path + " search opening");
 
-    type(robot, QUERY);
+    typeAndAwait(robot, input, QUERY, path + " query");
     JList<?> results = resultList(dialog);
     await(() -> targetIndex(results) >= 0, path + " target results", UI_TIMEOUT_MILLIS);
     List<String> resultIds = resultIds(results);
@@ -281,6 +280,11 @@ public final class FunctionSearchInputTest {
     }
     for (int index = selectedIndex; index < targetIndex; index++) {
       press(robot, KeyEvent.VK_DOWN);
+      int expectedIndex = index + 1;
+      await(
+          () -> selectedIndex(results) == expectedIndex,
+          path + " target navigation step " + expectedIndex,
+          UI_TIMEOUT_MILLIS);
     }
     await(
         () -> TARGET.equals(selectedTarget(results)),
@@ -626,6 +630,18 @@ public final class FunctionSearchInputTest {
       press(robot, key);
     }
   }
+  private static void typeAndAwait(
+      Robot robot, JTextField input, String text, String label) throws Exception {
+    for (int offset = 0; offset < text.length(); offset++) {
+      String expected = text.substring(0, offset + 1);
+      type(robot, text.substring(offset, offset + 1));
+      await(
+          () -> expected.equals(runOnEdtUnchecked(input::getText)),
+          label + " character " + (offset + 1),
+          UI_TIMEOUT_MILLIS);
+    }
+  }
+
 
   private static void press(Robot robot, int key) {
     robot.keyPress(key);
