@@ -601,6 +601,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
             }
           } catch (Exception ex) {
             observe(() -> ReadBoardObservation.recordFailure("parse-line", ex));
+            EngineFollowController.presentSnapshotPreparationFailure(ex);
           }
           line = new StringBuilder();
         }
@@ -4082,11 +4083,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
 
     @Override
     public void handleFailure(ReadBoardGmaSession.ParticipantFailure firstFailure) {
-      discardReadBoardGmaLegacyRestoreIntent();
-      if (engine != null
-          && firstFailure.category() != ReadBoardGmaSession.FailureCategory.ADMISSION_STALE) {
-        engine.quarantineSessionOwnedReadBoardGmaFailure(firstFailure.detail());
-      }
+      handleReadBoardGmaFailure(engine, firstFailure);
     }
 
     @Override
@@ -4111,6 +4108,22 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
         }
       }
     }
+  }
+
+  void handleReadBoardGmaFailure(
+      Leelaz engine, ReadBoardGmaSession.ParticipantFailure firstFailure) {
+    discardReadBoardGmaLegacyRestoreIntent();
+    if (firstFailure.category() == ReadBoardGmaSession.FailureCategory.SNAPSHOT_PREPARATION) {
+      presentReadBoardGmaSnapshotPreparationFailure(firstFailure.detail());
+    }
+    if (engine != null
+        && firstFailure.category() != ReadBoardGmaSession.FailureCategory.ADMISSION_STALE) {
+      engine.quarantineSessionOwnedReadBoardGmaFailure(firstFailure.detail());
+    }
+  }
+
+  protected void presentReadBoardGmaSnapshotPreparationFailure(String detail) {
+    EngineFollowController.presentSnapshotPreparationFailureDetail(detail);
   }
 
   /**
@@ -4202,6 +4215,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
         case ADMISSION_STALE -> ReadBoardGmaSession.FailureCategory.ADMISSION_STALE;
         case UNSUPPORTED_REMOTE_POSITION ->
             ReadBoardGmaSession.FailureCategory.UNSUPPORTED_REMOTE_POSITION;
+        case SNAPSHOT_PREPARATION -> ReadBoardGmaSession.FailureCategory.SNAPSHOT_PREPARATION;
         case SEND_FAILED -> ReadBoardGmaSession.FailureCategory.SEND_FAILED;
         case GTP_ERROR -> ReadBoardGmaSession.FailureCategory.GTP_ERROR;
         case TIMEOUT -> ReadBoardGmaSession.FailureCategory.TIMEOUT;

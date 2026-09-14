@@ -19,9 +19,13 @@ import featurecat.lizzie.rules.Movelist;
 import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import java.awt.Window;
+import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -826,6 +830,433 @@ class ExactSnapshotEngineRestoreContractTest {
           IllegalArgumentException.class,
           () -> prepareCurrentPositionRestore(engine, invalidPosition));
       assertTrue(output.commands().isEmpty());
+    }
+  }
+
+  @Test
+  void knownSshRestoreFailsBeforePreclearOrLoadSgf() throws Exception {
+    try (TestHarness harness = TestHarness.open(false)) {
+      Leelaz engine = new Leelaz("");
+      engine.useJavaSSH = true;
+      ScriptedResponseOutputStream output =
+          new ScriptedResponseOutputStream(engine, null, null, AUTO_ID_RESPONSE);
+      setOutputStream(engine, output);
+
+      ExactSnapshotEngineRestore.Failure thrown =
+          assertThrows(
+              ExactSnapshotEngineRestore.Failure.class,
+              () ->
+                  ExactSnapshotEngineRestore.prepareCurrentPosition(
+                          engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                      .execute());
+
+      assertEquals(
+          ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION, thrown.category());
+      assertTrue(output.commands().isEmpty());
+    }
+  }
+
+  @Test
+  void knownShellWrapperRestoreFailsBeforePreclearOrLoadSgf() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      Leelaz engine = new Leelaz("bash -c ssh-host-engine");
+      ScriptedResponseOutputStream output =
+          new ScriptedResponseOutputStream(engine, null, null, AUTO_ID_RESPONSE);
+      engine.installFreshCommandOutputForTest(
+          output, null, List.of("bash", "-c", "ssh host katago gtp"));
+
+      ExactSnapshotEngineRestore.Failure thrown =
+          assertThrows(
+              ExactSnapshotEngineRestore.Failure.class,
+              () ->
+                  ExactSnapshotEngineRestore.prepareCurrentPosition(
+                          engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                      .execute());
+
+      assertEquals(
+          ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION, thrown.category());
+      assertTrue(output.commands().isEmpty());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+  @Test
+  void unprovenInterpreterWrapperFailsBeforePreclearOrLoadSgf() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      for (List<String> launchCommands :
+          List.of(
+              List.of("python", "remote_bridge.py"),
+              List.of("pythonw.exe", "remote_bridge.py"),
+              List.of("python3.11", "remote_bridge.py"))) {
+        Leelaz engine = new Leelaz(String.join(" ", launchCommands));
+        ScriptedResponseOutputStream output =
+            new ScriptedResponseOutputStream(engine, null, null, AUTO_ID_RESPONSE);
+        engine.installFreshCommandOutputForTest(output, null, launchCommands);
+
+        ExactSnapshotEngineRestore.Failure thrown =
+            assertThrows(
+                ExactSnapshotEngineRestore.Failure.class,
+                () ->
+                    ExactSnapshotEngineRestore.prepareCurrentPosition(
+                            engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                        .execute(),
+                String.join(" ", launchCommands));
+
+        assertEquals(
+            ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+            thrown.category(),
+            String.join(" ", launchCommands));
+        assertTrue(output.commands().isEmpty(), String.join(" ", launchCommands));
+      }
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+  @Test
+  void unsafeTempParentUsesProvenCwdRelativeSnapshotAndPreservesSgfPayload() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path workingDirectory = Files.createTempDirectory("引擎 路径 #");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", workingDirectory.toString());
+      Leelaz engine = new Leelaz("");
+      ExactSnapshotEngineRestore.PreparedRestore preparedRestore =
+          prepareCurrentPositionRestore(engine, snapshotRoot());
+      WorkingDirectorySnapshotOutputStream output =
+          new WorkingDirectorySnapshotOutputStream(engine, workingDirectory);
+      engine.installFreshCommandOutputForTest(output, workingDirectory);
+
+      preparedRestore.execute();
+
+      assertFalse(Path.of(output.gtpFileName()).isAbsolute());
+      assertTrue(output.gtpFileName().matches("[!-~]+"));
+      assertFalse(output.gtpFileName().contains("#"));
+      assertTrue(output.loadedSgf().contains("SZ[3]"));
+      assertTrue(output.loadedSgf().contains("KM[7.5]"));
+      assertTrue(output.loadedSgf().contains("PL[W]"));
+      assertTrue(output.loadedSgf().contains("AB[aa]"));
+      assertTrue(output.loadedSgf().contains("AW[ba]"));
+      assertEventuallyDeleted(output.physicalPath());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(workingDirectory);
+    }
+  }
+
+  @Test
+  void realChildOpensRelativeSnapshotFromUnsafeWorkingDirectory() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path workingDirectory = Files.createTempDirectory("真实 引擎 #");
+    Path resultFile = Files.createTempFile("lizzie-snapshot-child-", ".txt");
+    Files.delete(resultFile);
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", workingDirectory.toString());
+      Leelaz engine = new Leelaz("");
+      ExactSnapshotEngineRestore.PreparedRestore preparedRestore =
+          prepareCurrentPositionRestore(engine, snapshotRoot());
+
+      SnapshotChildResult result =
+          executeWithSnapshotChild(
+              engine, preparedRestore, workingDirectory, resultFile, workingDirectory);
+
+      assertFalse(Path.of(result.gtpFileName()).isAbsolute());
+      assertTrue(result.gtpFileName().matches("[!-~]+"));
+      assertFalse(result.gtpFileName().contains("#"));
+      assertSnapshotPayload(result.sgf());
+      assertTrue(snapshotSgfFiles(workingDirectory).isEmpty());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(resultFile);
+      Files.deleteIfExists(workingDirectory);
+    }
+  }
+
+  @Test
+  void realChildOpensSafeDefaultAbsoluteSnapshotWithoutProvenWorkingDirectory() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    Path workingDirectory = Files.createTempDirectory("真实 引擎 #");
+    Path resultFile = Files.createTempFile("lizzie-snapshot-child-", ".txt");
+    Files.delete(resultFile);
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      Leelaz engine = new Leelaz("");
+      ExactSnapshotEngineRestore.PreparedRestore preparedRestore =
+          prepareCurrentPositionRestore(engine, snapshotRoot());
+
+      SnapshotChildResult result =
+          executeWithSnapshotChild(engine, preparedRestore, workingDirectory, resultFile, null);
+
+      assertTrue(Path.of(result.gtpFileName()).isAbsolute());
+      assertTrue(result.gtpFileName().matches("[!-~]+"));
+      assertFalse(result.gtpFileName().contains("#"));
+      assertSnapshotPayload(result.sgf());
+      assertTrue(snapshotSgfFiles(tempDirectory).isEmpty());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(resultFile);
+      Files.deleteIfExists(workingDirectory);
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+
+  @Test
+  void dualTargetsWithDistinctCwdsKeepBothSnapshotsUntilBothAcknowledge() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path firstWorkingDirectory = Files.createTempDirectory("主 引擎 #");
+    Path secondWorkingDirectory = Files.createTempDirectory("副 引擎 #");
+    try (TestHarness harness = TestHarness.open(true)) {
+      System.setProperty("java.io.tmpdir", firstWorkingDirectory.toString());
+      Leelaz primary = new Leelaz("");
+      Leelaz mirror = new Leelaz("");
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = mirror;
+      RecordingOutputStream primaryOutput = new RecordingOutputStream(null);
+      RecordingOutputStream mirrorOutput = new RecordingOutputStream(null);
+      primary.installFreshCommandOutputForTest(primaryOutput, firstWorkingDirectory);
+      mirror.installFreshCommandOutputForTest(mirrorOutput, secondWorkingDirectory);
+
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+      Thread restoreThread =
+          new Thread(
+              () -> {
+                try {
+                  executePositionRestore(primary, snapshotRoot());
+                } catch (Throwable thrown) {
+                  failure.set(thrown);
+                }
+              });
+      restoreThread.start();
+      waitForCommandCount(primaryOutput, 1);
+      waitForCommandCount(mirrorOutput, 1);
+
+      Path primaryFile =
+          firstWorkingDirectory.resolve(extractLoadSgfPath(primaryOutput.commands().get(0)));
+      Path mirrorFile =
+          secondWorkingDirectory.resolve(extractLoadSgfPath(mirrorOutput.commands().get(0)));
+      assertFalse(primaryFile.equals(mirrorFile));
+      assertTrue(Files.exists(primaryFile));
+      assertTrue(Files.exists(mirrorFile));
+
+      invokeResponseHandlerForLine(
+          primary, buildSuccessResponseLine(primaryOutput.commands().get(0)));
+      Thread.sleep(50L);
+      assertTrue(Files.exists(primaryFile));
+      assertTrue(Files.exists(mirrorFile));
+
+      invokeResponseHandlerForLine(
+          mirror, buildSuccessResponseLine(mirrorOutput.commands().get(0)));
+      restoreThread.join(2000L);
+      assertFalse(restoreThread.isAlive());
+      assertEquals(null, failure.get());
+      assertEventuallyDeleted(primaryFile);
+      assertEventuallyDeleted(mirrorFile);
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(firstWorkingDirectory);
+      Files.deleteIfExists(secondWorkingDirectory);
+    }
+  }
+
+  @Test
+  void mirrorRebindBetweenTargetEnqueuesFailsClosedAndCleansSnapshots() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path primaryWorkingDirectory = Files.createTempDirectory("主 引擎 #");
+    Path mirrorWorkingDirectory = Files.createTempDirectory("副 引擎 #");
+    Path replacementWorkingDirectory = Files.createTempDirectory("替换 引擎 #");
+    try (TestHarness harness = TestHarness.open(true)) {
+      System.setProperty("java.io.tmpdir", primaryWorkingDirectory.toString());
+      Leelaz primary = new Leelaz("");
+      Leelaz mirror = new Leelaz("");
+      Lizzie.leelaz = primary;
+      Lizzie.leelaz2 = mirror;
+      RecordingOutputStream originalMirrorOutput = new RecordingOutputStream(null);
+      ScriptedResponseOutputStream replacementOutput =
+          new ScriptedResponseOutputStream(mirror, null, null, AUTO_ID_RESPONSE);
+      RebindingMirrorOutputStream primaryOutput =
+          new RebindingMirrorOutputStream(
+              primary, mirror, replacementOutput, replacementWorkingDirectory);
+      primary.installFreshCommandOutputForTest(primaryOutput, primaryWorkingDirectory);
+      mirror.installFreshCommandOutputForTest(originalMirrorOutput, mirrorWorkingDirectory);
+
+      ExactSnapshotEngineRestore.Failure thrown =
+          assertThrows(
+              ExactSnapshotEngineRestore.Failure.class,
+              () -> executePositionRestore(primary, snapshotRoot()));
+
+      assertEquals(ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE, thrown.category());
+      assertEquals(1, primaryOutput.loadSgfCommandCount());
+      assertTrue(originalMirrorOutput.commands().isEmpty());
+      assertTrue(replacementOutput.commands().isEmpty());
+      assertTrue(snapshotSgfFiles(primaryWorkingDirectory).isEmpty());
+      assertTrue(snapshotSgfFiles(mirrorWorkingDirectory).isEmpty());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(primaryWorkingDirectory);
+      Files.deleteIfExists(mirrorWorkingDirectory);
+      Files.deleteIfExists(replacementWorkingDirectory);
+    }
+  }
+
+  @Test
+  void safeDefaultTempUsesSharedAbsoluteSnapshotForUnknownLocalCwd() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    Path engineWorkingDirectory = Files.createTempDirectory("引擎 路径 #");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      Leelaz engine = new Leelaz("");
+      WorkingDirectorySnapshotOutputStream output =
+          new WorkingDirectorySnapshotOutputStream(engine, engineWorkingDirectory);
+      setOutputStream(engine, output);
+
+      executePositionRestore(engine, snapshotRoot());
+
+      assertTrue(Path.of(output.gtpFileName()).isAbsolute());
+      assertTrue(output.gtpFileName().matches("[!-~]+"));
+      assertFalse(output.gtpFileName().contains("#"));
+      assertTrue(output.loadedSgf().contains("SZ[3]"));
+      assertEventuallyDeleted(output.physicalPath());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(engineWorkingDirectory);
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+  @Test
+  void processRebindAfterStagingRejectsBeforePreclearAndDeletesSnapshot() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      RebindingOnValidationLeelaz engine = new RebindingOnValidationLeelaz();
+      RecordingOutputStream initialOutput = new RecordingOutputStream(null);
+      setOutputStream(engine, initialOutput);
+      engine.armRebind();
+
+      ExactSnapshotEngineRestore.Failure thrown =
+          assertThrows(
+              ExactSnapshotEngineRestore.Failure.class,
+              () ->
+                  ExactSnapshotEngineRestore.prepareCurrentPosition(
+                          engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                      .execute());
+
+      assertEquals(ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE, thrown.category());
+      assertTrue(initialOutput.commands().isEmpty());
+      assertTrue(engine.replacementOutput.commands().isEmpty());
+      assertTrue(snapshotSgfFiles(tempDirectory).isEmpty());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+  @Test
+  void processRebindAfterFinalValidationRejectsBeforePreclearAndDeletesSnapshot() throws Exception {
+    String previousTempDirectory = System.getProperty("java.io.tmpdir");
+    Path tempDirectory = Files.createTempDirectory("lizzie-safe-");
+    try (TestHarness harness = TestHarness.open(false)) {
+      System.setProperty("java.io.tmpdir", tempDirectory.toString());
+      RebindingOnValidationLeelaz engine = new RebindingOnValidationLeelaz();
+      RecordingOutputStream initialOutput = new RecordingOutputStream(null);
+      setOutputStream(engine, initialOutput);
+      engine.armRebindBeforePreclear();
+
+      ExactSnapshotEngineRestore.Failure thrown =
+          assertThrows(
+              ExactSnapshotEngineRestore.Failure.class,
+              () ->
+                  ExactSnapshotEngineRestore.prepareCurrentPosition(
+                          engine.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                      .execute());
+
+      assertEquals(ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE, thrown.category());
+      assertTrue(initialOutput.commands().isEmpty());
+      assertTrue(engine.replacementOutput.commands().isEmpty());
+      assertTrue(snapshotSgfFiles(tempDirectory).isEmpty());
+    } finally {
+      if (previousTempDirectory == null) {
+        System.clearProperty("java.io.tmpdir");
+      } else {
+        System.setProperty("java.io.tmpdir", previousTempDirectory);
+      }
+      Files.deleteIfExists(tempDirectory);
+    }
+  }
+
+  @Test
+  void secondTargetPreparationFailurePrecedesPreclearAndCleansFirstSnapshot() throws Exception {
+    String javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+    ProcessBuilder childBuilder =
+        new ProcessBuilder(
+                javaExecutable,
+                "-cp",
+                System.getProperty("java.class.path"),
+                SecondTargetPreparationFailureProbe.class.getName())
+            .redirectErrorStream(true);
+    childBuilder
+        .environment()
+        .keySet()
+        .removeIf(key -> key.equalsIgnoreCase("PUBLIC") || key.equalsIgnoreCase("ProgramData"));
+
+    Process child = childBuilder.start();
+    try {
+      assertTrue(child.waitFor(30, TimeUnit.SECONDS), "child probe timed out");
+      String output = new String(child.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+      assertEquals(0, child.exitValue(), output);
+    } finally {
+      if (child.isAlive()) {
+        child.destroyForcibly();
+        child.waitFor(2, TimeUnit.SECONDS);
+      }
     }
   }
 
@@ -2139,6 +2570,83 @@ class ExactSnapshotEngineRestoreContractTest {
     }
   }
 
+  private static SnapshotChildResult executeWithSnapshotChild(
+      Leelaz engine,
+      ExactSnapshotEngineRestore.PreparedRestore preparedRestore,
+      Path workingDirectory,
+      Path resultFile,
+      Path provenWorkingDirectory)
+      throws Exception {
+    String javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+    String testClasses =
+        Path.of(
+                ExactSnapshotEngineRestoreContractTest.class
+                    .getProtectionDomain()
+                    .getCodeSource()
+                    .getLocation()
+                    .toURI())
+            .toAbsolutePath()
+            .toString();
+    Process child =
+        new ProcessBuilder(
+                javaExecutable,
+                "-cp",
+                testClasses,
+                SnapshotLoadChild.class.getName(),
+                resultFile.toAbsolutePath().toString())
+            .directory(workingDirectory.toFile())
+            .start();
+    AtomicReference<Throwable> readerFailure = new AtomicReference<>();
+    Thread responseReader =
+        new Thread(
+            () -> {
+              try (BufferedReader reader =
+                  new BufferedReader(
+                      new InputStreamReader(child.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                  engine.processCommandResponseLineForTest(line);
+                }
+              } catch (Throwable failure) {
+                readerFailure.set(failure);
+              }
+            },
+            "snapshot-load-child-response");
+    responseReader.start();
+    try {
+      if (provenWorkingDirectory == null) {
+        engine.installFreshCommandOutputForTest(child.getOutputStream());
+      } else {
+        engine.installFreshCommandOutputForTest(child.getOutputStream(), provenWorkingDirectory);
+      }
+      preparedRestore.execute();
+      child.getOutputStream().close();
+      assertTrue(child.waitFor(2, TimeUnit.SECONDS));
+      responseReader.join(2000L);
+      assertEquals(0, child.exitValue());
+      assertEquals(null, readerFailure.get());
+      String output = Files.readString(resultFile, StandardCharsets.UTF_8);
+      int separator = output.indexOf('\n');
+      return new SnapshotChildResult(output.substring(0, separator), output.substring(separator + 1));
+    } finally {
+      if (child.isAlive()) {
+        child.destroyForcibly();
+        child.waitFor(2, TimeUnit.SECONDS);
+      }
+      responseReader.join(2000L);
+    }
+  }
+
+  private static void assertSnapshotPayload(String sgf) {
+    assertTrue(sgf.contains("SZ[3]"));
+    assertTrue(sgf.contains("KM[7.5]"));
+    assertTrue(sgf.contains("PL[W]"));
+    assertTrue(sgf.contains("AB[aa]"));
+    assertTrue(sgf.contains("AW[ba]"));
+  }
+
+  private record SnapshotChildResult(String gtpFileName, String sgf) {}
+
   private static BoardData snapshotRoot() {
     return snapshotRoot(false);
   }
@@ -2387,6 +2895,16 @@ class ExactSnapshotEngineRestoreContractTest {
     config.alwaysGtp = false;
     return config;
   }
+  private static Config minimalConfig(boolean doubleEngine, Path runtimeDirectory)
+      throws Exception {
+    var constructor = Config.class.getDeclaredConstructor(File.class);
+    constructor.setAccessible(true);
+    Config config = constructor.newInstance(runtimeDirectory.toFile());
+    config.extraMode = doubleEngine ? ExtraMode.Double_Engine : ExtraMode.Normal;
+    config.alwaysGtp = false;
+    return config;
+  }
+
 
   @SuppressWarnings("unchecked")
   private static <T> T allocate(Class<T> type) throws Exception {
@@ -2587,6 +3105,114 @@ class ExactSnapshotEngineRestoreContractTest {
     }
   }
 
+  private static final class RebindingMirrorOutputStream extends RecordedCommandOutputStream {
+    private final Leelaz engine;
+    private final Leelaz mirror;
+    private final OutputStream replacementOutput;
+    private final Path replacementWorkingDirectory;
+    private int loadSgfCommandCount;
+
+    private RebindingMirrorOutputStream(
+        Leelaz engine,
+        Leelaz mirror,
+        OutputStream replacementOutput,
+        Path replacementWorkingDirectory) {
+      this.engine = engine;
+      this.mirror = mirror;
+      this.replacementOutput = replacementOutput;
+      this.replacementWorkingDirectory = replacementWorkingDirectory;
+    }
+
+    @Override
+    protected void onCommand(String command) throws IOException {
+      if (isLoadSgfCommand(command)) {
+        loadSgfCommandCount++;
+        mirror.installFreshCommandOutputForTest(replacementOutput, replacementWorkingDirectory);
+      }
+      invokeResponseHandlerForLine(engine, buildSuccessResponseLine(command));
+    }
+
+    private int loadSgfCommandCount() {
+      return loadSgfCommandCount;
+    }
+  }
+
+  public static final class SecondTargetPreparationFailureProbe {
+    private SecondTargetPreparationFailureProbe() {}
+
+    public static void main(String[] args) throws Exception {
+      String previousTempDirectory = System.getProperty("java.io.tmpdir");
+      Path primaryWorkingDirectory = Files.createTempDirectory("主 引擎 #");
+      Path mirrorWorkingDirectory = primaryWorkingDirectory.resolve("副 引擎 #.file");
+      Path runtimeDirectory = primaryWorkingDirectory.resolve("应用 运行 #");
+      Files.writeString(mirrorWorkingDirectory, "not a directory");
+      Files.writeString(runtimeDirectory, "not a directory");
+      try (TestHarness harness = TestHarness.open(true)) {
+        System.setProperty("java.io.tmpdir", primaryWorkingDirectory.toString());
+        Lizzie.config = minimalConfig(true, runtimeDirectory);
+        Leelaz primary = new Leelaz("");
+        Leelaz mirror = new Leelaz("");
+        Lizzie.leelaz = primary;
+        Lizzie.leelaz2 = mirror;
+        RecordingOutputStream primaryOutput = new RecordingOutputStream(null);
+        RecordingOutputStream mirrorOutput = new RecordingOutputStream(null);
+        primary.installFreshCommandOutputForTest(primaryOutput, primaryWorkingDirectory);
+        mirror.installFreshCommandOutputForTest(mirrorOutput, mirrorWorkingDirectory);
+
+        ExactSnapshotEngineRestore.Failure thrown =
+            assertThrows(
+                ExactSnapshotEngineRestore.Failure.class,
+                () ->
+                    ExactSnapshotEngineRestore.prepareCurrentPosition(
+                            primary.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+                        .execute());
+
+        assertEquals(
+            ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION, thrown.category());
+        assertTrue(primaryOutput.commands().isEmpty());
+        assertTrue(mirrorOutput.commands().isEmpty());
+        assertTrue(snapshotSgfFiles(primaryWorkingDirectory).isEmpty());
+        ExactSnapshotEngineRestore.prepareCurrentPosition(
+                primary.captureBoardSyncExactSnapshotRestoreAdmission(), snapshotRoot())
+            .discard();
+      } finally {
+        if (previousTempDirectory == null) {
+          System.clearProperty("java.io.tmpdir");
+        } else {
+          System.setProperty("java.io.tmpdir", previousTempDirectory);
+        }
+        Files.deleteIfExists(runtimeDirectory);
+        Files.deleteIfExists(mirrorWorkingDirectory);
+        Files.deleteIfExists(primaryWorkingDirectory);
+      }
+    }
+  }
+
+  public static final class SnapshotLoadChild {
+    private SnapshotLoadChild() {}
+
+    public static void main(String[] args) throws Exception {
+      Path resultFile = Path.of(args[0]);
+      try (BufferedReader reader =
+          new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          String trimmed = line.trim();
+          int firstSpace = trimmed.indexOf(' ');
+          String commandId = firstSpace < 0 ? "" : trimmed.substring(0, firstSpace);
+          String command = firstSpace < 0 ? trimmed : trimmed.substring(firstSpace + 1);
+          if (command.startsWith("loadsgf ")) {
+            String gtpFileName = command.substring("loadsgf ".length());
+            String sgf = Files.readString(Path.of(gtpFileName), StandardCharsets.UTF_8);
+            Files.writeString(resultFile, gtpFileName + "\n" + sgf, StandardCharsets.UTF_8);
+          }
+          System.out.println("=" + commandId);
+          System.out.flush();
+        }
+      }
+    }
+  }
+
   private static final class ScriptedResponseOutputStream extends RecordedCommandOutputStream {
     private final Leelaz engine;
     private final String failCommandPrefix;
@@ -2642,6 +3268,87 @@ class ExactSnapshotEngineRestoreContractTest {
     }
 
   }
+  private static final class RebindingOnValidationLeelaz extends Leelaz {
+    private final RecordingOutputStream replacementOutput = new RecordingOutputStream(null);
+    private int validationCount;
+    private int rebindValidation;
+    private boolean rebindBeforePreclear;
+
+    private RebindingOnValidationLeelaz() throws IOException {
+      super("");
+    }
+
+    private void armRebind() {
+      armRebindOnValidation(1);
+    }
+
+    private void armRebindOnValidation(int validation) {
+      rebindValidation = validation;
+    }
+
+    private void armRebindBeforePreclear() {
+      rebindBeforePreclear = true;
+    }
+
+    @Override
+    void beforeExactSnapshotPreclearForTest() {
+      if (rebindBeforePreclear) {
+        rebindBeforePreclear = false;
+        installFreshCommandOutputForTest(replacementOutput);
+      }
+    }
+
+    @Override
+    void beforeSnapshotFileAccessValidationForTest() {
+      validationCount++;
+      if (validationCount == rebindValidation) {
+        installFreshCommandOutputForTest(replacementOutput);
+      }
+    }
+  }
+
+  private static final class WorkingDirectorySnapshotOutputStream
+      extends RecordedCommandOutputStream {
+    private final Leelaz engine;
+    private final Path workingDirectory;
+    private String gtpFileName;
+    private Path physicalPath;
+    private String loadedSgf;
+
+    private WorkingDirectorySnapshotOutputStream(Leelaz engine, Path workingDirectory) {
+      this.engine = engine;
+      this.workingDirectory = workingDirectory;
+    }
+
+    @Override
+    protected void onCommand(String command) throws IOException {
+      if (!isLoadSgfCommand(command)) {
+        invokeResponseHandlerForLine(engine, buildSuccessResponseLine(command));
+        return;
+      }
+      gtpFileName = extractLoadSgfPath(command).toString();
+      Path commandPath = Path.of(gtpFileName);
+      physicalPath =
+          commandPath.isAbsolute()
+              ? commandPath
+              : workingDirectory.resolve(commandPath).normalize();
+      loadedSgf = Files.readString(physicalPath);
+      invokeResponseHandlerForLine(engine, buildSuccessResponseLine(command));
+    }
+
+    private String gtpFileName() {
+      return gtpFileName;
+    }
+
+    private Path physicalPath() {
+      return physicalPath;
+    }
+
+    private String loadedSgf() {
+      return loadedSgf;
+    }
+  }
+
 
   private static final class TailReplayAwareOutputStream extends RecordedCommandOutputStream {
     private final Leelaz engine;

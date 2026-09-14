@@ -2772,6 +2772,26 @@ class LeelazReadBoardGmaTest {
   }
 
   @Test
+  void readBoardGmaSnapshotPreparationFailurePresentsReasonAndQuarantines() throws Exception {
+    try (Harness harness = Harness.open()) {
+      Leelaz engine = readyReadBoardGmaEngine();
+      RecordingPreparationFailureReadBoard readBoard =
+          allocate(RecordingPreparationFailureReadBoard.class);
+      String detail = "controlled snapshot staging failure";
+
+      readBoard.handleReadBoardGmaFailure(
+          engine,
+          new ReadBoardGmaSession.ParticipantFailure(
+              ReadBoardGmaSession.FailureCategory.SNAPSHOT_PREPARATION,
+              engine.currentEngineIncarnation(),
+              detail));
+
+      assertEquals(detail, readBoard.preparationFailureDetail);
+      assertTrue(engine.hasUnrestoredReadBoardGmaState());
+    }
+  }
+
+  @Test
   void readBoardGmaSessionFailureSkipsPreAdmissionDeferredRestore() throws Exception {
     try (Harness harness = Harness.open()) {
       BlockedFailureQuarantineLeelaz engine = new BlockedFailureQuarantineLeelaz();
@@ -5013,6 +5033,19 @@ class LeelazReadBoardGmaTest {
         ReadBoardGmaSession.ReservationReleaseCapability capability) {
       releaseRequests.incrementAndGet();
       super.requestReadBoardGmaReservationRelease(capability);
+    }
+  }
+
+  private static final class RecordingPreparationFailureReadBoard extends ReadBoard {
+    private String preparationFailureDetail;
+
+    private RecordingPreparationFailureReadBoard() throws Exception {
+      super(false, false);
+    }
+
+    @Override
+    protected void presentReadBoardGmaSnapshotPreparationFailure(String detail) {
+      preparationFailureDetail = detail;
     }
   }
 

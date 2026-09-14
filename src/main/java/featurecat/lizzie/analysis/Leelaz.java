@@ -508,6 +508,7 @@ public class Leelaz {
   public String oriEngineCommand = "";
   public String engineCommand;
   private List<String> commands;
+  private boolean directLocalSnapshotFileAccessForTest;
   //	private String currentWeightFile = "";
   //	private String currentWeight = "";
   // public boolean switching = false;
@@ -1061,7 +1062,12 @@ public class Leelaz {
         return;
       }
       requireCurrentEngineGameStartupTransaction(engineGameStartupTransaction);
-      initializeStreams();
+      initializeStreams(
+          process.getInputStream(),
+          process.getOutputStream(),
+          process.getErrorStream(),
+          processBuilder.directory() == null ? null : processBuilder.directory().toPath(),
+          classifySnapshotFileAccess(launchCommands));
       bindCurrentEngineGameStartupIncarnation(engineGameStartupTransaction);
       if (bundledCommand) {
         updateBundledStartupStage(
@@ -3783,10 +3789,97 @@ public class Leelaz {
   /** Initializes the input and output streams */
   public void initializeStreams() {
     initializeStreams(
-        process.getInputStream(), process.getOutputStream(), process.getErrorStream());
+        process.getInputStream(),
+        process.getOutputStream(),
+        process.getErrorStream(),
+        null,
+        classifySnapshotFileAccess(commands));
+  }
+
+  private SnapshotFileAccessKind classifySnapshotFileAccess(List<String> launchCommands) {
+    if (directLocalSnapshotFileAccessForTest
+        || launchCommands == null
+        || launchCommands.isEmpty()) {
+      return SnapshotFileAccessKind.DIRECT_LOCAL;
+    }
+    String executable = new File(launchCommands.get(0)).getName().toLowerCase(Locale.ROOT);
+    if (executable.endsWith(".exe")) {
+      executable = executable.substring(0, executable.length() - 4);
+    } else if (executable.endsWith(".bat")
+        || executable.endsWith(".cmd")
+        || executable.endsWith(".ps1")
+        || executable.endsWith(".sh")) {
+      return SnapshotFileAccessKind.UNSUPPORTED;
+    }
+    if (isInterpreterHostExecutable(executable)) {
+      return SnapshotFileAccessKind.UNSUPPORTED;
+    }
+    return switch (executable) {
+      case "ssh", "plink", "wsl", "wslhost", "docker", "podman", "wine", "wine64",
+          "flatpak", "snap", "cmd", "powershell", "pwsh", "sh", "bash", "zsh", "fish",
+          "env", "nohup" -> SnapshotFileAccessKind.UNSUPPORTED;
+      default -> SnapshotFileAccessKind.DIRECT_LOCAL;
+    };
+  }
+
+  private static boolean isInterpreterHostExecutable(String executable) {
+    if (switch (executable) {
+      case "py", "nodejs", "bun", "deno", "cscript", "wscript", "dotnet", "mono" -> true;
+      default -> false;
+    }) {
+      return true;
+    }
+    return hasNumericVersionSuffix(executable, "pythonw")
+        || hasNumericVersionSuffix(executable, "python")
+        || hasNumericVersionSuffix(executable, "pypy")
+        || hasNumericVersionSuffix(executable, "javaw")
+        || hasNumericVersionSuffix(executable, "java")
+        || hasNumericVersionSuffix(executable, "node")
+        || hasNumericVersionSuffix(executable, "ruby")
+        || hasNumericVersionSuffix(executable, "perl")
+        || hasNumericVersionSuffix(executable, "php");
+  }
+
+  private static boolean hasNumericVersionSuffix(String executable, String baseName) {
+    if (!executable.startsWith(baseName)) {
+      return false;
+    }
+    if (executable.length() == baseName.length()) {
+      return true;
+    }
+    boolean sawDigit = false;
+    boolean previousDot = false;
+    for (int index = baseName.length(); index < executable.length(); index++) {
+      char value = executable.charAt(index);
+      if (value >= '0' && value <= '9') {
+        sawDigit = true;
+        previousDot = false;
+      } else if (value == '.' && sawDigit && !previousDot && index + 1 < executable.length()) {
+        previousDot = true;
+      } else {
+        return false;
+      }
+    }
+    return sawDigit;
   }
 
   private void initializeStreams(InputStream stdout, OutputStream stdin, InputStream stderr) {
+    initializeStreams(
+        stdout,
+        stdin,
+        stderr,
+        null,
+        useRemoteCompute || useJavaSSH || isSSH
+            ? SnapshotFileAccessKind.UNSUPPORTED
+            : SnapshotFileAccessKind.DIRECT_LOCAL);
+  }
+
+  private void initializeStreams(
+      InputStream stdout,
+      OutputStream stdin,
+      InputStream stderr,
+      Path processWorkingDirectory,
+      SnapshotFileAccessKind snapshotFileAccessKind) {
     BufferedReader nextInputStream = new BufferedReader(new InputStreamReader(stdout));
     BufferedOutputStream nextOutputStream = createCommandOutputStream(stdin);
     BufferedReader nextErrorStream = new BufferedReader(new InputStreamReader(stderr));
@@ -3908,7 +4001,9 @@ public class Leelaz {
                 processIncarnationIds.incrementAndGet(),
                 startupPrimaryEngineGeneration,
                 isDeferredEngineGameRecoveryStartup(),
-                analysisOutputRecoveryTokenContext.get());
+                analysisOutputRecoveryTokenContext.get(),
+                processWorkingDirectory,
+                snapshotFileAccessKind);
         nextBinding.rawOutput = stdin;
         nextBinding.suppressGlobalEnginePresentation =
             nextBinding.suppressGlobalEnginePresentation
@@ -3968,7 +4063,9 @@ public class Leelaz {
                   processIncarnationIds.incrementAndGet(),
                   startupPrimaryEngineGeneration,
                   isDeferredEngineGameRecoveryStartup(),
-                  analysisOutputRecoveryTokenContext.get());
+                  analysisOutputRecoveryTokenContext.get(),
+                  processWorkingDirectory,
+                  snapshotFileAccessKind);
           nextBinding.rawOutput = stdin;
           nextBinding.suppressGlobalEnginePresentation =
               nextBinding.suppressGlobalEnginePresentation
@@ -4110,7 +4207,11 @@ public class Leelaz {
                 processIncarnationIds.incrementAndGet(),
                 startupPrimaryEngineGeneration,
                 isDeferredEngineGameRecoveryStartup(),
-                analysisOutputRecoveryTokenContext.get());
+                analysisOutputRecoveryTokenContext.get(),
+                null,
+                useRemoteCompute || useJavaSSH || isSSH
+                    ? SnapshotFileAccessKind.UNSUPPORTED
+                    : SnapshotFileAccessKind.DIRECT_LOCAL);
         nextBinding.suppressGlobalEnginePresentation =
             nextBinding.suppressGlobalEnginePresentation
                 || suppressGlobalEnginePresentationUntilOwned;
@@ -4418,6 +4519,11 @@ public class Leelaz {
     }
   }
 
+  private enum SnapshotFileAccessKind {
+    DIRECT_LOCAL,
+    UNSUPPORTED
+  }
+
   private static final class ReaderStreamBinding {
     private final BufferedReader stdout;
     private final BufferedReader stderr;
@@ -4427,6 +4533,8 @@ public class Leelaz {
     private final EngineTransport remoteTransport;
     private final SSHController javaSSH;
     private final long incarnation;
+    private final Path processWorkingDirectory;
+    private final SnapshotFileAccessKind snapshotFileAccessKind;
     private volatile Object analysisOutputRecoveryToken;
     private long startupPrimaryEngineGeneration;
     /** Bootstrap-only quarantine; released solely by deferred engine-game recovery settlement. */
@@ -4476,7 +4584,9 @@ public class Leelaz {
           incarnation,
           startupPrimaryEngineGeneration,
           false,
-          null);
+          null,
+          null,
+          SnapshotFileAccessKind.DIRECT_LOCAL);
     }
 
     private ReaderStreamBinding(
@@ -4489,7 +4599,9 @@ public class Leelaz {
         long incarnation,
         long startupPrimaryEngineGeneration,
         boolean deferredEngineGameRecoveryPresentationSuppressed,
-        Object analysisOutputRecoveryToken) {
+        Object analysisOutputRecoveryToken,
+        Path processWorkingDirectory,
+        SnapshotFileAccessKind snapshotFileAccessKind) {
       this.stdout = stdout;
       this.stderr = stderr;
       this.rawOutput = output;
@@ -4502,6 +4614,11 @@ public class Leelaz {
       this.deferredEngineGameRecoveryPresentationSuppressed =
           deferredEngineGameRecoveryPresentationSuppressed;
       this.analysisOutputRecoveryToken = analysisOutputRecoveryToken;
+      this.processWorkingDirectory =
+          processWorkingDirectory == null
+              ? null
+              : processWorkingDirectory.toAbsolutePath().normalize();
+      this.snapshotFileAccessKind = Objects.requireNonNull(snapshotFileAccessKind);
     }
   }
 
@@ -10647,6 +10764,24 @@ public class Leelaz {
         stream,
         new ByteArrayInputStream(new byte[0]));
   }
+  void installFreshCommandOutputForTest(OutputStream stream, Path processWorkingDirectory) {
+    initializeStreams(
+        new ByteArrayInputStream(new byte[0]),
+        stream,
+        new ByteArrayInputStream(new byte[0]),
+        processWorkingDirectory,
+        SnapshotFileAccessKind.DIRECT_LOCAL);
+  }
+
+  void installFreshCommandOutputForTest(
+      OutputStream stream, Path processWorkingDirectory, List<String> launchCommands) {
+    initializeStreams(
+        new ByteArrayInputStream(new byte[0]),
+        stream,
+        new ByteArrayInputStream(new byte[0]),
+        processWorkingDirectory,
+        classifySnapshotFileAccess(launchCommands));
+  }
 
   void installFreshCommandStreamsForTest(
       InputStream stdout, OutputStream stdin, InputStream stderr) {
@@ -11667,20 +11802,128 @@ public class Leelaz {
     loadTrackedSgf(sgfFile, mirroredEngine, afterConsumed, null);
   }
 
+  static final class SnapshotFileAccess {
+    private final Leelaz engine;
+    private final ReaderStreamBinding binding;
+    private final Path provenWorkingDirectory;
+
+    private SnapshotFileAccess(
+        Leelaz engine, ReaderStreamBinding binding, Path provenWorkingDirectory) {
+      this.engine = engine;
+      this.binding = binding;
+      this.provenWorkingDirectory = provenWorkingDirectory;
+    }
+
+    Path provenWorkingDirectory() {
+      return provenWorkingDirectory;
+    }
+  }
+
+  final SnapshotFileAccess captureSnapshotFileAccess(ExactSnapshotRestoreAdmission admission) {
+    requireExactSnapshotRestoreAdmission(admission);
+    ReaderStreamBinding binding = currentReaderStreamBinding();
+    if (binding.terminated) {
+      throw new ExactSnapshotEngineRestore.Failure(
+          ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE,
+          "Exact snapshot restore engine process is no longer current.");
+    }
+    if (useRemoteCompute
+        || useJavaSSH
+        || isSSH
+        || binding.remoteTransport != null
+        || binding.javaSSH != null
+        || binding.snapshotFileAccessKind == SnapshotFileAccessKind.UNSUPPORTED) {
+      throw new ExactSnapshotEngineRestore.Failure(
+          ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+          ExactSnapshotEngineRestore.UNSUPPORTED_SNAPSHOT_TRANSPORT_DETAIL);
+    }
+    Path workingDirectory =
+        binding.snapshotFileAccessKind == SnapshotFileAccessKind.DIRECT_LOCAL
+            ? binding.processWorkingDirectory
+            : null;
+    return new SnapshotFileAccess(this, binding, workingDirectory);
+  }
+
+  void trustDirectLocalSnapshotFileAccessForTest() {
+    directLocalSnapshotFileAccessForTest = true;
+  }
+
+  void beforeExactSnapshotPreclearForTest() {}
+
+  void beforeSnapshotFileAccessValidationForTest() {}
+
+  final void requireSnapshotFileAccessCurrent(
+      SnapshotFileAccess access, ExactSnapshotRestoreAdmission admission) {
+    beforeSnapshotFileAccessValidationForTest();
+    requireExactSnapshotRestoreAdmission(admission);
+    if (access == null
+        || access.engine != this
+        || access.binding != currentReaderStreamBinding()
+        || access.binding.terminated) {
+      throw new ExactSnapshotEngineRestore.Failure(
+          ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE,
+          "Exact snapshot restore engine process changed after snapshot staging.");
+    }
+  }
+
+  private boolean isSnapshotFileAccessBindingCurrent(SnapshotFileAccess access) {
+    return access != null
+        && access.engine == this
+        && access.binding == currentReaderStreamBinding()
+        && !access.binding.terminated;
+  }
+
   final void loadSgfForExactSnapshotRestore(
       Path sgfFile,
+      String gtpFileName,
+      SnapshotFileAccess fileAccess,
       Leelaz mirroredEngine,
+      Path mirroredSgfFile,
+      String mirroredGtpFileName,
+      SnapshotFileAccess mirroredFileAccess,
       ExactSnapshotRestoreAdmission admission,
       Runnable afterConsumed,
       Runnable onDispatchStarted) {
-    restoreExactSnapshotPosition(
-        "loadsgf " + sgfFile.toAbsolutePath(),
-        sgfFile,
-        mirroredEngine,
+    if (gtpFileName == null || gtpFileName.isEmpty()) {
+      throw new IllegalArgumentException("gtpFileName");
+    }
+    if (mirroredEngine != null
+        && (mirroredSgfFile == null
+            || mirroredGtpFileName == null
+            || mirroredGtpFileName.isEmpty()
+            || mirroredFileAccess == null)) {
+      throw new IllegalArgumentException("mirrored snapshot file");
+    }
+    if (afterConsumed == null) {
+      throw new IllegalArgumentException("afterConsumed");
+    }
+    requireSnapshotFileAccessCurrent(fileAccess, admission);
+    if (mirroredEngine != null) {
+      mirroredEngine.requireSnapshotFileAccessCurrent(mirroredFileAccess, admission);
+    }
+    withExactSnapshotRestoreAdmission(
         admission,
-        afterConsumed,
-        onDispatchStarted);
+        () -> {
+          requireSnapshotFileAccessCurrent(fileAccess, admission);
+          if (mirroredEngine != null) {
+            mirroredEngine.requireSnapshotFileAccessCurrent(mirroredFileAccess, admission);
+          }
+          if (onDispatchStarted != null) {
+            onDispatchStarted.run();
+          }
+          loadTrackedExactSnapshotFiles(
+              sgfFile,
+              gtpFileName,
+              fileAccess,
+              mirroredEngine,
+              mirroredSgfFile,
+              mirroredGtpFileName,
+              mirroredFileAccess,
+              afterConsumed,
+              admission);
+        });
   }
+
 
   final void restoreInBandForExactSnapshotRestore(
       String command,
@@ -11711,21 +11954,6 @@ public class Leelaz {
         capturedCommands, null, mirroredEngine, admission, afterConsumed, onDispatchStarted);
   }
 
-  private void restoreExactSnapshotPosition(
-      String command,
-      Path sgfFile,
-      Leelaz mirroredEngine,
-      ExactSnapshotRestoreAdmission admission,
-      Runnable afterConsumed,
-      Runnable onDispatchStarted) {
-    restoreExactSnapshotCommands(
-        List.of(command),
-        sgfFile,
-        mirroredEngine,
-        admission,
-        afterConsumed,
-        onDispatchStarted);
-  }
 
   private void restoreExactSnapshotCommands(
       List<String> commands,
@@ -11788,16 +12016,60 @@ public class Leelaz {
     RuntimeException sendFailure = null;
     for (String command : commands) {
       RuntimeException authoritySendFailure =
-          sendTrackedSnapshotCommand(this, command, sgfFile, dispatch, admission);
+          sendTrackedSnapshotCommand(this, command, sgfFile, null, dispatch, admission);
       if (sendFailure == null) {
         sendFailure = authoritySendFailure;
       }
       if (mirroredEngine != null) {
         RuntimeException mirroredSendFailure =
-            sendTrackedSnapshotCommand(mirroredEngine, command, sgfFile, dispatch, admission);
+            sendTrackedSnapshotCommand(
+                mirroredEngine, command, sgfFile, null, dispatch, admission);
         if (sendFailure == null) {
           sendFailure = mirroredSendFailure;
         }
+      }
+    }
+    if (sendFailure == null) {
+      sendFailure = dispatch.failure();
+    }
+    dispatch.finishDispatch();
+    if (sendFailure != null) {
+      dispatch.recordFailure(sendFailure);
+      dispatch.scheduleFallbackCleanupAfterSendFailure();
+      throw sendFailure;
+    }
+    dispatch.awaitCompletion();
+    RuntimeException responseFailure = dispatch.failure();
+    if (responseFailure != null) {
+      throw responseFailure;
+    }
+  }
+
+  private void loadTrackedExactSnapshotFiles(
+      Path sgfFile,
+      String gtpFileName,
+      SnapshotFileAccess fileAccess,
+      Leelaz mirroredEngine,
+      Path mirroredSgfFile,
+      String mirroredGtpFileName,
+      SnapshotFileAccess mirroredFileAccess,
+      Runnable afterConsumed,
+      ExactSnapshotRestoreAdmission admission) {
+    LoadSgfDispatch dispatch = new LoadSgfDispatch(afterConsumed, "loadsgf");
+    RuntimeException sendFailure =
+        sendTrackedSnapshotCommand(
+            this, "loadsgf " + gtpFileName, sgfFile, fileAccess, dispatch, admission);
+    if (mirroredEngine != null) {
+      RuntimeException mirroredSendFailure =
+          sendTrackedSnapshotCommand(
+              mirroredEngine,
+              "loadsgf " + mirroredGtpFileName,
+              mirroredSgfFile,
+              mirroredFileAccess,
+              dispatch,
+              admission);
+      if (sendFailure == null) {
+        sendFailure = mirroredSendFailure;
       }
     }
     if (sendFailure == null) {
@@ -11869,6 +12141,7 @@ public class Leelaz {
         "loadsgf " + sgfFile.toAbsolutePath(),
         onResponse,
         onSendFailure,
+        null,
         null);
   }
 
@@ -11877,10 +12150,25 @@ public class Leelaz {
       String command,
       Runnable onResponse,
       CommandSendFailureHandler onSendFailure,
+      SnapshotFileAccess fileAccess,
       ExactSnapshotRestoreAdmission admission) {
     if (admission != null) {
+      if (fileAccess != null && !targetEngine.isSnapshotFileAccessBindingCurrent(fileAccess)) {
+        throw new ExactSnapshotEngineRestore.Failure(
+            ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE,
+            "Exact snapshot restore engine process changed after snapshot staging.");
+      }
       if (!targetEngine.sendExactSnapshotRestoreCommand(
-          command, onResponse, onSendFailure, admission)) {
+          command,
+          onResponse,
+          onSendFailure,
+          admission,
+          fileAccess == null ? null : fileAccess.binding)) {
+        if (fileAccess != null && !targetEngine.isSnapshotFileAccessBindingCurrent(fileAccess)) {
+          throw new ExactSnapshotEngineRestore.Failure(
+              ExactSnapshotEngineRestore.FailureCategory.ADMISSION_STALE,
+              "Exact snapshot restore engine process changed after snapshot staging.");
+        }
         throw new ExactSnapshotEngineRestore.Failure(
             ExactSnapshotEngineRestore.FailureCategory.SEND_FAILED,
             "Exact snapshot restore command was rejected: " + command);
@@ -11894,6 +12182,7 @@ public class Leelaz {
       Leelaz targetEngine,
       String command,
       Path sgfFile,
+      SnapshotFileAccess fileAccess,
       LoadSgfDispatch dispatch,
       ExactSnapshotRestoreAdmission admission) {
     TrackedLoadSgfConsumer trackedConsumer =
@@ -11906,6 +12195,7 @@ public class Leelaz {
                   command,
                   trackedConsumer.responseHandler(),
                   trackedConsumer.sendFailureHandler(),
+                  fileAccess,
                   admission);
       if (admission == null) {
         send.run();
@@ -11948,6 +12238,15 @@ public class Leelaz {
     return sendExactSnapshotRestoreCommand(command, admission);
   }
 
+  boolean sendCommandToCapturedRestoreTarget(
+      String command, ExactSnapshotRestoreAdmission admission, SnapshotFileAccess fileAccess) {
+    if (fileAccess == null) {
+      return sendCommandToCapturedRestoreTarget(command, admission);
+    }
+    requireSnapshotFileAccessCurrent(fileAccess, admission);
+    return sendExactSnapshotRestoreCommand(command, null, null, admission, fileAccess.binding);
+  }
+
   void onCapturedRestoreClearCommandSent() {
     synchronized (commandQueue()) {
       currentCmdNum = Math.max(cmdNumber - 2, currentCmdNum);
@@ -11972,7 +12271,8 @@ public class Leelaz {
       String command,
       Runnable onResponse,
       CommandSendFailureHandler onSendFailure,
-      ExactSnapshotRestoreAdmission admission) {
+      ExactSnapshotRestoreAdmission admission,
+      ReaderStreamBinding expectedBinding) {
     return sendCommand(
         command,
         onResponse,
@@ -11982,7 +12282,7 @@ public class Leelaz {
         TrackingReleaseReason.ORDINARY_OPERATION,
         null,
         true,
-        expectedReadBoardGmaResponseBinding(admission));
+        expectedBinding != null ? expectedBinding : expectedReadBoardGmaResponseBinding(admission));
   }
 
   private ReaderStreamBinding expectedReadBoardGmaResponseBinding(
@@ -12001,16 +12301,32 @@ public class Leelaz {
       Runnable onResponse,
       CommandSendFailureHandler onSendFailure,
       ExactSnapshotRestoreAdmission admission) {
+    return sendExactSnapshotRestoreCommand(command, onResponse, onSendFailure, admission, null);
+  }
+
+  private boolean sendExactSnapshotRestoreCommand(
+      String command,
+      Runnable onResponse,
+      CommandSendFailureHandler onSendFailure,
+      ExactSnapshotRestoreAdmission admission,
+      ReaderStreamBinding expectedBinding) {
     if (!isExactSnapshotRestoreAdmissionValid(admission)) {
       return false;
     }
     final boolean[] sent = new boolean[1];
     boolean ownerCurrent =
         admission.runIfCurrentBoardSyncPrimary(
-            () -> withExactSnapshotRestoreAdmission(
-                admission,
-                () -> sent[0] =
-                    sendExactSnapshotRestoreCommandAdmitted(command, onResponse, onSendFailure, admission)));
+            () ->
+                withExactSnapshotRestoreAdmission(
+                    admission,
+                    () ->
+                        sent[0] =
+                            sendExactSnapshotRestoreCommandAdmitted(
+                                command,
+                                onResponse,
+                                onSendFailure,
+                                admission,
+                                expectedBinding)));
     return ownerCurrent && sent[0];
   }
 
