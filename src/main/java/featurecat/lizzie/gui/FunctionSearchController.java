@@ -74,15 +74,27 @@ final class FunctionSearchController implements KeyEventDispatcher {
             Lizzie.resourceBundle.getString("FunctionSearch.title"),
             javax.swing.JOptionPane.INFORMATION_MESSAGE);
     } else if (owner.isDisplayable()) {
-      if (previousFocus != null && previousFocus.isShowing() && previousFocus.isFocusable()) {
-        previousFocus.requestFocusInWindow();
-      } else if (anchor != null && anchor.isShowing() && anchor != owner) {
-        anchor.toFront();
-        anchor.requestFocus();
-      } else {
-        owner.mainPanel.requestFocusInWindow();
-      }
+      Window focusAnchor = anchor;
+      SwingUtilities.invokeLater(() -> restoreFocus(previousFocus, focusAnchor));
     }
+  }
+
+  private void restoreFocus(Component previousFocus, Window anchor) {
+    if (!owner.isDisplayable()) return;
+    Window targetWindow = anchor != null && anchor.isShowing() ? anchor : owner;
+    targetWindow.toFront();
+    targetWindow.requestFocus();
+    SwingUtilities.invokeLater(
+        () -> {
+          if (!owner.isDisplayable()) return;
+          if (previousFocus != null && previousFocus.isShowing() && previousFocus.isFocusable()) {
+            previousFocus.requestFocusInWindow();
+          } else if (anchor != null && anchor.isShowing() && anchor != owner) {
+            anchor.requestFocus();
+          } else {
+            owner.mainPanel.requestFocusInWindow();
+          }
+        });
   }
 
   String unavailableReason(String id) {

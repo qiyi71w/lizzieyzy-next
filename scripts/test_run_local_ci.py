@@ -99,6 +99,31 @@ class RunLocalCiTest(unittest.TestCase):
         self.assertIn("Run full Windows verification gate", [step.name for step in steps])
         self.assertNotIn("Verify local Markdown links", [step.name for step in steps])
 
+    def test_desktop_plan_selects_all_required_classes(self):
+        steps = run_local_ci.build_steps("portable", "mvn", None, None, "desktop")
+
+        self.assertEqual(1, len(steps))
+        self.assertIn(
+            "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,FunctionSearchInputTest",
+            steps[0].command,
+        )
+        self.assertEqual(
+            (
+                (
+                    "featurecat.lizzie.gui.FunctionSearchNavigationTest",
+                    "navigationPreservesRealStateAcrossNativeAndCustomMenus",
+                ),
+                (
+                    "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
+                    "blackWinrateRemainsReachableAcrossRebuildsAndRecreation",
+                ),
+                ("featurecat.lizzie.gui.FunctionSearchInputTest", "chineseInputChain"),
+                ("featurecat.lizzie.gui.FunctionSearchInputTest", "englishInputChain"),
+            ),
+            run_local_ci.DESKTOP_REQUIRED_TESTS,
+        )
+
+
 
     def test_syntax_gate_rejects_each_invalid_script_and_accepts_valid_selection(self):
         bash = shutil.which("bash")
@@ -305,8 +330,15 @@ class RunLocalCiTest(unittest.TestCase):
             stale = desktop_reports / "TEST-stale.xml"
             stale.write_text('<testsuite tests="1"><testcase classname="stale" name="stale"/></testsuite>')
 
-            fn_class, fn_method = run_local_ci.DESKTOP_REQUIRED_TESTS[0]
-            cfg_class, cfg_method = run_local_ci.DESKTOP_REQUIRED_TESTS[1]
+            navigation, config, chinese, english = run_local_ci.DESKTOP_REQUIRED_TESTS
+
+            def suite_xml(*cases: tuple[tuple[str, str], str]) -> str:
+                testcases = "".join(
+                    f'<testcase classname="{case[0]}" name="{case[1]}">{status}</testcase>'
+                    for case, status in cases
+                )
+                skipped = sum(status == "<skipped/>" for _, status in cases)
+                return f'<testsuite tests="{len(cases)}" skipped="{skipped}">{testcases}</testsuite>'
 
             def make_step(xml_content: str | None = None) -> list[run_local_ci.Step]:
                 if xml_content is None:
@@ -327,44 +359,42 @@ class RunLocalCiTest(unittest.TestCase):
                 patch.object(run_local_ci, "REPO_ROOT", Path(temporary)),
                 patch.dict(os.environ, {"DISPLAY": ":99"}),
             ):
-                # 1. Successful command without writing fresh required reports fails
                 with patch.object(run_local_ci, "build_steps", return_value=make_step(None)):
                     self.assertEqual(1, run_local_ci.run(args))
                     summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
                     self.assertEqual("FAIL", summary["result"])
+                    self.assertEqual(0, summary["junit"]["tests"])
                     self.assertFalse(stale.exists())
 
-                # 2. Missing one required case fails
-                partial_xml = f'<testsuite tests="1"><testcase classname="{fn_class}" name="{fn_method}"/></testsuite>'
-                with patch.object(run_local_ci, "build_steps", return_value=make_step(partial_xml)):
-                    self.assertEqual(1, run_local_ci.run(args))
-                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
-                    self.assertEqual("FAIL", summary["result"])
-
-                # 3. Required case skipped fails
-                skipped_xml = (
-                    f'<testsuite tests="2">'
-                    f'<testcase classname="{fn_class}" name="{fn_method}"/>'
-                    f'<testcase classname="{cfg_class}" name="{cfg_method}"><skipped/></testcase>'
-                    f'</testsuite>'
+                missing_english = suite_xml(
+                    (navigation, ""), (config, ""), (chinese, ""),
                 )
-                with patch.object(run_local_ci, "build_steps", return_value=make_step(skipped_xml)):
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(missing_english)):
                     self.assertEqual(1, run_local_ci.run(args))
                     summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
                     self.assertEqual("FAIL", summary["result"])
+                    self.assertEqual(3, summary["junit"]["tests"])
+                    self.assertEqual(0, summary["junit"]["skipped"])
 
-                # 4. Both required cases pass
-                pass_xml = (
-                    f'<testsuite tests="2">'
-                    f'<testcase classname="{fn_class}" name="{fn_method}"/>'
-                    f'<testcase classname="{cfg_class}" name="{cfg_method}"/>'
-                    f'</testsuite>'
+                skipped_chinese = suite_xml(
+                    (navigation, ""), (config, ""), (chinese, "<skipped/>"), (english, ""),
+                )
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(skipped_chinese)):
+                    self.assertEqual(1, run_local_ci.run(args))
+                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+                    self.assertEqual("FAIL", summary["result"])
+                    self.assertEqual(4, summary["junit"]["tests"])
+                    self.assertEqual(1, summary["junit"]["skipped"])
+
+                pass_xml = suite_xml(
+                    (navigation, ""), (config, ""), (chinese, ""), (english, ""),
                 )
                 with patch.object(run_local_ci, "build_steps", return_value=make_step(pass_xml)):
                     self.assertEqual(0, run_local_ci.run(args))
                     summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
                     self.assertEqual("PASS", summary["result"])
-                    self.assertEqual(2, summary["junit"]["tests"])
+                    self.assertEqual(4, summary["junit"]["tests"])
+
 
     def test_desktop_and_java_and_nonjava_report_isolation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -383,14 +413,13 @@ class RunLocalCiTest(unittest.TestCase):
             java_stale.write_text("stale-java", encoding="utf-8")
             desktop_stale.write_text("stale-desktop", encoding="utf-8")
 
-            fn_class, fn_method = run_local_ci.DESKTOP_REQUIRED_TESTS[0]
-            cfg_class, cfg_method = run_local_ci.DESKTOP_REQUIRED_TESTS[1]
-
             pass_xml = (
-                f'<testsuite tests="2">'
-                f'<testcase classname="{fn_class}" name="{fn_method}"/>'
-                f'<testcase classname="{cfg_class}" name="{cfg_method}"/>'
-                f'</testsuite>'
+                f'<testsuite tests="{len(run_local_ci.DESKTOP_REQUIRED_TESTS)}">'
+                + "".join(
+                    f'<testcase classname="{classname}" name="{method}"/>'
+                    for classname, method in run_local_ci.DESKTOP_REQUIRED_TESTS
+                )
+                + "</testsuite>"
             )
             write_script = (
                 "import pathlib; "

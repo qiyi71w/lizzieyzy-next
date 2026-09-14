@@ -34,6 +34,8 @@ DESKTOP_REQUIRED_TESTS = (
         "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
         "blackWinrateRemainsReachableAcrossRebuildsAndRecreation",
     ),
+    ("featurecat.lizzie.gui.FunctionSearchInputTest", "chineseInputChain"),
+    ("featurecat.lizzie.gui.FunctionSearchInputTest", "englishInputChain"),
 )
 
 PY_COMPILE_FILES = (
@@ -391,7 +393,7 @@ def build_steps(
                     "-Dlizzie.desktop.required=true",
                     f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
                     f"-Dsurefire.reportsDirectory={reports_dir}",
-                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest",
+                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,FunctionSearchInputTest",
                     "test",
                 ),
                 group="desktop",
