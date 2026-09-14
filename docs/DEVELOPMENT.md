@@ -97,6 +97,12 @@ JSON/Markdown 摘要增加 `group`；非 Java 组不清理或读取既有 JUnit 
 Java/JUnit 状态为未执行。真实 Java 调用先清除旧 Surefire/Failsafe 报告，再收集本次结果。
 Dry-run 仅生成计划，不代表检查通过。
 
+Portable 脚本组逐文件执行 Bash 语法检查，失败步骤直接显示脚本路径。
+两平台 Java gate 使用 Failsafe 默认命名发现集成测试，不再限定单一类；集成测试为空会失败。
+执行器还检查本次 XML 中 `LoggingProviderSmokeIT.shadedArtifactWritesOneProviderEvent`
+确实成功执行：关键用例缺失，或关键类任一用例 skipped/失败/报错，均使预检失败并写出失败摘要。
+其他需要显示环境的可选用例仍可在 headless gate 跳过；不固定全仓测试或 skip 数量。
+
 Actions 的 `ci.yml` 对所有 PR（包括仅文档改动）和 main push 执行五个独立 job：
 `repository-checks`、`script-tests`、`windows-script-tests`、`java-linux`、`java-windows`。
 Windows 脚本 job 依次运行 `windows/repository` 与 `windows/scripts`，摘要独立上传。

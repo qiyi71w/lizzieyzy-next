@@ -80,6 +80,7 @@
 					</execution>
 				</executions>
 				<configuration>
+					<failIfNoTests>true</failIfNoTests>
 					<systemPropertyVariables>
 						<lizzie.shaded.jar>${project.build.directory}/${project.build.finalName}-shaded.jar</lizzie.shaded.jar>
 					</systemPropertyVariables>

@@ -22,6 +22,9 @@ import xml.etree.ElementTree as ET
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+JAVA_REQUIRED_TESTS = (
+    ("featurecat.lizzie.logging.LoggingProviderSmokeIT", "shadedArtifactWritesOneProviderEvent"),
+)
 
 PY_COMPILE_FILES = (
     "scripts/audit_katago_binary_version.py",
@@ -133,6 +136,12 @@ class JunitSummary:
             errors=self.errors + other.errors,
             skipped=self.skipped + other.skipped,
         )
+
+
+class RequiredJunitExecutionError(RuntimeError):
+    def __init__(self, message: str, summary: JunitSummary):
+        super().__init__(message)
+        self.summary = summary
 
 
 def command_display(command: Sequence[str]) -> str:
@@ -279,8 +288,6 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
                 f"-Dlizzie.work.dir={temp / 'full-tests'}",
                 "-DskipTests=false",
                 "-DskipITs=false",
-                "-Dit.test=LoggingProviderSmokeIT",
-                "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
             group="java",
@@ -314,11 +321,12 @@ def portable_steps(maven: str, bash: str) -> list[Step]:
         )
         for module in UNITTEST_MODULES
     )
-    steps.append(
+    steps.extend(
         Step(
-            "Parse release shell scripts",
-            bash_login_command(bash, "bash", "-n", *BASH_SYNTAX_FILES),
+            f"Parse {script}",
+            bash_login_command(bash, "bash", "-n", script),
         )
+        for script in BASH_SYNTAX_FILES
     )
     steps.append(
         Step(
@@ -330,8 +338,6 @@ def portable_steps(maven: str, bash: str) -> list[Step]:
                 "-Djava.awt.headless=true",
                 "-DskipTests=false",
                 "-DskipITs=false",
-                "-Dit.test=LoggingProviderSmokeIT",
-                "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
             group="java",
@@ -414,17 +420,42 @@ def parse_suite(element: ET.Element) -> JunitSummary:
     )
 
 
-def collect_junit_summary(root: Path = REPO_ROOT / "target") -> JunitSummary:
+def collect_junit_summary(
+    root: Path = REPO_ROOT / "target",
+    required_tests: Sequence[tuple[str, str]] = (),
+) -> JunitSummary:
     summary = JunitSummary()
+    missing = set(required_tests)
+    required_classes = {classname for classname, _ in required_tests}
+    unsuccessful: list[str] = []
     files: list[Path] = []
     for directory in (root / "surefire-reports", root / "failsafe-reports"):
         if directory.is_dir():
             files.extend(sorted(directory.glob("TEST-*.xml")))
     for path in files:
         try:
-            summary = summary.plus(parse_suite(ET.parse(path).getroot()))
+            report = ET.parse(path).getroot()
+            summary = summary.plus(parse_suite(report))
+            for case in report.iter("testcase"):
+                classname = case.attrib.get("classname", "")
+                if classname not in required_classes:
+                    continue
+                name = case.attrib.get("name", "")
+                if any(case.find(status) is not None for status in ("skipped", "failure", "error")):
+                    unsuccessful.append(f"{classname}.{name}")
+                else:
+                    missing.discard((classname, name))
         except (ET.ParseError, OSError, ValueError) as error:
             raise RuntimeError(f"Unable to parse JUnit report {path}: {error}") from error
+    if missing or unsuccessful:
+        details = []
+        if missing:
+            details.append("missing successful cases: " + ", ".join(f"{c}.{n}" for c, n in sorted(missing)))
+        if unsuccessful:
+            details.append("unsuccessful required-class cases: " + ", ".join(unsuccessful))
+        raise RequiredJunitExecutionError(
+            "Required JUnit execution not satisfied: " + "; ".join(details), summary
+        )
     return summary
 
 
@@ -577,8 +608,17 @@ def run(args: argparse.Namespace) -> int:
         print(f"Local CI failed: {error}", file=sys.stderr, flush=True)
         return_code = 1
 
+    junit = JunitSummary()
     try:
-        junit = collect_junit_summary() if junit_executed else JunitSummary()
+        if junit_executed:
+            junit = collect_junit_summary(required_tests=JAVA_REQUIRED_TESTS)
+    except (OSError, RuntimeError) as error:
+        if isinstance(error, RequiredJunitExecutionError):
+            junit = error.summary
+        print(f"Local CI failed: {error}", file=sys.stderr, flush=True)
+        return_code = 1
+
+    try:
         write_summary(
             output_dir,
             args.profile,
