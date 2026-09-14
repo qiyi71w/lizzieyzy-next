@@ -77,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_local_ci.ps1 -Profile All -
 | `repository` | 换行自测、换行、Markdown 链接 | 换行 | 无 |
 | `scripts` | Python 辅助脚本、KataGo shell、Bash 语法 | JCEF、NVIDIA、RTX50 PowerShell 语法、原生 CI 进程监督检查 | Portable 需 Bash；Windows 需 PowerShell 7 |
 | `java` | 原完整 Maven verify | 凭据专项，再执行原完整 Maven verify | Maven、JDK 21；不查找 Bash/PowerShell |
-| `desktop` | 两个生产窗口导航测试 | 相同显式测试选择；不代表 Windows 原生 UI 验收 | Maven、JDK 21、可用显示环境；Linux 使用 Xvfb |
+| `desktop` | 四个生产窗口导航 / 搜索输入测试 | 相同显式测试选择；不代表 Windows 原生 UI 验收 | Maven、JDK 21、可用显示环境；Linux 使用 Xvfb |
 
 例如仅运行无 Java 的仓库检查：
 
@@ -111,14 +111,25 @@ Linux 安装 `xvfb xauth fonts-dejavu-core fonts-noto-cjk` 后运行：
 LANG=C.UTF-8 LC_ALL=C.UTF-8 xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' bash scripts/run_local_ci.sh --profile portable --group desktop --summary-dir target/local-ci/portable-desktop
 ```
 
-该组要求 `FunctionSearchNavigationTest.navigationPreservesRealStateAcrossNativeAndCustomMenus`
-和 `ConfigDialog2NavigationTest.blackWinrateRemainsReachableAcrossRebuildsAndRecreation` 成功执行。
-每个子 JVM 的独立工作目录、配置、应用日志、stdout/stderr 和阶段/结果保留于 `target/desktop-smoke/probes/`。
+该组要求以下四个用例全部成功执行：
+
+- `FunctionSearchNavigationTest.navigationPreservesRealStateAcrossNativeAndCustomMenus`
+- `ConfigDialog2NavigationTest.blackWinrateRemainsReachableAcrossRebuildsAndRecreation`
+- `FunctionSearchInputTest.chineseInputChain`
+- `FunctionSearchInputTest.englishInputChain`
+
+后两个用例在独立的 zh_CN/native 和 en_US/custom 子 JVM 中，通过真实 Robot 输入覆盖工具栏、
+`Ctrl+K`、查询、方向键、Enter、Escape、文本组件所有权和模态窗口边界。任一必需用例缺失、
+skipped、失败或报错都会使实际 runner 失败；失败摘要仍保留本次已收集的测试、失败、报错和
+跳过计数。每个子 JVM 的独立工作目录、配置、应用日志、stdout/stderr、locale、阶段、场景结果
+和设置前后证据保留于 `target/desktop-smoke/probes/`。
 每个探针等待最多 90 秒；超时后分别尝试有界 jcmd 栈和截图，再终止所拥有的进程，不依赖 EDT 响应。
 诊断不可用会记录失败，不掩盖探针失败。没有父进程输出读取线程。
 desktop 的新鲜 XML 单独放在 `target/desktop-smoke/surefire-reports/`；只清除该 lane 的旧报告，保留探针日志。
-原 headless Java 报告与 desktop 报告互不替代；所有调用仍须遵守单 checkout 单 Maven 写入约束。
-这证明 Linux 生产窗口导航，不替代 Windows DPI/IME/theme、真实搜索输入或引擎/GPU 验收。
+原 headless `all` / `java` 契约及其报告保持不变；headless Java 报告与 desktop 报告互不替代，
+所有调用仍须遵守单 checkout 单 Maven 写入约束。
+这证明 Linux/Xvfb 中的生产窗口导航和搜索输入链，不替代 Windows DPI/IME/theme、原生
+Windows/macOS 快捷键行为或引擎/GPU 验收。
 
 Actions 的 `ci.yml` 对所有 PR（包括仅文档改动）和 main push 执行六个独立 job：
 `repository-checks`、`script-tests`、`windows-script-tests`、`java-linux`、`java-windows`、`desktop-smoke`。
