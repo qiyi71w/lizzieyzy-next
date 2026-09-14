@@ -5261,14 +5261,6 @@ public class Menu extends JMenuBar {
     settings.setFont(baseMenuFont);
     // settings.setFont(headFont);
     this.add(settings);
-    JFontMenuItem searchFeatures =
-        new JFontMenuItem(resourceBundle.getString("FunctionSearch.title"));
-    // The window-scoped dispatcher owns Ctrl/Command+K; a JMenuItem accelerator
-    // would also steal it from text editors in the main window.
-    searchFeatures.setToolTipText(
-        KeyEvent.getKeyModifiersText(Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()) + "+K");
-    searchFeatures.addActionListener(event -> Lizzie.frame.openFunctionSearch());
-    settings.add(searchFeatures);
 
     final JFontMenuItem engineConfig =
         new JFontMenuItem(resourceBundle.getString("Menu.engineConfig")); // ("引擎(Alt+X)");

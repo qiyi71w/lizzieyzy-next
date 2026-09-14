@@ -687,16 +687,11 @@ public class TensorRtDirectedRepairTest {
                     KataGoRuntimeHelper.inspectTensorRtStartupFailure(enginePath, gtp);
                 assertTrue(context.repairable);
                 assertTrue(EngineFailedMessage.shouldOfferTensorRtRepair(context));
-                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(true, true, context));
-                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(true, false, context));
-                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(false, true, context));
-                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, true, null));
-                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, false, null));
-                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(false, true, null));
-                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(false, false, null));
+                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(true, context));
+                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, null));
+                assertTrue(Leelaz.shouldOpenInteractiveDiagnostic(false, null));
                 assertFalse(
-                    Leelaz.shouldOpenInteractiveDiagnostic(
-                        true, true, unrepairableContext(enginePath)));
+                    Leelaz.shouldOpenInteractiveDiagnostic(true, unrepairableContext(enginePath)));
 
                 KataGoAutoSetupDialog.OpenRequest repair =
                     KataGoAutoSetupDialog.openRequestForRepair(context);
@@ -778,7 +773,7 @@ public class TensorRtDirectedRepairTest {
                     KataGoRuntimeHelper.inspectTensorRtStartupFailure(custom, gtpCommand(custom));
                 assertFalse(customContext.repairable);
                 assertFalse(EngineFailedMessage.shouldOfferTensorRtRepair(customContext));
-                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, true, customContext));
+                assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, customContext));
                 assertFalse(KataGoAutoSetupDialog.openRequestForRepair(customContext).directed);
                 assertFalse(
                     KataGoAutoSetupDialog.openRequestForEngineStartupStatus(true, customContext)
@@ -876,7 +871,7 @@ public class TensorRtDirectedRepairTest {
     }
     TensorRtRepairContext pending = engine.pendingTensorRtRepairContext();
     assertFalse(EngineFailedMessage.shouldOfferTensorRtRepair(pending));
-    assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, true, pending));
+    assertFalse(Leelaz.shouldOpenInteractiveDiagnostic(true, pending));
     assertFalse(KataGoAutoSetupDialog.openRequestForEngineStartupStatus(true, pending).directed);
     assertFalse(engine.started);
     assertFalse(engine.isLoaded);

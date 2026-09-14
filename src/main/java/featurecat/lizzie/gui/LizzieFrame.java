@@ -21880,9 +21880,12 @@ public class LizzieFrame extends JFrame {
           () -> resumeForegroundAnalysisAfterQuickAnalysisComplete(positionAlreadyConfirmed));
       return;
     }
-    if (analysisEngine != null
-        && analysisEngine.usesSharedForegroundEngine()
-        && analysisEngine.matchesCurrentAnalysisBackend()) {
+    boolean sharedForegroundRestored =
+        analysisEngine != null
+            && analysisEngine.usesSharedForegroundEngine()
+            && analysisEngine.matchesCurrentAnalysisBackend();
+    if (sharedForegroundRestored
+        && (!analysisEngine.isRunning() || analysisEngine.hasRequestLifecycleInProgress())) {
       return;
     }
     if (analysisEngine != null
@@ -21895,7 +21898,7 @@ public class LizzieFrame extends JFrame {
         || isAnaPlayingAgainstLeelaz) {
       return;
     }
-    resumeForegroundAnalysisForCurrentPosition(positionAlreadyConfirmed);
+    resumeForegroundAnalysisForCurrentPosition(positionAlreadyConfirmed || sharedForegroundRestored);
   }
 
   private boolean loadedGameQuickAnalysisOwnsAnalysisResources() {

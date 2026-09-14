@@ -13687,14 +13687,7 @@ public class EngineManager {
             return;
           }
           try {
-            if (isCurrentEngineSynchronizationFailurePresentation(
-                failureFence,
-                presentationAuthority,
-                failedSnapshot,
-                peerSnapshot,
-                startupStatus)) {
-              showEngineSynchronizationFailure(failureFence.engine, failure);
-            }
+            showEngineSynchronizationFailure(failureFence.engine, failure);
           } finally {
             claimedPresentation.close();
           }
@@ -13742,7 +13735,15 @@ public class EngineManager {
         incarnationLease =
             failureFence.engine.claimEngineIncarnationLease(
                 failureFence.engineIncarnation);
-        if (incarnationLease == null) {
+        // Finish validation before releasing selection: a retry can then hold selection while
+        // waiting for our authority lease, so presentation must not reacquire selection afterward.
+        if (incarnationLease == null
+            || !isCurrentEngineSynchronizationFailurePresentation(
+                failureFence,
+                presentationAuthority,
+                failedSnapshot,
+                peerSnapshot,
+                startupStatus)) {
           return null;
         }
         claimed = true;
