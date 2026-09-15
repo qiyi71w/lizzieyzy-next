@@ -34,6 +34,10 @@ DESKTOP_REQUIRED_TESTS = (
         "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
         "blackWinrateRemainsReachableAcrossRebuildsAndRecreation",
     ),
+    (
+        "featurecat.lizzie.gui.EngineProcessSmokeTest",
+        "restoresSnapshotAnalyzesAndQuits",
+    ),
     ("featurecat.lizzie.gui.FunctionSearchInputTest", "chineseInputChain"),
     ("featurecat.lizzie.gui.FunctionSearchInputTest", "englishInputChain"),
 )
@@ -393,7 +397,7 @@ def build_steps(
                     "-Dlizzie.desktop.required=true",
                     f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
                     f"-Dsurefire.reportsDirectory={reports_dir}",
-                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,FunctionSearchInputTest",
+                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,EngineProcessSmokeTest,FunctionSearchInputTest",
                     "test",
                 ),
                 group="desktop",

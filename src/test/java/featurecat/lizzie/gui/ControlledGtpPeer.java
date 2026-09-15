@@ -1,0 +1,609 @@
+package featurecat.lizzie.gui;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/** Bounded deterministic GTP peer used only by {@link EngineProcessSmokeTest}. */
+public final class ControlledGtpPeer {
+  private static final Pattern COMMAND =
+      Pattern.compile("^(?:(\\d+)\\s+)?([a-z][a-z0-9_-]*)(?:\\s+(.*))?$");
+  private static final Pattern INTEGER = Pattern.compile("[1-9][0-9]?");
+  private static final Pattern DECIMAL = Pattern.compile("[-+]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
+  private static final Pattern SGF_COORDINATE = Pattern.compile("[a-z]{2}");
+  private static final String GTP_COLUMNS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
+  private static final Set<String> COMMANDS =
+      new LinkedHashSet<>(
+          List.of(
+              "protocol_version",
+              "name",
+              "version",
+              "list_commands",
+              "known_command",
+              "boardsize",
+              "komi",
+              "clear_board",
+              "loadsgf",
+              "play",
+              "kata-get-param",
+              "kata-analyze",
+              "stop",
+              "quit"));
+  private static final Object OUTPUT_LOCK = new Object();
+
+  private static Path root;
+  private static BufferedWriter output;
+  private static ScheduledExecutorService analysisExecutor;
+  private static final TreeMap<String, String> stones = new TreeMap<>();
+  private static final List<String> tail = new ArrayList<>();
+  private static int boardSize = 19;
+  private static double komi = 7.5;
+  private static String turn = "B";
+  private static boolean analysisActive;
+  private static int analysisCount;
+  private static String stopCommand = "";
+  private static Path loadedPath;
+
+  private ControlledGtpPeer() {}
+
+  public static void main(String[] args) throws Exception {
+    if (args.length != 1) {
+      throw new IllegalArgumentException("expected evidence directory");
+    }
+    root = Path.of(args[0]).toAbsolutePath().normalize();
+    Files.createDirectories(root);
+    writeUnchecked(root.resolve("peer.pid"), Long.toString(ProcessHandle.current().pid()));
+    startDeadlineWatchdog();
+    analysisExecutor =
+        Executors.newSingleThreadScheduledExecutor(
+            runnable -> {
+              Thread thread = new Thread(runnable, "controlled-gtp-analysis");
+              thread.setDaemon(true);
+              return thread;
+            });
+    analysisExecutor.scheduleAtFixedRate(
+        ControlledGtpPeer::emitAnalysis, 0, 75, TimeUnit.MILLISECONDS);
+
+    try (BufferedReader input =
+            new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        BufferedWriter peerOutput =
+            new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8))) {
+      output = peerOutput;
+      boolean quitConsumed = false;
+      String line;
+      while ((line = input.readLine()) != null) {
+        append(root.resolve("commands.log"), line + "\n");
+        Matcher matcher = COMMAND.matcher(line.trim());
+        if (!matcher.matches()) {
+          respond(false, "", "malformed command");
+          continue;
+        }
+        String id = matcher.group(1) == null ? "" : matcher.group(1);
+        String command = matcher.group(2);
+        String arguments = matcher.group(3) == null ? "" : matcher.group(3).trim();
+        CommandResult result = handle(command, arguments);
+        respond(result.success(), id, result.payload());
+        if (result.afterResponse() != null) {
+          result.afterResponse().run();
+        }
+        if (result.quit()) {
+          quitConsumed = true;
+          break;
+        }
+      }
+      if (quitConsumed) {
+        synchronized (OUTPUT_LOCK) {
+          analysisActive = false;
+        }
+        analysisExecutor.shutdownNow();
+        if (!analysisExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+          throw new AssertionError("analysis stream did not terminate before peer exit");
+        }
+        writeUnchecked(root.resolve("peer-complete.txt"), "natural\n");
+      }
+    } finally {
+      synchronized (OUTPUT_LOCK) {
+        analysisActive = false;
+      }
+      if (analysisExecutor != null) {
+        analysisExecutor.shutdownNow();
+      }
+    }
+  }
+
+  private static CommandResult handle(String command, String arguments) {
+    try {
+      return switch (command) {
+        case "protocol_version" -> noArguments(arguments, "2");
+        case "name" -> name(arguments);
+        case "version" -> noArguments(arguments, "1.16.0-controlled");
+        case "list_commands" -> noArguments(arguments, String.join("\n", COMMANDS));
+        case "known_command" -> knownCommand(arguments);
+        case "boardsize" -> boardsize(arguments);
+        case "komi" -> komi(arguments);
+        case "clear_board" -> clearBoard(arguments);
+        case "loadsgf" -> loadSgf(arguments);
+        case "play" -> play(arguments);
+        case "kata-get-param" -> kataGetParam(arguments);
+        case "kata-analyze" -> analyze(arguments);
+        case "stop" -> stop(arguments, "stop");
+        case "quit" -> quit(arguments);
+        default -> failure("unsupported command: " + command);
+      };
+    } catch (IOException error) {
+      return failure("I/O failure: " + clean(error.getMessage()));
+    } catch (IllegalArgumentException error) {
+      return failure(clean(error.getMessage()));
+    }
+  }
+
+  private static CommandResult name(String arguments) {
+    requireNoArguments(arguments);
+    boolean wasActive;
+    synchronized (OUTPUT_LOCK) {
+      wasActive = analysisActive;
+      if (wasActive) {
+        analysisActive = false;
+        stopCommand = "name";
+      }
+    }
+    return success("KataGo", wasActive ? ControlledGtpPeer::recordStopUnchecked : null, false);
+  }
+
+  private static CommandResult knownCommand(String arguments) {
+    String[] words = words(arguments, 1);
+    return success(Boolean.toString(COMMANDS.contains(words[0])), null, false);
+  }
+
+  private static CommandResult boardsize(String arguments) {
+    String[] words = words(arguments, 1);
+    if (!INTEGER.matcher(words[0]).matches()) {
+      throw new IllegalArgumentException("invalid boardsize");
+    }
+    int requested = Integer.parseInt(words[0]);
+    if (requested < 2 || requested > GTP_COLUMNS.length()) {
+      throw new IllegalArgumentException("unsupported boardsize");
+    }
+    synchronized (OUTPUT_LOCK) {
+      boardSize = requested;
+      stones.clear();
+      tail.clear();
+      turn = "B";
+      writeStateUnchecked();
+    }
+    return success("", null, false);
+  }
+
+  private static CommandResult komi(String arguments) {
+    String[] words = words(arguments, 1);
+    komi = finiteDecimal(words[0], "komi");
+    synchronized (OUTPUT_LOCK) {
+      writeStateUnchecked();
+    }
+    return success("", null, false);
+  }
+
+  private static CommandResult clearBoard(String arguments) {
+    requireNoArguments(arguments);
+    synchronized (OUTPUT_LOCK) {
+      stones.clear();
+      tail.clear();
+      turn = "B";
+      writeStateUnchecked();
+    }
+    return success("", null, false);
+  }
+
+  private static CommandResult loadSgf(String arguments) throws IOException {
+    String[] words = words(arguments, 1);
+    Path path = Path.of(words[0]);
+    if (!path.isAbsolute()) {
+      path = Path.of("").toAbsolutePath().resolve(path);
+    }
+    path = path.normalize().toRealPath();
+    String text = Files.readString(path, StandardCharsets.UTF_8);
+    Snapshot snapshot = parseSnapshot(text);
+    synchronized (OUTPUT_LOCK) {
+      loadedPath = path;
+      boardSize = snapshot.boardSize();
+      komi = snapshot.komi();
+      turn = snapshot.turn();
+      stones.clear();
+      stones.putAll(snapshot.stones());
+      tail.clear();
+      Files.writeString(root.resolve("loaded.sgf"), text, StandardCharsets.UTF_8);
+      Files.writeString(root.resolve("loaded.path"), path.toString(), StandardCharsets.UTF_8);
+      Files.writeString(root.resolve("snapshot-state.txt"), stateText(), StandardCharsets.UTF_8);
+      writeStateUnchecked();
+    }
+    return success("", null, false);
+  }
+
+  private static CommandResult play(String arguments) {
+    String[] words = words(arguments, 2);
+    String color = words[0].toUpperCase(Locale.ROOT);
+    if (!color.equals("B") && !color.equals("W")) {
+      throw new IllegalArgumentException("invalid move color");
+    }
+    synchronized (OUTPUT_LOCK) {
+      if (!color.equals(turn)) {
+        throw new IllegalArgumentException("move color does not match side to play");
+      }
+      String move;
+      if (words[1].equalsIgnoreCase("pass")) {
+        move = color + "[]";
+      } else {
+        String coordinate = gtpToSgf(words[1]);
+        if (stones.containsKey(coordinate)) {
+          throw new IllegalArgumentException("move occupies an existing stone");
+        }
+        stones.put(coordinate, color);
+        move = color + "[" + coordinate + "]";
+      }
+      tail.add(move);
+      turn = color.equals("B") ? "W" : "B";
+      writeStateUnchecked();
+    }
+    return success("", null, false);
+  }
+
+  private static CommandResult kataGetParam(String arguments) {
+    String[] words = words(arguments, 1);
+    return switch (words[0]) {
+      case "playoutDoublingAdvantage" -> success("0", null, false);
+      case "analysisWideRootNoise" -> success("false", null, false);
+      default -> failure("unsupported kata parameter");
+    };
+  }
+
+  private static CommandResult analyze(String arguments) {
+    if (arguments.isBlank()) {
+      throw new IllegalArgumentException("kata-analyze requires arguments");
+    }
+    return success(
+        "",
+        () -> {
+          synchronized (OUTPUT_LOCK) {
+            analysisActive = true;
+            writeStateUnchecked();
+          }
+        },
+        false);
+  }
+
+  private static CommandResult stop(String arguments, String command) {
+    requireNoArguments(arguments);
+    synchronized (OUTPUT_LOCK) {
+      analysisActive = false;
+      stopCommand = command;
+    }
+    return success("", ControlledGtpPeer::recordStopUnchecked, false);
+  }
+
+  private static CommandResult quit(String arguments) {
+    requireNoArguments(arguments);
+    synchronized (OUTPUT_LOCK) {
+      analysisActive = false;
+    }
+    return success(
+        "",
+        () -> {
+          writeUnchecked(root.resolve("quit.txt"), "graceful\n");
+          synchronized (OUTPUT_LOCK) {
+            writeStateUnchecked();
+          }
+        },
+        true);
+  }
+
+  private static void emitAnalysis() {
+    synchronized (OUTPUT_LOCK) {
+      if (!analysisActive || output == null) {
+        return;
+      }
+      try {
+        int visits = 10 + analysisCount;
+        output.write(
+            "info move D4 visits "
+                + visits
+                + " winrate 0.55 scoreMean 1.0 scoreStdev 2.0 prior 0.1 lcb 0.5 order 0 pv D4\n");
+        output.flush();
+        analysisCount++;
+        writeStateUnchecked();
+      } catch (IOException error) {
+        analysisActive = false;
+        throw new UncheckedIOException(error);
+      }
+    }
+  }
+
+  private static Snapshot parseSnapshot(String text) {
+    if (!text.startsWith("(;") || !text.endsWith(")")) {
+      throw new IllegalArgumentException("snapshot must be one flat SGF node");
+    }
+    String body = text.substring(2, text.length() - 1);
+    Map<String, List<String>> properties = new LinkedHashMap<>();
+    int offset = 0;
+    while (offset < body.length()) {
+      int nameStart = offset;
+      while (offset < body.length() && body.charAt(offset) >= 'A' && body.charAt(offset) <= 'Z') {
+        offset++;
+      }
+      if (nameStart == offset) {
+        throw new IllegalArgumentException("malformed SGF property name");
+      }
+      String name = body.substring(nameStart, offset);
+      if (!Set.of("FF", "GM", "CA", "SZ", "KM", "PL", "AB", "AW").contains(name)) {
+        throw new IllegalArgumentException("unsupported SGF property: " + name);
+      }
+      List<String> values = properties.computeIfAbsent(name, ignored -> new ArrayList<>());
+      int countBefore = values.size();
+      while (offset < body.length() && body.charAt(offset) == '[') {
+        int valueStart = ++offset;
+        while (offset < body.length() && body.charAt(offset) != ']') {
+          char valueCharacter = body.charAt(offset);
+          if (valueCharacter == '[' || valueCharacter == '\\') {
+            throw new IllegalArgumentException("unsupported SGF property escape");
+          }
+          offset++;
+        }
+        if (offset >= body.length()) {
+          throw new IllegalArgumentException("unterminated SGF property value");
+        }
+        values.add(body.substring(valueStart, offset));
+        offset++;
+      }
+      if (values.size() == countBefore) {
+        throw new IllegalArgumentException("SGF property has no value: " + name);
+      }
+    }
+
+    requireSingle(properties, "FF", "4");
+    requireSingle(properties, "GM", "1");
+    requireSingle(properties, "CA", "UTF-8");
+    String sizeValue = requireSingle(properties, "SZ", null);
+    if (!INTEGER.matcher(sizeValue).matches()) {
+      throw new IllegalArgumentException("invalid SGF board size");
+    }
+    int size = Integer.parseInt(sizeValue);
+    if (size < 2 || size > GTP_COLUMNS.length()) {
+      throw new IllegalArgumentException("unsupported SGF board size");
+    }
+    double snapshotKomi = finiteDecimal(requireSingle(properties, "KM", null), "SGF komi");
+    String snapshotTurn = requireSingle(properties, "PL", null);
+    if (!snapshotTurn.equals("B") && !snapshotTurn.equals("W")) {
+      throw new IllegalArgumentException("invalid SGF side to play");
+    }
+
+    TreeMap<String, String> snapshotStones = new TreeMap<>();
+    addSetupStones(properties.getOrDefault("AB", List.of()), "B", size, snapshotStones);
+    addSetupStones(properties.getOrDefault("AW", List.of()), "W", size, snapshotStones);
+    return new Snapshot(size, snapshotKomi, snapshotTurn, snapshotStones);
+  }
+
+  private static void addSetupStones(
+      List<String> coordinates, String color, int size, Map<String, String> target) {
+    for (String coordinate : coordinates) {
+      if (!SGF_COORDINATE.matcher(coordinate).matches()
+          || coordinate.charAt(0) - 'a' >= size
+          || coordinate.charAt(1) - 'a' >= size) {
+        throw new IllegalArgumentException("invalid SGF setup coordinate");
+      }
+      if (target.putIfAbsent(coordinate, color) != null) {
+        throw new IllegalArgumentException("duplicate SGF setup coordinate");
+      }
+    }
+  }
+
+  private static String requireSingle(
+      Map<String, List<String>> properties, String name, String expected) {
+    List<String> values = properties.get(name);
+    if (values == null || values.size() != 1 || values.get(0).isEmpty()) {
+      throw new IllegalArgumentException("missing or duplicate SGF property: " + name);
+    }
+    String value = values.get(0);
+    if (expected != null && !expected.equals(value)) {
+      throw new IllegalArgumentException("invalid SGF property: " + name);
+    }
+    return value;
+  }
+
+  private static String gtpToSgf(String value) {
+    String coordinate = value.toUpperCase(Locale.ROOT);
+    if (coordinate.length() < 2) {
+      throw new IllegalArgumentException("invalid GTP coordinate");
+    }
+    int x = GTP_COLUMNS.indexOf(coordinate.charAt(0));
+    int row;
+    try {
+      row = Integer.parseInt(coordinate.substring(1));
+    } catch (NumberFormatException error) {
+      throw new IllegalArgumentException("invalid GTP coordinate", error);
+    }
+    if (x < 0 || x >= boardSize || row < 1 || row > boardSize) {
+      throw new IllegalArgumentException("GTP coordinate outside board");
+    }
+    int y = boardSize - row;
+    return "" + (char) ('a' + x) + (char) ('a' + y);
+  }
+
+  private static double finiteDecimal(String value, String description) {
+    if (!DECIMAL.matcher(value).matches()) {
+      throw new IllegalArgumentException("invalid " + description);
+    }
+    double parsed = Double.parseDouble(value);
+    if (!Double.isFinite(parsed)) {
+      throw new IllegalArgumentException("invalid " + description);
+    }
+    return parsed;
+  }
+
+  private static CommandResult noArguments(String arguments, String payload) {
+    requireNoArguments(arguments);
+    return success(payload, null, false);
+  }
+
+  private static void requireNoArguments(String arguments) {
+    if (!arguments.isBlank()) {
+      throw new IllegalArgumentException("unexpected command arguments");
+    }
+  }
+
+  private static String[] words(String arguments, int expected) {
+    String[] words = arguments.isBlank() ? new String[0] : arguments.split("\\s+");
+    if (words.length != expected) {
+      throw new IllegalArgumentException("wrong command argument count");
+    }
+    return words;
+  }
+
+  private static CommandResult success(String payload, Runnable afterResponse, boolean quit) {
+    return new CommandResult(true, payload, afterResponse, quit);
+  }
+
+  private static CommandResult failure(String payload) {
+    return new CommandResult(false, payload, null, false);
+  }
+
+  private static void respond(boolean success, String id, String payload) throws IOException {
+    synchronized (OUTPUT_LOCK) {
+      output.write(success ? '=' : '?');
+      output.write(id);
+      if (!payload.isEmpty()) {
+        output.write(' ');
+        output.write(payload);
+      }
+      output.write("\n\n");
+      output.flush();
+    }
+  }
+
+  private static void recordStopUnchecked() {
+    synchronized (OUTPUT_LOCK) {
+      writeStateUnchecked();
+      writeUnchecked(root.resolve("stopped.txt"), stopReceipt());
+    }
+  }
+
+  private static String stopReceipt() {
+    synchronized (OUTPUT_LOCK) {
+      return "command=" + stopCommand + "\nanalysis.count=" + analysisCount + "\n";
+    }
+  }
+
+  private static String stateText() {
+    return "board="
+        + boardSize
+        + "\nkomi="
+        + komi
+        + "\nstones="
+        + formatStones()
+        + "\nturn="
+        + turn
+        + "\ntail="
+        + String.join(",", tail)
+        + "\nanalysis.count="
+        + analysisCount
+        + "\nanalysis.active="
+        + analysisActive
+        + "\nstop.command="
+        + stopCommand
+        + "\nloaded.path="
+        + (loadedPath == null ? "" : loadedPath)
+        + "\n";
+  }
+
+  private static String formatStones() {
+    List<String> groups = new ArrayList<>();
+    for (String color : List.of("B", "W")) {
+      List<String> coordinates =
+          stones.entrySet().stream()
+              .filter(entry -> entry.getValue().equals(color))
+              .map(Map.Entry::getKey)
+              .toList();
+      if (!coordinates.isEmpty()) {
+        groups.add(color + ":" + String.join(",", coordinates));
+      }
+    }
+    return String.join(";", groups);
+  }
+
+  private static void writeStateUnchecked() {
+    writeUnchecked(root.resolve("peer-state.txt"), stateText());
+  }
+
+  private static void writeUnchecked(Path path, String text) {
+    try {
+      Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
+      Files.writeString(temporary, text, StandardCharsets.UTF_8);
+      try {
+        Files.move(
+            temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      } catch (AtomicMoveNotSupportedException ignored) {
+        Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+      }
+    } catch (IOException error) {
+      throw new UncheckedIOException(error);
+    }
+  }
+
+  private static void append(Path path, String text) throws IOException {
+    Files.writeString(
+        path, text, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+  }
+
+  private static String clean(String message) {
+    return message == null ? "unspecified failure" : message.replace('\n', ' ').replace('\r', ' ');
+  }
+
+  private static void startDeadlineWatchdog() {
+    Thread watchdog =
+        new Thread(
+            () -> {
+              try {
+                Thread.sleep(TimeUnit.SECONDS.toMillis(75));
+                Files.writeString(
+                    root.resolve("peer-timeout.txt"),
+                    "deadline exceeded\n",
+                    StandardCharsets.UTF_8);
+              } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+              } catch (IOException error) {
+                error.printStackTrace(System.err);
+              }
+              Runtime.getRuntime().halt(70);
+            },
+            "controlled-gtp-deadline");
+    watchdog.setDaemon(true);
+    watchdog.start();
+  }
+
+  private record CommandResult(
+      boolean success, String payload, Runnable afterResponse, boolean quit) {}
+
+  private record Snapshot(
+      int boardSize, double komi, String turn, TreeMap<String, String> stones) {}
+}

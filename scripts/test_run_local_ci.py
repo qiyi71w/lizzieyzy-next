@@ -104,7 +104,8 @@ class RunLocalCiTest(unittest.TestCase):
 
         self.assertEqual(1, len(steps))
         self.assertIn(
-            "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,FunctionSearchInputTest",
+            "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,"
+            "EngineProcessSmokeTest,FunctionSearchInputTest",
             steps[0].command,
         )
         self.assertEqual(
@@ -116,6 +117,10 @@ class RunLocalCiTest(unittest.TestCase):
                 (
                     "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
                     "blackWinrateRemainsReachableAcrossRebuildsAndRecreation",
+                ),
+                (
+                    "featurecat.lizzie.gui.EngineProcessSmokeTest",
+                    "restoresSnapshotAnalyzesAndQuits",
                 ),
                 ("featurecat.lizzie.gui.FunctionSearchInputTest", "chineseInputChain"),
                 ("featurecat.lizzie.gui.FunctionSearchInputTest", "englishInputChain"),
@@ -330,7 +335,7 @@ class RunLocalCiTest(unittest.TestCase):
             stale = desktop_reports / "TEST-stale.xml"
             stale.write_text('<testsuite tests="1"><testcase classname="stale" name="stale"/></testsuite>')
 
-            navigation, config, chinese, english = run_local_ci.DESKTOP_REQUIRED_TESTS
+            navigation, config, engine, chinese, english = run_local_ci.DESKTOP_REQUIRED_TESTS
 
             def suite_xml(*cases: tuple[tuple[str, str], str]) -> str:
                 testcases = "".join(
@@ -366,34 +371,36 @@ class RunLocalCiTest(unittest.TestCase):
                     self.assertEqual(0, summary["junit"]["tests"])
                     self.assertFalse(stale.exists())
 
-                missing_english = suite_xml(
-                    (navigation, ""), (config, ""), (chinese, ""),
+                missing_engine = suite_xml(
+                    (navigation, ""), (config, ""), (chinese, ""), (english, ""),
                 )
-                with patch.object(run_local_ci, "build_steps", return_value=make_step(missing_english)):
-                    self.assertEqual(1, run_local_ci.run(args))
-                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
-                    self.assertEqual("FAIL", summary["result"])
-                    self.assertEqual(3, summary["junit"]["tests"])
-                    self.assertEqual(0, summary["junit"]["skipped"])
-
-                skipped_chinese = suite_xml(
-                    (navigation, ""), (config, ""), (chinese, "<skipped/>"), (english, ""),
-                )
-                with patch.object(run_local_ci, "build_steps", return_value=make_step(skipped_chinese)):
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(missing_engine)):
                     self.assertEqual(1, run_local_ci.run(args))
                     summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
                     self.assertEqual("FAIL", summary["result"])
                     self.assertEqual(4, summary["junit"]["tests"])
+                    self.assertEqual(0, summary["junit"]["skipped"])
+
+                skipped_engine = suite_xml(
+                    (navigation, ""), (config, ""), (engine, "<skipped/>"),
+                    (chinese, ""), (english, ""),
+                )
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(skipped_engine)):
+                    self.assertEqual(1, run_local_ci.run(args))
+                    summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
+                    self.assertEqual("FAIL", summary["result"])
+                    self.assertEqual(5, summary["junit"]["tests"])
                     self.assertEqual(1, summary["junit"]["skipped"])
 
                 pass_xml = suite_xml(
-                    (navigation, ""), (config, ""), (chinese, ""), (english, ""),
+                    (navigation, ""), (config, ""), (engine, ""),
+                    (chinese, ""), (english, ""),
                 )
                 with patch.object(run_local_ci, "build_steps", return_value=make_step(pass_xml)):
                     self.assertEqual(0, run_local_ci.run(args))
                     summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
                     self.assertEqual("PASS", summary["result"])
-                    self.assertEqual(4, summary["junit"]["tests"])
+                    self.assertEqual(5, summary["junit"]["tests"])
 
 
     def test_desktop_and_java_and_nonjava_report_isolation(self):
