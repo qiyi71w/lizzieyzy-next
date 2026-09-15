@@ -128,6 +128,32 @@ class RunLocalCiTest(unittest.TestCase):
             run_local_ci.DESKTOP_REQUIRED_TESTS,
         )
 
+    def test_engine_process_plan_selects_exact_required_methods(self):
+        steps = run_local_ci.build_steps(
+            "portable", "mvn", None, None, "engine-process"
+        )
+
+        self.assertEqual(1, len(steps))
+        self.assertIn(
+            "-Dtest=EngineProcessSmokeTest#restoresSnapshotAnalyzesAndQuits,"
+            "EngineProcessFailureTest#rejectsSnapshotErrorWithoutTailOrAnalysis+"
+            "retiresSnapshotTimeoutAndRejectsLateResponse+recoversSnapshotAfterPeerCrash+"
+            "isolatesLateOutputAfterEngineSwitch+drainsPeerPipeBurstAndRemainsResponsive+"
+            "cleansUpPeerThatRefusesQuit",
+            steps[0].command,
+        )
+        self.assertIn(
+            "-Dsurefire.reportsDirectory="
+            + str(
+                run_local_ci.REPO_ROOT
+                / "target"
+                / "engine-process-smoke"
+                / "surefire-reports"
+            ),
+            steps[0].command,
+        )
+        self.assertEqual(7, len(run_local_ci.ENGINE_PROCESS_REQUIRED_TESTS))
+
 
 
     def test_syntax_gate_rejects_each_invalid_script_and_accepts_valid_selection(self):
@@ -260,6 +286,26 @@ class RunLocalCiTest(unittest.TestCase):
             self.assertFalse(surefire.exists())
             self.assertFalse(failsafe.exists())
             self.assertTrue((classes / "keep.class").is_file())
+
+    def test_required_job_results_reject_failure_cancellation_and_skip(self):
+        required = {
+            "repository-checks": "success",
+            "script-tests": "success",
+            "windows-script-tests": "success",
+            "java-linux": "success",
+            "java-windows": "success",
+            "desktop-smoke": "success",
+            "engine-process": "success",
+        }
+        run_local_ci.require_successful_job_results(required)
+        for status in ("failure", "cancelled", "skipped"):
+            with self.subTest(status=status):
+                rejected = dict(required)
+                rejected["engine-process"] = status
+                with self.assertRaisesRegex(
+                    RuntimeError, f"engine-process={status}"
+                ):
+                    run_local_ci.require_successful_job_results(rejected)
 
     def test_setup_failure_cannot_be_reported_as_pass(self):
         self.assertEqual("FAIL", run_local_ci.overall_result(False, []))
@@ -402,6 +448,107 @@ class RunLocalCiTest(unittest.TestCase):
                     self.assertEqual("PASS", summary["result"])
                     self.assertEqual(5, summary["junit"]["tests"])
 
+
+    def test_engine_process_gate_rejects_missing_or_skipped_required_cases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(["git", "init", "-q", temporary], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    temporary,
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    "test fixture",
+                ],
+                check=True,
+            )
+            process_reports = root / "target/engine-process-smoke/surefire-reports"
+            desktop_report = root / "target/desktop-smoke/surefire-reports/TEST-stale.xml"
+            java_report = root / "target/surefire-reports/TEST-stale.xml"
+            process_reports.mkdir(parents=True)
+            desktop_report.parent.mkdir(parents=True)
+            java_report.parent.mkdir(parents=True)
+            desktop_report.write_text("desktop", encoding="utf-8")
+            java_report.write_text("java", encoding="utf-8")
+
+            def suite_xml(
+                cases: tuple[tuple[str, str], ...], skipped: tuple[str, str] | None = None
+            ) -> str:
+                testcases = "".join(
+                    f'<testcase classname="{classname}" name="{method}">'
+                    + ("<skipped/>" if (classname, method) == skipped else "")
+                    + "</testcase>"
+                    for classname, method in cases
+                )
+                skipped_count = int(skipped is not None)
+                return (
+                    f'<testsuite tests="{len(cases)}" skipped="{skipped_count}">'
+                    f"{testcases}</testsuite>"
+                )
+
+            def run_with_report(xml_content: str) -> tuple[int, dict[str, object]]:
+                script = (
+                    "import pathlib; "
+                    f"p = pathlib.Path(r'{process_reports}'); "
+                    "p.mkdir(parents=True, exist_ok=True); "
+                    f"(p / 'TEST-process.xml').write_text('''{xml_content}''', encoding='utf-8')"
+                )
+                args = run_local_ci.parse_args(
+                    [
+                        "--profile",
+                        "portable",
+                        "--group",
+                        "engine-process",
+                        "--summary-dir",
+                        str(root / "summary"),
+                    ]
+                )
+                with (
+                    patch.object(run_local_ci, "resolve_maven", return_value="mvn"),
+                    patch.object(run_local_ci, "java_major_version", return_value=(21, "Java21")),
+                    patch.object(
+                        run_local_ci,
+                        "build_steps",
+                        return_value=[
+                            run_local_ci.Step(
+                                "write process reports",
+                                (run_local_ci.sys.executable, "-c", script),
+                            )
+                        ],
+                    ),
+                    patch.object(run_local_ci, "REPO_ROOT", root),
+                    patch.dict(os.environ, {"DISPLAY": ":99"}),
+                ):
+                    result = run_local_ci.run(args)
+                summary = json.loads(
+                    (root / "summary/local-ci-summary.json").read_text(encoding="utf-8")
+                )
+                return result, summary
+
+            required = run_local_ci.ENGINE_PROCESS_REQUIRED_TESTS
+            result, summary = run_with_report(suite_xml(required[:-1]))
+            self.assertEqual(1, result)
+            self.assertEqual("FAIL", summary["result"])
+            self.assertEqual(6, summary["junit"]["tests"])
+            self.assertTrue(desktop_report.is_file())
+            self.assertTrue(java_report.is_file())
+
+            result, summary = run_with_report(suite_xml(required, required[-1]))
+            self.assertEqual(1, result)
+            self.assertEqual("FAIL", summary["result"])
+            self.assertEqual(1, summary["junit"]["skipped"])
+
+            result, summary = run_with_report(suite_xml(required))
+            self.assertEqual(0, result)
+            self.assertEqual("PASS", summary["result"])
+            self.assertEqual(7, summary["junit"]["tests"])
 
     def test_desktop_and_java_and_nonjava_report_isolation(self):
         with tempfile.TemporaryDirectory() as temporary:

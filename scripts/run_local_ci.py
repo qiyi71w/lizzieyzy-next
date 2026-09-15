@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 import xml.etree.ElementTree as ET
 
 
@@ -41,6 +41,37 @@ DESKTOP_REQUIRED_TESTS = (
     ("featurecat.lizzie.gui.FunctionSearchInputTest", "chineseInputChain"),
     ("featurecat.lizzie.gui.FunctionSearchInputTest", "englishInputChain"),
 )
+ENGINE_PROCESS_REQUIRED_TESTS = (
+    (
+        "featurecat.lizzie.gui.EngineProcessSmokeTest",
+        "restoresSnapshotAnalyzesAndQuits",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "rejectsSnapshotErrorWithoutTailOrAnalysis",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "retiresSnapshotTimeoutAndRejectsLateResponse",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "recoversSnapshotAfterPeerCrash",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "isolatesLateOutputAfterEngineSwitch",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "drainsPeerPipeBurstAndRemainsResponsive",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "cleansUpPeerThatRefusesQuit",
+    ),
+)
+
 
 PY_COMPILE_FILES = (
     "scripts/audit_katago_binary_version.py",
@@ -403,6 +434,33 @@ def build_steps(
                 group="desktop",
             )
         ]
+    if group == "engine-process":
+        evidence_dir = REPO_ROOT / "target" / "engine-process-smoke" / "probes"
+        reports_dir = REPO_ROOT / "target" / "engine-process-smoke" / "surefire-reports"
+        test_selection = (
+            "-Dtest=EngineProcessSmokeTest#restoresSnapshotAnalyzesAndQuits,"
+            "EngineProcessFailureTest#rejectsSnapshotErrorWithoutTailOrAnalysis+"
+            "retiresSnapshotTimeoutAndRejectsLateResponse+recoversSnapshotAfterPeerCrash+"
+            "isolatesLateOutputAfterEngineSwitch+drainsPeerPipeBurstAndRemainsResponsive+"
+            "cleansUpPeerThatRefusesQuit"
+        )
+        return [
+            Step(
+                "Run engine process tests",
+                (
+                    maven,
+                    "-B",
+                    "-Dfmt.skip=true",
+                    "-Djava.awt.headless=false",
+                    "-Dlizzie.desktop.required=true",
+                    f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
+                    f"-Dsurefire.reportsDirectory={reports_dir}",
+                    test_selection,
+                    "test",
+                ),
+                group="engine-process",
+            )
+        ]
     if group in {"all", "scripts"}:
         if profile in {"portable", "all"} and bash is None:
             raise RuntimeError("The selected scripts require bash.")
@@ -503,6 +561,12 @@ def reset_junit_reports(root: Path = REPO_ROOT / "target") -> None:
 
 
 
+def require_successful_job_results(results: Mapping[str, str]) -> None:
+    rejected = [f"{name}={result}" for name, result in results.items() if result != "success"]
+    if rejected:
+        raise RuntimeError("Required CI jobs did not succeed: " + ", ".join(rejected))
+
+
 def overall_result(success: bool, results: Sequence[StepResult]) -> str:
     if success and all(result.status in {"passed", "planned"} for result in results):
         return "PASS"
@@ -576,24 +640,27 @@ def run(args: argparse.Namespace) -> int:
     results: list[StepResult] = []
     java_selected = args.group in {"all", "java"}
     desktop_selected = args.group == "desktop"
+    engine_process_selected = args.group == "engine-process"
+    display_selected = desktop_selected or engine_process_selected
     scripts_selected = args.group in {"all", "scripts"}
-    needs_java = java_selected or desktop_selected
+    needs_java = java_selected or display_selected
     java_details = "not executed"
     junit_executed = False
 
     try:
         if args.require_clean:
             require_clean_checkout()
-        if desktop_selected and not args.dry_run:
+        if display_selected and not args.dry_run:
             if sys.platform.startswith("linux") and not os.environ.get("DISPLAY", "").strip():
                 raise RuntimeError(
-                    "Desktop CI requires DISPLAY on Linux. Start Xvfb or set DISPLAY."
+                    "Display CI requires DISPLAY on Linux. Start Xvfb or set DISPLAY."
                 )
         if java_selected and not args.dry_run:
             reset_junit_reports()
             junit_executed = True
-        elif desktop_selected and not args.dry_run:
-            reset_junit_reports(REPO_ROOT / "target" / "desktop-smoke")
+        elif display_selected and not args.dry_run:
+            report_root = "desktop-smoke" if desktop_selected else "engine-process-smoke"
+            reset_junit_reports(REPO_ROOT / "target" / report_root)
             junit_executed = True
         maven = (args.maven or ("mvn" if args.dry_run else resolve_maven())) if needs_java else "mvn"
         bash = None
@@ -659,15 +726,19 @@ def run(args: argparse.Namespace) -> int:
     junit = JunitSummary()
     try:
         if junit_executed:
-            required_tests = (
-                DESKTOP_REQUIRED_TESTS if desktop_selected else JAVA_REQUIRED_TESTS
-            )
             if desktop_selected:
-                junit = collect_junit_summary(
-                    REPO_ROOT / "target" / "desktop-smoke", required_tests=required_tests
-                )
+                required_tests = DESKTOP_REQUIRED_TESTS
+                report_root = REPO_ROOT / "target" / "desktop-smoke"
+            elif engine_process_selected:
+                required_tests = ENGINE_PROCESS_REQUIRED_TESTS
+                report_root = REPO_ROOT / "target" / "engine-process-smoke"
             else:
+                required_tests = JAVA_REQUIRED_TESTS
+                report_root = None
+            if report_root is None:
                 junit = collect_junit_summary(required_tests=required_tests)
+            else:
+                junit = collect_junit_summary(report_root, required_tests=required_tests)
     except (OSError, RuntimeError) as error:
         if isinstance(error, RequiredJunitExecutionError):
             junit = error.summary
@@ -707,7 +778,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--profile", choices=("windows", "portable", "all"), default="all"
     )
     parser.add_argument(
-        "--group", choices=("all", "repository", "scripts", "java", "desktop"), default="all"
+        "--group",
+        choices=("all", "repository", "scripts", "java", "desktop", "engine-process"),
+        default="all",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--require-clean", action="store_true")

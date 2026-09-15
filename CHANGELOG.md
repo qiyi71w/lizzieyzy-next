@@ -5,6 +5,7 @@ All notable maintenance updates to this fork are documented here.
 ## Unreleased
 
 - Add isolated local Xvfb acceptance for real search input, settings persistence across JVM restarts, and real-engine quick-analysis completion and pause, with bounded execution and retained evidence.
+- Require seven real engine-process lifecycle and recovery scenarios on Linux/Xvfb and native Windows, with isolated evidence and fail-closed CI aggregation.
 - Check each release shell script individually, discover ordinary integration tests automatically, and reject missing or skipped critical logging-smoke execution in local and hosted CI.
 - Restore exact engine snapshots through safe per-target absolute or working-directory-relative SGF addresses, rejecting isolated local transports before board mutation.
 - Show engine startup diagnostics for primary and secondary engines outside first-launch onboarding, including missing executable and model/config path errors.
