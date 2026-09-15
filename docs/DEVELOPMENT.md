@@ -40,6 +40,21 @@ mvn -B -DskipTests package
 - `target/lizzie-yzy2.5.3.jar`
 - `target/lizzie-yzy2.5.3-shaded.jar`
 
+## 本地桌面场景验收
+
+Linux / WSL 可使用独立 Xvfb 显示运行真实 Swing 场景，不占用 WSLg 或 Windows 日常桌面。先准备 JDK 21、Maven、`xvfb`、`xauth` 和中英文字体。
+
+```bash
+python3 scripts/run_acceptance.py --scenario search --scenario settings
+python3 scripts/run_acceptance.py --scenario quick-analysis --engine /absolute/path/to/katago --model /absolute/path/to/model.bin.gz
+```
+
+省略 `--scenario` 会运行全部场景，需要同时提供真实 Linux KataGo 与模型。`search` 复用中英文真实输入链；`settings` 点击生产设置保存按钮，再用新 JVM 读取同一隔离配置；`quick-analysis` 从已可用的前台引擎导入 SGF，验证自动快析完成、共享引擎交回后的 visits 增长，以及快析期间用户暂停的保持。它不覆盖启动期间导入竞态或 Windows 原生文件选择器。
+
+每次运行创建新的 `target/acceptance/run-*`，保留 `acceptance.json`、Maven/JUnit 日志、子 JVM 配置、阶段记录和窗口截图。`--output` 可指定不存在的证据目录；`--timeout` 限制整体耗时。缺少引擎资源为 BLOCKED，缺少或跳过必跑用例不会成为 PASS。摘要记录源码 SHA 和工作树状态；未提交源码的本地结果不是已提交 Windows 候选的验收证明。
+
+同一 checkout 的 Maven 调用应串行运行。此入口不改变现有 CI 分组，也不替代原生 Windows、GPU、IME 或发布包验收。
+
 ## 本地一键 CI 预检
 
 提交前建议运行与 GitHub Actions 同源的本地预检。它会校验 JDK 21、执行完整
