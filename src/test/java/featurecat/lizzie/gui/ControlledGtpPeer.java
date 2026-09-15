@@ -8,6 +8,7 @@ import java.io.OutputStreamWriter;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -26,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Bounded deterministic GTP peer used only by {@link EngineProcessSmokeTest}. */
+/** Bounded deterministic GTP peer used by real-process engine probes. */
 public final class ControlledGtpPeer {
   private static final Pattern COMMAND =
       Pattern.compile("^(?:(\\d+)\\s+)?([a-z][a-z0-9_-]*)(?:\\s+(.*))?$");
@@ -53,28 +54,43 @@ public final class ControlledGtpPeer {
               "quit"));
   private static final Object OUTPUT_LOCK = new Object();
 
+  private static Path controlRoot;
   private static Path root;
   private static BufferedWriter output;
   private static ScheduledExecutorService analysisExecutor;
   private static final TreeMap<String, String> stones = new TreeMap<>();
   private static final List<String> tail = new ArrayList<>();
+  private static Scenario scenario;
+  private static int launchOrdinal;
   private static int boardSize = 19;
   private static double komi = 7.5;
   private static String turn = "B";
   private static boolean analysisActive;
   private static int analysisCount;
+  private static int lateAnalysisCount;
   private static String stopCommand = "";
   private static Path loadedPath;
 
   private ControlledGtpPeer() {}
 
   public static void main(String[] args) throws Exception {
-    if (args.length != 1) {
-      throw new IllegalArgumentException("expected evidence directory");
+    if (args.length < 1 || args.length > 2) {
+      throw new IllegalArgumentException("expected evidence directory and optional scenario");
     }
-    root = Path.of(args[0]).toAbsolutePath().normalize();
-    Files.createDirectories(root);
+    controlRoot = Path.of(args[0]).toAbsolutePath().normalize();
+    Files.createDirectories(controlRoot);
+    scenario = args.length == 1 ? Scenario.D1_SUCCESS : Scenario.parse(args[1]);
+    root = initializeIncarnation();
     writeUnchecked(root.resolve("peer.pid"), Long.toString(ProcessHandle.current().pid()));
+    writeUnchecked(
+        root.resolve("identity.txt"),
+        "pid="
+            + ProcessHandle.current().pid()
+            + "\nlaunch.ordinal="
+            + launchOrdinal
+            + "\nscenario="
+            + scenario.argument
+            + "\n");
     startDeadlineWatchdog();
     analysisExecutor =
         Executors.newSingleThreadScheduledExecutor(
@@ -91,6 +107,7 @@ public final class ControlledGtpPeer {
         BufferedWriter peerOutput =
             new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8))) {
       output = peerOutput;
+      startScenarioWatcher();
       boolean quitConsumed = false;
       String line;
       while ((line = input.readLine()) != null) {
@@ -104,7 +121,15 @@ public final class ControlledGtpPeer {
         String command = matcher.group(2);
         String arguments = matcher.group(3) == null ? "" : matcher.group(3).trim();
         CommandResult result = handle(command, arguments);
+        if (result.responseRelease() != null) {
+          awaitRelease(result.responseRelease(), "delayed response");
+        }
         respond(result.success(), id, result.payload());
+        if (result.responseReceipt() != null) {
+          writeUnchecked(
+              result.responseReceipt(),
+              "id=" + id + "\npid=" + ProcessHandle.current().pid() + "\n");
+        }
         if (result.afterResponse() != null) {
           result.afterResponse().run();
         }
@@ -227,18 +252,50 @@ public final class ControlledGtpPeer {
     Snapshot snapshot = parseSnapshot(text);
     synchronized (OUTPUT_LOCK) {
       loadedPath = path;
-      boardSize = snapshot.boardSize();
-      komi = snapshot.komi();
-      turn = snapshot.turn();
-      stones.clear();
-      stones.putAll(snapshot.stones());
-      tail.clear();
       Files.writeString(root.resolve("loaded.sgf"), text, StandardCharsets.UTF_8);
       Files.writeString(root.resolve("loaded.path"), path.toString(), StandardCharsets.UTF_8);
-      Files.writeString(root.resolve("snapshot-state.txt"), stateText(), StandardCharsets.UTF_8);
-      writeStateUnchecked();
+      writeUnchecked(
+          root.resolve("loadsgf-received.txt"),
+          "pid="
+              + ProcessHandle.current().pid()
+              + "\npath="
+              + path
+              + "\nbytes="
+              + text.getBytes(StandardCharsets.UTF_8).length
+              + "\n");
+      if (scenario != Scenario.SNAPSHOT_ERROR) {
+        installSnapshot(snapshot);
+      }
+    }
+    if (scenario == Scenario.SNAPSHOT_ERROR) {
+      return new CommandResult(
+          false,
+          "controlled snapshot rejection",
+          null,
+          false,
+          controlRoot.resolve("release-001-error"),
+          root.resolve("error-response-emitted.txt"));
+    }
+    if (scenario == Scenario.SNAPSHOT_TIMEOUT) {
+      return success(
+          "",
+          null,
+          false,
+          controlRoot.resolve("release-001-timeout-ack"),
+          root.resolve("late-ack-emitted.txt"));
     }
     return success("", null, false);
+  }
+
+  private static void installSnapshot(Snapshot snapshot) {
+    boardSize = snapshot.boardSize();
+    komi = snapshot.komi();
+    turn = snapshot.turn();
+    stones.clear();
+    stones.putAll(snapshot.stones());
+    tail.clear();
+    writeUnchecked(root.resolve("snapshot-state.txt"), stateText());
+    writeStateUnchecked();
   }
 
   private static CommandResult play(String arguments) {
@@ -281,6 +338,9 @@ public final class ControlledGtpPeer {
   private static CommandResult analyze(String arguments) {
     if (arguments.isBlank()) {
       throw new IllegalArgumentException("kata-analyze requires arguments");
+    }
+    synchronized (OUTPUT_LOCK) {
+      writeOnceUnchecked(root.resolve("analysis-start-state.txt"), stateText());
     }
     return success(
         "",
@@ -325,11 +385,7 @@ public final class ControlledGtpPeer {
       }
       try {
         int visits = 10 + analysisCount;
-        output.write(
-            "info move D4 visits "
-                + visits
-                + " winrate 0.55 scoreMean 1.0 scoreStdev 2.0 prior 0.1 lcb 0.5 order 0 pv D4\n");
-        output.flush();
+        emitAnalysisLine(analysisMove(), visits);
         analysisCount++;
         writeStateUnchecked();
       } catch (IOException error) {
@@ -337,6 +393,25 @@ public final class ControlledGtpPeer {
         throw new UncheckedIOException(error);
       }
     }
+  }
+
+  private static String analysisMove() {
+    return scenario == Scenario.HEALTHY_DISTINCT
+            || (scenario == Scenario.CRASH_ON_RELEASE && launchOrdinal > 1)
+        ? "Q16"
+        : "D4";
+  }
+
+  private static void emitAnalysisLine(String move, int visits) throws IOException {
+    output.write(
+        "info move "
+            + move
+            + " visits "
+            + visits
+            + " winrate 0.55 scoreMean 1.0 scoreStdev 2.0 prior 0.1 lcb 0.5 order 0 pv "
+            + move
+            + "\n");
+    output.flush();
   }
 
   private static Snapshot parseSnapshot(String text) {
@@ -480,11 +555,20 @@ public final class ControlledGtpPeer {
   }
 
   private static CommandResult success(String payload, Runnable afterResponse, boolean quit) {
-    return new CommandResult(true, payload, afterResponse, quit);
+    return success(payload, afterResponse, quit, null, null);
+  }
+
+  private static CommandResult success(
+      String payload,
+      Runnable afterResponse,
+      boolean quit,
+      Path responseRelease,
+      Path responseReceipt) {
+    return new CommandResult(true, payload, afterResponse, quit, responseRelease, responseReceipt);
   }
 
   private static CommandResult failure(String payload) {
-    return new CommandResult(false, payload, null, false);
+    return new CommandResult(false, payload, null, false, null, null);
   }
 
   private static void respond(boolean success, String id, String payload) throws IOException {
@@ -503,7 +587,9 @@ public final class ControlledGtpPeer {
   private static void recordStopUnchecked() {
     synchronized (OUTPUT_LOCK) {
       writeStateUnchecked();
-      writeUnchecked(root.resolve("stopped.txt"), stopReceipt());
+      String receipt = stopReceipt();
+      writeOnceUnchecked(root.resolve("fast-change-stop.txt"), receipt);
+      writeUnchecked(root.resolve("stopped.txt"), receipt);
     }
   }
 
@@ -569,6 +655,16 @@ public final class ControlledGtpPeer {
     }
   }
 
+  private static void writeOnceUnchecked(Path path, String text) {
+    try {
+      Files.writeString(path, text, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+    } catch (FileAlreadyExistsException ignored) {
+      // The first receipt is the immutable lifecycle boundary.
+    } catch (IOException error) {
+      throw new UncheckedIOException(error);
+    }
+  }
+
   private static void append(Path path, String text) throws IOException {
     Files.writeString(
         path, text, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -576,6 +672,114 @@ public final class ControlledGtpPeer {
 
   private static String clean(String message) {
     return message == null ? "unspecified failure" : message.replace('\n', ' ').replace('\r', ' ');
+  }
+
+  private static Path initializeIncarnation() throws IOException {
+    if (scenario == Scenario.D1_SUCCESS) {
+      launchOrdinal = 1;
+      return controlRoot;
+    }
+    for (int candidate = 1; candidate <= 999; candidate++) {
+      Path directory =
+          controlRoot.resolve(String.format(Locale.ROOT, "incarnation-%03d", candidate));
+      try {
+        Files.createDirectory(directory);
+        launchOrdinal = candidate;
+        writeUnchecked(controlRoot.resolve("latest-incarnation.txt"), directory.toString());
+        return directory;
+      } catch (FileAlreadyExistsException ignored) {
+        // A prior peer owns this launch ordinal.
+      }
+    }
+    throw new IOException("controlled peer exhausted launch ordinals");
+  }
+
+  private static void startScenarioWatcher() throws IOException {
+    if (scenario == Scenario.CRASH_ON_RELEASE) {
+      try {
+        Files.createFile(controlRoot.resolve("first-crash.claimed"));
+      } catch (FileAlreadyExistsException alreadyClaimed) {
+        return;
+      }
+      startControlWatcher(
+          "controlled-gtp-crash",
+          controlRoot.resolve("release-001-crash"),
+          () -> {
+            writeUnchecked(
+                root.resolve("crash-receipt.txt"),
+                "pid="
+                    + ProcessHandle.current().pid()
+                    + "\nlaunch.ordinal="
+                    + launchOrdinal
+                    + "\n");
+            Runtime.getRuntime().halt(71);
+          });
+    } else if (scenario == Scenario.LATE_OUTPUT) {
+      startControlWatcher(
+          "controlled-gtp-late-output",
+          controlRoot.resolve("release-001-late-output"),
+          ControlledGtpPeer::emitLateOutput);
+    }
+  }
+
+  private static void startControlWatcher(String name, Path release, Runnable action) {
+    Thread watcher =
+        new Thread(
+            () -> {
+              try {
+                awaitRelease(release, name);
+                action.run();
+              } catch (Throwable failure) {
+                failure.printStackTrace(System.err);
+                Runtime.getRuntime().halt(72);
+              }
+            },
+            name);
+    watcher.setDaemon(true);
+    watcher.start();
+  }
+
+  private static void emitLateOutput() {
+    synchronized (OUTPUT_LOCK) {
+      try {
+        writeUnchecked(
+            root.resolve("late-output-started.txt"),
+            "pid=" + ProcessHandle.current().pid() + "\nlaunch.ordinal=" + launchOrdinal + "\n");
+        for (int index = 1; index <= 5; index++) {
+          emitAnalysisLine("C3", 9000 + index);
+          lateAnalysisCount++;
+        }
+        writeUnchecked(
+            root.resolve("late-output-complete.txt"),
+            "pid="
+                + ProcessHandle.current().pid()
+                + "\nlaunch.ordinal="
+                + launchOrdinal
+                + "\nfirst.visits=9001\nlast.visits=9005\ncount="
+                + lateAnalysisCount
+                + "\n");
+      } catch (IOException error) {
+        throw new UncheckedIOException(error);
+      }
+    }
+  }
+
+  private static void awaitRelease(Path release, String phase) throws IOException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+    while (!Files.isRegularFile(release) && System.nanoTime() < deadline) {
+      try {
+        Thread.sleep(20);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new IOException("interrupted awaiting " + phase, interrupted);
+      }
+    }
+    if (!Files.isRegularFile(release)) {
+      throw new IOException("timed out awaiting " + phase + " release " + release);
+    }
+    writeUnchecked(
+        root.resolve("release-consumed-" + release.getFileName() + ".txt"),
+        "pid=" + ProcessHandle.current().pid() + "\n");
   }
 
   private static void startDeadlineWatchdog() {
@@ -602,8 +806,37 @@ public final class ControlledGtpPeer {
   }
 
   private record CommandResult(
-      boolean success, String payload, Runnable afterResponse, boolean quit) {}
+      boolean success,
+      String payload,
+      Runnable afterResponse,
+      boolean quit,
+      Path responseRelease,
+      Path responseReceipt) {}
 
   private record Snapshot(
       int boardSize, double komi, String turn, TreeMap<String, String> stones) {}
+
+  private enum Scenario {
+    D1_SUCCESS("d1-success"),
+    SNAPSHOT_ERROR("snapshot-error"),
+    SNAPSHOT_TIMEOUT("snapshot-timeout"),
+    CRASH_ON_RELEASE("crash-on-release"),
+    LATE_OUTPUT("late-output"),
+    HEALTHY_DISTINCT("healthy-distinct");
+
+    private final String argument;
+
+    Scenario(String argument) {
+      this.argument = argument;
+    }
+
+    private static Scenario parse(String argument) {
+      for (Scenario candidate : values()) {
+        if (candidate.argument.equals(argument)) {
+          return candidate;
+        }
+      }
+      throw new IllegalArgumentException("unknown scenario: " + argument);
+    }
+  }
 }
