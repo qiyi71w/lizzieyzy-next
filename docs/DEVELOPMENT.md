@@ -127,6 +127,9 @@ LANG=C.UTF-8 LC_ALL=C.UTF-8 xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp
 skipped、失败或报错都会使实际 runner 失败；失败摘要仍保留本次已收集的测试、失败、报错和跳过计数。
 每个子 JVM 的独立工作目录、配置、应用日志、stdout/stderr、locale（如适用）、阶段、场景结果和设置前后
 证据保留于 `target/desktop-smoke/probes/`。
+每个探针等待最多 90 秒；超时后分别尝试有界 `jcmd` 栈和截图，再终止所拥有的进程，不依赖 EDT 响应。
+诊断不可用会记录失败，不掩盖探针失败。父进程不创建子进程输出读取线程。
+desktop 的新鲜 XML 单独放在 `target/desktop-smoke/surefire-reports/`；只清除该 lane 的旧报告，保留探针日志。
 原 headless `all` / `java` 契约及其报告保持不变；headless Java 报告与 desktop 报告互不替代，
 所有调用仍须遵守单 checkout 单 Maven 写入约束。
 这证明 Linux/Xvfb 中的生产窗口导航和搜索输入链，不替代 Windows DPI/IME/theme、原生
