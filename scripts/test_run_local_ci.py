@@ -371,21 +371,21 @@ class RunLocalCiTest(unittest.TestCase):
                     self.assertEqual(0, summary["junit"]["tests"])
                     self.assertFalse(stale.exists())
 
-                missing_english = suite_xml(
-                    (navigation, ""), (config, ""), (engine, ""), (chinese, ""),
+                missing_engine = suite_xml(
+                    (navigation, ""), (config, ""), (chinese, ""), (english, ""),
                 )
-                with patch.object(run_local_ci, "build_steps", return_value=make_step(missing_english)):
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(missing_engine)):
                     self.assertEqual(1, run_local_ci.run(args))
                     summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
                     self.assertEqual("FAIL", summary["result"])
                     self.assertEqual(4, summary["junit"]["tests"])
                     self.assertEqual(0, summary["junit"]["skipped"])
 
-                skipped_chinese = suite_xml(
-                    (navigation, ""), (config, ""), (engine, ""),
-                    (chinese, "<skipped/>"), (english, ""),
+                skipped_engine = suite_xml(
+                    (navigation, ""), (config, ""), (engine, "<skipped/>"),
+                    (chinese, ""), (english, ""),
                 )
-                with patch.object(run_local_ci, "build_steps", return_value=make_step(skipped_chinese)):
+                with patch.object(run_local_ci, "build_steps", return_value=make_step(skipped_engine)):
                     self.assertEqual(1, run_local_ci.run(args))
                     summary = json.loads((Path(temporary) / "local-ci-summary.json").read_text())
                     self.assertEqual("FAIL", summary["result"])
