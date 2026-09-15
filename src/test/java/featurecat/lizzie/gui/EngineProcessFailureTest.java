@@ -104,6 +104,16 @@ public final class EngineProcessFailureTest {
     runScenario(Scenario.LATE_OUTPUT_SWITCH);
   }
 
+  @Test
+  void drainsPeerPipeBurstAndRemainsResponsive() throws Exception {
+    runScenario(Scenario.PIPE_BURST);
+  }
+
+  @Test
+  void cleansUpPeerThatRefusesQuit() throws Exception {
+    runScenario(Scenario.QUIT_REFUSAL);
+  }
+
   private static void runScenario(Scenario scenario) throws Exception {
     DesktopProbeProcess.requireDisplay();
     Path fixture = Path.of(FIXTURE).toAbsolutePath().normalize();
@@ -183,6 +193,7 @@ public final class EngineProcessFailureTest {
     for (String staged : records.get("evidence.staged-sgfs").split("\\|")) {
       assertFalse(Files.exists(Path.of(staged)), "staged SGF survived: " + staged);
     }
+    assertScenarioEvidence(records, scenario, oldPid);
   }
 
   private static Map<String, String> parseResult(Path result, Scenario scenario)
@@ -214,7 +225,103 @@ public final class EngineProcessFailureTest {
   private static Set<String> expectedResultKeys(Scenario scenario) {
     Set<String> keys = new LinkedHashSet<>(COMMON_RESULT_KEYS);
     keys.addAll(scenario.verdictKeys);
+    keys.addAll(scenario.detailKeys());
     return keys;
+  }
+
+  private static void assertScenarioEvidence(
+      Map<String, String> records, Scenario scenario, long oldPid) throws IOException {
+    if (scenario == Scenario.QUIT_REFUSAL) {
+      Path refusalPath = Path.of(records.get("evidence.old-receipt"));
+      Map<String, String> refusal =
+          readRecords(
+              refusalPath, Set.of("command", "refusal", "pid", "launch.ordinal"));
+      assertEquals("quit", refusal.get("command"));
+      assertEquals("stay-alive", refusal.get("refusal"));
+      assertEquals(Long.toString(oldPid), refusal.get("pid"));
+      assertEquals("1", refusal.get("launch.ordinal"));
+      assertFalse(
+          Files.exists(refusalPath.resolveSibling("peer-complete.txt")),
+          "quit-refusing peer claimed natural completion");
+      return;
+    }
+    if (scenario != Scenario.PIPE_BURST) {
+      return;
+    }
+    Map<String, String> stdoutLast =
+        assertBurstReceipt(
+            Path.of(records.get("evidence.burst-stdout-last")),
+            "stdout",
+            1,
+            2048,
+            oldPid,
+            1);
+    Map<String, String> stderrLast =
+        assertBurstReceipt(
+            Path.of(records.get("evidence.burst-stderr-last")),
+            "stderr",
+            1,
+            2048,
+            oldPid,
+            1);
+    assertBurstReceipt(
+        Path.of(records.get("evidence.burst-stdout-first")), "stdout", 1, 1, oldPid, 1);
+    assertBurstReceipt(
+        Path.of(records.get("evidence.burst-stdout-progress")),
+        "stdout",
+        1,
+        1024,
+        oldPid,
+        1);
+    assertBurstReceipt(
+        Path.of(records.get("evidence.burst-stderr-first")), "stderr", 1, 1, oldPid, 1);
+    assertBurstReceipt(
+        Path.of(records.get("evidence.burst-stderr-progress")),
+        "stderr",
+        1,
+        1024,
+        oldPid,
+        1);
+    assertEquals(stdoutLast.get("bytes"), records.get("burst.stdout.bytes"));
+    assertEquals(stderrLast.get("bytes"), records.get("burst.stderr.bytes"));
+    assertEquals(stdoutLast.get("duration.nanos"), records.get("burst.stdout.duration-nanos"));
+    assertEquals(stderrLast.get("duration.nanos"), records.get("burst.stderr.duration-nanos"));
+    Path controlReceipt = Path.of(records.get("evidence.burst-control"));
+    Map<String, String> control =
+        readRecords(controlReceipt, Set.of("command", "pid", "launch.ordinal"));
+    assertEquals("name", control.get("command"));
+    assertEquals(Long.toString(oldPid), control.get("pid"));
+    assertEquals("1", control.get("launch.ordinal"));
+  }
+
+  private static Map<String, String> assertBurstReceipt(
+      Path path,
+      String stream,
+      int firstSequence,
+      int lastSequence,
+      long expectedPid,
+      int expectedLaunch)
+      throws IOException {
+    Map<String, String> receipt =
+        readRecords(
+            path,
+            Set.of(
+                "stream",
+                "pid",
+                "launch.ordinal",
+                "first.sequence",
+                "last.sequence",
+                "bytes",
+                "duration.nanos"));
+    assertEquals(stream, receipt.get("stream"));
+    assertEquals(Long.toString(expectedPid), receipt.get("pid"));
+    assertEquals(Integer.toString(expectedLaunch), receipt.get("launch.ordinal"));
+    assertEquals(Integer.toString(firstSequence), receipt.get("first.sequence"));
+    assertEquals(Integer.toString(lastSequence), receipt.get("last.sequence"));
+    long bytes = positiveLong(receipt, "bytes");
+    assertTrue(bytes <= 8L * 1024 * 1024, stream + " burst exceeded 8MiB");
+    positiveLong(receipt, "duration.nanos");
+    return receipt;
   }
 
   private static long positiveLong(Map<String, String> records, String key) {
@@ -325,6 +432,8 @@ public final class EngineProcessFailureTest {
           case SNAPSHOT_TIMEOUT -> runSnapshotTimeout(harness);
           case CRASH_RESTART -> runCrashRestart(harness);
           case LATE_OUTPUT_SWITCH -> runLateOutputSwitch(harness);
+          case PIPE_BURST -> runPipeBurst(harness);
+          case QUIT_REFUSAL -> runQuitRefusal(harness);
         };
     assertApplicationPosition(
         harness.history, harness.target, evidence.expectedMove, evidence.expectedMove != null);
@@ -623,6 +732,174 @@ public final class EngineProcessFailureTest {
         "Q16");
   }
 
+  private static ScenarioEvidence runPipeBurst(Harness harness) throws Exception {
+    DesktopProbeProcess.phase(harness.result, "pipe-burst-start");
+    Deadline initialRestore = harness.budget.initialRestore();
+    Set<Thread> existingReaders = productionReaderThreads();
+    EngineRun engine =
+        addAndSwitch(harness, "burst-peer", "pipe-burst", existingReaders, true, initialRestore);
+    awaitHealthy(harness, engine, "D4", initialRestore);
+    Path staged = stagedSgf(engine.incarnation);
+    recordPhase(harness, "initial-restore-complete", engine, null);
+
+    Deadline recovery = harness.budget.failureRecovery();
+    Deadline burstDeadline = Deadline.after(Duration.ofSeconds(10));
+    Path peer = engine.incarnation.directory;
+    Files.writeString(harness.work.resolve("burst-peer/release-001-burst"), "release\n");
+    Path stdoutFirst = peer.resolve("burst-stdout-first.txt");
+    Path stdoutProgress = peer.resolve("burst-stdout-progress.txt");
+    Path stdoutLast = peer.resolve("burst-stdout-last.txt");
+    Path stderrFirst = peer.resolve("burst-stderr-first.txt");
+    Path stderrProgress = peer.resolve("burst-stderr-progress.txt");
+    Path stderrLast = peer.resolve("burst-stderr-last.txt");
+    await(
+        () -> Files.isRegularFile(stdoutFirst) && Files.isRegularFile(stderrFirst),
+        burstDeadline,
+        "independent stdout/stderr burst start");
+    assertBurstReceipt(stdoutFirst, "stdout", 1, 1, engine.incarnation.pid, 1);
+    assertBurstReceipt(stderrFirst, "stderr", 1, 1, engine.incarnation.pid, 1);
+    recordPhase(harness, "stimulus-observed", engine, null);
+
+    CountDownLatch controlResponse = new CountDownLatch(1);
+    LeelazResponseTestBridge.sendCommandWithResponse(engine.engine, "name", controlResponse::countDown);
+    await(
+        () -> controlResponse.getCount() == 0,
+        burstDeadline,
+        "production control response during pipe burst");
+    Path controlReceipt = peer.resolve("burst-control-received.txt");
+    await(() -> Files.isRegularFile(controlReceipt), burstDeadline, "peer control receipt");
+    callWithin(
+        () -> {
+          SwingUtilities.invokeAndWait(() -> {});
+          return null;
+        },
+        burstDeadline,
+        "EDT round-trip during pipe burst");
+    await(
+        () -> Files.isRegularFile(stdoutProgress) && Files.isRegularFile(stderrProgress),
+        burstDeadline,
+        "independent stdout/stderr burst progress");
+    assertBurstReceipt(stdoutProgress, "stdout", 1, 1024, engine.incarnation.pid, 1);
+    assertBurstReceipt(stderrProgress, "stderr", 1, 1024, engine.incarnation.pid, 1);
+    if (Files.exists(stdoutLast) || Files.exists(stderrLast)) {
+      throw new AssertionError("burst writers completed before responsiveness probes");
+    }
+    Files.writeString(harness.work.resolve("burst-peer/release-002-burst-finish"), "release\n");
+    await(
+        () -> Files.isRegularFile(stdoutLast) && Files.isRegularFile(stderrLast),
+        burstDeadline,
+        "bounded stdout/stderr burst completion");
+    Map<String, String> stdoutCompletion =
+        assertBurstReceipt(stdoutLast, "stdout", 1, 2048, engine.incarnation.pid, 1);
+    Map<String, String> stderrCompletion =
+        assertBurstReceipt(stderrLast, "stderr", 1, 2048, engine.incarnation.pid, 1);
+    await(
+        () -> analysis(harness.target, "D4").map(move -> move.playouts >= 900000).orElse(false),
+        burstDeadline,
+        "final burst analysis marker");
+    assertApplicationPosition(harness.history, harness.target, "D4", true);
+    recordPhase(harness, "failure-recovery-complete", engine, null);
+
+    Deadline cleanup = harness.budget.cleanup();
+    closeEngine(engine, cleanup);
+    await(() -> Files.isRegularFile(peer.resolve("quit.txt")), cleanup, "peer quit receipt");
+    await(
+        () -> Files.isRegularFile(peer.resolve("peer-complete.txt")),
+        cleanup,
+        "peer natural completion");
+    await(() -> !Files.exists(staged), cleanup, "burst staged-file deletion");
+    recordPhase(harness, "cleanup-complete", engine, null);
+
+    Map<String, String> details = new LinkedHashMap<>();
+    details.put("burst.stdout.bytes", stdoutCompletion.get("bytes"));
+    details.put("burst.stderr.bytes", stderrCompletion.get("bytes"));
+    details.put("burst.stdout.duration-nanos", stdoutCompletion.get("duration.nanos"));
+    details.put("burst.stderr.duration-nanos", stderrCompletion.get("duration.nanos"));
+    details.put("evidence.burst-stdout-first", stdoutFirst.toString());
+    details.put("evidence.burst-stdout-progress", stdoutProgress.toString());
+    details.put("evidence.burst-stdout-last", stdoutLast.toString());
+    details.put("evidence.burst-stderr-first", stderrFirst.toString());
+    details.put("evidence.burst-stderr-progress", stderrProgress.toString());
+    details.put("evidence.burst-stderr-last", stderrLast.toString());
+    details.put("evidence.burst-control", controlReceipt.toString());
+    return evidence(
+        harness, engine, null, stdoutLast, List.of(staged), "D4", Map.copyOf(details));
+  }
+
+  private static ScenarioEvidence runQuitRefusal(Harness harness) throws Exception {
+    DesktopProbeProcess.phase(harness.result, "quit-refusal-start");
+    Deadline initialRestore = harness.budget.initialRestore();
+    Set<Thread> existingReaders = productionReaderThreads();
+    EngineRun engine =
+        addAndSwitch(
+            harness, "quit-peer", "quit-refusal", existingReaders, true, initialRestore);
+    awaitHealthy(harness, engine, "D4", initialRestore);
+    Path staged = stagedSgf(engine.incarnation);
+    recordPhase(harness, "initial-restore-complete", engine, null);
+
+    Deadline recovery = harness.budget.failureRecovery();
+    assertApplicationPosition(harness.history, harness.target, "D4", true);
+    await(
+        () -> ProcessHandle.of(engine.incarnation.pid).map(ProcessHandle::isAlive).orElse(false),
+        recovery,
+        "quit-refusing peer before normal quit");
+
+    Deadline cleanup = harness.budget.cleanup();
+    try {
+      callWithin(
+          () -> {
+            engine.engine.normalQuit();
+            return null;
+          },
+          cleanup,
+          "normal quit of refusing peer");
+    } catch (Throwable normalQuitFailure) {
+      Deadline containment = Deadline.after(Duration.ofSeconds(5));
+      try {
+        engine.engine.forceQuit();
+        await(
+            () ->
+                !ProcessHandle.of(engine.incarnation.pid)
+                    .map(ProcessHandle::isAlive)
+                    .orElse(false),
+            containment,
+            "forced containment of refusing peer");
+        await(engine.readers::terminated, containment, "forced reader containment");
+        await(() -> !Files.exists(staged), containment, "forced staged-file containment");
+      } catch (Throwable containmentFailure) {
+        normalQuitFailure.addSuppressed(containmentFailure);
+      }
+      if (normalQuitFailure instanceof Exception exception) {
+        throw exception;
+      }
+      if (normalQuitFailure instanceof Error error) {
+        throw error;
+      }
+      throw new RuntimeException(normalQuitFailure);
+    }
+
+    Path refusal = engine.incarnation.directory.resolve("quit-refused.txt");
+    await(() -> Files.isRegularFile(refusal), cleanup, "explicit quit refusal receipt");
+    await(
+        () -> !ProcessHandle.of(engine.incarnation.pid).map(ProcessHandle::isAlive).orElse(false),
+        cleanup,
+        "OS termination of quit-refusing peer");
+    await(engine.readers::terminated, cleanup, "refusing peer reader termination");
+    await(() -> !Files.exists(staged), cleanup, "refusing peer staged-file deletion");
+    await(
+        () ->
+            !engine.engine.isStarted()
+                && !engine.engine.isLoaded()
+                && !engine.engine.isPondering(),
+        cleanup,
+        "terminal nonpondering application state");
+    assertApplicationPosition(harness.history, harness.target, "D4", true);
+    recordPhase(harness, "stimulus-observed", engine, null);
+    recordPhase(harness, "failure-recovery-complete", engine, null);
+    recordPhase(harness, "cleanup-complete", engine, null);
+    return evidence(harness, engine, null, refusal, List.of(staged), "D4");
+  }
+
   private static EngineRun addAndSwitch(
       Harness harness,
       String directoryName,
@@ -858,6 +1135,18 @@ public final class EngineProcessFailureTest {
       List<Path> stagedSgfs,
       String expectedMove)
       throws IOException {
+    return evidence(harness, oldRun, newRun, oldReceipt, stagedSgfs, expectedMove, Map.of());
+  }
+
+  private static ScenarioEvidence evidence(
+      Harness harness,
+      EngineRun oldRun,
+      EngineRun newRun,
+      Path oldReceipt,
+      List<Path> stagedSgfs,
+      String expectedMove,
+      Map<String, String> details)
+      throws IOException {
     int oldAnalysis = analysisCount(oldRun.incarnation);
     int newAnalysis = newRun == null ? 0 : analysisCount(newRun.incarnation);
     return new ScenarioEvidence(
@@ -868,7 +1157,8 @@ public final class EngineProcessFailureTest {
         expectedMove,
         oldAnalysis,
         newAnalysis,
-        harness.work.resolve("logs/app.log"));
+        harness.work.resolve("logs/app.log"),
+        details);
   }
 
   private static void recordPhase(Harness harness, String phase, EngineRun oldRun, EngineRun newRun)
@@ -905,6 +1195,7 @@ public final class EngineProcessFailureTest {
     for (String key : scenario.verdictKeys) {
       records.put(key, "true");
     }
+    records.putAll(evidence.details);
     records.put("peer.old.pid", Long.toString(evidence.oldRun.incarnation.pid));
     records.put(
         "peer.new.pid",
@@ -1274,7 +1565,23 @@ public final class EngineProcessFailureTest {
         "healthy-distinct",
         true,
         true,
-        1);
+        1),
+    PIPE_BURST(
+        "pipe-burst",
+        List.of("burst.drained", "burst.responsive"),
+        "pipe-burst",
+        null,
+        false,
+        true,
+        0),
+    QUIT_REFUSAL(
+        "quit-refusal",
+        List.of("quit.refused", "quit.cleaned"),
+        "quit-refusal",
+        null,
+        false,
+        true,
+        0);
 
     private final String argument;
     private final List<String> verdictKeys;
@@ -1299,6 +1606,24 @@ public final class EngineProcessFailureTest {
       this.newPeerRequired = newPeerRequired;
       this.oldAnalysisRequired = oldAnalysisRequired;
       this.expectedNewLaunch = expectedNewLaunch;
+    }
+
+    private Set<String> detailKeys() {
+      if (this != PIPE_BURST) {
+        return Set.of();
+      }
+      return Set.of(
+          "burst.stdout.bytes",
+          "burst.stderr.bytes",
+          "burst.stdout.duration-nanos",
+          "burst.stderr.duration-nanos",
+          "evidence.burst-stdout-first",
+          "evidence.burst-stdout-progress",
+          "evidence.burst-stdout-last",
+          "evidence.burst-stderr-first",
+          "evidence.burst-stderr-progress",
+          "evidence.burst-stderr-last",
+          "evidence.burst-control");
     }
 
     private static Scenario parse(String argument) {
@@ -1384,7 +1709,8 @@ public final class EngineProcessFailureTest {
       String expectedMove,
       int oldAnalysis,
       int newAnalysis,
-      Path appLog) {}
+      Path appLog,
+      Map<String, String> details) {}
 
   /** The only override is the display-name lookup permitted by the frozen test boundary. */
   private static final class CatalogNamedLeelaz extends Leelaz {

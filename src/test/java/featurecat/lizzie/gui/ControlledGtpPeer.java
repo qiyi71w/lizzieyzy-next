@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -53,10 +54,15 @@ public final class ControlledGtpPeer {
               "stop",
               "quit"));
   private static final Object OUTPUT_LOCK = new Object();
+  private static final Object ERROR_LOCK = new Object();
+  private static final int BURST_LINES = 2048;
+  private static final int BURST_MIDPOINT = BURST_LINES / 2;
+  private static final long MAX_BURST_BYTES = 8L * 1024 * 1024;
 
   private static Path controlRoot;
   private static Path root;
   private static BufferedWriter output;
+  private static BufferedWriter errorOutput;
   private static ScheduledExecutorService analysisExecutor;
   private static final TreeMap<String, String> stones = new TreeMap<>();
   private static final List<String> tail = new ArrayList<>();
@@ -105,8 +111,11 @@ public final class ControlledGtpPeer {
     try (BufferedReader input =
             new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         BufferedWriter peerOutput =
-            new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8))) {
+            new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8));
+        BufferedWriter peerError =
+            new BufferedWriter(new OutputStreamWriter(System.err, StandardCharsets.UTF_8))) {
       output = peerOutput;
+      errorOutput = peerError;
       startScenarioWatcher();
       boolean quitConsumed = false;
       String line;
@@ -194,7 +203,24 @@ public final class ControlledGtpPeer {
         stopCommand = "name";
       }
     }
-    return success("KataGo", wasActive ? ControlledGtpPeer::recordStopUnchecked : null, false);
+    Runnable afterResponse = wasActive ? ControlledGtpPeer::recordStopUnchecked : null;
+    if (scenario == Scenario.PIPE_BURST) {
+      Runnable stopAction = afterResponse;
+      afterResponse =
+          () -> {
+            if (stopAction != null) {
+              stopAction.run();
+            }
+            writeUnchecked(
+                root.resolve("burst-control-received.txt"),
+                "command=name\npid="
+                    + ProcessHandle.current().pid()
+                    + "\nlaunch.ordinal="
+                    + launchOrdinal
+                    + "\n");
+          };
+    }
+    return success("KataGo", afterResponse, false);
   }
 
   private static CommandResult knownCommand(String arguments) {
@@ -367,6 +393,23 @@ public final class ControlledGtpPeer {
     synchronized (OUTPUT_LOCK) {
       analysisActive = false;
     }
+    if (scenario == Scenario.QUIT_REFUSAL) {
+      return success(
+          "",
+          () -> {
+            writeUnchecked(
+                root.resolve("quit-refused.txt"),
+                "command=quit\nrefusal=stay-alive\npid="
+                    + ProcessHandle.current().pid()
+                    + "\nlaunch.ordinal="
+                    + launchOrdinal
+                    + "\n");
+            synchronized (OUTPUT_LOCK) {
+              writeStateUnchecked();
+            }
+          },
+          false);
+    }
     return success(
         "",
         () -> {
@@ -403,15 +446,22 @@ public final class ControlledGtpPeer {
   }
 
   private static void emitAnalysisLine(String move, int visits) throws IOException {
-    output.write(
-        "info move "
-            + move
-            + " visits "
-            + visits
-            + " winrate 0.55 scoreMean 1.0 scoreStdev 2.0 prior 0.1 lcb 0.5 order 0 pv "
-            + move
-            + "\n");
+    output.write(analysisLine(move, visits, 1));
     output.flush();
+  }
+
+  private static String analysisLine(String move, int visits, int pvMoves) {
+    StringBuilder line =
+        new StringBuilder("info move ")
+            .append(move)
+            .append(" visits ")
+            .append(visits)
+            .append(
+                " winrate 0.55 scoreMean 1.0 scoreStdev 2.0 prior 0.1 lcb 0.5 order 0 pv");
+    for (int index = 0; index < pvMoves; index++) {
+      line.append(' ').append(move);
+    }
+    return line.append('\n').toString();
   }
 
   private static Snapshot parseSnapshot(String text) {
@@ -719,6 +769,11 @@ public final class ControlledGtpPeer {
           "controlled-gtp-late-output",
           controlRoot.resolve("release-001-late-output"),
           ControlledGtpPeer::emitLateOutput);
+    } else if (scenario == Scenario.PIPE_BURST) {
+      startControlWatcher(
+          "controlled-gtp-pipe-burst",
+          controlRoot.resolve("release-001-burst"),
+          ControlledGtpPeer::startPipeBurst);
     }
   }
 
@@ -761,6 +816,151 @@ public final class ControlledGtpPeer {
       } catch (IOException error) {
         throw new UncheckedIOException(error);
       }
+    }
+  }
+
+  private static void startPipeBurst() {
+    synchronized (OUTPUT_LOCK) {
+      analysisActive = false;
+      writeStateUnchecked();
+    }
+    CountDownLatch finishRelease = new CountDownLatch(1);
+    startControlWatcher(
+        "controlled-gtp-burst-finish",
+        controlRoot.resolve("release-002-burst-finish"),
+        finishRelease::countDown);
+    startBurstWriter(
+        "controlled-gtp-stdout-burst", "stdout", () -> emitStdoutBurst(finishRelease));
+    startBurstWriter(
+        "controlled-gtp-stderr-burst", "stderr", () -> emitStderrBurst(finishRelease));
+  }
+
+  private static void startBurstWriter(String threadName, String stream, Runnable writer) {
+    Thread thread =
+        new Thread(
+            () -> {
+              try {
+                writer.run();
+              } catch (Throwable failure) {
+                writeUnchecked(
+                    root.resolve("burst-" + stream + "-error.txt"),
+                    "failure=" + clean(failure.toString()) + "\n");
+                failure.printStackTrace(System.err);
+                Runtime.getRuntime().halt(73);
+              }
+            },
+            threadName);
+    thread.setDaemon(true);
+    thread.start();
+  }
+
+  private static void emitStdoutBurst(CountDownLatch finishRelease) {
+    long started = System.nanoTime();
+    long bytes = 0;
+    for (int sequence = 1; sequence <= BURST_LINES; sequence++) {
+      int visits = sequence == BURST_LINES ? 900000 : 100000 + sequence;
+      String line = analysisLine("D4", visits, 512);
+      synchronized (OUTPUT_LOCK) {
+        try {
+          output.write(line);
+          output.flush();
+          analysisCount++;
+        } catch (IOException failure) {
+          throw new UncheckedIOException(failure);
+        }
+      }
+      bytes += line.getBytes(StandardCharsets.UTF_8).length;
+      recordBurstProgress("stdout", sequence, bytes, started);
+      pauseBurstWriter();
+      if (sequence == BURST_MIDPOINT) {
+        awaitBurstFinish(finishRelease, "stdout");
+      }
+    }
+    synchronized (OUTPUT_LOCK) {
+      writeStateUnchecked();
+    }
+    recordBurstCompletion("stdout", bytes, started);
+  }
+
+  private static void emitStderrBurst(CountDownLatch finishRelease) {
+    long started = System.nanoTime();
+    long bytes = 0;
+    String padding = "x".repeat(1800);
+    for (int sequence = 1; sequence <= BURST_LINES; sequence++) {
+      String line = "burst diagnostic sequence=" + sequence + " " + padding + "\n";
+      synchronized (ERROR_LOCK) {
+        try {
+          errorOutput.write(line);
+          errorOutput.flush();
+        } catch (IOException failure) {
+          throw new UncheckedIOException(failure);
+        }
+      }
+      bytes += line.getBytes(StandardCharsets.UTF_8).length;
+      recordBurstProgress("stderr", sequence, bytes, started);
+      pauseBurstWriter();
+      if (sequence == BURST_MIDPOINT) {
+        awaitBurstFinish(finishRelease, "stderr");
+      }
+    }
+    recordBurstCompletion("stderr", bytes, started);
+  }
+
+  private static void recordBurstProgress(
+      String stream, int sequence, long bytes, long started) {
+    String suffix = sequence == 1 ? "first" : sequence == BURST_MIDPOINT ? "progress" : null;
+    if (suffix != null) {
+      writeUnchecked(
+          root.resolve("burst-" + stream + "-" + suffix + ".txt"),
+          burstReceipt(stream, 1, sequence, bytes, System.nanoTime() - started));
+    }
+  }
+
+  private static void recordBurstCompletion(String stream, long bytes, long started) {
+    if (bytes <= 0 || bytes > MAX_BURST_BYTES) {
+      throw new AssertionError(stream + " burst exceeded bounded byte contract: " + bytes);
+    }
+    writeUnchecked(
+        root.resolve("burst-" + stream + "-last.txt"),
+        burstReceipt(stream, 1, BURST_LINES, bytes, System.nanoTime() - started));
+  }
+
+  private static String burstReceipt(
+      String stream, int firstSequence, int lastSequence, long bytes, long durationNanos) {
+    return "stream="
+        + stream
+        + "\npid="
+        + ProcessHandle.current().pid()
+        + "\nlaunch.ordinal="
+        + launchOrdinal
+        + "\nfirst.sequence="
+        + firstSequence
+        + "\nlast.sequence="
+        + lastSequence
+        + "\nbytes="
+        + bytes
+        + "\nduration.nanos="
+        + durationNanos
+        + "\n";
+  }
+
+  private static void pauseBurstWriter() {
+    try {
+      Thread.sleep(1);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("burst writer interrupted", interrupted);
+    }
+  }
+
+  private static void awaitBurstFinish(CountDownLatch finishRelease, String stream) {
+    try {
+      if (!finishRelease.await(10, TimeUnit.SECONDS)) {
+        throw new AssertionError(stream + " burst finish release timed out");
+      }
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(stream + " burst finish interrupted", interrupted);
     }
   }
 
@@ -822,6 +1022,8 @@ public final class ControlledGtpPeer {
     SNAPSHOT_TIMEOUT("snapshot-timeout"),
     CRASH_ON_RELEASE("crash-on-release"),
     LATE_OUTPUT("late-output"),
+    PIPE_BURST("pipe-burst"),
+    QUIT_REFUSAL("quit-refusal"),
     HEALTHY_DISTINCT("healthy-distinct");
 
     private final String argument;
