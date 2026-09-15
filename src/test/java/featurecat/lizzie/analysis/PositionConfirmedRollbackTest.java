@@ -71,7 +71,9 @@ class PositionConfirmedRollbackTest {
           ExactSnapshotRestoreProtocolFixture.install(
               harness.engine,
               command ->
-                  command.equals("play W D4")
+                  // Defer undo's ACK so flush() cannot reenter response routing concurrently
+                  // with the predecessor rejection delivered by this test thread.
+                  command.equals("play W D4") || command.equals("undo")
                       ? null
                       : ExactSnapshotRestoreProtocolFixture.Response.success());
       harness.engine.playMoveNoPonder(Stone.BLACK, "Q16");
