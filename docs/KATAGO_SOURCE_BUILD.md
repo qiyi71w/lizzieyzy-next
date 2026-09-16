@@ -14,12 +14,13 @@ cannot identify focus support.
 Both macOS targets explicitly use deployment target `15.0`, matching the current release's
 Mach-O load command. The builder checks the actual executable, rather than relying on the CMake
 argument. Building on macOS 26 must not silently raise the release's minimum system version.
-Packaged dependencies still need a separate deployment-target audit and pinned SDK build.
+The bundle auditor checks every non-system dylib too. A library requiring macOS 15.1 or 26
+is rejected even when the executable itself supports 15.0.
 
 The builder rejects dirty or different source checkouts, implicit dependency auto-fetching,
 cross-host claims and reused output directories. It records the real compiler, CMake options,
 binary size/hash and source revision. A build receipt deliberately leaves packaging, dependency
-closure and hardware acceptance as `NOT_RUN`. It does not certify SDK versions or packaged DLLs.
+closure and hardware acceptance as `NOT_RUN`. It does not certify packaged DLLs.
 
 ## Build
 
@@ -27,15 +28,47 @@ Prepare the exact clean upstream checkout and separately verified SDK/dependency
 The builder does not install packages, update GPU drivers or modify the source checkout.
 
 ```sh
+python3 scripts/build_katago_macos_dependencies.py \
+  --output /path/to/new/sdk-build \
+  --arch arm64
+
 python3 scripts/build_katago_source.py \
   --source /path/to/clean/KataGo \
   --output /path/to/new/build-directory \
   --target macos-arm64 \
-  --sdk CMAKE_PREFIX_PATH=/path/to/verified/dependencies
+  --macos-sdk /path/to/new/sdk-build/prefix
 ```
 
-Use Python 3.11 or later. Every invocation needs a new output directory; a failed configure or
+Use Python 3.12 or later for dependency extraction. Every invocation needs a new output directory; a failed configure or
 compile must never leave a previous executable looking like a successful new build.
+
+`katago_macos_dependencies.json` pins the source archives and SHA-256 for protobuf, abseil,
+libzip, xz and zstd. All are built for macOS 15.0 into an isolated prefix, without Homebrew
+library discovery. Redistributable licenses and a verified file inventory accompany the SDK.
+KataGo builds refuse a changed SDK, a different architecture, or an older lock receipt.
+The system SDK supplies zlib and platform frameworks. Build tools may come from Homebrew;
+its runtime libraries must not leak into the artifact.
+
+The dependency lock keeps the protobuf/abseil/libzip versions found in the reference package.
+It additionally pins previously floating optional compression dependencies. This does not
+upgrade CUDA, cuDNN, TensorRT or the bundled model. Intel builds use `--arch x86_64` and
+`--target macos-amd64` on a native Intel host.
+
+Package a build with its pinned SDK and upstream/third-party licenses:
+
+```sh
+python3 scripts/package_katago_source_macos.py \
+  --build /path/to/new/build-directory \
+  --sdk /path/to/new/sdk-build/prefix \
+  --output /path/to/new/portable-engine
+```
+
+This verifies the compiled executable's hash before copying, rewrites and verifies the entire
+dylib closure, checks minimum macOS versions and records the final rewritten file hashes.
+Linkers reserve Mach-O header space for portable dependency paths. Both architectures build in
+`katago-source-macos.yml`; these are CI artifacts, not public releases. Hardware acceptance
+remains `NOT_RUN` until separately tested. Developer ID signing, notarization and all 15 final
+application packages remain separate release gates.
 
 ## Real protocol acceptance
 

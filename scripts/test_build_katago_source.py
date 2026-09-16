@@ -57,6 +57,8 @@ class SourceBuildTest(unittest.TestCase):
     def test_macos_deployment_target_does_not_follow_build_host(self):
         for target in ("macos-arm64", "macos-amd64"):
             self.assertIn("-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0", configuration(target, []))
+            self.assertIn("-DCMAKE_EXE_LINKER_FLAGS=-Xlinker -headerpad_max_install_names",
+                          configuration(target, []))
             self.assertIn(
                 f"-DCMAKE_Swift_FLAGS=-target {TARGETS[target][1]}-apple-macosx15.0",
                 configuration(target, []),
@@ -99,7 +101,7 @@ class SourceBuildTest(unittest.TestCase):
             stale.write_bytes(b"stale")
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
                 with self.assertRaises(FileExistsError):
-                    build(path / "source", output, "macos-arm64", [], 2)
+                    build(path / "source", output, "linux-cpu", [], 2)
             self.assertEqual(b"stale", stale.read_bytes())
 
     def test_build_failure_records_failure_not_approval(self):
@@ -108,10 +110,18 @@ class SourceBuildTest(unittest.TestCase):
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
                 with patch("build_katago_source.subprocess.run", side_effect=RuntimeError("compile failed")):
                     with self.assertRaises(RuntimeError):
-                        build(path / "source", path / "build", "macos-arm64", [], 2)
+                        build(path / "source", path / "build", "linux-cpu", [], 2)
             text = (path / "build/source-build.json").read_text()
             self.assertIn('"buildStatus": "FAIL"', text)
             self.assertIn('"packagingStatus": "NOT_RUN"', text)
+
+    def test_macos_cannot_use_unverified_host_dependencies(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
+                with self.assertRaisesRegex(ValueError, "verified pinned dependencies"):
+                    build(path / "source", path / "build", "macos-arm64", [], 2)
+            self.assertFalse((path / "build").exists())
 
     def test_missing_gpu_hardware_is_distinct_from_build_failure(self):
         check_release_receipts(self.receipts())

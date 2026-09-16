@@ -11,8 +11,10 @@ from pathlib import Path
 import platform
 import re
 import subprocess
+import shutil
 
 from probe_katago_focus import SOURCE_COMMIT
+from build_katago_macos_dependencies import sdk_environment, verify_sdk
 
 
 TARGETS = {
@@ -67,6 +69,7 @@ def configuration(target: str, sdk: list[str]) -> list[str]:
         options.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_MINIMUM_VERSION}")
         # Upstream's Swift linker does not inherit the C++ deployment target.
         options.append(f"-DCMAKE_Swift_FLAGS=-target {arch}-apple-macosx{MACOS_MINIMUM_VERSION}")
+        options.append("-DCMAKE_EXE_LINKER_FLAGS=-Xlinker -headerpad_max_install_names")
     if backend == "TENSORRT":
         options.append("-DUSE_CACHE_TENSORRT_PLAN=1")
     for option in sdk:
@@ -91,6 +94,17 @@ def file_record(path: Path, root: Path) -> dict:
     return {"file": str(path.relative_to(root)), "sizeBytes": path.stat().st_size, "sha256": digest}
 
 
+def copy_source_licenses(source: Path, output: Path) -> None:
+    paths = [source / "LICENSE"]
+    for path in (source / "cpp/external").rglob("*"):
+        if path.is_file() and path.name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
+            paths.append(path)
+    for path in paths:
+        destination = output / "source-licenses" / path.relative_to(source)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+
+
 def macos_minimum_version(load_commands: str) -> str:
     matches = re.findall(r"(?m)^\s*minos\s+(\d+(?:\.\d+){0,2})\s*$", load_commands)
     if len(matches) != 1:
@@ -103,13 +117,41 @@ def macos_minimum_version(load_commands: str) -> str:
     return matches[0]
 
 
-def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int) -> dict:
+def macos_sdk_options(prefix: Path) -> list[str]:
+    prefix = prefix.resolve()
+    return [
+        f"-DCMAKE_PREFIX_PATH={prefix}", "-DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew;/usr/local",
+        "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF", "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
+        f"-DPKG_CONFIG_EXECUTABLE={shutil.which('pkg-config') or 'pkg-config'}",
+        f"-DProtobuf_INCLUDE_DIR={prefix / 'include'}",
+        f"-DProtobuf_LIBRARY_RELEASE={prefix / 'lib/libprotobuf.dylib'}",
+        f"-DProtobuf_PROTOC_EXECUTABLE={prefix / 'bin/protoc'}",
+        f"-DLIBZIP_LIBRARY={prefix / 'lib/libzip.dylib'}",
+        f"-DLIBZIP_INCLUDE_DIR_ZIP={prefix / 'include'}",
+        f"-DLIBZIP_INCLUDE_DIR_ZIPCONF={prefix / 'include'}",
+    ]
+
+
+def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
+          macos_sdk: Path | None = None) -> dict:
     check_host(target)
     source, output = source.resolve(), output.resolve()
     check_source(source)
     if output == source or source in output.parents:
         raise ValueError("build output must be outside the source checkout")
     options = configuration(target, sdk)
+    build_env = None
+    sdk_receipt = None
+    if TARGETS[target][0] == "Darwin":
+        if macos_sdk is None:
+            raise ValueError("macOS builds require --macos-sdk with verified pinned dependencies")
+        if sdk:
+            raise ValueError("macOS SDK settings cannot override pinned dependencies")
+        sdk_receipt = verify_sdk(macos_sdk, TARGETS[target][1])
+        options.extend(macos_sdk_options(macos_sdk))
+        build_env = sdk_environment(macos_sdk.resolve())
+    elif macos_sdk is not None:
+        raise ValueError("--macos-sdk is only valid for macOS targets")
     # Never reuse a stale executable after a failed configure/build.
     output.mkdir(parents=True, exist_ok=False)
     result = {
@@ -126,13 +168,16 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int) ->
         "dependencyAuditStatus": "NOT_RUN",
         "hardwareAcceptanceStatus": "NOT_RUN",
     }
+    if sdk_receipt is not None:
+        result["dependencyLockSha256"] = sdk_receipt["lockSha256"]
+        result["sdkReceipt"] = file_record(macos_sdk / "sdk-receipt.json", macos_sdk)
     try:
         with (output / "build.log").open("w", encoding="utf-8") as log:
             for command in (
                 ["cmake", "-S", str(source / "cpp"), "-B", str(output), "-G", "Ninja", *options],
                 ["cmake", "--build", str(output), "--target", "katago", "--parallel", str(jobs)],
             ):
-                subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
+                subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, env=build_env)
         check_source(source)
         binary = output / ("katago.exe" if os.name == "nt" else "katago")
         if TARGETS[target][0] == "Darwin":
@@ -166,8 +211,10 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int) ->
             buildStatus="PASS", versionOutput=version, executable=file_record(binary, output),
             compiler=compiler_info, cmakeCache=file_record(output / "CMakeCache.txt", output),
         )
+        copy_source_licenses(source, output)
         return result
     except Exception as error:
+        result["buildStatus"] = "FAIL"
         result["error"] = str(error)
         raise
     finally:
@@ -215,10 +262,11 @@ def main() -> int:
     parser.add_argument("--target", required=True, choices=TARGETS)
     parser.add_argument("--sdk", action="append", default=[])
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--macos-sdk", type=Path)
     args = parser.parse_args()
     if not 1 <= args.jobs <= 64:
         parser.error("jobs must be between 1 and 64")
-    result = build(args.source, args.output, args.target, args.sdk, args.jobs)
+    result = build(args.source, args.output, args.target, args.sdk, args.jobs, args.macos_sdk)
     print(json.dumps(result, indent=2))
     return 0
 
