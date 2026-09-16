@@ -5,11 +5,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/katago-source-macos.yml'
-      - 'scripts/build_katago_source.py'
-      - 'scripts/build_katago_macos_dependencies.py'
-      - 'scripts/katago_macos_dependencies.json'
-      - 'scripts/macos_katago_bundle.py'
-      - 'scripts/package_katago_source_macos.py'
+      - 'scripts/*katago*'
 
 permissions:
   contents: read
