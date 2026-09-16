@@ -57,10 +57,9 @@ class SourceBuildTest(unittest.TestCase):
     def test_macos_deployment_target_does_not_follow_build_host(self):
         for target in ("macos-arm64", "macos-amd64"):
             self.assertIn("-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0", configuration(target, []))
-            self.assertIn("-DCMAKE_EXE_LINKER_FLAGS=-Xlinker -headerpad_max_install_names",
-                          configuration(target, []))
             self.assertIn(
-                f"-DCMAKE_Swift_FLAGS=-target {TARGETS[target][1]}-apple-macosx15.0",
+                f"-DCMAKE_Swift_FLAGS=-target {TARGETS[target][1]}-apple-macosx15.0 "
+                "-Xlinker -headerpad_max_install_names",
                 configuration(target, []),
             )
             with self.assertRaises(ValueError):

@@ -68,8 +68,10 @@ def configuration(target: str, sdk: list[str]) -> list[str]:
         options.append(f"-DCMAKE_OSX_ARCHITECTURES={arch}")
         options.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_MINIMUM_VERSION}")
         # Upstream's Swift linker does not inherit the C++ deployment target.
-        options.append(f"-DCMAKE_Swift_FLAGS=-target {arch}-apple-macosx{MACOS_MINIMUM_VERSION}")
-        options.append("-DCMAKE_EXE_LINKER_FLAGS=-Xlinker -headerpad_max_install_names")
+        options.append(
+            f"-DCMAKE_Swift_FLAGS=-target {arch}-apple-macosx{MACOS_MINIMUM_VERSION} "
+            "-Xlinker -headerpad_max_install_names"
+        )
     if backend == "TENSORRT":
         options.append("-DUSE_CACHE_TENSORRT_PLAN=1")
     for option in sdk:
