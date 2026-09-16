@@ -2848,6 +2848,7 @@ public class Leelaz {
     isNormalEnd = true;
     started = false;
     isLoaded = false;
+    isPondering = false;
     String engineId = null;
     if (ownsTransportClose) {
       try {

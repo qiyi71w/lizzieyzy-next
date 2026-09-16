@@ -192,12 +192,75 @@ jobs:
           path: target/local-ci/portable-desktop
           if-no-files-found: warn
 
+  engine-process:
+    name: Engine process (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-xvfb
+            os: ubuntu-latest
+            profile: portable
+            summary: portable-engine-process
+          - name: windows-native
+            os: windows-latest
+            profile: windows
+            summary: windows-engine-process
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Install Linux display dependencies
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth fonts-dejavu-core fonts-noto-cjk
+      - name: Run Linux engine process verification
+        if: ${{ runner.os == 'Linux' }}
+        timeout-minutes: 10
+        env:
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+        run: xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' python3 scripts/run_local_ci.py --profile ${{ matrix.profile }} --group engine-process --require-clean --summary-dir target/local-ci/${{ matrix.summary }}
+      - name: Run native Windows engine process verification
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        timeout-minutes: 10
+        run: python scripts/run_local_ci.py --profile ${{ matrix.profile }} --group engine-process --require-clean --summary-dir target/local-ci/${{ matrix.summary }}
+      - name: Upload engine process artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: engine-process-${{ matrix.name }}
+          path: target/engine-process-smoke
+          if-no-files-found: warn
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-${{ matrix.summary }}
+          path: target/local-ci/${{ matrix.summary }}
+          if-no-files-found: warn
+
   ci-required:
     if: ${{ always() }}
-    needs: [repository-checks, script-tests, windows-script-tests, java-linux, java-windows, desktop-smoke]
+    needs: [repository-checks, script-tests, windows-script-tests, java-linux, java-windows, desktop-smoke, engine-process]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
       - name: Require all execution jobs
         env:
           REPOSITORY: ${{ needs.repository-checks.result }}
@@ -206,6 +269,22 @@ jobs:
           JAVA_LINUX: ${{ needs.java-linux.result }}
           JAVA_WINDOWS: ${{ needs.java-windows.result }}
           DESKTOP: ${{ needs.desktop-smoke.result }}
+          ENGINE_PROCESS: ${{ needs.engine-process.result }}
         run: |
-          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "windows-script-tests=$WINDOWS_SCRIPTS" "java-linux=$JAVA_LINUX" "java-windows=$JAVA_WINDOWS" "desktop-smoke=$DESKTOP"
-          [[ "$REPOSITORY" == success && "$SCRIPTS" == success && "$WINDOWS_SCRIPTS" == success && "$JAVA_LINUX" == success && "$JAVA_WINDOWS" == success && "$DESKTOP" == success ]]
+          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "windows-script-tests=$WINDOWS_SCRIPTS" "java-linux=$JAVA_LINUX" "java-windows=$JAVA_WINDOWS" "desktop-smoke=$DESKTOP" "engine-process=$ENGINE_PROCESS"
+          python3 - <<'PY'
+          import os
+          from scripts.run_local_ci import require_successful_job_results
+
+          require_successful_job_results(
+              {
+                  "repository-checks": os.environ["REPOSITORY"],
+                  "script-tests": os.environ["SCRIPTS"],
+                  "windows-script-tests": os.environ["WINDOWS_SCRIPTS"],
+                  "java-linux": os.environ["JAVA_LINUX"],
+                  "java-windows": os.environ["JAVA_WINDOWS"],
+                  "desktop-smoke": os.environ["DESKTOP"],
+                  "engine-process": os.environ["ENGINE_PROCESS"],
+              }
+          )
+          PY

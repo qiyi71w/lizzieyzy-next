@@ -1,7 +1,7 @@
 param(
   [ValidateSet('Windows', 'Portable', 'All')]
   [string]$Profile = 'All',
-  [ValidateSet('All', 'Repository', 'Scripts', 'Java', 'Desktop')]
+  [ValidateSet('All', 'Repository', 'Scripts', 'Java', 'Desktop', 'EngineProcess')]
   [string]$Group = 'All',
   [switch]$DryRun,
   [switch]$RequireClean,
@@ -27,7 +27,7 @@ function Test-Java21([string]$JavaHome) {
   return $version -match 'version "21(?:\.|\")'
 }
 
-if ($Group -in @('All', 'Java', 'Desktop') -and -not $DryRun -and -not (Test-Java21 $env:JAVA_HOME)) {
+if ($Group -in @('All', 'Java', 'Desktop', 'EngineProcess') -and -not $DryRun -and -not (Test-Java21 $env:JAVA_HOME)) {
   $jdkCandidates = @(
     Get-ChildItem -Path (Join-Path $repoRoot '.tools\jdk-21*') -Directory -ErrorAction SilentlyContinue
     Get-ChildItem -Path (Join-Path $env:SystemDrive 'jdk21\jdk-21*') -Directory -ErrorAction SilentlyContinue
@@ -52,10 +52,12 @@ if (-not $python) {
   throw 'Python 3 was not found. Set LIZZIE_PYTHON or add python to PATH.'
 }
 
+$runnerGroup = if ($Group -eq 'EngineProcess') { 'engine-process' } else { $Group.ToLowerInvariant() }
+
 $arguments = @(
   (Join-Path $PSScriptRoot 'run_local_ci.py'),
   '--profile', $Profile.ToLowerInvariant(),
-  '--group', $Group.ToLowerInvariant(),
+  '--group', $runnerGroup,
   '--summary-dir', $SummaryDir
 )
 if ($DryRun) { $arguments += '--dry-run' }

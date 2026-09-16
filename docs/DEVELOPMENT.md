@@ -83,8 +83,9 @@ powershell -ExecutionPolicy Bypass -File scripts/run_local_ci.ps1 -Profile All -
 可只查看计划执行的步骤。`LIZZIE_PYTHON`、`LIZZIE_MAVEN`、`LIZZIE_BASH`
 和 `LIZZIE_POWERSHELL` 可用于指定工具路径。
 
-按职责选择 `--group all|repository|scripts|java|desktop`（PowerShell 为 `-Group`），默认
-`all` 保持原完整 headless 调用，不包含 `desktop`。所有组都需要 Python 和 Git，并执行 `git diff --check`；
+按职责选择 `--group all|repository|scripts|java|desktop|engine-process`（PowerShell 为
+`-Group All|Repository|Scripts|Java|Desktop|EngineProcess`），默认 `all` 保持原完整 headless 调用，
+不包含 `desktop` 或 `engine-process`。所有组都需要 Python 和 Git，并执行 `git diff --check`；
 `--require-clean` / `-RequireClean` 保留运行前后的干净工作树检查。
 
 | Group | Portable | Windows | 额外工具 |
@@ -93,6 +94,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_local_ci.ps1 -Profile All -
 | `scripts` | Python 辅助脚本、KataGo shell、Bash 语法 | JCEF、NVIDIA、RTX50 PowerShell 语法、原生 CI 进程监督检查 | Portable 需 Bash；Windows 需 PowerShell 7 |
 | `java` | 原完整 Maven verify | 凭据专项，再执行原完整 Maven verify | Maven、JDK 21；不查找 Bash/PowerShell |
 | `desktop` | 五个生产窗口导航 / 搜索输入 / 引擎进程生命周期测试 | 相同显式测试选择；不代表 Windows 原生 UI 验收 | Maven、JDK 21、可用显示环境；Linux 使用 Xvfb |
+| `engine-process` | 七个真实引擎进程生命周期 / 失败恢复用例 | 相同七个用例的原生 Windows 执行 | Maven、JDK 21、可用显示环境；Linux 使用 Xvfb |
 
 例如仅运行无 Java 的仓库检查：
 
@@ -150,14 +152,36 @@ desktop 的新鲜 XML 单独放在 `target/desktop-smoke/surefire-reports/`；�
 这证明 Linux/Xvfb 中的生产窗口导航和搜索输入链，不替代 Windows DPI/IME/theme、原生
 Windows/macOS 快捷键行为或引擎/GPU 验收。
 
-Actions 的 `ci.yml` 对所有 PR（包括仅文档改动）和 main push 执行六个独立 job：
-`repository-checks`、`script-tests`、`windows-script-tests`、`java-linux`、`java-windows`、`desktop-smoke`。
+`engine-process` 单独执行 `EngineProcessSmokeTest` 的成功生命周期以及
+`EngineProcessFailureTest` 的六个错误、超时、崩溃恢复、切换隔离、双管道排空和拒绝退出场景。
+它不包含 Robot 输入用例，且将 XML 与探针证据分别写入
+`target/engine-process-smoke/surefire-reports/` 和 `target/engine-process-smoke/probes/`，不会消费
+`desktop` 或 headless Java 的报告。七个指定方法必须全部成功；显示缺失、方法缺失、skip、失败或报错均失败。
+Linux 本地运行：
+
+```bash
+LANG=C.UTF-8 LC_ALL=C.UTF-8 xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' bash scripts/run_local_ci.sh --profile portable --group engine-process --summary-dir target/local-ci/portable-engine-process
+```
+
+Windows 必须在带原生桌面会话的 Windows 主机中运行：
+
+```powershell
+pwsh -NoProfile -File scripts/run_local_ci.ps1 -Profile Windows -Group EngineProcess -SummaryDir target/local-ci/windows-engine-process
+```
+
+设置 `java.awt.headless=false` 不会替代可用显示；显示不可用时 runner 必须失败，不能以 skip 通过。
+
+
+Actions 的 `ci.yml` 对所有 PR（包括仅文档改动）和 main push 执行原有六个 job，另有
+`engine-process` 的 Linux/Xvfb 与原生 Windows matrix：`repository-checks`、`script-tests`、
+`windows-script-tests`、`java-linux`、`java-windows`、`desktop-smoke`，以及两个进程 matrix leg。
 Windows 脚本 job 依次运行 `windows/repository` 与 `windows/scripts`，摘要独立上传。
 两平台 Java job 保留全量测试、`LoggingProviderSmokeIT`、shaded JAR 和 JaCoCo；
-验证成功但 coverage artifact 缺失仍失败。各组失败时仍尝试上传本组摘要。
+验证成功但 coverage artifact 缺失仍失败。各组失败时仍尝试上传本组摘要；两个进程 leg 还始终上传
+`target/engine-process-smoke` 下的报告、日志和探针证据。
 
-`ci-required` 是唯一汇总门禁，直接要求六项全部成功，拒绝失败、取消、跳过、缺失或
-未知结果。发布仍仅接受目标 SHA 的完整 `ci.yml` push 成功运行。
+`ci-required` 是唯一汇总门禁，要求原有六项和 `engine-process` matrix 全部成功，拒绝失败、取消、
+跳过、缺失或未知结果。发布仍仅接受目标 SHA 的完整 `ci.yml` push 成功运行。
 
 main 分支保护要求 GitHub Actions 来源的 `ci-required`。回退 workflow 时必须保留
 可运行且真实验证六项执行结果的 `ci-required`；不能直接回退到缺少该检查的版本。
