@@ -16,6 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import javax.swing.JButton;
@@ -189,6 +191,9 @@ public final class FunctionSearchNavigationTest {
     if (!(shown instanceof GameInfoDialog)) {
       throw new AssertionError("game.komi opened " + shown.getClass().getName());
     }
+    if (runOnEdt(shown::getOwner) != Lizzie.frame) {
+      throw new AssertionError("komi dialog must belong to the real main window");
+    }
     String komiName = Lizzie.resourceBundle.getString("GameInfoDialog.komi");
     Component target = runOnEdt(() -> findAccessibleTextField(shown, komiName));
     if (!(target instanceof JTextField field)) {
@@ -227,27 +232,62 @@ public final class FunctionSearchNavigationTest {
     javax.swing.border.Border original = runOnEdt(field::getBorder);
     try {
       runOnEdtAction(deferred::locateKomi);
+      if (runOnEdt(() -> deferred.getFocusTraversalPolicy().getDefaultComponent(deferred))
+          != field) {
+        throw new AssertionError("komi navigation must select the native initial focus target");
+      }
       Thread.sleep(250);
       if (runOnEdt(field::getBorder) != original) {
         throw new AssertionError("komi highlight started before the window could receive focus");
       }
-      SwingUtilities.invokeLater(() -> deferred.setVisible(true));
+      CountDownLatch firstShowReturned = showModal(deferred);
       await(field::isFocusOwner, "deferred komi field focus", 4_000);
       await(() -> field.getBorder() != original, "deferred komi highlight", 4_000);
       if (runOnEdt(() -> Double.parseDouble(field.getText())) != beforeKomi) {
         throw new AssertionError("deferred navigation changed komi");
       }
       runOnEdtAction(() -> deferred.setVisible(false));
-      runOnEdtAction(deferred::locateKomi);
-      runOnEdtAction(() -> deferred.setVisible(false));
-      SwingUtilities.invokeLater(() -> deferred.setVisible(true));
-      await(deferred::isFocused, "cancelled navigation dialog focus", 4_000);
-      Thread.sleep(200);
-      if (runOnEdt(field::getBorder) != original) {
-        throw new AssertionError("cancelled komi navigation was revived on reopen");
+      awaitModalReturn(firstShowReturned);
+      if (runOnEdt(() -> deferred.getFocusTraversalPolicy().getDefaultComponent(deferred))
+          == field) {
+        throw new AssertionError("hidden dialog retained the cancelled initial focus target");
+      }
+      for (int attempt = 0; attempt < 5; attempt++) {
+        runOnEdtAction(deferred::locateKomi);
+        runOnEdtAction(() -> deferred.setVisible(false));
+        CountDownLatch showReturned = showModal(deferred);
+        await(deferred::isFocused, "cancelled navigation dialog focus", 4_000);
+        Thread.sleep(200);
+        if (runOnEdt(field::getBorder) != original) {
+          throw new AssertionError("cancelled komi navigation was revived on reopen");
+        }
+        if (runOnEdt(() -> Double.parseDouble(field.getText())) != beforeKomi) {
+          throw new AssertionError("reopening changed komi");
+        }
+        runOnEdtAction(() -> deferred.setVisible(false));
+        awaitModalReturn(showReturned);
       }
     } finally {
       runOnEdtAction(deferred::dispose);
+    }
+  }
+
+  private static CountDownLatch showModal(JDialog dialog) {
+    CountDownLatch returned = new CountDownLatch(1);
+    SwingUtilities.invokeLater(
+        () -> {
+          try {
+            dialog.setVisible(true);
+          } finally {
+            returned.countDown();
+          }
+        });
+    return returned;
+  }
+
+  private static void awaitModalReturn(CountDownLatch returned) throws InterruptedException {
+    if (!returned.await(4, TimeUnit.SECONDS)) {
+      throw new AssertionError("previous modal show did not return after hiding");
     }
   }
 
@@ -799,7 +839,20 @@ public final class FunctionSearchNavigationTest {
       if (runOnEdt(condition::getAsBoolean)) return;
       Thread.sleep(50);
     }
-    throw new AssertionError("Timed out waiting for " + label);
+    throw new AssertionError(
+        "Timed out waiting for "
+            + label
+            + runOnEdt(
+                () -> {
+                  java.awt.KeyboardFocusManager manager =
+                      java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager();
+                  Component focus = manager.getFocusOwner();
+                  Window focusedWindow = manager.getFocusedWindow();
+                  return "; focus="
+                      + (focus == null ? "none" : focus.getClass().getName())
+                      + "; window="
+                      + (focusedWindow == null ? "none" : focusedWindow.getClass().getName());
+                }));
   }
 
   private static <T> T allocateWithoutConstructor(Class<T> type) throws InstantiationException {

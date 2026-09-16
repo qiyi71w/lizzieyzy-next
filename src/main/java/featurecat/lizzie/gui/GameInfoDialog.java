@@ -28,7 +28,9 @@ public class GameInfoDialog extends JDialog {
   private static final Color TARGET_GOLD = new Color(185, 156, 93);
   private Border komiOriginalBorder;
   private Timer komiHighlightTimer;
+  private Timer komiNavigationTimer;
   private boolean komiNavigationPending;
+  private boolean komiInitialFocus;
 
   static {
     FORMAT_HANDICAP.setMaximumIntegerDigits(1);
@@ -47,7 +49,15 @@ public class GameInfoDialog extends JDialog {
   private GameInfo gameInfo;
 
   public GameInfoDialog() {
+    super(Lizzie.frame);
     initComponents();
+    setFocusTraversalPolicy(
+        new LayoutFocusTraversalPolicy() {
+          @Override
+          public Component getDefaultComponent(Container focusCycleRoot) {
+            return komiInitialFocus ? textFieldKomi : super.getDefaultComponent(focusCycleRoot);
+          }
+        });
     addWindowFocusListener(
         new WindowAdapter() {
           @Override
@@ -170,20 +180,41 @@ public class GameInfoDialog extends JDialog {
   }
 
   void locateKomi() {
+    komiInitialFocus = true;
     komiNavigationPending = true;
     SwingUtilities.invokeLater(this::applyKomiNavigation);
   }
 
   private void applyKomiNavigation() {
-    if (!komiNavigationPending || !isShowing() || !isFocused()) return;
+    if (!komiNavigationPending || !isShowing()) return;
+    if (komiNavigationTimer == null) {
+      int[] attempts = {0};
+      komiNavigationTimer =
+          new Timer(
+              50,
+              event -> {
+                if (++attempts[0] > 40 || !komiNavigationPending || !isShowing()) {
+                  stopKomiNavigationTimer();
+                  return;
+                }
+                applyKomiNavigation();
+              });
+      komiNavigationTimer.start();
+    }
+    if (!isFocused()) return;
     textFieldKomi.requestFocusInWindow();
-    if (!textFieldKomi.isFocusOwner()) textFieldKomi.requestFocus();
     if (textFieldKomi.isFocusOwner()) finishKomiNavigation();
+  }
+
+  private void stopKomiNavigationTimer() {
+    if (komiNavigationTimer != null) komiNavigationTimer.stop();
+    komiNavigationTimer = null;
   }
 
   private void finishKomiNavigation() {
     if (!komiNavigationPending || !isShowing() || !textFieldKomi.isFocusOwner()) return;
     komiNavigationPending = false;
+    stopKomiNavigationTimer();
     clearKomiHighlight();
     komiOriginalBorder = textFieldKomi.getBorder();
     textFieldKomi.setBorder(
@@ -208,6 +239,8 @@ public class GameInfoDialog extends JDialog {
   @Override
   public void dispose() {
     komiNavigationPending = false;
+    komiInitialFocus = false;
+    stopKomiNavigationTimer();
     clearKomiHighlight();
     super.dispose();
   }
@@ -216,6 +249,8 @@ public class GameInfoDialog extends JDialog {
   public void setVisible(boolean visible) {
     if (!visible) {
       komiNavigationPending = false;
+      komiInitialFocus = false;
+      stopKomiNavigationTimer();
       clearKomiHighlight();
     }
     super.setVisible(visible);
