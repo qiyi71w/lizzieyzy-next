@@ -13111,7 +13111,7 @@ public class EngineManager {
       Runnable restartScopedSynchronization =
           engine.withCurrentRestartBootstrapReceipt(synchronization);
       restartScopedAfterSync =
-          afterSync == null ? null : engine.withCurrentRestartBootstrapReceipt(afterSync);
+          afterSync == null ? null : engine.withRestartCompletionBinding(afterSync);
       Runnable restartBootstrapFailure =
           engine.currentRestartBootstrapFailureAction(
               "restart engine did not complete startup and board synchronization");
