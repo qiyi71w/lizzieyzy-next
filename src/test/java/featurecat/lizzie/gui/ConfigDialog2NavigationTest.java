@@ -239,10 +239,27 @@ public final class ConfigDialog2NavigationTest {
   private static TargetObservation showAndObserveThemeFirstLoad() throws Exception {
     AtomicReference<TargetObservation> observation = new AtomicReference<>();
     AtomicReference<Throwable> failure = new AtomicReference<>();
+    AtomicReference<ConfigDialog2> dialogRef = new AtomicReference<>();
+    AtomicReference<Boolean> locatedRef = new AtomicReference<>();
     runOnEdt(
         () -> {
           ConfigDialog2 dialog = new ConfigDialog2();
-          boolean located = dialog.locateSetting(THEME_TARGET);
+          dialogRef.set(dialog);
+          locatedRef.set(dialog.locateSetting(THEME_TARGET));
+        });
+    // Let queued layout/navigation work run while the native dialog is still hidden.
+    Thread.sleep(250);
+    runOnEdt(
+        () -> {
+          JComponent row = targetRow(dialogRef.get(), THEME_TARGET);
+          if (rendersColor(row, HIGHLIGHT_COLOR)) {
+            throw new AssertionError("hidden dialog consumed its navigation highlight");
+          }
+        });
+    runOnEdt(
+        () -> {
+          ConfigDialog2 dialog = dialogRef.get();
+          boolean located = Boolean.TRUE.equals(locatedRef.get());
           long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
           javax.swing.Timer timer =
               new javax.swing.Timer(
