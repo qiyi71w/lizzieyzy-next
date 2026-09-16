@@ -211,6 +211,44 @@ public final class FunctionSearchNavigationTest {
     if (!unchanged) throw new AssertionError("komi navigation changed game or configuration state");
     runOnEdtAction(shown::dispose);
     await(() -> !shown.isShowing(), "komi dialog cleanup", 4_000);
+    checkDeferredKomiNavigation(komiName, beforeKomi);
+  }
+
+  private static void checkDeferredKomiNavigation(String komiName, double beforeKomi)
+      throws Exception {
+    GameInfoDialog deferred =
+        runOnEdt(
+            () -> {
+              GameInfoDialog dialog = new GameInfoDialog();
+              dialog.setGameInfo(Lizzie.board.getHistory().getGameInfo());
+              return dialog;
+            });
+    JTextField field = runOnEdt(() -> (JTextField) findAccessibleTextField(deferred, komiName));
+    javax.swing.border.Border original = runOnEdt(field::getBorder);
+    try {
+      runOnEdtAction(deferred::locateKomi);
+      Thread.sleep(250);
+      if (runOnEdt(field::getBorder) != original) {
+        throw new AssertionError("komi highlight started before the window could receive focus");
+      }
+      SwingUtilities.invokeLater(() -> deferred.setVisible(true));
+      await(field::isFocusOwner, "deferred komi field focus", 4_000);
+      await(() -> field.getBorder() != original, "deferred komi highlight", 4_000);
+      if (runOnEdt(() -> Double.parseDouble(field.getText())) != beforeKomi) {
+        throw new AssertionError("deferred navigation changed komi");
+      }
+      runOnEdtAction(() -> deferred.setVisible(false));
+      runOnEdtAction(deferred::locateKomi);
+      runOnEdtAction(() -> deferred.setVisible(false));
+      SwingUtilities.invokeLater(() -> deferred.setVisible(true));
+      await(deferred::isFocused, "cancelled navigation dialog focus", 4_000);
+      Thread.sleep(200);
+      if (runOnEdt(field::getBorder) != original) {
+        throw new AssertionError("cancelled komi navigation was revived on reopen");
+      }
+    } finally {
+      runOnEdtAction(deferred::dispose);
+    }
   }
 
   private static Component findAccessibleTextField(Component root, String name) {
