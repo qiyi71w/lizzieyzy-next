@@ -591,16 +591,23 @@ public final class FunctionSearchInputTest {
           Lizzie.frame.requestFocus();
         });
     await(Lizzie.frame::isFocused, "production main window focus", UI_TIMEOUT_MILLIS);
-    runOnEdtAction(
-        () -> {
-          if (!Lizzie.frame.mainPanel.requestFocusInWindow()) {
-            Lizzie.frame.mainPanel.requestFocus();
-          }
-        });
-    await(
-        () -> Lizzie.frame.mainPanel.isFocusOwner(),
-        "production main-board focus",
-        UI_TIMEOUT_MILLIS);
+    try {
+      // Native focus restoration after disposing a dialog may arrive after the first request.
+      // This is test setup only; the behavior assertions below do not retry navigation or keys.
+      await(
+          () -> {
+            if (!Lizzie.frame.mainPanel.isFocusOwner() && Lizzie.frame.isFocused()) {
+              if (!Lizzie.frame.mainPanel.requestFocusInWindow()) {
+                Lizzie.frame.mainPanel.requestFocus();
+              }
+            }
+            return Lizzie.frame.mainPanel.isFocusOwner();
+          },
+          "production main-board focus",
+          UI_TIMEOUT_MILLIS);
+    } catch (AssertionError failure) {
+      throw new AssertionError(failure.getMessage() + ": " + focusDescription(), failure);
+    }
   }
 
   private static void click(Robot robot, Component component) throws Exception {
