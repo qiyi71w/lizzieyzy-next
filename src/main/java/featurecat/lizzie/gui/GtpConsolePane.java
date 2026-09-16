@@ -25,8 +25,6 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.ResourceBundle;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JDialog;
@@ -49,7 +47,7 @@ public class GtpConsolePane extends JDialog {
   public JButton send;
   private JFontLabel lblCommand = new JFontLabel();
   private JPanel pnlCommand = new JPanel();
-  private ScheduledExecutorService executor;
+  private GtpConsoleUpdatePump updatePump;
   // private int checkCount = 0;
   private Font gtpFont;
   private GtpConsoleBuffer consoleBuffer;
@@ -179,8 +177,21 @@ public class GtpConsolePane extends JDialog {
             Lizzie.frame.toggleGtpConsole();
           }
         });
-    executor = Executors.newSingleThreadScheduledExecutor();
-    executor.execute(this::read);
+    updatePump =
+        new GtpConsoleUpdatePump(
+            consoleBuffer,
+            doc -> {
+              addDocs(doc);
+              checkConsole();
+            },
+            this::refreshLoadingComment);
+    updatePump.start();
+  }
+
+  @Override
+  public void dispose() {
+    if (updatePump != null) updatePump.close();
+    super.dispose();
   }
 
   public void openCommands() {
@@ -239,30 +250,19 @@ public class GtpConsolePane extends JDialog {
     }
   }
 
-  private void read() {
-    while (true) {
-      try {
-        Thread.sleep(100);
-      } catch (InterruptedException e1) {
-        e1.printStackTrace();
-      }
-      DocType doc;
-      while ((doc = consoleBuffer().poll()) != null) {
-        addDocs(doc);
-        checkConsole();
-      }
-      EngineGameSnapshot snapshot = EngineGamePresentation.current();
-      Leelaz blackEngine = EngineGamePresentation.blackEngine(snapshot);
-      Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
-      if ((Lizzie.leelaz != null && !Lizzie.leelaz.isLoaded())
-          || (snapshot.starting()
-              && (whiteEngine == null
-                  || !whiteEngine.isLoaded()
-                  || blackEngine == null
-                  || !blackEngine.isLoaded()))) {
-        Lizzie.frame.setCommentEditable(false);
-        Lizzie.frame.appendComment();
-      }
+  private void refreshLoadingComment() {
+    EngineGameSnapshot snapshot = EngineGamePresentation.current();
+    Leelaz blackEngine = EngineGamePresentation.blackEngine(snapshot);
+    Leelaz whiteEngine = EngineGamePresentation.whiteEngine(snapshot);
+    if (Lizzie.frame != null
+        && ((Lizzie.leelaz != null && !Lizzie.leelaz.isLoaded())
+            || (snapshot.starting()
+                && (whiteEngine == null
+                    || !whiteEngine.isLoaded()
+                    || blackEngine == null
+                    || !blackEngine.isLoaded())))) {
+      Lizzie.frame.setCommentEditable(false);
+      Lizzie.frame.appendComment();
     }
   }
 
