@@ -376,27 +376,32 @@ public final class ConfigDialog2NavigationTest {
     runOnEdt(
         () -> {
           beforeShow.run();
+          long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
           javax.swing.Timer timer =
               new javax.swing.Timer(
-                  350,
+                  50,
                   event -> {
                     try {
                       JCheckBox control = blackWinrateControl(dialog);
                       JComponent row = targetRow(dialog);
+                      boolean visible = fullyVisible(dialog, row);
+                      boolean focused =
+                          KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()
+                              == control;
+                      // Native focus arrives asynchronously, not at a fixed paint delay.
+                      if ((!visible || !focused) && System.nanoTime() < deadline) return;
                       observation.set(
                           new ModalObservation(
                               control,
-                              fullyVisible(dialog, row),
-                              KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()
-                                  == control,
+                              visible,
+                              focused,
                               Lizzie.config.winrateAlwaysBlack));
                     } catch (Throwable error) {
                       failure.set(error);
-                    } finally {
-                      dialog.setVisible(false);
                     }
+                    ((javax.swing.Timer) event.getSource()).stop();
+                    dialog.setVisible(false);
                   });
-          timer.setRepeats(false);
           timer.start();
           dialog.setVisible(true);
         });
