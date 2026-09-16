@@ -47,6 +47,7 @@ public class GameInfoDialog extends JDialog {
   private GameInfo gameInfo;
 
   public GameInfoDialog() {
+    super(Lizzie.frame);
     initComponents();
     addWindowFocusListener(
         new WindowAdapter() {
