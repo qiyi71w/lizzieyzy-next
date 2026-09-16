@@ -32,7 +32,7 @@ class MacosSdkTest(unittest.TestCase):
         self.assertNotIn("CPATH", env)
         self.assertNotIn("LDFLAGS", env)
         self.assertNotIn("PKG_CONFIG_PATH", env)
-        self.assertEqual("/isolated/lib/pkgconfig", env["PKG_CONFIG_LIBDIR"])
+        self.assertEqual(str(Path("/isolated/lib/pkgconfig")), env["PKG_CONFIG_LIBDIR"])
         self.assertEqual("15.0", env["MACOSX_DEPLOYMENT_TARGET"])
 
     def test_sdk_configuration_locks_arch_and_os(self):
