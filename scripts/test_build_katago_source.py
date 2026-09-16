@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from build_katago_source import (
     SOURCE_COMMIT, TARGETS, build, check_host, check_release_receipts, check_source, configuration,
-    file_record,
+    file_record, macos_minimum_version,
 )
 
 
@@ -53,6 +53,23 @@ class SourceBuildTest(unittest.TestCase):
         for setting in ("NO_GIT_REVISION=1", "USE_BACKEND=DUMMY", "CMAKE_BUILD_TYPE=Debug"):
             with self.subTest(setting=setting), self.assertRaises(ValueError):
                 configuration("windows-cpu", [setting])
+
+    def test_macos_deployment_target_does_not_follow_build_host(self):
+        for target in ("macos-arm64", "macos-amd64"):
+            self.assertIn("-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0", configuration(target, []))
+            self.assertIn(
+                f"-DCMAKE_Swift_FLAGS=-target {TARGETS[target][1]}-apple-macosx15.0",
+                configuration(target, []),
+            )
+            with self.assertRaises(ValueError):
+                configuration(target, ["CMAKE_OSX_DEPLOYMENT_TARGET=26.0"])
+        self.assertEqual("15.0", macos_minimum_version("    minos 15.0\n      sdk 26.5\n"))
+
+    def test_macos_actual_load_commands_must_keep_compatibility(self):
+        for value in ("minos 26.0\n", "minos 15.1\n", "sdk 26.5\n",
+                      "minos 15.0\nminos 15.0\n"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                macos_minimum_version(value)
 
     def test_sdk_values_are_separate_arguments(self):
         value = "CMAKE_PREFIX_PATH=C:/Chinese path/sdk"

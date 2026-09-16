@@ -33,6 +33,7 @@ TARGETS = {
     "macos-amd64": ("Darwin", "x86_64", "METAL", False),
 }
 ARCH_ALIASES = {"amd64": "x86_64", "aarch64": "arm64"}
+MACOS_MINIMUM_VERSION = "15.0"
 SDK_CACHE_KEYS = {
     "CMAKE_PREFIX_PATH", "CMAKE_TOOLCHAIN_FILE", "CUDAToolkit_ROOT", "CUDA_TOOLKIT_ROOT_DIR",
     "CUDNN_INCLUDE_DIR", "CUDNN_LIBRARY", "TENSORRT_INCLUDE_DIR", "TENSORRT_LIBRARY",
@@ -63,6 +64,9 @@ def configuration(target: str, sdk: list[str]) -> list[str]:
     ]
     if system == "Darwin":
         options.append(f"-DCMAKE_OSX_ARCHITECTURES={arch}")
+        options.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_MINIMUM_VERSION}")
+        # Upstream's Swift linker does not inherit the C++ deployment target.
+        options.append(f"-DCMAKE_Swift_FLAGS=-target {arch}-apple-macosx{MACOS_MINIMUM_VERSION}")
     if backend == "TENSORRT":
         options.append("-DUSE_CACHE_TENSORRT_PLAN=1")
     for option in sdk:
@@ -85,6 +89,18 @@ def file_record(path: Path, root: Path) -> dict:
     with path.open("rb") as handle:
         digest = hashlib.file_digest(handle, "sha256").hexdigest()
     return {"file": str(path.relative_to(root)), "sizeBytes": path.stat().st_size, "sha256": digest}
+
+
+def macos_minimum_version(load_commands: str) -> str:
+    matches = re.findall(r"(?m)^\s*minos\s+(\d+(?:\.\d+){0,2})\s*$", load_commands)
+    if len(matches) != 1:
+        raise ValueError("missing or ambiguous macOS minimum-version load command")
+    actual = tuple(int(part) for part in matches[0].split("."))
+    actual += (0,) * (3 - len(actual))
+    maximum = tuple(int(part) for part in MACOS_MINIMUM_VERSION.split(".")) + (0,)
+    if actual > maximum:
+        raise ValueError(f"binary raises minimum macOS version to {matches[0]}")
+    return matches[0]
 
 
 def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int) -> dict:
@@ -119,6 +135,10 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int) ->
                 subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
         check_source(source)
         binary = output / ("katago.exe" if os.name == "nt" else "katago")
+        if TARGETS[target][0] == "Darwin":
+            result["macOSMinimumVersion"] = macos_minimum_version(
+                checked("otool", "-l", str(binary))
+            )
         version = subprocess.run(
             [str(binary), "version"], check=True, capture_output=True, text=True, timeout=30
         ).stdout

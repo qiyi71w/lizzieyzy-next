@@ -9,7 +9,12 @@ The production package builders and stable/R2 channels are unchanged until all r
 - Merged commit: `47aadc08518b3e121f22539796c911002f699584`
 - Upstream change: <https://github.com/lightvector/KataGo/pull/1252>
 - This source reports **KataGo v1.18.2**. Preserve its real version output; a version string alone
-  cannot identify focus support.
+cannot identify focus support.
+
+Both macOS targets explicitly use deployment target `15.0`, matching the current release's
+Mach-O load command. The builder checks the actual executable, rather than relying on the CMake
+argument. Building on macOS 26 must not silently raise the release's minimum system version.
+Packaged dependencies still need a separate deployment-target audit and pinned SDK build.
 
 The builder rejects dirty or different source checkouts, implicit dependency auto-fetching,
 cross-host claims and reused output directories. It records the real compiler, CMake options,
