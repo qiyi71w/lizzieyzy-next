@@ -232,6 +232,10 @@ public final class FunctionSearchNavigationTest {
     javax.swing.border.Border original = runOnEdt(field::getBorder);
     try {
       runOnEdtAction(deferred::locateKomi);
+      if (runOnEdt(() -> deferred.getFocusTraversalPolicy().getDefaultComponent(deferred))
+          != field) {
+        throw new AssertionError("komi navigation must select the native initial focus target");
+      }
       Thread.sleep(250);
       if (runOnEdt(field::getBorder) != original) {
         throw new AssertionError("komi highlight started before the window could receive focus");
@@ -244,6 +248,10 @@ public final class FunctionSearchNavigationTest {
       }
       runOnEdtAction(() -> deferred.setVisible(false));
       awaitModalReturn(firstShowReturned);
+      if (runOnEdt(() -> deferred.getFocusTraversalPolicy().getDefaultComponent(deferred))
+          == field) {
+        throw new AssertionError("hidden dialog retained the cancelled initial focus target");
+      }
       for (int attempt = 0; attempt < 5; attempt++) {
         runOnEdtAction(deferred::locateKomi);
         runOnEdtAction(() -> deferred.setVisible(false));
@@ -831,7 +839,20 @@ public final class FunctionSearchNavigationTest {
       if (runOnEdt(condition::getAsBoolean)) return;
       Thread.sleep(50);
     }
-    throw new AssertionError("Timed out waiting for " + label);
+    throw new AssertionError(
+        "Timed out waiting for "
+            + label
+            + runOnEdt(
+                () -> {
+                  java.awt.KeyboardFocusManager manager =
+                      java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager();
+                  Component focus = manager.getFocusOwner();
+                  Window focusedWindow = manager.getFocusedWindow();
+                  return "; focus="
+                      + (focus == null ? "none" : focus.getClass().getName())
+                      + "; window="
+                      + (focusedWindow == null ? "none" : focusedWindow.getClass().getName());
+                }));
   }
 
   private static <T> T allocateWithoutConstructor(Class<T> type) throws InstantiationException {
