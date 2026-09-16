@@ -130,6 +130,8 @@ class GtpProbe:
 
 
 def probe(executable: Path, model: Path, evidence: Path, timeout: float = 120) -> dict:
+    if not 1 <= timeout <= 600:
+        raise ValueError("timeout must be between 1 and 600 seconds")
     executable, model, evidence = executable.resolve(), model.resolve(), evidence.resolve()
     if not executable.is_file() or not model.is_file():
         raise ValueError("explicit executable and model files are required")
@@ -137,9 +139,17 @@ def probe(executable: Path, model: Path, evidence: Path, timeout: float = 120) -
     result = {"status": "FAIL", "sourceCommit": SOURCE_COMMIT, "steps": []}
     session = None
     try:
-        version = subprocess.run(
-            [str(executable), "version"], check=True, capture_output=True, text=True, timeout=30
-        ).stdout
+        # A first macOS launch can wait for OS security scanning before main().
+        # Use the explicit operation deadline, with no retries or failure reclassification.
+        version_started = time.monotonic()
+        try:
+            version = subprocess.run(
+                [str(executable), "version"], check=True, capture_output=True, text=True,
+                timeout=timeout,
+            ).stdout
+        finally:
+            result["versionCheckSeconds"] = time.monotonic() - version_started
+            result["operationTimeoutSeconds"] = timeout
         if f"Git revision: {SOURCE_COMMIT}" not in version:
             raise ValueError("binary does not report the pinned upstream source commit")
         result.update(version=version, executableSha256=sha256(executable), modelSha256=sha256(model))

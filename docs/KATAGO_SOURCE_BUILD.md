@@ -85,6 +85,13 @@ Focused points use equal weights and probability `0.5`. Candidate visit totals a
 for root visits. Evidence directories cannot be overwritten. Rejection, exit, timeout and a reset
 search tree fail the probe; none are reclassified as unsupported hardware.
 
+`--timeout` bounds each version/GTP operation (default 120 seconds, allowed 1-600), with no
+automatic retries. Evidence records the version-check elapsed time, including OS startup security
+scanning. Downloaded ad-hoc-signed CI artifacts can incur a macOS first-launch scan; they are not
+the final Developer ID signed/notarized application. Preserve any failed attempt and use a new
+evidence directory for retests. A warm successful run does not replace final-package cold-start
+acceptance.
+
 ## Required package matrix
 
 | Platform | Backends |

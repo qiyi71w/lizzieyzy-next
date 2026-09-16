@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import io
+import json
 from pathlib import Path
 import queue
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -79,6 +81,29 @@ class FocusProbeTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "source commit"):
                     probe(engine, model, path / "evidence")
             self.assertIn('"status": "FAIL"', (path / "evidence/result.json").read_text())
+
+    def test_version_check_uses_explicit_deadline_without_retrying_timeout(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            engine, model = path / "engine", path / "model"
+            engine.write_bytes(b"engine")
+            model.write_bytes(b"model")
+            with patch("probe_katago_focus.subprocess.run") as command:
+                command.side_effect = subprocess.TimeoutExpired("version", 87)
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    probe(engine, model, path / "evidence", timeout=87)
+                self.assertEqual(1, command.call_count)
+                self.assertEqual(87, command.call_args.kwargs["timeout"])
+            result = json.loads((path / "evidence/result.json").read_text())
+            self.assertEqual("FAIL", result["status"])
+            self.assertEqual([], result["steps"])
+            self.assertEqual(87, result["operationTimeoutSeconds"])
+            self.assertGreaterEqual(result["versionCheckSeconds"], 0)
+
+    def test_invalid_deadline_cannot_disable_timeouts(self):
+        for timeout in (0, -1, 601, float("nan"), float("inf")):
+            with self.assertRaisesRegex(ValueError, "timeout"):
+                probe(Path("unused-engine"), Path("unused-model"), Path("unused-evidence"), timeout)
 
     def test_digest_is_of_actual_bytes(self):
         with tempfile.TemporaryDirectory() as root:
