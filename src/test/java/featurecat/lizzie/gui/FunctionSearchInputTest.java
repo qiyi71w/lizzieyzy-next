@@ -58,6 +58,7 @@ public final class FunctionSearchInputTest {
           "shortcut.query-arrows-enter",
           "shortcut.target-focus-unchanged",
           "cancel.focus-unchanged",
+          "reopen.focus-retained",
           "text.shortcut-owned",
           "modal.shortcut-refused",
           "board.unchanged");
@@ -231,7 +232,8 @@ public final class FunctionSearchInputTest {
     exerciseTextOwnership(robot, evidence);
     exerciseModalOwnership(robot, evidence);
     DesktopProbeProcess.phase(evidence.path(), "cancellation");
-    exerciseCancellation(robot, evidence);
+    for (int repeat = 0; repeat < 3; repeat++) exerciseCancellation(robot, evidence);
+    exerciseImmediateReopen(robot, evidence);
 
     boolean boardUnchanged = boardNode == currentBoardNode() && boardConfig.equals(currentConfig());
     evidence.put("board.unchanged", Boolean.toString(boardUnchanged));
@@ -347,6 +349,36 @@ public final class FunctionSearchInputTest {
             && configBefore.equals(currentConfig());
     evidence.put("cancel.focus-unchanged", Boolean.toString(unchanged));
     if (!unchanged) throw new AssertionError("Escape cancellation changed observable state");
+  }
+
+  private static void exerciseImmediateReopen(Robot robot, Evidence evidence) throws Exception {
+    focusMainPanel();
+    SwingUtilities.invokeLater(Lizzie.frame::openFunctionSearch);
+    FunctionSearchDialog first = awaitSearch("first search before immediate reopen");
+    await(searchInput(first)::isFocusOwner, "first search focus", UI_TIMEOUT_MILLIS);
+    SwingUtilities.invokeLater(
+        () -> {
+          first.dispose();
+          Lizzie.frame.openFunctionSearch();
+        });
+    await(
+        () -> findShowingSearchDialog() != null && findShowingSearchDialog() != first,
+        "replacement search dialog",
+        UI_TIMEOUT_MILLIS);
+    FunctionSearchDialog second = awaitSearch("replacement search");
+    JTextField input = searchInput(second);
+    await(input::isFocusOwner, "replacement search focus", UI_TIMEOUT_MILLIS);
+    Thread.sleep(250);
+    if (!runOnEdt(input::isFocusOwner)) {
+      throw new AssertionError("stale cancellation stole replacement search focus");
+    }
+    press(robot, KeyEvent.VK_ESCAPE);
+    await(() -> !second.isShowing(), "replacement search cleanup", UI_TIMEOUT_MILLIS);
+    await(
+        () -> Lizzie.frame.mainPanel.isFocusOwner(),
+        "replacement search board focus restoration",
+        UI_TIMEOUT_MILLIS);
+    evidence.put("reopen.focus-retained", "true");
   }
 
   private static void exerciseTextOwnership(Robot robot, Evidence evidence) throws Exception {

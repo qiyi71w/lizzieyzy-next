@@ -29,6 +29,8 @@ final class FunctionSearchController implements KeyEventDispatcher {
   private javax.swing.JComponent highlightedTarget;
   private javax.swing.border.Border originalTargetBorder;
   private javax.swing.Timer highlightTimer;
+  private javax.swing.Timer focusRestoreTimer;
+  private long focusRestoreGeneration;
 
   FunctionSearchController(LizzieFrame owner) {
     this.owner = owner;
@@ -38,6 +40,7 @@ final class FunctionSearchController implements KeyEventDispatcher {
           @Override
           public void windowClosed(WindowEvent event) {
             openQueued = false;
+            cancelFocusRestore();
             clearHighlight();
             if (dialog != null) dialog.dispose();
             swallowedKeys.clear();
@@ -48,6 +51,8 @@ final class FunctionSearchController implements KeyEventDispatcher {
   }
 
   void open() {
+    cancelFocusRestore();
+    long focusGeneration = focusRestoreGeneration;
     if (!owner.isDisplayable()) return;
     if (dialog != null && dialog.isShowing()) {
       dialog.toFront();
@@ -74,27 +79,59 @@ final class FunctionSearchController implements KeyEventDispatcher {
             Lizzie.resourceBundle.getString("FunctionSearch.title"),
             javax.swing.JOptionPane.INFORMATION_MESSAGE);
     } else if (owner.isDisplayable()) {
-      Window focusAnchor = anchor;
-      SwingUtilities.invokeLater(() -> restoreFocus(previousFocus, focusAnchor));
+      restoreFocus(previousFocus, anchor, focusGeneration);
     }
   }
 
-  private void restoreFocus(Component previousFocus, Window anchor) {
-    if (!owner.isDisplayable()) return;
+  private void restoreFocus(Component previousFocus, Window anchor, long generation) {
+    if (!owner.isDisplayable() || generation != focusRestoreGeneration) return;
     Window targetWindow = anchor != null && anchor.isShowing() ? anchor : owner;
+    Component target =
+        previousFocus != null
+                && !(previousFocus instanceof Window)
+                && previousFocus.isShowing()
+                && previousFocus.isFocusable()
+                && SwingUtilities.getWindowAncestor(previousFocus) == targetWindow
+            ? previousFocus
+            : targetWindow == owner ? owner.mainPanel : targetWindow;
     targetWindow.toFront();
     targetWindow.requestFocus();
-    SwingUtilities.invokeLater(
-        () -> {
-          if (!owner.isDisplayable()) return;
-          if (previousFocus != null && previousFocus.isShowing() && previousFocus.isFocusable()) {
-            previousFocus.requestFocusInWindow();
-          } else if (anchor != null && anchor.isShowing() && anchor != owner) {
-            anchor.requestFocus();
-          } else {
-            owner.mainPanel.requestFocusInWindow();
-          }
-        });
+    int[] attempts = {0};
+    focusRestoreTimer =
+        new javax.swing.Timer(
+            50,
+            event -> {
+              javax.swing.Timer timer = (javax.swing.Timer) event.getSource();
+              if (generation != focusRestoreGeneration) {
+                timer.stop();
+                return;
+              }
+              if (++attempts[0] > 40
+                  || !owner.isDisplayable()
+                  || !target.isShowing()
+                  || (dialog != null && dialog.isShowing())
+                  || hasOtherModal()
+                  || target.isFocusOwner()) {
+                cancelFocusRestore();
+                return;
+              }
+              if (!targetWindow.isFocused()) return;
+              Component current =
+                  KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+              // Do not take focus back after the user has already selected another control.
+              if (current != null && !(current instanceof Window) && current.isShowing()) {
+                cancelFocusRestore();
+                return;
+              }
+              target.requestFocusInWindow();
+            });
+    focusRestoreTimer.start();
+  }
+
+  private void cancelFocusRestore() {
+    focusRestoreGeneration++;
+    if (focusRestoreTimer != null) focusRestoreTimer.stop();
+    focusRestoreTimer = null;
   }
 
   String unavailableReason(String id) {
@@ -137,8 +174,10 @@ final class FunctionSearchController implements KeyEventDispatcher {
           Lizzie.config.trackingPointTextAutoColor
               ? "FunctionSearch.dependency.trackingTextColor"
               : null;
-      case "config.theme.background-image", "config.theme.board-image",
-          "config.theme.black-stone-image", "config.theme.white-stone-image" ->
+      case "config.theme.background-image",
+          "config.theme.board-image",
+          "config.theme.black-stone-image",
+          "config.theme.white-stone-image" ->
           "FunctionSearch.dependency.themeImage";
       default -> null;
     };
@@ -152,6 +191,7 @@ final class FunctionSearchController implements KeyEventDispatcher {
     if (!SwingUtilities.isEventDispatchThread()) {
       throw new IllegalStateException("Function navigation requires the EDT");
     }
+    cancelFocusRestore();
     String reason = unavailableReason(id);
     clearHighlight();
     if (reason != null) return reason;
@@ -160,8 +200,7 @@ final class FunctionSearchController implements KeyEventDispatcher {
       return navigateBoard(entry, sourceBoard);
     }
     if (FunctionCatalog.configSettingTarget(id) != null) {
-      if (!owner.openConfigDialog2AtSetting(id))
-        return "FunctionSearch.unavailable.targetMissing";
+      if (!owner.openConfigDialog2AtSetting(id)) return "FunctionSearch.unavailable.targetMissing";
       return null;
     }
     switch (id) {
@@ -273,6 +312,9 @@ final class FunctionSearchController implements KeyEventDispatcher {
 
   @Override
   public boolean dispatchKeyEvent(KeyEvent event) {
+    if (event.getID() == KeyEvent.KEY_PRESSED && (dialog == null || !dialog.isShowing())) {
+      cancelFocusRestore();
+    }
     int key = event.getKeyCode();
     if (event.getID() == KeyEvent.KEY_RELEASED && swallowedKeys.remove(key)) {
       // Let an open search finish its own Enter handling, but never deliver this release
