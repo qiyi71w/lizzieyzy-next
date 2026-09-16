@@ -4263,6 +4263,44 @@ public class Leelaz {
     return () -> runWithRestartBootstrapReceipt(receipt, action);
   }
 
+  Runnable withRestartCompletionBinding(Runnable action) {
+    RestartBootstrapReceipt receipt = currentRestartBootstrapReceipt();
+    if (receipt == null) {
+      return action;
+    }
+    return () -> {
+      boolean canHandOff;
+      synchronized (engineArbitrationLock()) {
+        synchronized (commandQueue()) {
+          canHandOff =
+              receipt.completionReleased
+                  && restartBootstrapAttemptIds.get() == receipt.restartAttempt
+                  && readerStreamBinding == receipt.binding
+                  && !receipt.binding.terminated
+                  && outputStream == receipt.output;
+        }
+      }
+      if (!canHandOff) {
+        // Failure cleanup still runs, under the original (possibly retired) authority.
+        runWithRestartBootstrapReceipt(receipt, action);
+        return;
+      }
+      // The bootstrap authority is retired, but completion must remain bound to its process.
+      // Carry the binding through enqueue and physical write instead of trusting a pre-check.
+      ReaderStreamBinding previous = positionRestoreBindingContext.get();
+      positionRestoreBindingContext.set(receipt.binding);
+      try {
+        runWithRestartBootstrapReceipt(null, action);
+      } finally {
+        if (previous == null) {
+          positionRestoreBindingContext.remove();
+        } else {
+          positionRestoreBindingContext.set(previous);
+        }
+      }
+    };
+  }
+
   Runnable currentRestartBootstrapFailureAction(String detail) {
     RestartBootstrapReceipt receipt = currentRestartBootstrapReceipt();
     return () -> failRestartBootstrapReceipt(receipt, detail);
@@ -4304,6 +4342,19 @@ public class Leelaz {
         && !receipt.binding.terminated
         && receipt.incarnation == receipt.binding.incarnation
         && outputStream == receipt.output;
+  }
+
+  private boolean isCurrentRestartBootstrapResponseLocked(RestartBootstrapReceipt receipt) {
+    // A clean handoff retires write authority, not acknowledgements for bytes already sent.
+    return isCurrentRestartBootstrapReceiptLocked(receipt)
+        || (receipt != null
+            && receipt.engine == this
+            && receipt.completionReleased
+            && !exclusiveGtpLifecycleTransition
+            && restartBootstrapAttemptIds.get() == receipt.restartAttempt
+            && readerStreamBinding == receipt.binding
+            && !receipt.binding.terminated
+            && outputStream == receipt.output);
   }
 
   private void failRestartBootstrapReceipt(RestartBootstrapReceipt receipt, String detail) {
@@ -4865,6 +4916,7 @@ public class Leelaz {
     private final ReaderStreamBinding binding;
     private final long incarnation;
     private final BufferedOutputStream output;
+    private boolean completionReleased;
 
     private RestartBootstrapReceipt(
         Leelaz engine,
@@ -14159,7 +14211,7 @@ public class Leelaz {
           boolean staleBootstrapResponse =
               receipt != null
                   && (responseBinding != receipt.binding
-                      || !isCurrentRestartBootstrapReceiptLocked(receipt));
+                      || !isCurrentRestartBootstrapResponseLocked(receipt));
           EngineManager.EngineGameOwnerTransaction startupTransaction =
               matchedPendingHandler == null
                   ? null
@@ -15157,6 +15209,7 @@ public class Leelaz {
           exclusiveGtpLifecycleOwner = null;
           exclusiveGtpLifecycleDepth = 0;
           if (restartBootstrapReceipt != null) {
+            restartBootstrapReceipt.completionReleased = true;
             restartBootstrapReceipt.binding.restartBootstrapReceipt = null;
           }
           restartBootstrapReceipt = null;

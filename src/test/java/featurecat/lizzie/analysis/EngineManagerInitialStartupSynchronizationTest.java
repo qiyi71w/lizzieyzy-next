@@ -5486,6 +5486,268 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   @Test
+  void restartFinalConfirmationUsesReleasedLifecycleAuthorityNotRetiredBootstrapReceipt()
+      throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      Leelaz engine = new Leelaz("");
+      ExactSnapshotRestoreProtocolFixture.Transport transport =
+          ExactSnapshotRestoreProtocolFixture.install(engine, command -> null);
+      installRestartBootstrapBinding(engine, transport);
+      env.publish(engine, boardWithHistory(emptyRootHistory(0)));
+      engine.started = true;
+      engine.isLoaded = true;
+      Object owner = getLeelazField(engine, "exclusiveGtpLifecycleOwner");
+      Method release =
+          Leelaz.class.getDeclaredMethod("endExclusiveGtpLifecycleTransition", Object.class);
+      release.setAccessible(true);
+      AtomicBoolean confirmed = new AtomicBoolean();
+      AtomicReference<String> failure = new AtomicReference<>();
+      AtomicReference<String> staleFailure = new AtomicReference<>();
+      Runnable staleConfirmation =
+          engine.withCurrentRestartBootstrapReceipt(
+              () ->
+                  engine.confirmBoardSynchronization(
+                      () -> {
+                        throw new AssertionError("a retired bootstrap callback must not confirm");
+                      },
+                      staleFailure::set));
+      ProductionEntryEngineManager manager = new ProductionEntryEngineManager(List.of(engine));
+      Lizzie.engineManager = manager;
+
+      manager.synchronizeEngineWhenReady(
+          engine,
+          () -> {
+            engine.sendCommand("komi 7.5");
+            try {
+              release.invoke(engine, owner);
+            } catch (ReflectiveOperationException error) {
+              throw new IllegalStateException(error);
+            }
+          },
+          () -> engine.confirmBoardSynchronization(() -> confirmed.set(true), failure::set));
+
+      assertTrue(manager.firstSynchronizationCompleted.await(5, TimeUnit.SECONDS));
+      assertNull(failure.get(), "final confirmation must not reinstall the retired receipt");
+      assertFalse(confirmed.get(), "a physical write alone does not confirm synchronization");
+      assertEquals(2, transport.rawCommands().size());
+      String positionCommand = transport.rawCommands().get(0);
+      String command = transport.rawCommands().get(1);
+      assertTrue(command.matches("[0-9]+ name"), command);
+      engine.processCommandResponseLineForTest("=" + command.substring(0, command.indexOf(' ')));
+      assertFalse(confirmed.get(), "the final fence cannot skip a delayed position response");
+      engine.processCommandResponseLineForTest(
+          "=" + positionCommand.substring(0, positionCommand.indexOf(' ')));
+      assertTrue(confirmed.get(), "the matching numbered response must finish the confirmation");
+
+      staleConfirmation.run();
+      assertNotNull(staleFailure.get());
+      assertEquals(2, transport.rawCommands().size(), "retired receipts authorize no new bytes");
+    }
+  }
+
+  @Test
+  void restartCompletionRetainsCleanupButCannotWriteAfterRebinding() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      Leelaz engine = new Leelaz("");
+      ByteArrayOutputStream original = new ByteArrayOutputStream();
+      installRestartBootstrapBinding(engine, original);
+      env.publish(engine, boardWithHistory(emptyRootHistory(0)));
+      engine.started = true;
+      engine.isLoaded = true;
+      AtomicBoolean cleanup = new AtomicBoolean();
+      AtomicReference<String> failure = new AtomicReference<>();
+      Runnable completion =
+          engine.withRestartCompletionBinding(
+              () -> {
+                cleanup.set(true);
+                engine.confirmBoardSynchronization(
+                    () -> {
+                      throw new AssertionError("no response has been received");
+                    },
+                    failure::set);
+              });
+
+      Object owner = getLeelazField(engine, "exclusiveGtpLifecycleOwner");
+      Method release =
+          Leelaz.class.getDeclaredMethod("endExclusiveGtpLifecycleTransition", Object.class);
+      release.setAccessible(true);
+      release.invoke(engine, owner);
+      engine.installFreshCommandOutputForTest(new ByteArrayOutputStream());
+
+      completion.run();
+      assertTrue(cleanup.get(), "stale completion still needs to run owner cleanup");
+      assertNotNull(failure.get());
+      assertEquals(0, original.size());
+    }
+  }
+
+  @Test
+  void restartCompletionCarriesBindingThroughConcurrentReplacement() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      Leelaz engine = new Leelaz("");
+      ByteArrayOutputStream original = new ByteArrayOutputStream();
+      ByteArrayOutputStream replacement = new ByteArrayOutputStream();
+      installRestartBootstrapBinding(engine, original);
+      env.publish(engine, boardWithHistory(emptyRootHistory(0)));
+      engine.started = true;
+      engine.isLoaded = true;
+      AtomicReference<String> failure = new AtomicReference<>();
+      Runnable completion =
+          engine.withRestartCompletionBinding(
+              () -> {
+                engine.installFreshCommandOutputForTest(replacement);
+                engine.confirmBoardSynchronization(
+                    () -> {
+                      throw new AssertionError("replacement must not complete the old restart");
+                    },
+                    failure::set);
+              });
+      Object owner = getLeelazField(engine, "exclusiveGtpLifecycleOwner");
+      Method release =
+          Leelaz.class.getDeclaredMethod("endExclusiveGtpLifecycleTransition", Object.class);
+      release.setAccessible(true);
+      release.invoke(engine, owner);
+
+      completion.run();
+
+      assertNotNull(failure.get());
+      assertEquals(0, original.size());
+      assertEquals(0, replacement.size(), "a completion pre-check is not write authority");
+    }
+  }
+
+  @Test
+  void failedRestartCannotHandOffCompletionAuthority() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      Leelaz engine = new Leelaz("");
+      ByteArrayOutputStream output = new ByteArrayOutputStream();
+      installRestartBootstrapBinding(engine, output);
+      env.publish(engine, boardWithHistory(emptyRootHistory(0)));
+      AtomicBoolean cleanup = new AtomicBoolean();
+      AtomicReference<String> failure = new AtomicReference<>();
+      Runnable completion =
+          engine.withRestartCompletionBinding(
+              () -> {
+                cleanup.set(true);
+                engine.confirmBoardSynchronization(
+                    () -> {
+                      throw new AssertionError("failed restart must not confirm");
+                    },
+                    failure::set);
+              });
+
+      engine.currentRestartBootstrapFailureAction("controlled failure").run();
+
+      completion.run();
+      assertTrue(cleanup.get());
+      assertNotNull(failure.get());
+      assertEquals(0, output.size());
+    }
+  }
+
+  @Test
+  void restartFinalConfirmationReachesRealKataGoWriterAndReader() throws Exception {
+    String executable = System.getProperty("lizzie.acceptance.engine", "");
+    String model = System.getProperty("lizzie.acceptance.model", "");
+    org.junit.jupiter.api.Assumptions.assumeTrue(
+        !executable.isEmpty() && !model.isEmpty(), "requires an explicit real KataGo and model");
+    Path evidence = Path.of("target", "restart-confirmation-real");
+    Files.createDirectories(evidence);
+    Path config = evidence.resolve("gtp.cfg");
+    Files.writeString(
+        config,
+        "numSearchThreads = 2\nmaxVisits = 16\nlogToStderr = true\n"
+            + "logAllGTPCommunication = false\nlogSearchInfo = false\n"
+            + "ponderingEnabled = false\nrules = chinese\n");
+    Process process =
+        new ProcessBuilder(
+                executable, "gtp", "-model", model, "-config", config.toAbsolutePath().toString())
+            .redirectError(evidence.resolve("stderr.log").toFile())
+            .start();
+    Thread reader = null;
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      Leelaz engine = new Leelaz("");
+      ByteArrayOutputStream commands = new ByteArrayOutputStream();
+      OutputStream output =
+          new OutputStream() {
+            @Override
+            public void write(int value) throws IOException {
+              commands.write(value);
+              process.getOutputStream().write(value);
+            }
+
+            @Override
+            public void flush() throws IOException {
+              process.getOutputStream().flush();
+            }
+          };
+      installRestartBootstrapBinding(engine, output);
+      env.publish(engine, boardWithHistory(emptyRootHistory(0)));
+      engine.started = true;
+      engine.isLoaded = true;
+      AtomicReference<Throwable> readerFailure = new AtomicReference<>();
+      reader =
+          new Thread(
+              () -> {
+                try (var lines = process.inputReader(StandardCharsets.UTF_8);
+                    var log = Files.newBufferedWriter(evidence.resolve("stdout.log"))) {
+                  String line;
+                  while ((line = lines.readLine()) != null) {
+                    log.write(line + "\n");
+                    log.flush();
+                    if (line.startsWith("=") || line.startsWith("?")) {
+                      engine.processCommandResponseLineForTest(line);
+                    }
+                  }
+                } catch (Throwable failure) {
+                  readerFailure.set(failure);
+                }
+              },
+              "restart-confirmation-real-reader");
+      reader.start();
+      Object owner = getLeelazField(engine, "exclusiveGtpLifecycleOwner");
+      Method release =
+          Leelaz.class.getDeclaredMethod("endExclusiveGtpLifecycleTransition", Object.class);
+      release.setAccessible(true);
+      AtomicReference<String> failure = new AtomicReference<>();
+      CountDownLatch confirmed = new CountDownLatch(1);
+      ProductionEntryEngineManager manager = new ProductionEntryEngineManager(List.of(engine));
+      Lizzie.engineManager = manager;
+      manager.synchronizeEngineWhenReady(
+          engine,
+          () -> {
+            engine.sendCommand("boardsize 19");
+            engine.sendCommand("komi 7.5");
+            engine.sendCommand("play B D4");
+            engine.sendCommand("play W Q16");
+            try {
+              release.invoke(engine, owner);
+            } catch (ReflectiveOperationException error) {
+              throw new IllegalStateException(error);
+            }
+          },
+          () -> engine.confirmBoardSynchronization(confirmed::countDown, failure::set));
+      assertTrue(manager.firstSynchronizationCompleted.await(10, TimeUnit.SECONDS));
+      assertTrue(confirmed.await(60, TimeUnit.SECONDS), "final fence failed: " + failure.get());
+      assertNull(failure.get());
+      assertTrue(process.isAlive());
+      engine.sendCommand("quit");
+      assertTrue(process.waitFor(10, TimeUnit.SECONDS));
+      reader.join(5_000);
+      assertFalse(reader.isAlive());
+      assertNull(readerFailure.get());
+      assertEquals(0, process.exitValue());
+      String sent = commands.toString(StandardCharsets.UTF_8);
+      Files.writeString(evidence.resolve("commands.log"), sent);
+      assertTrue(sent.matches("(?s).*play W Q16\\n[0-9]+ name\\n.*"), sent);
+    } finally {
+      if (process.isAlive()) process.destroyForcibly();
+      process.waitFor(10, TimeUnit.SECONDS);
+      if (reader != null) reader.join(5_000);
+    }
+  }
+
+  @Test
   void asyncStartupCommandsCarryExactRestartBootstrapReceiptAcrossQueueGate() throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       BootstrapReceiptLeelaz engine = new BootstrapReceiptLeelaz();
