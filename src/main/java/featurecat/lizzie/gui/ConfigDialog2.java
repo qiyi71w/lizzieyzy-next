@@ -2009,6 +2009,14 @@ public class ConfigDialog2 extends JDialog {
             if (timer != null) timer.stop();
           }
         });
+    addWindowFocusListener(
+        new WindowAdapter() {
+          @Override
+          public void windowGainedFocus(WindowEvent e) {
+            pendingSettingNavigationPasses = 0;
+            queueSettingNavigation();
+          }
+        });
   }
 
   @Override
@@ -2087,6 +2095,8 @@ public class ConfigDialog2 extends JDialog {
         || generation != settingsNavigationGeneration
         || !targetId.equals(pendingSettingTargetId)
         || activeModernNavIndex != navIndex(target.section())) return;
+    // Keep hidden/inactive requests until the native window can accept focus.
+    if (!isShowing() || !isFocused()) return;
     int tabIndex = target.section() == SettingSection.THEME ? 1 : 0;
     if (tabbedPane.getSelectedIndex() != tabIndex) return;
     JComponent root = target.section() == SettingSection.THEME ? themeTab : uiTab;
@@ -2109,7 +2119,7 @@ public class ConfigDialog2 extends JDialog {
             row, new Rectangle(0, 0, row.getWidth(), row.getHeight()), view);
     Rectangle visible = scrollPane.getViewport().getViewRect();
     if (view.getHeight() <= 0 || rowBounds.height <= 0 || visible.height <= 0) {
-      if (++pendingSettingNavigationPasses < 4) queueSettingNavigation(layoutSettled);
+      if (++pendingSettingNavigationPasses < 20) scheduleSettingNavigation(layoutSettled);
       return;
     }
     highlightSettingRow(row);
@@ -2138,22 +2148,25 @@ public class ConfigDialog2 extends JDialog {
     }
     focusTarget.requestFocusInWindow();
     if (!focusTarget.isFocusOwner()) focusTarget.requestFocus();
-    if (!layoutSettled) {
-      if (settingNavigationLayoutTimer == null) {
-        settingNavigationLayoutTimer =
-            new javax.swing.Timer(
-                75,
-                event -> {
-                  settingNavigationLayoutTimer = null;
-                  queueSettingNavigation(true);
-                });
-        settingNavigationLayoutTimer.setRepeats(false);
-        settingNavigationLayoutTimer.start();
-      }
+    if (!layoutSettled || !focusTarget.isFocusOwner()) {
+      if (++pendingSettingNavigationPasses < 20) scheduleSettingNavigation(true);
       return;
     }
     pendingSettingTargetId = null;
     settingsNavigationGeneration++;
+  }
+
+  private void scheduleSettingNavigation(boolean layoutSettled) {
+    if (settingNavigationLayoutTimer != null) return;
+    settingNavigationLayoutTimer =
+        new javax.swing.Timer(
+            75,
+            event -> {
+              settingNavigationLayoutTimer = null;
+              queueSettingNavigation(layoutSettled);
+            });
+    settingNavigationLayoutTimer.setRepeats(false);
+    settingNavigationLayoutTimer.start();
   }
 
   private Component findFocusableSettingControl(Component root) {
