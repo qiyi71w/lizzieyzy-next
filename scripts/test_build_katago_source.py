@@ -16,9 +16,14 @@ class SourceBuildTest(unittest.TestCase):
     def receipts(self):
         return [
             {
+                "schemaVersion": 1, "sourceRepository": "https://github.com/lightvector/KataGo",
                 "target": target, "sourceCommit": SOURCE_COMMIT, "origin": "project-source-build",
+                "backend": TARGETS[target][2],
+                "executable": {"file": "katago.exe" if target.startswith("windows-") else "katago",
+                               "sizeBytes": 1, "sha256": "a" * 64},
                 "buildStatus": "PASS", "packagingStatus": "PASS", "dependencyAuditStatus": "PASS",
-                "hardwareAcceptanceStatus": "PENDING_HARDWARE",
+                "hardwareAcceptanceStatus": "PASS" if TARGETS[target][2] == "EIGEN" else "PENDING_HARDWARE",
+                "hardwareAcceptanceReason": "CI runner has no corresponding GPU",
             }
             for target in TARGETS
         ]
@@ -91,8 +96,32 @@ class SourceBuildTest(unittest.TestCase):
             self.assertIn('"buildStatus": "FAIL"', text)
             self.assertIn('"packagingStatus": "NOT_RUN"', text)
 
-    def test_all_hardware_pending_is_distinct_from_build_failure(self):
+    def test_missing_gpu_hardware_is_distinct_from_build_failure(self):
         check_release_receipts(self.receipts())
+
+    def test_cpu_must_run_not_claim_missing_gpu(self):
+        receipts = self.receipts()
+        receipts[0]["hardwareAcceptanceStatus"] = "PENDING_HARDWARE"
+        with self.assertRaisesRegex(ValueError, "CPU execution"):
+            check_release_receipts(receipts)
+
+    def test_pending_gpu_needs_reason(self):
+        receipts = self.receipts()
+        receipts[1]["hardwareAcceptanceReason"] = " "
+        with self.assertRaisesRegex(ValueError, "explicit reason"):
+            check_release_receipts(receipts)
+
+    def test_binary_identity_and_backend_are_mandatory(self):
+        for field, value in (("file", "../katago.exe"), ("sizeBytes", 0),
+                             ("sizeBytes", True), ("sha256", "invalid")):
+            receipts = self.receipts()
+            receipts[0]["executable"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "executable identity"):
+                check_release_receipts(receipts)
+        receipts = self.receipts()
+        receipts[0]["backend"] = "CUDA"
+        with self.assertRaisesRegex(ValueError, "source identity"):
+            check_release_receipts(receipts)
 
     def test_missing_target_rejects_release(self):
         with self.assertRaisesRegex(ValueError, "missing build targets"):

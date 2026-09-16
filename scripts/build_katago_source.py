@@ -160,13 +160,29 @@ def check_release_receipts(receipts: list[dict]) -> None:
         target = receipt.get("target")
         if target not in TARGETS or target in by_target:
             raise ValueError(f"unknown or duplicate build target: {target}")
-        if receipt.get("sourceCommit") != SOURCE_COMMIT or receipt.get("origin") != "project-source-build":
+        if (receipt.get("schemaVersion") != 1
+                or receipt.get("sourceRepository") != "https://github.com/lightvector/KataGo"
+                or receipt.get("sourceCommit") != SOURCE_COMMIT
+                or receipt.get("origin") != "project-source-build"
+                or receipt.get("backend") != TARGETS[target][2]):
             raise ValueError(f"wrong source identity for {target}")
         for status in ("buildStatus", "packagingStatus", "dependencyAuditStatus"):
             if receipt.get(status) != "PASS":
                 raise ValueError(f"{target}: {status} must pass")
         if receipt.get("hardwareAcceptanceStatus") not in {"PASS", "PENDING_HARDWARE"}:
             raise ValueError(f"{target}: actual failure or missing hardware acceptance record")
+        if receipt["hardwareAcceptanceStatus"] == "PENDING_HARDWARE":
+            if TARGETS[target][2] == "EIGEN":
+                raise ValueError(f"{target}: CPU execution cannot be deferred as missing GPU hardware")
+            if not str(receipt.get("hardwareAcceptanceReason", "")).strip():
+                raise ValueError(f"{target}: pending hardware needs an explicit reason")
+        executable = receipt.get("executable", {})
+        file_name = executable.get("file", "")
+        expected_name = "katago.exe" if TARGETS[target][0] == "Windows" else "katago"
+        size = executable.get("sizeBytes")
+        if (file_name != expected_name or type(size) is not int or size <= 0
+                or not re.fullmatch(r"[0-9a-f]{64}", str(executable.get("sha256", "")))):
+            raise ValueError(f"{target}: missing or invalid executable identity")
         by_target[target] = receipt
     if set(by_target) != set(TARGETS):
         raise ValueError("missing build targets: " + ", ".join(sorted(set(TARGETS) - set(by_target))))

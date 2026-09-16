@@ -58,7 +58,9 @@ search tree fail the probe; none are reclassified as unsupported hardware.
 
 All **15** targets require compilation, packaging and dependency-closure audit. Hardware acceptance
 may be `PENDING_HARDWARE` only when corresponding hardware is unavailable, never after an actual
-test failure. A receipt completeness check does not replace checking the final package bytes,
+test failure, and must include an explicit reason. Eigen CPU targets must execute, not claim a
+missing GPU. Receipts must identify the correct backend and executable size/digest. A receipt
+completeness check does not replace checking the final package bytes,
 signed macOS bundles or public download hashes.
 
 ## Integration gates still required
