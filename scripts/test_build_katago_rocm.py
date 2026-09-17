@@ -21,6 +21,19 @@ class RocmSourceTest(unittest.TestCase):
         self.lock = json.loads(rocm.LOCK_PATH.read_text())
         self.target = "windows-rocm-gfx110x"
 
+    def test_artifact_transport_keeps_hidden_dependency_licenses(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/katago-source-windows.yml").read_text()
+        artifact_step = workflow.split("name: Retain evidence, never publish a release", 1)[1]
+        self.assertIn("include-hidden-files: true", artifact_step)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hidden = root / "licenses/rocm/libhipcxx/.upstream-tests/LICENSE.TXT"
+            hidden.parent.mkdir(parents=True)
+            hidden.write_text("test dependency license")
+            names = [row["file"].replace("\\", "/") for row in inventory(root)]
+            self.assertIn("licenses/rocm/libhipcxx/.upstream-tests/LICENSE.TXT", names)
+
     def archive(self, root, changes=None):
         files = {name: b"existing runtime" for name in self.lock["runtimeFiles"]}
         files.update({"rocblas/library/kernel.hsaco": b"gpu kernel",

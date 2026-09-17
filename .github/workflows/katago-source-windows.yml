@@ -120,4 +120,6 @@ jobs:
             ${{ runner.temp }}/katago-package/
             ${{ runner.temp }}/focus-probe/
           if-no-files-found: error
+          # The exact inventory includes libhipcxx/.upstream-tests/LICENSE.TXT.
+          include-hidden-files: true
           retention-days: 7
