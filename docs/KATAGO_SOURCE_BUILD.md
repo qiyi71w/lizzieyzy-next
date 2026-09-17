@@ -379,3 +379,20 @@ The publisher continues to enforce the final immutable tag and commit identity.
 CPU acceptance uses the same trusted project URL and archive hash, and additionally
 checks the extracted executable hash and actual reported upstream revision. A failed
 Draft download or verification must not fall back to the old official engine.
+
+### Production Linux compatibility evidence
+
+The Linux source workflow runs `audit_katago_linux_compatibility.py` after relocation.
+It verifies the SHA-locked previous official 1.18.1 archive, extracts its AppImage
+payload without FUSE, and compares GLIBC, GLIBCXX and CXXABI symbol ceilings against
+every new bundled ELF file. It then runs both old and new executables inside pinned
+native amd64 Ubuntu 22.04 and 24.04 containers. The CPU target additionally performs
+a real GTP move with the pinned upstream model in each distribution.
+
+The new engine is tested with only the system C++ runtime installed; the old bundle's
+SSL/OpenCL system dependencies are added afterward for the baseline comparison. Engine packages,
+reference payloads and SDKs are mounted read-only, CUDA/cuDNN remain separately verified
+external dependencies, and no driver is installed on the runner or user's system.
+The log records actual libc/libstdc++ package versions. A failed loader or symbol check
+produces a retained FAIL report, never a missing-hardware waiver. GPU inference is not
+performed or claimed by this compatibility check. Final app packaging remains separate.
