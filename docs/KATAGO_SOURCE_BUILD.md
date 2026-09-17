@@ -193,8 +193,8 @@ python scripts/package_katago_source_windows.py --build C:/build/katago `
 
 Run these commands from the selected x64 developer environment; an unverified SDK, wrong compiler
 toolset, stale output, missing DLL, or failed engine process is a hard failure, not a fallback to
-an older KataGo executable. CUDA, TensorRT and experimental execution-provider builds are not
-implemented by this CPU/OpenCL workflow.
+an older KataGo executable. DirectML and OpenVINO use the separately locked SDK extensions
+described above. CUDA, TensorRT and ROCm builds are not yet implemented by this workflow.
 
 | Platform | Backends |
 | --- | --- |
