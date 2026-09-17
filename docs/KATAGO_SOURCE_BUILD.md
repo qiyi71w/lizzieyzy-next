@@ -252,7 +252,7 @@ Run these commands from the selected x64 developer environment; an unverified SD
 toolset, stale output, missing DLL, or failed engine process is a hard failure, not a fallback to
 an older KataGo executable. DirectML and OpenVINO use the separately locked SDK extensions
 described above, as do Windows CUDA and TensorRT. Linux CUDA has a separate sealed SDK
-and external-runtime audit. The four ROCm builds remain pending integration.
+and external-runtime audit. The four experimental ROCm targets use the sealed SDK below.
 
 | Platform | Backends |
 | --- | --- |
@@ -267,6 +267,42 @@ test failure, and must include an explicit reason. Eigen CPU targets must execut
 missing GPU. Receipts must identify the correct backend and executable size/digest. A receipt
 completeness check does not replace checking the final package bytes,
 signed macOS bundles or public download hashes.
+
+## Windows ROCm source evidence
+
+The four `windows-rocm-*` targets keep the existing ROCm 7.13 per-family runtime bytes
+from the official KataGo 1.18.1 distributions. Only `katago.exe` is rebuilt from the pinned
+source; the downloaded older executable is never copied into the SDK or output package.
+Both `rocblas/library` and `hipblaslt/library` are mandatory, with full size/digest inventory.
+
+`scripts/katago_rocm_dependencies.json` pins the AMD compiler/headers archive and four
+runtime archives. AMD's public `7.13.0` archive has an internal `7.13.0rc2` directory name;
+the embedded `.info/version` is `7.13.0`. The lock records this without relabeling the
+archive, and its SHA-256 was calculated from the official AMD download. The seven key
+SDK DLLs were independently compared with the existing gfx110X distribution and matched.
+
+The native Windows workflow compiles all four targets, retaining the broad upstream GPU
+architecture range. Upstream still probes MSVC compatibility; packaging rejects selection
+of a different toolset instead of silently changing the locked build. The HIP SDK and
+Windows developer environment are not needed on end-user machines.
+The build process supplies upstream's required `HIP_PLATFORM`, `HIP_DEVICE_LIB_PATH`
+and `LLVM_PATH` alongside `HIP_PATH`, all scoped to the sealed SDK rather than changing
+machine-wide settings. A real compiler/cmath preflight preserves stderr before upstream's
+otherwise-silent toolset probe, so missing device libraries are diagnosable.
+
+```powershell
+python scripts/build_katago_rocm_dependencies.py --output C:/build/locked-sdk `
+  --target windows-rocm-gfx120x --jobs 3
+python scripts/build_katago_source.py --source C:/source/KataGo --output C:/build/katago `
+  --target windows-rocm-gfx120x --windows-sdk C:/build/locked-sdk/prefix --jobs 3
+python scripts/package_katago_source_windows.py --build C:/build/katago `
+  --sdk C:/build/locked-sdk/prefix --output C:/build/portable-evidence
+```
+
+A source build needs at least 30 GB free temporary space. PE closure and execution with
+a system-only PATH are mandatory. A successful `version` invocation is not GPU inference;
+each family's hardware acceptance remains `NOT_RUN` until tested on the corresponding GPU.
+These targets remain experimental and do not change the stable channel or default backend.
 
 ## Windows TensorRT source evidence
 
