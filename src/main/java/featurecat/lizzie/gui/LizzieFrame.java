@@ -10401,6 +10401,11 @@ public class LizzieFrame extends JFrame {
   //  }
 
   private void setComment(boolean needReaddText) {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      // Resolve the current node on the EDT, rather than enqueueing stale rendered text.
+      SwingUtilities.invokeLater(() -> setComment(needReaddText));
+      return;
+    }
     boolean isLoadingEngine = false;
     boolean isTuningEngine = false;
     EngineGameSnapshot snapshot = EngineGamePresentation.current();
@@ -10927,6 +10932,10 @@ public class LizzieFrame extends JFrame {
   }
 
   public void resetCommentComponent() {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(this::resetCommentComponent);
+      return;
+    }
     commentTextPane.setForeground(Lizzie.config.commentFontColor);
     updateCommentHtmlStyle(
         Lizzie.config.commentFontSize > 0
@@ -11038,6 +11047,10 @@ public class LizzieFrame extends JFrame {
   }
 
   private static void setRenderedComment(JPaintTextPane pane, String rendered) {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> setRenderedComment(pane, rendered));
+      return;
+    }
     configureCommentDisplaySurface(pane, null);
     pane.setText(rendered);
     configureCommentDisplaySurface(pane, null);
