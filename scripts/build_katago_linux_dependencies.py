@@ -62,7 +62,9 @@ def engine_options(prefix: Path, target: str) -> list[str]:
         f"-DZLIB_INCLUDE_DIR={prefix / 'include'}", f"-DZLIB_LIBRARY={prefix / 'lib/libz.a'}",
         f"-DLIBZIP_INCLUDE_DIR_ZIP={prefix / 'include'}",
         f"-DLIBZIP_INCLUDE_DIR_ZIPCONF={prefix / 'include'}",
-        f"-DLIBZIP_LIBRARY={prefix / 'lib/libzip.a'}", "-DUSE_AVX2=OFF", "-DUSE_TCMALLOC=OFF",
+        # Upstream links this variable as a list. Static libzip needs zlib after it.
+        f"-DLIBZIP_LIBRARY={prefix / 'lib/libzip.a'};{prefix / 'lib/libz.a'}",
+        "-DUSE_AVX2=OFF", "-DUSE_TCMALLOC=OFF",
         "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON", "-DCMAKE_INSTALL_RPATH=$ORIGIN",
     ]
     if target == "linux-cpu":

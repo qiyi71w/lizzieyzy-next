@@ -42,6 +42,18 @@ class LinuxSourceTest(unittest.TestCase):
         for name in ("LD_PRELOAD", "LD_LIBRARY_PATH", "CXXFLAGS", "CMAKE_PREFIX_PATH"):
             self.assertNotIn(name, env)
 
+    def test_static_zip_retains_its_transitive_zlib_link_order(self):
+        options = engine_options(Path("/tmp/sdk"), "linux-cpu")
+        value = next(option for option in options if option.startswith("-DLIBZIP_LIBRARY="))
+        archives = value.split("=", 1)[1].split(";")
+        self.assertEqual(["libzip.a", "libz.a"], [Path(archive).name for archive in archives])
+
+    def test_zlib_uses_official_release_instead_of_challenge_page_endpoint(self):
+        lock = json.loads(LOCK_PATH.read_text())
+        item = next(item for item in lock["dependencies"] if item["name"] == "zlib")
+        self.assertEqual("https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz", item["url"])
+        self.assertEqual("9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23", item["sha256"])
+
     def test_sdk_tampering_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
