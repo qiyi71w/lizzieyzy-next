@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [linux-cpu, linux-opencl]
+        target: [linux-cpu, linux-opencl, linux-nvidia]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
@@ -39,8 +39,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build g++ binutils curl
       - name: Build locked Linux SDK
+        if: matrix.target != 'linux-nvidia'
         run: >-
           python3 scripts/build_katago_linux_dependencies.py
+          --output "$RUNNER_TEMP/katago-sdk" --jobs 3
+      - name: Prepare locked CUDA SDK without installing drivers
+        if: matrix.target == 'linux-nvidia'
+        run: >-
+          python3 scripts/build_katago_linux_cuda_dependencies.py
           --output "$RUNNER_TEMP/katago-sdk" --jobs 3
       - name: Compile exact upstream commit
         run: >-
@@ -48,8 +54,14 @@ jobs:
           --output "$RUNNER_TEMP/katago-build" --target "${{ matrix.target }}"
           --linux-sdk "$RUNNER_TEMP/katago-sdk/prefix" --jobs 3
       - name: Audit relocatable engine and dependencies
+        if: matrix.target != 'linux-nvidia'
         run: >-
           python3 scripts/package_katago_source_linux.py --build "$RUNNER_TEMP/katago-build"
+          --sdk "$RUNNER_TEMP/katago-sdk/prefix" --output "$RUNNER_TEMP/katago-package"
+      - name: Audit CUDA engine and declared external runtime closure
+        if: matrix.target == 'linux-nvidia'
+        run: >-
+          python3 scripts/package_katago_source_linux_cuda.py --build "$RUNNER_TEMP/katago-build"
           --sdk "$RUNNER_TEMP/katago-sdk/prefix" --output "$RUNNER_TEMP/katago-package"
       - name: Execute CPU same-tree focus protocol
         if: matrix.target == 'linux-cpu'
