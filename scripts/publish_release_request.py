@@ -26,9 +26,13 @@ import zipfile
 try:
     from scripts import release_asset_provenance as provenance
     from scripts import release_asset_topology as topology
+    from scripts import katago_asset_catalog as katago_catalog
+    from scripts.katago_source_targets import SOURCE_COMMIT, TARGETS
 except ModuleNotFoundError:  # Direct execution: python scripts/publish_release_request.py
     import release_asset_provenance as provenance  # type: ignore[no-redef]
     import release_asset_topology as topology  # type: ignore[no-redef]
+    import katago_asset_catalog as katago_catalog
+    from katago_source_targets import SOURCE_COMMIT, TARGETS
 
 
 API_VERSION = "2026-03-10"
@@ -678,6 +682,7 @@ class ReleasePublisher:
         poll_seconds: float = 30,
         run_timeout_seconds: float = 4 * 60 * 60 + 45 * 60,
         ci_timeout_seconds: float = 20 * 60,
+        source_catalog: dict | None = None,
     ) -> None:
         if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
             raise PublishError("target_sha must be a full 40-character commit SHA")
@@ -690,6 +695,7 @@ class ReleasePublisher:
         self.run_timeout_seconds = run_timeout_seconds
         self.ci_timeout_seconds = ci_timeout_seconds
         self.run_urls: dict[str, str] = {}
+        self.source_assets = self._source_asset_records(source_catalog)
         if not self._notes_text_complete(release_notes):
             raise PublishError("Reviewed release notes are missing the tag or a language section")
         validate_no_unresolved_note_markers(release_notes)
@@ -699,6 +705,44 @@ class ReleasePublisher:
             request.release_tag,
             client.repository,
         )
+
+    def _source_asset_records(self, catalog: dict | None) -> dict[str, dict]:
+        if catalog is None or catalog.get("origin", "official-release") == "official-release":
+            return {}
+        try:
+            katago_catalog.validate_catalog(catalog)
+        except (KeyError, TypeError, ValueError) as error:
+            raise PublishError(f"Invalid source engine catalog: {error}") from error
+        if (catalog.get("katagoSourceCommit") != SOURCE_COMMIT
+                or catalog.get("engineReleaseRepository") != self.client.repository
+                or catalog.get("engineReleaseTag") != self.request.release_tag
+                or set(catalog["assets"]) != set(TARGETS)):
+            raise PublishError("All 15 pinned source assets must belong to this exact release")
+        return {asset["assetName"]: asset for asset in catalog["assets"].values()}
+
+    def _wait_for_source_assets(self, release_id: int) -> None:
+        if not self.source_assets:
+            return
+        deadline = time.monotonic() + self.ci_timeout_seconds
+        print("Waiting for the 15 reviewed source archives in the draft release", flush=True)
+        while True:
+            rows = self.client.list_release_assets(release_id)
+            selected = [row for row in rows if row.get("name") in self.source_assets]
+            by_name = {row["name"]: row for row in selected}
+            if len(by_name) != len(selected):
+                raise PublishError("Duplicate source engine archive in draft release")
+            for name, row in by_name.items():
+                expected = self.source_assets[name]
+                if row.get("state") == "uploaded" and (
+                        row.get("size") != expected["sizeBytes"]
+                        or row.get("digest") != "sha256:" + expected["sha256"]):
+                    raise PublishError(f"Source archive differs from reviewed catalog: {name}")
+            if (set(by_name) == set(self.source_assets)
+                    and all(row.get("state") == "uploaded" for row in by_name.values())):
+                return
+            if time.monotonic() >= deadline:
+                raise PublishError("Missing source archives; keeping release as draft without building old engines")
+            self.sleep(self.poll_seconds)
 
     def _ensure_tag(self) -> None:
         existing = self.client.get_tag_sha(self.request.release_tag)
@@ -1158,6 +1202,7 @@ class ReleasePublisher:
         self, release_id: int, selected_runs: dict[str, dict[str, object]]
     ) -> list[str]:
         expected_records: dict[str, dict[str, object]] = {}
+        expected_records.update(self.source_assets)
         for spec in WORKFLOWS:
             records = self._load_run_provenance(spec, selected_runs[spec.platform])
             overlap = set(expected_records).intersection(records)
@@ -1287,6 +1332,7 @@ class ReleasePublisher:
             return release
 
         runs: dict[str, int] = {}
+        self._wait_for_source_assets(release_id)
         for spec in WORKFLOWS:
             existing = self._latest_target_run(spec)
             if existing is not None and (
@@ -1386,7 +1432,8 @@ def main() -> int:
             os.environ.get("GITHUB_TOKEN", ""),
             api_url=args.api_url,
         )
-        ReleasePublisher(client, request, args.target_sha, release_notes).publish()
+        catalog = katago_catalog.load_catalog(katago_catalog.DEFAULT_CATALOG)
+        ReleasePublisher(client, request, args.target_sha, release_notes, source_catalog=catalog).publish()
     except PublishError as exc:
         print(f"release publishing failed: {exc}", file=sys.stderr)
         return 1

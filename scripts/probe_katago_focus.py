@@ -14,7 +14,7 @@ import threading
 import time
 
 
-SOURCE_COMMIT = "47aadc08518b3e121f22539796c911002f699584"
+from katago_source_targets import SOURCE_COMMIT
 ROOT_VISITS = re.compile(r"\brootInfo visits (\d+)\b")
 CANDIDATE_VISITS = re.compile(r"\binfo move ([A-T][0-9]+|pass) visits (\d+)\b")
 

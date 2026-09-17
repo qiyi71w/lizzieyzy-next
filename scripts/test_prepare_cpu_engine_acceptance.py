@@ -116,11 +116,95 @@ class CpuAcceptanceProvisionerTest(unittest.TestCase):
                 MODULE.prepare(self.root / "not-created", catalog_path=self.catalog_path)
         self.assertFalse((self.root / "not-created").exists())
 
+    def use_source_catalog(self) -> None:
+        baseline = json.loads(MODULE.DEFAULT_CATALOG.read_text(encoding="utf-8"))
+        baseline.update(origin="project-source-build", katagoVersion="1.18.2",
+                        katagoReleaseTag="v1.18.2", engineReleaseTag="next-2026-09-17.1",
+                        engineReleaseRepository="wimi321/lizzieyzy-next",
+                        katagoSourceCommit="47aadc08518b3e121f22539796c911002f699584")
+        for target, asset in baseline["assets"].items():
+            asset["assetName"] = f"katago-source-47aadc08518b-{target}.zip"
+        self.catalog = baseline
+        self.catalog["assets"]["linux-cpu"].update(
+            sizeBytes=len(self.archive), sha256=sha256(self.archive),
+            executableSha256=sha256(b"fixture-engine"))
+        model = self.catalog["models"][self.catalog["defaultModelId"]]
+        model.update(sizeBytes=len(self.model), sha256=sha256(self.model))
+        self.catalog_path.write_text(json.dumps(self.catalog), encoding="utf-8")
+        self.version_output = ("KataGo v1.18.2\nUsing Eigen(CPU) backend\n"
+                               f"Git revision: {self.catalog['katagoSourceCommit']}\n")
+
+    def test_source_archive_and_revision_are_verified_from_cache(self) -> None:
+        self.use_source_catalog()
+        self.seed_cache()
+        manifest = json.loads(self.prepare(opener=mock.Mock(side_effect=AssertionError("network"))).read_text())
+        self.assertEqual("1.18.2", manifest["katago"]["version"])
+        self.assertFalse(manifest["networkUsed"])
+
+    def test_source_wrong_revision_fails_without_manifest(self) -> None:
+        self.use_source_catalog()
+        self.seed_cache()
+        self.version_output = "KataGo v1.18.2\nUsing Eigen(CPU) backend\nGit revision: wrong\n"
+        with self.assertRaisesRegex(MODULE.ProvisioningError, "revision mismatch"):
+            self.prepare()
+        self.assertFalse((self.root / "acceptance/manifest.json").exists())
+
+    def test_source_draft_download_uses_gh_and_checks_digest(self) -> None:
+        self.use_source_catalog()
+        cache = self.root / "draft-cache"
+        cache.mkdir()
+        asset = self.catalog["assets"]["linux-cpu"]
+        def fake_gh(arguments, **kwargs):
+            self.assertEqual("gh", arguments[0])
+            self.assertEqual(MODULE.DOWNLOAD_DEADLINE_SECONDS, kwargs["timeout"])
+            self.assertNotIn("fixture-token", arguments)
+            (Path(arguments[-1]) / asset["assetName"]).write_bytes(self.archive)
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "fixture-token"}), mock.patch.object(
+                MODULE.subprocess, "run", side_effect=fake_gh):
+            archive, downloaded = MODULE.obtain_engine_archive(self.catalog, cache, mock.Mock())
+        self.assertTrue(downloaded)
+        self.assertEqual(sha256(self.archive), MODULE.sha256_file(archive))
+
+    def test_source_public_download_does_not_use_upstream_release(self) -> None:
+        self.use_source_catalog()
+        cache = self.root / "public-cache"
+        cache.mkdir()
+        seen = []
+        def opener(url):
+            seen.append(url)
+            return Response(self.archive)
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}):
+            MODULE.obtain_engine_archive(self.catalog, cache, opener)
+        self.assertEqual(["https://github.com/wimi321/lizzieyzy-next/releases/download/"
+                          "next-2026-09-17.1/katago-source-47aadc08518b-linux-cpu.zip"], seen)
+
+    def test_source_draft_corruption_never_falls_back_or_publishes_cache(self) -> None:
+        self.use_source_catalog()
+        cache = self.root / "bad-draft-cache"
+        cache.mkdir()
+        asset = self.catalog["assets"]["linux-cpu"]
+        def fake_gh(arguments, **_kwargs):
+            (Path(arguments[-1]) / asset["assetName"]).write_bytes(b"wrong")
+        opener = mock.Mock(side_effect=AssertionError("must not fall back"))
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "fixture-token"}), mock.patch.object(
+                MODULE.subprocess, "run", side_effect=fake_gh):
+            with self.assertRaisesRegex(MODULE.ProvisioningError, "size mismatch"):
+                MODULE.obtain_engine_archive(self.catalog, cache, opener)
+        self.assertEqual([], list(cache.iterdir()))
+        opener.assert_not_called()
+
+    def test_source_catalog_cannot_redirect_draft_credentials(self) -> None:
+        self.use_source_catalog()
+        self.catalog["engineReleaseRepository"] = "untrusted/repository"
+        self.catalog_path.write_text(json.dumps(self.catalog), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ProvisioningError, "invalid source catalog"):
+            self.prepare()
+
     def seed_cache(self) -> Path:
         cache = self.root / "acceptance" / "cache"
         cache.mkdir(parents=True)
         (cache / self.catalog["assets"]["linux-cpu"]["assetName"]).write_bytes(self.archive)
-        (cache / self.catalog["models"]["fixture-model"]["fileName"]).write_bytes(self.model)
+        (cache / self.catalog["models"][self.catalog["defaultModelId"]]["fileName"]).write_bytes(self.model)
         return cache
 
     def test_verified_cache_is_reused_without_network(self) -> None:
