@@ -86,31 +86,40 @@ def install_runtime(archives: dict[str, Path], prefix: Path) -> None:
 
 
 def verify_sdk(prefix: Path) -> dict:
+    return verify_provider_sdk(prefix, LOCK_PATH)
+
+
+def verify_provider_sdk(prefix: Path, lock_path: Path) -> dict:
     prefix = prefix.resolve()
+    provider = json.loads(lock_path.read_text(encoding="utf-8"))["provider"]
     receipt = json.loads((prefix / "sdk-receipt.json").read_text(encoding="utf-8"))
     if (receipt.get("schemaVersion") != 1 or receipt.get("status") != "PASS"
             or receipt.get("system") != "Windows" or receipt.get("arch") != "x86_64"
-            or receipt.get("provider") != "directml"
-            or receipt.get("lockSha256") != digest(LOCK_PATH)
+            or receipt.get("provider") != provider
+            or receipt.get("lockSha256") != digest(lock_path)
             or receipt.get("commonLockSha256") != digest(common.LOCK_PATH)
             or receipt.get("configuration") != engine_options(prefix)
             or not receipt.get("files") or receipt["files"] != inventory(prefix)):
-        raise ValueError("DirectML SDK receipt or files do not match the locked build")
+        raise ValueError(f"{provider} SDK receipt or files do not match the locked build")
     return receipt
 
 
 def build_sdk(output: Path, jobs: int) -> Path:
+    return build_provider_sdk(output, jobs, LOCK_PATH, install_runtime)
+
+
+def build_provider_sdk(output: Path, jobs: int, lock_path: Path, installer) -> Path:
     output = output.resolve()
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
     # This enforces the native host, toolchain and empty destination before any downloads.
     prefix = common.build_sdk(output, jobs)
     base_receipt = common.verify_sdk(prefix)
     receipt = {"schemaVersion": 1, "status": "FAIL", "system": "Windows", "arch": "x86_64",
-               "provider": "directml", "lockSha256": digest(LOCK_PATH),
+               "provider": lock["provider"], "lockSha256": digest(lock_path),
                "commonLockSha256": digest(common.LOCK_PATH), "commonSdk": base_receipt,
                "configuration": engine_options(prefix)}
     # Never leave a passing common-SDK receipt over a partially installed provider SDK.
     (prefix / "sdk-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
     try:
         with (output / "build.log").open("a", encoding="utf-8") as log:
             archives = {}
@@ -123,7 +132,7 @@ def build_sdk(output: Path, jobs: int) -> Path:
                 if digest(archive) != dependency["sha256"]:
                     raise ValueError(f"Dependency SHA-256 mismatch: {dependency['name']}")
                 archives[dependency["name"]] = archive
-            protobuf = lock["dependencies"][0]
+            protobuf = next(item for item in lock["dependencies"] if item["name"] == "protobuf")
             source = extract_verified(archives["protobuf"], output / "protobuf-source", protobuf["sha256"])
             for command in (
                 ["cmake", "-S", str(source), "-B", str(output / "protobuf-build"), "-G", "Ninja",
@@ -135,11 +144,11 @@ def build_sdk(output: Path, jobs: int) -> Path:
                                stdout=log, stderr=subprocess.STDOUT)
             (prefix / "share/licenses/protobuf").mkdir(parents=True)
             shutil.copy2(source / "LICENSE", prefix / "share/licenses/protobuf/LICENSE")
-            install_runtime(archives, prefix)
+            installer(archives, prefix)
         for name in ("lib/libprotobuf.lib", "bin/protoc.exe", "ort/lib/onnxruntime.lib",
                      "ort/include/onnxruntime_cxx_api.h"):
             if not (prefix / name).is_file():
-                raise ValueError(f"DirectML SDK component missing: {name}")
+                raise ValueError(f"ONNX provider SDK component missing: {name}")
         # Supplement installation must not silently replace already-verified common dependencies.
         for item in base_receipt["files"]:
             path = prefix / item["file"]
