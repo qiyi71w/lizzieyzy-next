@@ -3,11 +3,12 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from build_katago_source import SOURCE_COMMIT, TARGETS
 from katago_asset_catalog import DEFAULT_CATALOG
-from stage_katago_source_release import accept, archive_files, normalized_name, record, stage, verified_package
+from stage_katago_source_release import archive_files, normalized_name, record, stage, verify_archive
 
 
 class SourceReleaseTest(unittest.TestCase):
@@ -17,6 +18,13 @@ class SourceReleaseTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.packages = self.root / "packages"
         self.acceptance = self.root / "acceptance"
+        self.source = self.root / "source"
+        (self.source / "cpp/configs").mkdir(parents=True)
+        (self.source / "cpp/configs/gtp_example.cfg").write_text("gtp test config", encoding="utf-8")
+        (self.source / "cpp/configs/analysis_example.cfg").write_text("analysis test config", encoding="utf-8")
+        source_check = mock.patch("stage_katago_source_release.check_source")
+        self.source_check = source_check.start()
+        self.addCleanup(source_check.stop)
         for target, (_, _, backend, experimental) in TARGETS.items():
             directory = self.packages / target
             directory.mkdir(parents=True)
@@ -59,7 +67,8 @@ class SourceReleaseTest(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
 
     def run_stage(self, output="release"):
-        return stage(self.packages, self.acceptance, DEFAULT_CATALOG, self.root / output, "next-2026-09-17.1")
+        return stage(self.packages, self.acceptance, DEFAULT_CATALOG, self.root / output,
+                     "next-2026-09-17.1", self.source)
 
     def test_all_fifteen_targets_are_sealed_and_model_is_unchanged(self):
         catalog = self.run_stage()
@@ -73,12 +82,37 @@ class SourceReleaseTest(unittest.TestCase):
                 metadata = json.loads(opened.read("source-release.json"))
                 self.assertEqual(target, metadata["target"])
                 self.assertIn("licenses/LICENSE", opened.namelist())
+                self.assertEqual(b"gtp test config", opened.read("default_gtp.cfg"))
+                self.assertEqual(b"analysis test config", opened.read("analysis_example.cfg"))
                 if target.startswith("macos-") or target.startswith("linux-"):
                     self.assertEqual(0o755, (opened.getinfo("katago").external_attr >> 16) & 0o777)
 
     def test_archives_are_deterministic(self):
         first, second = self.run_stage("first"), self.run_stage("second")
         self.assertEqual(first, second)
+
+    def test_configs_must_come_from_pinned_clean_source(self):
+        self.source_check.side_effect = ValueError("incorrect source HEAD")
+        with self.assertRaisesRegex(ValueError, "source HEAD"):
+            self.run_stage()
+        self.assertFalse((self.root / "release").exists())
+
+    def test_missing_config_prevents_incomplete_repair_archive(self):
+        (self.source / "cpp/configs/gtp_example.cfg").unlink()
+        with self.assertRaisesRegex(ValueError, "templates missing"):
+            self.run_stage()
+
+    def test_archive_is_reopened_and_checksum_checked(self):
+        catalog = self.run_stage()
+        target = "windows-cpu"
+        original = self.root / "release" / catalog["assets"][target]["assetName"]
+        corrupted = self.root / "corrupted.zip"
+        with zipfile.ZipFile(original) as source, zipfile.ZipFile(corrupted, "w") as output:
+            for item in source.infolist():
+                data = source.read(item)
+                output.writestr(item, b"x" * len(data) if item.filename == "katago.exe" else data)
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            verify_archive(corrupted, target)
 
     def test_existing_output_is_never_overwritten(self):
         self.run_stage()

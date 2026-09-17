@@ -14,7 +14,7 @@ import stat
 import tempfile
 import zipfile
 
-from build_katago_source import SOURCE_COMMIT, TARGETS, check_release_receipts
+from build_katago_source import SOURCE_COMMIT, TARGETS, check_release_receipts, check_source
 from katago_asset_catalog import load_catalog, validate_catalog
 
 
@@ -156,10 +156,43 @@ def write_zip(path: Path, files: dict[str, Path], metadata: dict) -> None:
         archive.writestr(info, json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 
-def stage(packages: Path, acceptance: Path, base_catalog: Path, output: Path, tag: str) -> dict:
+def verify_archive(path: Path, target: str) -> dict:
+    with zipfile.ZipFile(path) as archive:
+        names = [normalized_name(item.filename) for item in archive.infolist()]
+        if len({name.casefold() for name in names}) != len(names):
+            raise ValueError("source archive contains duplicate names")
+        metadata = json.loads(archive.read("source-release.json"))
+        if metadata.get("target") != target or metadata.get("sourceCommit") != SOURCE_COMMIT:
+            raise ValueError("source archive belongs to a different source or target")
+        expected = {}
+        for item in metadata.get("files", []):
+            name = normalized_name(item.get("file"))
+            if name.casefold() in {value.casefold() for value in expected}:
+                raise ValueError("source archive inventory contains duplicate names")
+            expected[name] = item
+        if set(names) != set(expected) | {"source-release.json"}:
+            raise ValueError("source archive inventory is not complete")
+        for name, item in expected.items():
+            info = archive.getinfo(name)
+            if (info.file_size != item.get("sizeBytes")
+                    or stat.S_IFMT(info.external_attr >> 16) != stat.S_IFREG):
+                raise ValueError("source archive contains a wrong length or non-regular file")
+            with archive.open(info) as source:
+                if hashlib.file_digest(source, "sha256").hexdigest() != item.get("sha256"):
+                    raise ValueError("source archive file checksum mismatch")
+        return metadata
+
+
+def stage(packages: Path, acceptance: Path, base_catalog: Path, output: Path, tag: str,
+          source: Path) -> dict:
     if output.exists():
         raise ValueError("release staging output must be new; never overwrite a published artifact")
     catalog = copy.deepcopy(load_catalog(base_catalog))
+    check_source(source)
+    templates = {"default_gtp.cfg": source / "cpp/configs/gtp_example.cfg",
+                 "analysis_example.cfg": source / "cpp/configs/analysis_example.cfg"}
+    if not all(path.is_file() and not path.is_symlink() for path in templates.values()):
+        raise ValueError("pinned source configuration templates missing")
     catalog.update(origin="project-source-build", katagoVersion="1.18.2", katagoReleaseTag="v1.18.2",
                    katagoSourceCommit=SOURCE_COMMIT, engineReleaseRepository="wimi321/lizzieyzy-next",
                    engineReleaseTag=tag)
@@ -180,11 +213,15 @@ def stage(packages: Path, acceptance: Path, base_catalog: Path, output: Path, ta
             receipt, files, receipt_name = verified[target]
             selected = archive_files(target, files)
             selected = dict(selected, **{receipt_name: packages / target / receipt_name})
+            if set(selected) & set(templates):
+                raise ValueError("source config templates would overwrite a packaged file")
+            selected.update(templates)
             metadata = dict(result, files=[record(path, name) for name, path in sorted(selected.items())],
                             runtimeBundled=target not in {"windows-nvidia", "windows-tensorrt"})
             asset_name = f"katago-source-{SOURCE_COMMIT[:12]}-{target}.zip"
             path = staging / asset_name
             write_zip(path, selected, metadata)
+            verify_archive(path, target)
             if path.stat().st_size >= 2_147_483_648:
                 raise ValueError(f"{target}: engine archive exceeds the GitHub asset limit")
             base = baseline_assets.get(target, {"platform": target, "backend": "metal", "releaseTier": "stable"})
@@ -192,6 +229,7 @@ def stage(packages: Path, acceptance: Path, base_catalog: Path, output: Path, ta
                 base, assetName=asset_name, sha256=digest(path), sizeBytes=path.stat().st_size,
                 executableSha256=receipt["executable"]["sha256"])
         validate_catalog(catalog)
+        check_source(source)
         (staging / "katago-assets.json").write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
         (staging / "source-release-evidence.json").write_text(
             json.dumps({"sourceCommit": SOURCE_COMMIT, "targets": accepted}, indent=2) + "\n", encoding="utf-8")
@@ -207,5 +245,6 @@ if __name__ == "__main__":
     parser.add_argument("--base-catalog", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--tag", required=True)
+    parser.add_argument("--source", required=True, type=Path)
     args = parser.parse_args()
-    stage(args.packages, args.acceptance, args.base_catalog, args.output, args.tag)
+    stage(args.packages, args.acceptance, args.base_catalog, args.output, args.tag, args.source)
