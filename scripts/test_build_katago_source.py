@@ -24,6 +24,7 @@ class SourceBuildTest(unittest.TestCase):
                 "buildStatus": "PASS", "packagingStatus": "PASS", "dependencyAuditStatus": "PASS",
                 "hardwareAcceptanceStatus": "PASS" if TARGETS[target][2] == "EIGEN" else "PENDING_HARDWARE",
                 "hardwareAcceptanceReason": "CI runner has no corresponding GPU",
+                "productionAbiAcceptanceStatus": "PASS",
             }
             for target in TARGETS
         ]
@@ -100,7 +101,7 @@ class SourceBuildTest(unittest.TestCase):
             stale.write_bytes(b"stale")
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
                 with self.assertRaises(FileExistsError):
-                    build(path / "source", output, "linux-cpu", [], 2)
+                    build(path / "source", output, "windows-nvidia", [], 2)
             self.assertEqual(b"stale", stale.read_bytes())
 
     def test_build_failure_records_failure_not_approval(self):
@@ -109,7 +110,7 @@ class SourceBuildTest(unittest.TestCase):
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
                 with patch("build_katago_source.subprocess.run", side_effect=RuntimeError("compile failed")):
                     with self.assertRaises(RuntimeError):
-                        build(path / "source", path / "build", "linux-cpu", [], 2)
+                        build(path / "source", path / "build", "windows-nvidia", [], 2)
             text = (path / "build/source-build.json").read_text()
             self.assertIn('"buildStatus": "FAIL"', text)
             self.assertIn('"packagingStatus": "NOT_RUN"', text)
@@ -152,6 +153,14 @@ class SourceBuildTest(unittest.TestCase):
     def test_missing_target_rejects_release(self):
         with self.assertRaisesRegex(ValueError, "missing build targets"):
             check_release_receipts(self.receipts()[:-1])
+
+    def test_linux_build_host_abi_is_not_production_compatibility(self):
+        receipts = self.receipts()
+        for receipt in receipts:
+            if receipt["target"] == "linux-cpu":
+                receipt["productionAbiAcceptanceStatus"] = "NOT_RUN"
+        with self.assertRaisesRegex(ValueError, "Linux ABI compatibility"):
+            check_release_receipts(receipts)
 
     def test_duplicate_target_rejects_release(self):
         receipts = self.receipts()

@@ -70,6 +70,41 @@ Linkers reserve Mach-O header space for portable dependency paths. Both architec
 remains `NOT_RUN` until separately tested. Developer ID signing, notarization and all 15 final
 application packages remain separate release gates.
 
+## Linux CPU and OpenCL evidence builds
+
+`katago-source-linux.yml` builds two native x86_64 evidence targets on Ubuntu 22.04.
+It pins and verifies Eigen 3.4.0, zlib 1.3.1, libzip 1.11.4 and the Khronos
+2024.10.24 OpenCL headers/ICD loader. The loader is not a GPU driver; no vendor
+driver or CUDA runtime is installed or changed. OpenCL GPU execution remains unverified.
+
+```sh
+python3 scripts/build_katago_linux_dependencies.py --output /path/to/new/linux-sdk
+python3 scripts/build_katago_source.py \
+  --source /path/to/clean/KataGo --output /path/to/new/linux-build \
+  --target linux-cpu --linux-sdk /path/to/new/linux-sdk/prefix
+python3 scripts/package_katago_source_linux.py \
+  --build /path/to/new/linux-build --sdk /path/to/new/linux-sdk/prefix \
+  --output /path/to/new/linux-package
+```
+
+Use `linux-opencl` for the second target. Build receipts must match the SDK inventory
+and lock digest. Library discovery is restricted to that prefix; compiler flags and
+loader environment from the caller cannot select unrelated host libraries. Both
+targets avoid AVX2-only instructions. The OpenCL artifact includes its verified ICD
+loader and resolves it relative to the executable, not to the build machine.
+
+The ELF audit checks architecture, all direct dependencies, runtime paths and a
+glibc ceiling of 2.35. **This build-host check is not production ABI approval.** The
+existing official Linux binary is an AppImage; its extracted payload and supported
+distribution behavior must be compared before replacing it. Therefore Linux receipts
+carry `productionAbiAcceptanceStatus=NOT_RUN`, and the full-release gate rejects them
+until that separate compatibility check passes. This change does not increase the
+minimum requirements of any released package.
+
+The CPU job must run ordinary/single/multiple/remove/clear focus with the pinned
+upstream b6 test model. It preserves raw GTP evidence and fails on timeout, rejection
+or tree reset. A green compile-only job is not CPU acceptance.
+
 ## Real protocol acceptance
 
 ```sh
@@ -93,6 +128,28 @@ evidence directory for retests. A warm successful run does not replace final-pac
 acceptance.
 
 ## Required package matrix
+
+The independent `Pinned KataGo Windows Source` workflow covers CPU and OpenCL evidence builds
+on Windows Server 2022 using the MSVC 14.44 toolset. Every dependency archive is hash-locked in
+`scripts/katago_windows_dependencies.json`; compiler/SDK versions and file identities are recorded.
+It uses a static C runtime, disables AVX2, and rejects unknown PE imports. Only the verified
+Khronos OpenCL loader is bundled for OpenCL, not a GPU vendor driver. Relocated binaries must
+report the same source identity with the developer SDK removed from `PATH`. CPU additionally
+executes the real same-tree focus probe. No unsigned evidence executable is published as a user
+download. Windows 10/11 final application and GPU acceptance remain separate requirements.
+
+```powershell
+python scripts/build_katago_windows_dependencies.py --output C:/build/locked-sdk --jobs 3
+python scripts/build_katago_source.py --source C:/src/KataGo --output C:/build/katago `
+  --target windows-cpu --windows-sdk C:/build/locked-sdk/prefix --jobs 3
+python scripts/package_katago_source_windows.py --build C:/build/katago `
+  --sdk C:/build/locked-sdk/prefix --output C:/build/portable-evidence
+```
+
+Run these commands from the selected x64 developer environment; an unverified SDK, wrong compiler
+toolset, stale output, missing DLL, or failed engine process is a hard failure, not a fallback to
+an older KataGo executable. CUDA, TensorRT and experimental execution-provider builds are not
+implemented by this CPU/OpenCL workflow.
 
 | Platform | Backends |
 | --- | --- |
