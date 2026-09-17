@@ -1924,6 +1924,103 @@ class LizzieFrameRegressionTest {
   }
 
   @Test
+  void terminalWholeGameSessionBlocksQuickAnalysisUntilHandoff() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
+      QuickAnalysisCompletionEngine engine = allocate(QuickAnalysisCompletionEngine.class);
+      engine.requestStarted = new CountDownLatch(1);
+      frame.analysisEngine = engine;
+      WholeGameAnalysisSession session = allocate(WholeGameAnalysisSession.class);
+      setDeclaredField(WholeGameAnalysisSession.class, session, "terminal", true);
+      setDeclaredField(
+          WholeGameAnalysisSession.class, session, "state", WholeGameAnalysisSession.State.COMPLETE);
+      setField(frame, "wholeGameAnalysisSession", session);
+      Lizzie.frame = frame;
+
+      frame.flashAnalyzeGame(true, false, true);
+
+      assertEquals(1L, engine.requestStarted.getCount());
+      assertSame(engine, frame.analysisEngine);
+    }
+  }
+
+  @Test
+  void closingTerminalWholeGameDialogPreservesForegroundHandoff() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      WholeGameHandoffFrame frame = allocate(WholeGameHandoffFrame.class);
+      WholeGameAnalysisSession session = allocate(WholeGameAnalysisSession.class);
+      WholeGameAnalysisDialog dialog = allocate(WholeGameAnalysisDialog.class);
+      setDeclaredField(WholeGameAnalysisSession.class, session, "terminal", true);
+      setDeclaredField(
+          WholeGameAnalysisSession.class, session, "state", WholeGameAnalysisSession.State.COMPLETE);
+      setField(frame, "wholeGameAnalysisSession", session);
+      setField(frame, "wholeGameAnalysisDialog", dialog);
+
+      SwingUtilities.invokeAndWait(() -> frame.closeWholeGameAnalysisDialog(dialog, session));
+
+      assertSame(dialog, frame.disposedDialog);
+      assertNull(getField(frame, "wholeGameAnalysisDialog"));
+      assertSame(session, getField(frame, "wholeGameAnalysisSession"));
+      SwingUtilities.invokeAndWait(() -> frame.onWholeGameAnalysisFinished(session, null, true));
+      assertNull(getField(frame, "wholeGameAnalysisSession"));
+      assertEquals(1, frame.resumeCount);
+      SwingUtilities.invokeAndWait(() -> frame.onWholeGameAnalysisFinished(session, null, true));
+      assertEquals(1, frame.resumeCount, "late duplicate completion must not resume twice");
+    }
+  }
+
+  @Test
+  void reopeningTerminalWholeGameDialogWaitsForHandoffAndCoalescesClicks() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      WholeGameHandoffFrame frame = allocate(WholeGameHandoffFrame.class);
+      WholeGameAnalysisSession session = allocate(WholeGameAnalysisSession.class);
+      WholeGameAnalysisDialog dialog = allocate(WholeGameAnalysisDialog.class);
+      setDeclaredField(WholeGameAnalysisSession.class, session, "terminal", true);
+      setDeclaredField(
+          WholeGameAnalysisSession.class, session, "state", WholeGameAnalysisSession.State.CANCELLED);
+      setField(frame, "wholeGameAnalysisSession", session);
+      setField(frame, "wholeGameAnalysisDialog", dialog);
+
+      SwingUtilities.invokeAndWait(frame::requestOpen);
+      SwingUtilities.invokeAndWait(frame::requestOpen);
+      assertSame(session, getField(frame, "wholeGameAnalysisSession"));
+      assertSame(dialog, getField(frame, "wholeGameAnalysisDialog"));
+      assertEquals(0, frame.openCount);
+
+      SwingUtilities.invokeAndWait(() -> frame.onWholeGameAnalysisFinished(session, null, true));
+      assertNull(getField(frame, "wholeGameAnalysisSession"));
+      assertSame(dialog, frame.disposedDialog);
+      assertEquals(1, frame.resumeCount);
+      assertEquals(1, frame.openCount);
+      assertEquals(1, frame.resumeCountWhenOpened);
+      SwingUtilities.invokeAndWait(() -> frame.onWholeGameAnalysisFinished(session, null, true));
+      assertEquals(1, frame.openCount);
+    }
+  }
+
+  @Test
+  void closingTerminalWholeGameDialogCancelsPendingReopenWithoutResumingUserPause()
+      throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      WholeGameHandoffFrame frame = allocate(WholeGameHandoffFrame.class);
+      WholeGameAnalysisSession session = allocate(WholeGameAnalysisSession.class);
+      WholeGameAnalysisDialog dialog = allocate(WholeGameAnalysisDialog.class);
+      setDeclaredField(WholeGameAnalysisSession.class, session, "terminal", true);
+      setDeclaredField(
+          WholeGameAnalysisSession.class, session, "state", WholeGameAnalysisSession.State.CANCELLED);
+      setField(frame, "wholeGameAnalysisSession", session);
+      setField(frame, "wholeGameAnalysisDialog", dialog);
+      SwingUtilities.invokeAndWait(frame::requestOpen);
+      SwingUtilities.invokeAndWait(() -> frame.closeWholeGameAnalysisDialog(dialog, session));
+      SwingUtilities.invokeAndWait(() -> frame.onWholeGameAnalysisFinished(session, null, false));
+      assertNull(getField(frame, "wholeGameAnalysisSession"));
+      assertEquals(0, frame.resumeCount);
+      assertEquals(0, frame.openCount);
+    }
+  }
+
+  @Test
   void staleWholeGameCompletionCannotDisposeTheCurrentSessionDialog() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
@@ -3844,6 +3941,42 @@ class LizzieFrameRegressionTest {
     @Override
     public void repaint() {
       repaintCount++;
+    }
+  }
+
+  private static final class WholeGameHandoffFrame extends LizzieFrame {
+    private int resumeCount;
+    private WholeGameAnalysisDialog disposedDialog;
+    private int openCount;
+    private int resumeCountWhenOpened;
+
+    private void requestOpen() {
+      super.openWholeGameDeepAnalysis();
+    }
+
+    @Override
+    public void openWholeGameDeepAnalysis() {
+      openCount++;
+      resumeCountWhenOpened = resumeCount;
+    }
+
+    @Override
+    void resumeForegroundAnalysisAfterQuickAnalysisComplete() {
+      resumeCount++;
+    }
+
+    @Override
+    public void setMainPanelFocus() {}
+
+    @Override
+    public void refresh() {}
+
+    @Override
+    protected void showWholeGameAnalysisCompleteNotice() {}
+
+    @Override
+    protected void disposeWholeGameAnalysisDialog(WholeGameAnalysisDialog dialog) {
+      disposedDialog = dialog;
     }
   }
 

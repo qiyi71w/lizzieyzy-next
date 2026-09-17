@@ -584,6 +584,7 @@ public class LizzieFrame extends JFrame {
   public AnalysisEngine analysisEngine;
   private WholeGameAnalysisSession wholeGameAnalysisSession;
   private WholeGameAnalysisDialog wholeGameAnalysisDialog;
+  private boolean reopenWholeGameAnalysisAfterHandoff;
   private WholeGameAnalysisResultView wholeGameAnalysisResultView;
   private FlashAnalysisRequest pendingFlashAnalysisAfterSettings;
   private final java.util.concurrent.atomic.AtomicBoolean quickAnalysisEngineStarting =
@@ -15902,6 +15903,11 @@ public class LizzieFrame extends JFrame {
       SwingUtilities.invokeLater(this::openWholeGameDeepAnalysis);
       return;
     }
+    if (wholeGameAnalysisSession != null && wholeGameAnalysisSession.isTerminal()) {
+      // A terminal snapshot can reach the UI before the engine's completion handoff.
+      reopenWholeGameAnalysisAfterHandoff = true;
+      return;
+    }
     if ((wholeGameAnalysisSession != null && !wholeGameAnalysisSession.isTerminal())
         || (wholeGameAnalysisSession == null
             && wholeGameAnalysisDialog != null
@@ -15920,7 +15926,7 @@ public class LizzieFrame extends JFrame {
       return;
     }
     if (wholeGameAnalysisDialog != null) {
-      wholeGameAnalysisDialog.dispose();
+      disposeWholeGameAnalysisDialog(wholeGameAnalysisDialog);
     }
     WholeGameAnalysisDialog dialog = new WholeGameAnalysisDialog(this);
     wholeGameAnalysisDialog = dialog;
@@ -16053,7 +16059,7 @@ public class LizzieFrame extends JFrame {
   void closeWholeGameAnalysisDialog(
       WholeGameAnalysisDialog dialog, WholeGameAnalysisSession session) {
     if (dialog != wholeGameAnalysisDialog) {
-      dialog.dispose();
+      disposeWholeGameAnalysisDialog(dialog);
       return;
     }
     if (session != null && session.isActive()) {
@@ -16062,11 +16068,14 @@ public class LizzieFrame extends JFrame {
       return;
     }
     wholeGameAnalysisDialog = null;
-    if (wholeGameAnalysisSession == session) {
-      wholeGameAnalysisSession = null;
-    }
-    dialog.dispose();
+    reopenWholeGameAnalysisAfterHandoff = false;
+    // Only the completion callback may release the session and restore foreground analysis.
+    disposeWholeGameAnalysisDialog(dialog);
     setMainPanelFocus();
+  }
+
+  protected void disposeWholeGameAnalysisDialog(WholeGameAnalysisDialog dialog) {
+    dialog.dispose();
   }
 
   public void attachWholeGameAnalysisEngine(
@@ -16081,11 +16090,12 @@ public class LizzieFrame extends JFrame {
       WholeGameAnalysisSession session,
       AnalysisEngine completedEngine,
       boolean resumeForegroundAnalysis) {
-    if (wholeGameAnalysisSession != session) {
+    if (session == null || wholeGameAnalysisSession != session) {
       return;
     }
-    boolean complete =
-        session != null && session.state() == WholeGameAnalysisSession.State.COMPLETE;
+    boolean reopen = reopenWholeGameAnalysisAfterHandoff;
+    reopenWholeGameAnalysisAfterHandoff = false;
+    boolean complete = session.state() == WholeGameAnalysisSession.State.COMPLETE;
     if (analysisEngine == completedEngine) {
       analysisEngine = null;
     }
@@ -16095,14 +16105,19 @@ public class LizzieFrame extends JFrame {
     } else {
       refresh();
     }
-    if (complete) {
+    if (complete || reopen) {
       WholeGameAnalysisDialog completedDialog = wholeGameAnalysisDialog;
       wholeGameAnalysisDialog = null;
       if (completedDialog != null) {
-        completedDialog.dispose();
+        disposeWholeGameAnalysisDialog(completedDialog);
       }
+    }
+    if (complete) {
       showWholeGameAnalysisCompleteNotice();
       setMainPanelFocus();
+    }
+    if (reopen) {
+      openWholeGameDeepAnalysis();
     }
   }
 
@@ -16124,7 +16139,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean isWholeGameAnalysisStartingOrRunning() {
-    return wholeGameAnalysisSession != null && wholeGameAnalysisSession.isActive();
+    return wholeGameAnalysisSession != null;
   }
 
   boolean runWithForegroundEngineModeReservation(Runnable action) {
