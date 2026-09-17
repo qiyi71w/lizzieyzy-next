@@ -162,7 +162,11 @@ def verify_archive(path: Path, target: str) -> dict:
         if len({name.casefold() for name in names}) != len(names):
             raise ValueError("source archive contains duplicate names")
         metadata = json.loads(archive.read("source-release.json"))
-        if metadata.get("target") != target or metadata.get("sourceCommit") != SOURCE_COMMIT:
+        if (metadata.get("target") != target or metadata.get("sourceCommit") != SOURCE_COMMIT
+                or metadata.get("origin") != "project-source-build"
+                or metadata.get("backend") != TARGETS[target][2]
+                or any(metadata.get(status) != "PASS" for status in
+                       ("buildStatus", "packagingStatus", "dependencyAuditStatus"))):
             raise ValueError("source archive belongs to a different source or target")
         expected = {}
         for item in metadata.get("files", []):
@@ -172,6 +176,9 @@ def verify_archive(path: Path, target: str) -> dict:
             expected[name] = item
         if set(names) != set(expected) | {"source-release.json"}:
             raise ValueError("source archive inventory is not complete")
+        executable = "katago.exe" if target.startswith("windows-") else "katago"
+        if metadata.get("executable") != expected.get(executable):
+            raise ValueError("source archive executable identity mismatch")
         for name, item in expected.items():
             info = archive.getinfo(name)
             if (info.file_size != item.get("sizeBytes")
