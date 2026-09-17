@@ -2777,6 +2777,14 @@ class ReadBoardEngineResumeTest {
           (ScheduledThreadPoolExecutor) getField(readBoard, "pendingLocalMoveTimeoutExecutor");
       if (scheduler != null) scheduler.shutdownNow();
       leelaz.releaseBlockedLoadSgf();
+      // Observing loadsgf is not completion: its terminal continuation still reads Lizzie globals.
+      // Keep this fixture installed until the worker exits, not just until it sends a command.
+      for (Thread thread : Thread.getAllStackTraces().keySet()) {
+        if ("ReadBoard-GMA-terminal-restore".equals(thread.getName())) {
+          thread.join(5000L);
+          assertFalse(thread.isAlive(), "ReadBoard terminal restore outlived its test fixture");
+        }
+      }
       Lizzie.config = previousConfig;
       Lizzie.board = previousBoard;
       Lizzie.setPrimaryEngine(previousLeelaz);
