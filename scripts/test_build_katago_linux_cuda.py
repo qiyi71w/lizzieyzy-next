@@ -60,8 +60,8 @@ class LinuxCudaSourceTest(unittest.TestCase):
         options = cuda.engine_options(Path("/tmp/Chinese space/sdk"))
         self.assertFalse(any("CMAKE_CUDA_ARCHITECTURES=" in option for option in options))
         self.assertFalse(any("EIGEN3_INCLUDE_DIRS=" in option for option in options))
-        self.assertTrue(any(option.endswith("cuda/bin/nvcc") for option in options))
-        self.assertTrue(any(option.endswith("cudnn/lib/libcudnn.so") for option in options))
+        self.assertTrue(any(option.endswith(str(Path("cuda/bin/nvcc"))) for option in options))
+        self.assertTrue(any(option.endswith(str(Path("cudnn/lib/libcudnn.so"))) for option in options))
         self.assertIn("-DCMAKE_INSTALL_RPATH=$ORIGIN", options)
 
     def test_linux_cuda_requires_verified_sdk_before_any_output(self):
@@ -109,7 +109,7 @@ class LinuxCudaSourceTest(unittest.TestCase):
                 cuda.install_archive(archive, root / "sdk", item, root / "extract")
 
     def test_traversal_and_escaping_symlink_rejected(self):
-        for path, data in (("../../outside", b"bad"), ("lib/bad", ("../../outside",))):
+        for path, data in (("../../outside", b"bad"), ("lib/bad", ("../../../outside",))):
             with self.subTest(path=path), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 archive, item = self.archive(root, {path: data, "LICENSE": b"license"})
