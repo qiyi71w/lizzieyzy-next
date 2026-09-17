@@ -31,6 +31,16 @@ recurrence. Any other missing file or digest difference is a hard failure.
 
 ## Publication gate
 
+The signed `.3` Apple Silicon package passed digest, Gatekeeper, notarization,
+stapling, native launch/analysis/exit and post-launch signature checks. Its real
+whole-game replay exposed a misleading startup-benchmark failure dialog when
+foreground analysis reclaimed compute. [PR #500](https://github.com/wimi321/lizzieyzy-next/pull/500)
+classifies this expected preemption without hiding genuine engine failures.
+The corrected native replay completed five positions at 500 visits, restored
+increasing foreground visits and verified the error dialog was absent. All 59
+local gates passed (4,134 JUnit tests, zero failures/errors, 64 conditional skips).
+The `.3` tag remains unchanged and unpublished; `.4` must rebuild final packages.
+
 The unpublished `.2` candidate exposed two application-packaging defects.
 [PR #497](https://github.com/wimi321/lizzieyzy-next/pull/497) restores the exact
 reviewed macOS engine files after jpackage's implicit ad-hoc signing, before
