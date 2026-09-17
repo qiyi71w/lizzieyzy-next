@@ -469,9 +469,9 @@ copy_bundle_engine_assets() {
   local engine_target_dir="${3:-$STANDARD_ENGINE_PLATFORM_DIR}"
   local engine_backend="${4:-}"
 
-  mkdir -p "$input_dir/engines/katago" "$input_dir/weights"
-  cp -R "$ROOT_DIR/engines/katago/$engine_source_dir" \
-    "$input_dir/engines/katago/$engine_target_dir"
+  mkdir -p "$input_dir/engines/katago/$engine_target_dir" "$input_dir/weights"
+  cp -R "$ROOT_DIR/engines/katago/$engine_source_dir/." \
+    "$input_dir/engines/katago/$engine_target_dir/"
   if [[ -d "$ROOT_DIR/engines/katago/configs" ]]; then
     cp -R "$ROOT_DIR/engines/katago/configs" "$input_dir/engines/katago/"
   fi
@@ -824,7 +824,7 @@ build_app_image() {
     --java-options "-XX:InitialRAMPercentage=$WINDOWS_JAVA_INITIAL_RAM_PERCENTAGE" \
     --java-options "-XX:MaxRAMPercentage=$WINDOWS_JAVA_MAX_RAM_PERCENTAGE" \
     --java-options "-Xshare:auto" \
-    --java-options "-Dlizzie.next.version=$APP_DISPLAY_VERSION" >&2
+    --java-options "-Dlizzie.next.version=$APP_DISPLAY_VERSION" >&2 || return $?
   if [[ ! -f "$app_image_dir/$app_name/runtime/bin/java.exe" ]]; then
     echo "Packaged Windows runtime is missing runtime/bin/java.exe: $app_image_dir/$app_name" >&2
     return 1
@@ -862,7 +862,9 @@ build_installer() {
   local input_dir="$DIST_DIR/input-$flavor"
   local installer_dir="$DIST_DIR/installer-$flavor"
 
-  rm -rf "$installer_dir"
+  # The portable build used this staging directory already. Reusing it nests
+  # engine trees and can exceed WiX's path limit when license paths are long.
+  rm -rf "$input_dir" "$installer_dir"
   copy_common_inputs "$input_dir"
   if [[ "$include_katago" == "true" ]]; then
     copy_bundle_engine_assets "$input_dir" "$engine_source_dir" "$engine_target_dir" "$engine_backend"
@@ -877,6 +879,7 @@ build_installer() {
     runtime_args+=("$arg")
   done < <(jpackage_runtime_args)
   jpackage \
+    --verbose \
     --type exe \
     --name "$app_name" \
     --input "$input_dir" \
@@ -895,7 +898,7 @@ build_installer() {
     --java-options "-XX:InitialRAMPercentage=$WINDOWS_JAVA_INITIAL_RAM_PERCENTAGE" \
     --java-options "-XX:MaxRAMPercentage=$WINDOWS_JAVA_MAX_RAM_PERCENTAGE" \
     --java-options "-Xshare:auto" \
-    --java-options "-Dlizzie.next.version=$APP_DISPLAY_VERSION" >&2
+    --java-options "-Dlizzie.next.version=$APP_DISPLAY_VERSION" >&2 || return $?
   log_step "Finished Windows installer: $app_name [$flavor]"
 
   find "$installer_dir" -maxdepth 1 -type f -name '*.exe' | head -n 1
