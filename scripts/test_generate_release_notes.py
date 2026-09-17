@@ -73,12 +73,12 @@ class GenerateReleaseNotesTest(unittest.TestCase):
     def test_bundle_metadata_comes_from_the_shared_katago_asset_catalog(self) -> None:
         metadata = NOTES.load_bundle_metadata()
 
-        self.assertEqual("v1.18.1", metadata["katago_version"])
+        self.assertEqual("v1.18.2", metadata["katago_version"])
         self.assertEqual(
             "kata1-tf3-b11c768-s11500M-d6163M.bin.gz", metadata["model_source"]
         )
         self.assertEqual(
-            "katago-v1.18.1-cuda12.8-cudnn9.8.0-windows-x64.zip",
+            "katago-source-47aadc08518b-windows-nvidia.zip",
             metadata["windows_nvidia_bundle"],
         )
         self.assertEqual(

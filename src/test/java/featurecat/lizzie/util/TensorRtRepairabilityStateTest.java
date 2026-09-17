@@ -528,10 +528,9 @@ public class TensorRtRepairabilityStateTest {
       throws IOException {
     Files.writeString(
         directory.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
-        "KataGo release: v1.18.1\n"
-            + "Asset: katago-v1.18.1-trt10.9.0-cuda12.8-windows-x64.zip\n"
-            + "Asset SHA-256: "
-            + "49b7229803b2ccee5205cc9d1f7b1a37790469405324de5e5acaafe7a8a9172a\n");
+        "KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag() + "\n"
+            + "Asset: " + KataGoAssetCatalog.get().asset("windows-tensorrt").assetName() + "\n"
+            + "Asset SHA-256: " + KataGoAssetCatalog.get().asset("windows-tensorrt").sha256() + "\n");
   }
 
   private static void writeStaleTensorRtEngineManifest(Path directory) throws IOException {

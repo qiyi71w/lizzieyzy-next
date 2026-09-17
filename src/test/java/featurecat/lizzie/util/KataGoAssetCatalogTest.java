@@ -66,12 +66,14 @@ class KataGoAssetCatalogTest {
   }
 
   @Test
-  void pinsKataGo1181AndB11AsTheOnlyBundledDefault() {
+  void pinsSourceBuiltKataGo1182AndPreservesB11AsTheOnlyBundledDefault() {
     KataGoAssetCatalog catalog = KataGoAssetCatalog.get();
     KataGoAssetCatalog.Model model = catalog.defaultModel();
 
-    assertEquals("1.18.1", catalog.katagoVersion());
-    assertEquals("v1.18.1", catalog.katagoReleaseTag());
+    assertEquals("1.18.2", catalog.katagoVersion());
+    assertEquals("v1.18.2", catalog.katagoReleaseTag());
+    assertEquals(
+        "katago-source-47aadc08518b-windows-cpu.zip", catalog.asset("windows-cpu").assetName());
     assertEquals("kata1-tf3-b11c768-s11500M-d6163M.bin.gz", model.fileName());
     assertEquals(211_568_937L, model.sizeBytes());
     assertEquals(
@@ -96,8 +98,11 @@ class KataGoAssetCatalogTest {
     assertEquals("cuda12.8-cudnn9", catalog.asset("windows-nvidia").runtimeProfile());
     assertEquals(64, catalog.asset("windows-nvidia").executableSha256().length());
     assertEquals("cuda12.1-cudnn9", catalog.asset("linux-nvidia").runtimeProfile());
-    assertTrue(catalog.asset("windows-nvidia").assetName().contains("cuda12.8"));
-    assertTrue(catalog.asset("linux-nvidia").assetName().contains("cuda12.1"));
+    assertEquals(
+        "katago-source-47aadc08518b-windows-nvidia.zip",
+        catalog.asset("windows-nvidia").assetName());
+    assertEquals(
+        "katago-source-47aadc08518b-linux-nvidia.zip", catalog.asset("linux-nvidia").assetName());
   }
 
   @Test
