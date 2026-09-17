@@ -289,7 +289,8 @@ class GtpConfigurationProbeTest {
               IOException.class,
               () ->
                   new GtpConfigurationProbe()
-                      .inspect(fakeEngineCommand("stderr", "hang"), Duration.ofMillis(200)));
+                      // Allow the child JVM handshake; the fixture then hangs on the schema.
+                      .inspect(fakeEngineCommand("stderr", "hang"), Duration.ofSeconds(2)));
 
       assertTrue(
           timeout.getMessage().contains("Timed out waiting for the engine configuration response"),
@@ -297,10 +298,15 @@ class GtpConfigurationProbeTest {
       assertFalse(timeout.getMessage().contains("probe-stderr"), timeout.getMessage());
       String logs = formatted(events);
       assertTrue(logs.contains("probe event=started"), logs);
+      assertTrue(logs.contains("probe event=capability-check outcome=success"), logs);
       assertTrue(logs.contains("probe event=failed stage=timeout"), logs);
       assertTrue(logs.contains("probe event=stderr facts="), logs);
-      assertTrue(logs.contains("probe-stderr"), logs);
+      assertTrue(
+          logs.contains("CUDA error: fake backend failed") || logs.contains("probe-stderr"), logs);
       awaitLogs(runtime);
+      String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
+      assertFalse(app.contains("probe-secret-token"), app);
+      assertTrue(app.contains("probe event=stderr"), app);
     } finally {
       runtime.shutdown();
     }

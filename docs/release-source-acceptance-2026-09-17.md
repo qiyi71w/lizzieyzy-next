@@ -31,6 +31,17 @@ recurrence. Any other missing file or digest difference is a hard failure.
 
 ## Publication gate
 
+The unpublished `.2` candidate exposed two application-packaging defects.
+[PR #497](https://github.com/wimi321/lizzieyzy-next/pull/497) restores the exact
+reviewed macOS engine files after jpackage's implicit ad-hoc signing, before
+Developer ID signing. A real JDK 21 reproduction verified all 120 inventory
+entries, 85 dylibs, engine version and the app's strict signature after repair.
+[PR #498](https://github.com/wimi321/lizzieyzy-next/pull/498) makes Windows engine
+staging idempotent and gives each installer a fresh input directory, preventing
+duplicated engine/license paths. Both fixes passed all 59 local gates and 4,131
+JUnit tests (zero failures/errors; 64 conditional skips). New final packages
+are still required; the `.2` tag is not moved or republished with different bytes.
+
 For project-built engines, a release-request push now builds and verifies the
 complete candidate but leaves it as Draft. After inspecting final signed
 packages, dispatch `publish-requested-pre-release.yml` with the existing request
