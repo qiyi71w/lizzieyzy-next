@@ -69,6 +69,12 @@ jobs:
           python3 scripts/probe_katago_focus.py --engine "$RUNNER_TEMP/katago-package/katago"
           --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
           --evidence "$RUNNER_TEMP/focus-probe" --timeout 120
+      - name: Verify production ABI and clean Ubuntu 22/24 compatibility
+        run: >-
+          python3 scripts/audit_katago_linux_compatibility.py
+          --package "$RUNNER_TEMP/katago-package" --sdk "$RUNNER_TEMP/katago-sdk/prefix"
+          --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
+          --output "$RUNNER_TEMP/linux-compatibility"
       - name: Retain evidence, never publish a release
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,5 +87,7 @@ jobs:
             ${{ runner.temp }}/katago-build/source-build.json
             ${{ runner.temp }}/katago-package/
             ${{ runner.temp }}/focus-probe/
+            ${{ runner.temp }}/linux-compatibility/linux-compatibility.json
+            ${{ runner.temp }}/linux-compatibility/compatibility.log
           if-no-files-found: error
           retention-days: 7
