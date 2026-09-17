@@ -21,6 +21,7 @@ SYSTEM_DEPENDENCY_PREFIXES = (
     "/System/Library/",
     "/usr/lib/",
 )
+MINIMUM_MACOS_VERSION = "15.0"
 
 
 class BundleError(RuntimeError):
@@ -94,6 +95,45 @@ def parse_otool_dependencies(output: str) -> list[str]:
 
 def dependencies(path: Path) -> list[str]:
     return parse_otool_dependencies(run(["otool", "-L", str(path)]).stdout)
+
+
+def macos_deployment_versions(output: str) -> list[str]:
+    """Read each Mach-O slice; a newer SDK is fine, a newer minimum OS is not."""
+    versions: list[str] = []
+    for block in re.split(r"(?m)^Load command \d+\s*$", output)[1:]:
+        command = re.search(r"(?m)^\s*cmd (LC_\w+)\s*$", block)
+        if command is None:
+            continue
+        if command[1] == "LC_BUILD_VERSION":
+            platform_id = re.search(r"(?m)^\s*platform (\S+)\s*$", block)
+            if platform_id is None or platform_id[1] not in {"1", "macos"}:
+                raise BundleError("Non-macOS Mach-O build version")
+            field = "minos"
+        elif command[1] == "LC_VERSION_MIN_MACOSX":
+            field = "version"
+        elif command[1].startswith("LC_VERSION_MIN_"):
+            raise BundleError("Non-macOS Mach-O deployment target")
+        else:
+            continue
+        match = re.search(rf"(?m)^\s*{field} (\d+(?:\.\d+){{0,2}})\s*$", block)
+        if match is None:
+            raise BundleError("Missing Mach-O minimum macOS version")
+        versions.append(match[1])
+    if not versions:
+        raise BundleError("Missing Mach-O minimum macOS version")
+    return versions
+
+
+def audit_macos_deployment(binary: Path) -> list[str]:
+    versions = macos_deployment_versions(run(["otool", "-l", str(binary)]).stdout)
+    for version in versions:
+        parts = tuple(int(part) for part in version.split("."))
+        if parts + (0,) * (3 - len(parts)) > (15, 0, 0):
+            raise BundleError(
+                f"{binary.name} requires macOS {version}; "
+                f"the bundle must support macOS {MINIMUM_MACOS_VERSION}"
+            )
+    return versions
 
 
 def install_id(path: Path) -> str | None:
@@ -304,6 +344,7 @@ def build_bundle(
         "schemaVersion": 1,
         "katago": katago_source.name,
         "expectedVersion": expected_version or "",
+        "minimumMacOSVersion": MINIMUM_MACOS_VERSION,
         "libraries": sorted(node.target.name for node in nodes.values() if not node.executable),
     }
     (output / "bundle-manifest.json").write_text(
@@ -383,7 +424,14 @@ def audit_bundle(bundle: Path, expected_version: str | None) -> None:
                 expected_version = manifest_version.strip()
 
     bundle_root = bundle.resolve()
+    executable_arches = set(run(["lipo", "-archs", str(executable)]).stdout.split())
+    if not executable_arches or not executable_arches.issubset({"arm64", "x86_64"}):
+        raise BundleError("Unexpected or missing macOS KataGo architecture")
     for binary in audited_files:
+        binary_arches = set(run(["lipo", "-archs", str(binary)]).stdout.split())
+        if not executable_arches.issubset(binary_arches):
+            raise BundleError(f"{binary.name} does not support executable architectures {executable_arches}")
+        audit_macos_deployment(binary)
         binary_id = install_id(binary)
         for reference in dependencies(binary):
             if binary_id and reference == binary_id:

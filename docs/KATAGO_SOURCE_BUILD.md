@@ -1,0 +1,121 @@
+# Pinned KataGo source build acceptance
+
+This tooling is a prerequisite for the move-focus pre-release, not permission to publish it.
+The production package builders and stable/R2 channels are unchanged until all release gates pass.
+
+## Source identity
+
+- Repository: <https://github.com/lightvector/KataGo>
+- Merged commit: `47aadc08518b3e121f22539796c911002f699584`
+- Upstream change: <https://github.com/lightvector/KataGo/pull/1252>
+- This source reports **KataGo v1.18.2**. Preserve its real version output; a version string alone
+cannot identify focus support.
+
+Both macOS targets explicitly use deployment target `15.0`, matching the current release's
+Mach-O load command. The builder checks the actual executable, rather than relying on the CMake
+argument. Building on macOS 26 must not silently raise the release's minimum system version.
+The bundle auditor checks every non-system dylib too. A library requiring macOS 15.1 or 26
+is rejected even when the executable itself supports 15.0.
+
+The builder rejects dirty or different source checkouts, implicit dependency auto-fetching,
+cross-host claims and reused output directories. It records the real compiler, CMake options,
+binary size/hash and source revision. A build receipt deliberately leaves packaging, dependency
+closure and hardware acceptance as `NOT_RUN`. It does not certify packaged DLLs.
+
+## Build
+
+Prepare the exact clean upstream checkout and separately verified SDK/dependency prefixes first.
+The builder does not install packages, update GPU drivers or modify the source checkout.
+
+```sh
+python3 scripts/build_katago_macos_dependencies.py \
+  --output /path/to/new/sdk-build \
+  --arch arm64
+
+python3 scripts/build_katago_source.py \
+  --source /path/to/clean/KataGo \
+  --output /path/to/new/build-directory \
+  --target macos-arm64 \
+  --macos-sdk /path/to/new/sdk-build/prefix
+```
+
+Use Python 3.12 or later for dependency extraction. Every invocation needs a new output directory; a failed configure or
+compile must never leave a previous executable looking like a successful new build.
+
+`katago_macos_dependencies.json` pins the source archives and SHA-256 for protobuf, abseil,
+libzip, xz and zstd. All are built for macOS 15.0 into an isolated prefix, without Homebrew
+library discovery. Redistributable licenses and a verified file inventory accompany the SDK.
+KataGo builds refuse a changed SDK, a different architecture, or an older lock receipt.
+The system SDK supplies zlib and platform frameworks. Build tools may come from Homebrew;
+its runtime libraries must not leak into the artifact.
+
+The dependency lock keeps the protobuf/abseil/libzip versions found in the reference package.
+It additionally pins previously floating optional compression dependencies. This does not
+upgrade CUDA, cuDNN, TensorRT or the bundled model. Intel builds use `--arch x86_64` and
+`--target macos-amd64` on a native Intel host.
+
+Package a build with its pinned SDK and upstream/third-party licenses:
+
+```sh
+python3 scripts/package_katago_source_macos.py \
+  --build /path/to/new/build-directory \
+  --sdk /path/to/new/sdk-build/prefix \
+  --output /path/to/new/portable-engine
+```
+
+This verifies the compiled executable's hash before copying, rewrites and verifies the entire
+dylib closure, checks minimum macOS versions and records the final rewritten file hashes.
+Linkers reserve Mach-O header space for portable dependency paths. Both architectures build in
+`katago-source-macos.yml`; these are CI artifacts, not public releases. Hardware acceptance
+remains `NOT_RUN` until separately tested. Developer ID signing, notarization and all 15 final
+application packages remain separate release gates.
+
+## Real protocol acceptance
+
+```sh
+python3 scripts/probe_katago_focus.py \
+  --engine /path/to/self-built/katago \
+  --model /path/to/model.bin.gz \
+  --evidence /path/to/new/evidence-directory
+```
+
+The probe uses one real process, numbered acknowledgements and the engine's **root** visit count.
+It checks ordinary analysis, one focused point, two points, removal, clearing and clean shutdown.
+Focused points use equal weights and probability `0.5`. Candidate visit totals are not substituted
+for root visits. Evidence directories cannot be overwritten. Rejection, exit, timeout and a reset
+search tree fail the probe; none are reclassified as unsupported hardware.
+
+`--timeout` bounds each version/GTP operation (default 120 seconds, allowed 1-600), with no
+automatic retries. Evidence records the version-check elapsed time, including OS startup security
+scanning. Downloaded ad-hoc-signed CI artifacts can incur a macOS first-launch scan; they are not
+the final Developer ID signed/notarized application. Preserve any failed attempt and use a new
+evidence directory for retests. A warm successful run does not replace final-package cold-start
+acceptance.
+
+## Required package matrix
+
+| Platform | Backends |
+| --- | --- |
+| Windows x64 | Eigen, OpenCL, CUDA, TensorRT, DirectML, OpenVINO |
+| Windows x64 experimental ROCm | gfx103x, gfx110x, gfx1151, gfx120x |
+| Linux x64 | Eigen, OpenCL, CUDA |
+| macOS | Apple Silicon Metal, Intel Metal |
+
+All **15** targets require compilation, packaging and dependency-closure audit. Hardware acceptance
+may be `PENDING_HARDWARE` only when corresponding hardware is unavailable, never after an actual
+test failure, and must include an explicit reason. Eigen CPU targets must execute, not claim a
+missing GPU. Receipts must identify the correct backend and executable size/digest. A receipt
+completeness check does not replace checking the final package bytes,
+signed macOS bundles or public download hashes.
+
+## Integration gates still required
+
+- Lock and fetch build SDKs and dependency archives by version and digest without changing the
+  existing CUDA/cuDNN, TensorRT, ROCm and ONNX execution-provider runtime choices.
+- Build and audit every target in CI, then feed those exact verified artifacts into full packages.
+- Publish trusted self-built engine catalogs for repair and on-demand installation; do not let a
+  repair silently replace the new engine with an old official release.
+- Complete #449 runtime probing, legacy single-engine `allow` fallback and GUI/SGF regression.
+- Collect all final assets in Draft and audit them before any pre-release publication.
+
+The current stable release, official download catalog and R2 assets must remain untouched.
