@@ -57,8 +57,12 @@ class PrepareSourceAssetsTest(unittest.TestCase):
             run.assert_not_called()
 
     def test_official_catalog_and_duplicate_targets_cannot_enter_source_path(self):
+        official = json.loads(DEFAULT_CATALOG.read_text())
+        official["origin"] = "official-release"
+        official_path = self.root / "official.json"
+        official_path.write_text(json.dumps(official))
         with self.assertRaisesRegex(ValueError, "reviewed source catalog"):
-            prepare(DEFAULT_CATALOG, ["windows-cpu"], self.root / "cache", self.engines)
+            prepare(official_path, ["windows-cpu"], self.root / "cache", self.engines)
         with self.assertRaisesRegex(ValueError, "duplicate"):
             self.prepare(["windows-cpu", "windows-cpu"])
 
