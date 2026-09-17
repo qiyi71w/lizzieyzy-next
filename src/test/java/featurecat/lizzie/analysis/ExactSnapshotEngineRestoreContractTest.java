@@ -3022,7 +3022,7 @@ class ExactSnapshotEngineRestoreContractTest {
     }
 
     @Override
-    public boolean isPonderingOrWasPonderingBeforeTracking() {
+    public boolean isPondering() {
       return true;
     }
 

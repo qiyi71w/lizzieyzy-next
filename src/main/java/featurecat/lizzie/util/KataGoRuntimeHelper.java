@@ -3998,7 +3998,7 @@ public final class KataGoRuntimeHelper {
     boolean analysisWasPondering =
         currentEngine != null
             && currentEngine.isLoaded()
-            && currentEngine.isPonderingOrWasPonderingBeforeTracking();
+            && currentEngine.isPondering();
     Leelaz.ExclusiveGtpLifecycleReservation reservation =
         currentEngine == null ? null : currentEngine.beginExclusiveGtpLifecycleReservation();
     if (currentEngine != null && reservation == null) {
@@ -4945,9 +4945,7 @@ public final class KataGoRuntimeHelper {
         commandChanged = true;
       }
       if (!hasSearchThreadOverride) {
-        appendOverrideConfig(
-            commandParts,
-            "numSearchThreadsPerAnalysisThread=" + profile.numSearchThreadsPerAnalysisThread);
+        appendManagedAnalysisSearchThreads(commandParts, profile.numSearchThreadsPerAnalysisThread);
         commandChanged = true;
       }
       return commandChanged ? buildCommandLine(commandParts) : engineCommand;
@@ -4961,21 +4959,25 @@ public final class KataGoRuntimeHelper {
         commandChanged = true;
       }
       if (!hasSearchThreadOverride) {
-        appendOverrideConfig(
-            commandParts,
-            "numSearchThreadsPerAnalysisThread=" + profile.numSearchThreadsPerAnalysisThread);
+        appendManagedAnalysisSearchThreads(commandParts, profile.numSearchThreadsPerAnalysisThread);
         commandChanged = true;
       }
       return buildCommandLine(commandParts);
     }
 
     if (maxVisits <= 36 && !hasSearchThreadOverride) {
-      appendOverrideConfig(
-          commandParts, "numSearchThreadsPerAnalysisThread=" + Math.max(1, maxVisits / 10));
+      appendManagedAnalysisSearchThreads(commandParts, Math.max(1, maxVisits / 10));
       return buildCommandLine(commandParts);
     }
 
     return commandChanged ? buildCommandLine(commandParts) : engineCommand;
+  }
+
+  private static void appendManagedAnalysisSearchThreads(List<String> command, int threads) {
+    // KataGo rejects both aliases even if one came from a cfg include. An empty
+    // override removes the GTP alias for this launch without rewriting user files.
+    appendOverrideConfig(command, "numSearchThreads=");
+    appendOverrideConfig(command, "numSearchThreadsPerAnalysisThread=" + threads);
   }
 
   private static void installNvidiaRuntimeWithDialog(

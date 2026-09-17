@@ -139,11 +139,14 @@ def main() -> int:
     model_url_parser = subparsers.add_parser("model-url")
     model_url_parser.add_argument("model_id")
     subparsers.add_parser("engine-release-base")
+    subparsers.add_parser("origin")
     asset_url_parser = subparsers.add_parser("asset-url")
     asset_url_parser.add_argument("asset_id")
     args = parser.parse_args()
 
     catalog = load_catalog(args.catalog)
+    if args.command == "origin":
+        print(catalog.get("origin", "official-release"))
     if args.command == "model-url":
         print(model_download_url(catalog, args.model_id))
     if args.command == "asset-url":

@@ -13,12 +13,18 @@ import stat
 import subprocess
 import sys
 import time
+import tempfile
 import urllib.request
 import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Callable
+
+try:
+    from katago_asset_catalog import asset_download_url, validate_catalog
+except ModuleNotFoundError:
+    from scripts.katago_asset_catalog import asset_download_url, validate_catalog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,7 +98,13 @@ def load_pins(path: Path) -> dict[str, Any]:
     if require_text(asset, "backend", "linux-cpu asset") != "eigen":
         raise ProvisioningError("linux-cpu asset backend must be eigen")
     archive_name = require_text(asset, "assetName", "linux-cpu asset")
-    if f"-{release_tag}-" not in archive_name or not archive_name.endswith(".zip"):
+    if catalog.get("origin", "official-release") == "project-source-build":
+        try:
+            validate_catalog(catalog)
+        except (KeyError, TypeError, ValueError) as failure:
+            raise ProvisioningError(f"invalid source catalog: {failure}") from failure
+        require_sha256({"sha256": asset.get("executableSha256")}, "linux-cpu executable")
+    elif f"-{release_tag}-" not in archive_name or not archive_name.endswith(".zip"):
         raise ProvisioningError("linux-cpu assetName does not match the pinned release")
     require_size(asset, "linux-cpu asset")
     require_sha256(asset, "linux-cpu asset")
@@ -195,6 +207,29 @@ def obtain_cached(
     return path, True
 
 
+def obtain_engine_archive(catalog: dict, cache: Path, opener: Callable) -> tuple[Path, bool]:
+    asset = catalog["assets"]["linux-cpu"]
+    destination = cache / asset["assetName"]
+    if (catalog.get("origin") == "project-source-build" and not destination.exists()
+            and (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))):
+        # Draft access stays inside gh; credentials are never forwarded to a CDN.
+        with tempfile.TemporaryDirectory(prefix=".source-acceptance-", dir=cache) as temporary:
+            try:
+                subprocess.run([
+                    "gh", "release", "download", catalog["engineReleaseTag"],
+                    "--repo", catalog["engineReleaseRepository"], "--pattern", asset["assetName"],
+                    "--dir", temporary,
+                ], check=True, capture_output=True, timeout=DOWNLOAD_DEADLINE_SECONDS)
+                pending = Path(temporary) / asset["assetName"]
+                verify_file(pending, asset["sizeBytes"], asset["sha256"], "source CPU archive")
+                os.replace(pending, destination)
+            except (OSError, subprocess.SubprocessError) as failure:
+                raise ProvisioningError("cannot obtain the pinned source CPU archive") from failure
+        return destination, True
+    return obtain_cached(cache, asset["assetName"], asset_download_url(catalog, "linux-cpu"),
+                         asset["sizeBytes"], asset["sha256"], "Linux Eigen archive", opener)
+
+
 def validate_archive_entries(archive: zipfile.ZipFile) -> None:
     for entry in archive.infolist():
         name = entry.filename.replace("\\", "/")
@@ -294,16 +329,7 @@ def prepare(
     model_id = catalog["defaultModelId"]
     model = catalog["models"][model_id]
     archive_name = asset["assetName"]
-    archive_url = f"{ARCHIVE_RELEASE_BASE}/{catalog['katagoReleaseTag']}/{archive_name}"
-    archive_path, archive_downloaded = obtain_cached(
-        cache,
-        archive_name,
-        archive_url,
-        asset["sizeBytes"],
-        asset["sha256"],
-        "Linux Eigen archive",
-        opener,
-    )
+    archive_path, archive_downloaded = obtain_engine_archive(catalog, cache, opener)
     model_path, model_downloaded = obtain_cached(
         cache,
         model["fileName"],
@@ -341,6 +367,10 @@ def prepare(
             "prepared default model",
         )
         version_output = version_runner(executable).strip()
+        if catalog.get("origin") == "project-source-build":
+            if (sha256_file(executable) != asset["executableSha256"]
+                    or f"Git revision: {catalog['katagoSourceCommit']}" not in version_output):
+                raise ProvisioningError("source CPU executable or source revision mismatch")
         expected_version = f"KataGo v{catalog['katagoVersion']}"
         if expected_version not in version_output:
             raise ProvisioningError(

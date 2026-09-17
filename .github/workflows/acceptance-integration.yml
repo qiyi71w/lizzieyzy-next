@@ -36,6 +36,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb xauth fonts-dejavu-core fonts-noto-cjk
       - name: Prepare verified Linux Eigen and default model
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/prepare_cpu_engine_acceptance.py --root target/acceptance-assets
       - name: Run SGF dialogs and real CPU process acceptance
         env:

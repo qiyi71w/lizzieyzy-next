@@ -81,11 +81,7 @@ final class ConfigSettingTargets {
         target("config.theme.stone-indicator", SettingSection.THEME, "ConfigDialog2.modern.theme.indicator", "ConfigDialog2.modern.theme.indicatorSub", "view"),
         target("config.theme.comment-node-color", SettingSection.THEME, "ConfigDialog2.modern.theme.commentNode", "ConfigDialog2.modern.theme.commentNodeSub", "view"),
         target("config.tracking.outline", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.outline", "ConfigDialog2.modern.trackingAppearance.outlineSub", "view"),
-        target("config.tracking.interior-color", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.interiorColor", "ConfigDialog2.modern.colorRowHint", "view"),
-        target("config.tracking.interior-opacity", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.interiorOpacity", "ConfigDialog2.modern.trackingAppearance.interiorOpacitySub", "view"),
         target("config.tracking.outline-opacity", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.outlineOpacity", "ConfigDialog2.modern.trackingAppearance.outlineOpacitySub", "view"),
-        target("config.tracking.auto-text-color", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.autoTextColor", "ConfigDialog2.modern.trackingAppearance.autoTextColorSub", "view"),
-        target("config.tracking.text-color", SettingSection.THEME, "ConfigDialog2.modern.trackingAppearance.textColor", "ConfigDialog2.modern.trackingAppearance.textColorSub", "view"),
         target("config.theme.blunder-rules", SettingSection.THEME, "ConfigDialog2.modern.theme.blunderRules", "ConfigDialog2.modern.theme.blunderRulesSub", "analysis"),
         target("config.theme.score-blunders", SettingSection.THEME, "ConfigDialog2.modern.theme.scoreBlunders", "ConfigDialog2.modern.theme.scoreBlundersSub", "analysis"));
 

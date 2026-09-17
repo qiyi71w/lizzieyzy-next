@@ -59,6 +59,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -376,7 +377,10 @@ public final class SgfUiAcceptanceIT {
         throw new IllegalArgumentException(
             "unexpected D3 child arguments: " + Arrays.toString(args));
       }
-      throw new AssertionError("File -> Exit returned without terminating the application");
+      // Exit finishes benchmark cancellation and logging asynchronously. Only the
+      // production shutdown may terminate successfully; the parent checks exit 0.
+      new CountDownLatch(1).await(30, TimeUnit.SECONDS);
+      throw new AssertionError("File -> Exit did not terminate the application within 30 seconds");
     } catch (Throwable failure) {
       if (result != null) {
         Files.writeString(

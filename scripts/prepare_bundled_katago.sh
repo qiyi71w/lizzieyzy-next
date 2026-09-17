@@ -385,11 +385,45 @@ Model architecture: $PREFERRED_MODEL_ARCHITECTURE
 Minimum KataGo version: $PREFERRED_MODEL_MINIMUM_KATAGO
 Prepared at: $(date '+%F %T %z')
 EOF
+  if [[ "$("$CATEGORY_READER" "$ASSET_CATALOG_READER" origin)" == "project-source-build" ]]; then
+    printf 'KataGo origin: project-source-build\nKataGo source commit: %s\n' \
+      "$(catalog_get katagoSourceCommit)" >>"$ENGINES_ROOT/VERSION.txt"
+  fi
+}
+
+prepare_source_bundle() {
+  local targets=()
+  case "$(uname -s)" in
+    Darwin) targets=("$(detect_macos_platform_dir)") ;;
+    Linux) targets=(linux-cpu linux-opencl linux-nvidia) ;;
+    MINGW*|MSYS*|CYGWIN*)
+      targets=(windows-cpu windows-opencl windows-nvidia)
+      if [[ "${PREPARE_WINDOWS_EXPERIMENTAL:-false}" == "true" ]]; then
+        targets+=(windows-directml windows-openvino windows-rocm-gfx103x windows-rocm-gfx110x
+          windows-rocm-gfx1151 windows-rocm-gfx120x)
+      fi
+      ;;
+    *) echo "Unsupported source-package host: $(uname -s)" >&2; return 1 ;;
+  esac
+  "$CATEGORY_READER" "$ROOT_DIR/scripts/prepare_katago_source_assets.py" \
+    --catalog "$ROOT_DIR/src/main/resources/katago-assets.json" \
+    --targets "${targets[@]}" --cache "$CACHE_DIR" --engines "$ENGINES_ROOT"
+  local model_path
+  model_path="$(find_model_source)"
+  verify_model "$model_path"
+  mkdir -p "$WEIGHTS_ROOT"
+  cp -f "$model_path" "$WEIGHTS_ROOT/default.bin.gz"
+  write_manifest "$model_path"
 }
 
 main() {
   require_cmd curl
   require_cmd unzip
+
+  if [[ "$("$CATEGORY_READER" "$ASSET_CATALOG_READER" origin)" == "project-source-build" ]]; then
+    prepare_source_bundle
+    return
+  fi
 
   download_asset "$WINDOWS_ASSET"
   download_asset "$WINDOWS_OPENCL_ASSET"
