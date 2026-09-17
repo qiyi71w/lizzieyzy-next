@@ -2,6 +2,7 @@
 
 import copy
 import json
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -56,6 +57,37 @@ class TensorRtSourceTest(unittest.TestCase):
         self.assertTrue(any(option.endswith("nvonnxparser_10.lib") for option in options))
         self.assertTrue(any(option.startswith("-DCUDAToolkit_ROOT=") for option in options))
         self.assertFalse(any(option.startswith(("-DCUDNN_", "-DEIGEN3_INCLUDE_DIRS=")) for option in options))
+        self.assertIn("-DProtobuf_USE_STATIC_LIBS=ON", options)
+        self.assertTrue(any(option.endswith("lib/libprotobuf.lib") for option in options))
+        self.assertTrue(any(option.endswith("bin/protoc.exe") for option in options))
+
+    def test_protobuf_uses_the_audited_existing_source_and_static_runtime(self):
+        directml = json.loads(trt.LOCK_PATH.with_name("katago_directml_dependencies.json").read_text())
+        self.assertEqual(directml["dependencies"][0], self.lock["protobuf"])
+        options = trt.protobuf_options(Path("sdk"))
+        self.assertIn("-Dprotobuf_BUILD_SHARED_LIBS=OFF", options)
+        self.assertIn("-Dprotobuf_MSVC_STATIC_RUNTIME=ON", options)
+        self.assertIn("-Dprotobuf_BUILD_TESTS=OFF", options)
+
+    def test_protobuf_is_verified_before_compilation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(trt.subprocess, "run") as run, \
+                    patch.object(trt, "extract_verified", side_effect=ValueError("SHA mismatch")) as extract:
+                with self.assertRaisesRegex(ValueError, "SHA mismatch"):
+                    trt.install_protobuf(root, root / "sdk", self.lock, 3, io.StringIO())
+                self.assertEqual(1, run.call_count)
+                self.assertEqual(self.lock["protobuf"]["sha256"], extract.call_args.args[2])
+
+    def test_protobuf_missing_build_output_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(trt.subprocess, "run") as run, \
+                    patch.object(trt, "extract_verified", return_value=root / "source"), \
+                    patch.object(trt.cuda.common, "environment", return_value={}):
+                with self.assertRaisesRegex(ValueError, "SDK component missing"):
+                    trt.install_protobuf(root, root / "sdk", self.lock, 3, io.StringIO())
+                self.assertEqual(4, run.call_count)
 
     def test_install_retains_runtime_headers_and_notices(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -7,12 +7,13 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import zipfile
 
 import build_katago_cuda_dependencies as cuda
-from build_katago_directml_dependencies import copy_member
-from build_katago_macos_dependencies import digest, inventory
+from build_katago_directml_dependencies import copy_member, protobuf_options
+from build_katago_macos_dependencies import digest, extract_verified, inventory
 
 LOCK_PATH = Path(__file__).with_name("katago_tensorrt_dependencies.json")
 TARGET = "windows-tensorrt"
@@ -34,7 +35,34 @@ def engine_options(prefix: Path) -> list[str]:
         f"-DTENSORRT_INCLUDE_DIR={prefix / 'tensorrt/include'}",
         f"-DTENSORRT_LIBRARY={prefix / 'tensorrt/lib/nvinfer_10.lib'}",
         f"-DTENSORRT_ONNXPARSER_LIBRARY={prefix / 'tensorrt/lib/nvonnxparser_10.lib'}",
+        "-DProtobuf_USE_STATIC_LIBS=ON",
+        f"-DProtobuf_INCLUDE_DIR={prefix / 'include'}",
+        f"-DProtobuf_LIBRARY={prefix / 'lib/libprotobuf.lib'}",
+        f"-DProtobuf_PROTOC_EXECUTABLE={prefix / 'bin/protoc.exe'}",
     ]
+
+
+def install_protobuf(output: Path, prefix: Path, lock: dict, jobs: int, log) -> None:
+    item = lock["protobuf"]
+    archive = output / "protobuf.archive"
+    subprocess.run(["curl.exe", "--fail", "--location", "--proto", "=https", "--proto-redir", "=https",
+                    "--retry", "3", "--connect-timeout", "30", "--max-time", "600", "--output",
+                    str(archive), item["url"]], check=True, stdout=log, stderr=subprocess.STDOUT)
+    source = extract_verified(archive, output / "protobuf-source", item["sha256"])
+    # Static protobuf stays private to KataGo; no ABI contact with nvonnxparser's copy.
+    for command in (
+        ["cmake", "-S", str(source), "-B", str(output / "protobuf-build"), "-G", "Ninja",
+         *protobuf_options(prefix)],
+        ["cmake", "--build", str(output / "protobuf-build"), "--parallel", str(jobs)],
+        ["cmake", "--install", str(output / "protobuf-build")],
+    ):
+        subprocess.run(command, check=True, env=cuda.common.environment(prefix),
+                       stdout=log, stderr=subprocess.STDOUT)
+    for name in ("lib/libprotobuf.lib", "bin/protoc.exe", "include/google/protobuf/message.h"):
+        if not (prefix / name).is_file():
+            raise ValueError(f"TensorRT protobuf SDK component missing: {name}")
+    (prefix / "share/licenses/protobuf").mkdir(parents=True)
+    shutil.copy2(source / "LICENSE", prefix / "share/licenses/protobuf/LICENSE")
 
 
 def install_archive(archive: Path, prefix: Path, lock: dict) -> None:
@@ -97,6 +125,7 @@ def build_sdk(output: Path, jobs: int) -> Path:
     try:
         archive = output / "tensorrt.zip"
         with (output / "build.log").open("a", encoding="utf-8") as log:
+            install_protobuf(output, prefix, lock, jobs, log)
             subprocess.run(["curl.exe", "--fail", "--location", "--proto", "=https", "--proto-redir", "=https",
                             "--retry", "3", "--connect-timeout", "30", "--max-time", "1200",
                             "--output", str(archive), lock["archive"]["url"]], check=True,
@@ -109,7 +138,7 @@ def build_sdk(output: Path, jobs: int) -> Path:
         if {path.name for path in (prefix / "runtime").iterdir()} != set(runtime_files()):
             raise ValueError("Combined TensorRT runtime inventory differs from lock")
         receipt.update(status="PASS", files=inventory(prefix),
-                       dependencies=base["dependencies"] + [lock["archive"]])
+                       dependencies=base["dependencies"] + [lock["protobuf"], lock["archive"]])
     except Exception as error:
         receipt["error"] = str(error)
         raise
