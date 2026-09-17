@@ -45,9 +45,9 @@ public class WebBoardServerTest {
   @AfterEach
   void tearDown() throws Exception {
     try {
-      ownedClients.forEach(TestClient::close);
-      // Stop the owned server before awaiting clients, so a pending close handshake
-      // cannot outlive the fixture and depend on the library's heartbeat timeout.
+      // Protocol assertions are complete. Close the fixture's sockets directly so
+      // cleanup does not race the server stop against an unfinished close handshake.
+      ownedClients.forEach(client -> client.closeConnection(1000, "test fixture cleanup"));
       if (server != null) server.stop(1000);
       for (TestClient client : ownedClients) {
         assertTrue(client.closed.await(3, TimeUnit.SECONDS), "owned client did not close");
