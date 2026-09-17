@@ -1878,6 +1878,8 @@ public final class KataGoRuntimeHelper {
 
   private static void applyHumanSlLaunchProfile(List<String> command) {
     setOverrideConfig(command, "numAnalysisThreads=1");
+    // Remove the GTP alias from inherited configs without changing the user's file.
+    setOverrideConfig(command, "numSearchThreads=");
     setOverrideConfig(command, "numSearchThreadsPerAnalysisThread=8");
     setOverrideConfig(command, "nnMaxBatchSize=8");
     setOverrideConfig(command, "nnCacheSizePowerOfTwo=20");

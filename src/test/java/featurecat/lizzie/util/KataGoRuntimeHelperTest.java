@@ -299,6 +299,30 @@ public class KataGoRuntimeHelperTest {
   }
 
   @Test
+  void humanSlLaunchRemovesGtpThreadAliasWithoutRewritingUserConfig() throws Exception {
+    Path root = Files.createTempDirectory("katago-humansl-thread-alias");
+    Path engine = touch(root.resolve("engines/katago/macos-arm64/katago"));
+    Path config = Files.writeString(root.resolve("custom gtp.cfg"), "numSearchThreads = 2\n");
+    String original = Files.readString(config);
+    withConfig(
+        root,
+        () -> {
+          for (String override : List.of("", "numSearchThreads=4,numAnalysisThreads=2")) {
+            List<String> input = new java.util.ArrayList<>(List.of(
+                engine.toString(), "analysis", "-config", config.toString()));
+            if (!override.isEmpty()) input.addAll(List.of("-override-config", override));
+            List<String> command = KataGoRuntimeHelper.prepareBundledLaunchCommand(
+                input, engine, KataGoRuntimeHelper.LaunchPurpose.HUMAN_SL);
+            Map<String, String> overrides = KataGoCommandSpec.parse(command).effectiveOverrides();
+            assertEquals("", overrides.get("numSearchThreads"));
+            assertEquals("8", overrides.get("numSearchThreadsPerAnalysisThread"));
+            assertEquals("1", overrides.get("numAnalysisThreads"));
+            assertEquals(original, Files.readString(config));
+          }
+        });
+  }
+
+  @Test
   void humanSlTensorRtLaunchUsesPackagedCudaCompanionAndLightweightProfile() throws Exception {
     withOsName(
         WINDOWS_OS_NAME,
