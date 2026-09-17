@@ -1,0 +1,73 @@
+name: Pinned KataGo Linux Source
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/katago-source-linux.yml'
+      - 'scripts/*katago*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: katago-source-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-build:
+    name: Source Linux (${{ matrix.target }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux-cpu, linux-opencl]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: lightvector/KataGo
+          ref: 47aadc08518b3e121f22539796c911002f699584
+          path: upstream-katago
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install build tools, not SDK libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ binutils curl
+      - name: Build locked Linux SDK
+        run: >-
+          python3 scripts/build_katago_linux_dependencies.py
+          --output "$RUNNER_TEMP/katago-sdk" --jobs 3
+      - name: Compile exact upstream commit
+        run: >-
+          python3 scripts/build_katago_source.py --source upstream-katago
+          --output "$RUNNER_TEMP/katago-build" --target "${{ matrix.target }}"
+          --linux-sdk "$RUNNER_TEMP/katago-sdk/prefix" --jobs 3
+      - name: Audit relocatable engine and dependencies
+        run: >-
+          python3 scripts/package_katago_source_linux.py --build "$RUNNER_TEMP/katago-build"
+          --sdk "$RUNNER_TEMP/katago-sdk/prefix" --output "$RUNNER_TEMP/katago-package"
+      - name: Execute CPU same-tree focus protocol
+        if: matrix.target == 'linux-cpu'
+        run: >-
+          python3 scripts/probe_katago_focus.py --engine "$RUNNER_TEMP/katago-package/katago"
+          --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
+          --evidence "$RUNNER_TEMP/focus-probe" --timeout 120
+      - name: Retain evidence, never publish a release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/katago-sdk/build.log
+            ${{ runner.temp }}/katago-sdk/prefix/sdk-receipt.json
+            ${{ runner.temp }}/katago-build/build.log
+            ${{ runner.temp }}/katago-build/source-build.json
+            ${{ runner.temp }}/katago-package/
+            ${{ runner.temp }}/focus-probe/
+          if-no-files-found: error
+          retention-days: 7

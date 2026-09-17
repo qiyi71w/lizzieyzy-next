@@ -15,6 +15,7 @@ import shutil
 
 from probe_katago_focus import SOURCE_COMMIT
 from build_katago_macos_dependencies import sdk_environment, verify_sdk
+import build_katago_linux_dependencies as linux_sdk_tools
 
 
 TARGETS = {
@@ -135,7 +136,7 @@ def macos_sdk_options(prefix: Path) -> list[str]:
 
 
 def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
-          macos_sdk: Path | None = None) -> dict:
+          macos_sdk: Path | None = None, linux_sdk: Path | None = None) -> dict:
     check_host(target)
     source, output = source.resolve(), output.resolve()
     check_source(source)
@@ -144,16 +145,30 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
     options = configuration(target, sdk)
     build_env = None
     sdk_receipt = None
+    sdk_prefix = None
     if TARGETS[target][0] == "Darwin":
         if macos_sdk is None:
             raise ValueError("macOS builds require --macos-sdk with verified pinned dependencies")
         if sdk:
             raise ValueError("macOS SDK settings cannot override pinned dependencies")
         sdk_receipt = verify_sdk(macos_sdk, TARGETS[target][1])
+        sdk_prefix = macos_sdk
         options.extend(macos_sdk_options(macos_sdk))
         build_env = sdk_environment(macos_sdk.resolve())
     elif macos_sdk is not None:
         raise ValueError("--macos-sdk is only valid for macOS targets")
+    if target in linux_sdk_tools.TARGETS:
+        if linux_sdk is None:
+            raise ValueError("Linux CPU/OpenCL builds require --linux-sdk with verified pinned dependencies")
+        if sdk:
+            raise ValueError("Linux SDK settings cannot override pinned dependencies")
+        sdk_receipt = linux_sdk_tools.verify_sdk(linux_sdk)
+        sdk_prefix = linux_sdk
+        options.extend(linux_sdk_tools.engine_options(linux_sdk, target))
+        build_env = linux_sdk_tools.environment(linux_sdk.resolve())
+        build_env["LD_LIBRARY_PATH"] = str(linux_sdk.resolve() / "lib")
+    elif linux_sdk is not None:
+        raise ValueError("--linux-sdk is only valid for Linux CPU/OpenCL targets")
     # Never reuse a stale executable after a failed configure/build.
     output.mkdir(parents=True, exist_ok=False)
     result = {
@@ -172,7 +187,7 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
     }
     if sdk_receipt is not None:
         result["dependencyLockSha256"] = sdk_receipt["lockSha256"]
-        result["sdkReceipt"] = file_record(macos_sdk / "sdk-receipt.json", macos_sdk)
+        result["sdkReceipt"] = file_record(sdk_prefix / "sdk-receipt.json", sdk_prefix)
     try:
         with (output / "build.log").open("w", encoding="utf-8") as log:
             for command in (
@@ -187,7 +202,8 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
                 checked("otool", "-l", str(binary))
             )
         version = subprocess.run(
-            [str(binary), "version"], check=True, capture_output=True, text=True, timeout=30
+            [str(binary), "version"], check=True, capture_output=True, text=True, timeout=30,
+            env=build_env,
         ).stdout
         if f"Git revision: {SOURCE_COMMIT}" not in version:
             raise ValueError("built executable does not report the requested source revision")
@@ -238,6 +254,8 @@ def check_release_receipts(receipts: list[dict]) -> None:
         for status in ("buildStatus", "packagingStatus", "dependencyAuditStatus"):
             if receipt.get(status) != "PASS":
                 raise ValueError(f"{target}: {status} must pass")
+        if target.startswith("linux-") and receipt.get("productionAbiAcceptanceStatus") != "PASS":
+            raise ValueError(f"{target}: production Linux ABI compatibility must pass separately")
         if receipt.get("hardwareAcceptanceStatus") not in {"PASS", "PENDING_HARDWARE"}:
             raise ValueError(f"{target}: actual failure or missing hardware acceptance record")
         if receipt["hardwareAcceptanceStatus"] == "PENDING_HARDWARE":
@@ -265,10 +283,12 @@ def main() -> int:
     parser.add_argument("--sdk", action="append", default=[])
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--macos-sdk", type=Path)
+    parser.add_argument("--linux-sdk", type=Path)
     args = parser.parse_args()
     if not 1 <= args.jobs <= 64:
         parser.error("jobs must be between 1 and 64")
-    result = build(args.source, args.output, args.target, args.sdk, args.jobs, args.macos_sdk)
+    result = build(args.source, args.output, args.target, args.sdk, args.jobs,
+                   args.macos_sdk, args.linux_sdk)
     print(json.dumps(result, indent=2))
     return 0
 

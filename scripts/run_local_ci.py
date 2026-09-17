@@ -78,6 +78,9 @@ ENGINE_PROCESS_REQUIRED_TESTS = (
 
 PY_COMPILE_FILES = (
     "scripts/build_katago_source.py",
+    "scripts/build_katago_linux_dependencies.py",
+    "scripts/package_katago_source_linux.py",
+    "scripts/test_build_katago_linux.py",
     "scripts/build_katago_macos_dependencies.py",
     "scripts/test_build_katago_macos_dependencies.py",
     "scripts/package_katago_source_macos.py",
@@ -122,6 +125,7 @@ PY_COMPILE_FILES = (
 )
 
 DIRECT_PYTHON_TESTS = (
+    "scripts/test_build_katago_linux.py",
     "scripts/test_build_katago_source.py",
     "scripts/test_build_katago_macos_dependencies.py",
     "scripts/test_package_katago_source_macos.py",
