@@ -1,7 +1,10 @@
 import json
+from pathlib import Path
+import shutil
 import unittest
+from unittest import mock
 
-from audit_katago_source_bundle import audit
+from audit_katago_source_bundle import audit, restore_after_jpackage
 from prepare_katago_source_assets import unpack
 from test_stage_katago_source_release import SourceReleaseTest
 
@@ -44,6 +47,54 @@ class InstalledSourceTest(unittest.TestCase):
 
     def test_official_catalog_keeps_its_existing_audits(self):
         audit({"origin": "official-release"}, "windows-cpu", self.fixture.root / "absent")
+
+    def mac_bundle(self, target="macos-arm64"):
+        source = self.fixture.root / "input" / target
+        engine = self.fixture.root / "app" / target
+        asset = self.catalog["assets"][target]
+        unpack(self.fixture.root / "release" / asset["assetName"], source, target, asset)
+        shutil.copytree(source, engine)
+        (engine / "katago").write_bytes(b"jpackage ad-hoc signature")
+        return source, engine
+
+    def test_restores_original_bytes_and_licenses_for_both_macos_architectures(self):
+        for target in ("macos-arm64", "macos-amd64"):
+            with self.subTest(target=target):
+                source, engine = self.mac_bundle(target)
+                (engine / "licenses/LICENSE").unlink()
+                restore_after_jpackage(self.catalog, target, source, engine)
+                audit(self.catalog, target, engine)
+                audit(self.catalog, target, source)
+                self.assertEqual((source / "katago").read_bytes(), (engine / "katago").read_bytes())
+
+    def test_corrupted_input_does_not_replace_existing_app(self):
+        source, engine = self.mac_bundle()
+        (source / "katago").write_bytes(b"corrupt")
+        with self.assertRaisesRegex(ValueError, "missing or modified"):
+            restore_after_jpackage(self.catalog, "macos-arm64", source, engine)
+        self.assertEqual(b"jpackage ad-hoc signature", (engine / "katago").read_bytes())
+
+    def test_copy_failure_leaves_existing_app_intact(self):
+        source, engine = self.mac_bundle()
+        with mock.patch("audit_katago_source_bundle.shutil.copytree", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                restore_after_jpackage(self.catalog, "macos-arm64", source, engine)
+        self.assertEqual(b"jpackage ad-hoc signature", (engine / "katago").read_bytes())
+
+    def test_restoration_rejects_same_directory_and_non_macos_targets(self):
+        source, engine = self.mac_bundle()
+        with self.assertRaisesRegex(ValueError, "separate"):
+            restore_after_jpackage(self.catalog, "macos-arm64", source, source)
+        with self.assertRaisesRegex(ValueError, "only for reviewed"):
+            restore_after_jpackage(self.catalog, "windows-cpu", source, engine)
+
+    def test_packager_restores_before_audit_and_without_deep_resigning(self):
+        script = (Path(__file__).resolve().parents[1] / "scripts/package_macos_dmg.sh").read_text()
+        restore = script.index('    --restore-from "$INPUT_DIR/engines/katago/$ENGINE_PLATFORM_DIR"')
+        self.assertLess(script.index("jpackage \\\n"), restore)
+        self.assertLess(restore, script.index('"$KATAGO_BUNDLE_SCRIPT" audit'))
+        self.assertIn('codesign --force --sign - "$APP_IMAGE_DIR/$APP_NAME.app"', script)
+        self.assertNotIn("codesign --force --deep", script)
 
 
 if __name__ == "__main__":

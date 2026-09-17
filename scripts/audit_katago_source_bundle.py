@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shutil
+import tempfile
 
 from build_katago_source import SOURCE_COMMIT, TARGETS
 from katago_asset_catalog import DEFAULT_CATALOG, load_catalog
@@ -43,10 +45,40 @@ def audit(catalog: dict, target: str, engine: Path) -> None:
     print(f"{target}: exact source {SOURCE_COMMIT}, {len(records)} files verified")
 
 
+def restore_after_jpackage(catalog: dict, target: str, source: Path, engine: Path) -> None:
+    """Undo jpackage's implicit ad-hoc signing, before our platform signing stage."""
+    if catalog.get("origin") != "project-source-build" or target not in ("macos-arm64", "macos-amd64"):
+        raise ValueError("restoration is only for reviewed macOS source bundles")
+    if (engine.is_symlink() or not engine.is_dir() or engine.name != target
+            or engine.resolve() == source.resolve()
+            or source.resolve() in engine.resolve().parents
+            or engine.resolve() in source.resolve().parents):
+        raise ValueError("restoration requires separate, existing build directories")
+    audit(catalog, target, source)
+    with tempfile.TemporaryDirectory(prefix=".reviewed-katago-", dir=engine.parent) as temporary:
+        staged = Path(temporary) / target
+        shutil.copytree(source, staged, symlinks=True)
+        audit(catalog, target, staged)
+        previous = Path(temporary) / "previous"
+        engine.rename(previous)
+        try:
+            staged.rename(engine)
+        except OSError:
+            previous.rename(engine)
+            raise
+    audit(catalog, target, engine)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--target", choices=TARGETS, required=True)
     parser.add_argument("--engine", type=Path, required=True)
+    parser.add_argument("--restore-from", type=Path,
+                        help="Restore verified macOS input after jpackage, before platform signing")
     args = parser.parse_args()
-    audit(load_catalog(args.catalog), args.target, args.engine)
+    catalog = load_catalog(args.catalog)
+    if args.restore_from is not None:
+        restore_after_jpackage(catalog, args.target, args.restore_from, args.engine)
+    else:
+        audit(catalog, args.target, args.engine)

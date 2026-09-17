@@ -256,6 +256,17 @@ jpackage \
   --java-options "-Xshare:auto" \
   --java-options "-Dlizzie.next.version=$APP_DISPLAY_VERSION"
 
+# jpackage ad-hoc signs embedded Mach-O files even without --mac-sign.
+# Restore the audited bytes first; the release signing stage signs them once.
+if [[ "$PACKAGE_FLAVOR" == "with-katago" ]] && \
+  [[ "$("$PYTHON_BIN" "$ROOT_DIR/scripts/katago_asset_catalog.py" get origin)" == "project-source-build" ]]; then
+  "$PYTHON_BIN" "$ROOT_DIR/scripts/audit_katago_source_bundle.py" \
+    --target "$ENGINE_PLATFORM_DIR" \
+    --engine "$APP_IMAGE_DIR/$APP_NAME.app/Contents/app/engines/katago/$ENGINE_PLATFORM_DIR" \
+    --restore-from "$INPUT_DIR/engines/katago/$ENGINE_PLATFORM_DIR"
+  codesign --force --sign - "$APP_IMAGE_DIR/$APP_NAME.app"
+fi
+
 APP_CONFIG="$APP_IMAGE_DIR/$APP_NAME.app/Contents/app/$APP_NAME.cfg"
 if [[ ! -f "$APP_CONFIG" ]]; then
   echo "Packaged macOS launcher config is missing: $APP_CONFIG"
