@@ -369,3 +369,13 @@ application packaging is dispatched. Release jobs use the short-lived workflow t
 to read those Draft assets; repair downloads use the same public URLs after publication.
 Missing archives leave the Draft unpublished. Unexpected, duplicate or modified assets
 fail verification, including the final public recheck. No old engine is substituted.
+
+For the first source-catalog activation, the reviewed archives may be uploaded to an
+unpublished Draft before the activation PR is merged, so its Linux CPU acceptance job
+can verify the exact new binary. Use the short-lived read-only workflow token; never
+publish the Draft to make a failing test pass. Before starting the publisher, bind that
+still-unpublished Draft to the final reviewed commit and ensure no conflicting tag exists.
+The publisher continues to enforce the final immutable tag and commit identity.
+CPU acceptance uses the same trusted project URL and archive hash, and additionally
+checks the extracted executable hash and actual reported upstream revision. A failed
+Draft download or verification must not fall back to the old official engine.
