@@ -33,6 +33,15 @@ class FilenameKind(Enum):
     LITERAL = "literal"
 
 
+class CandidateClass(Enum):
+    PORTABLE_PRODUCT = "portable-product"
+    INSTALLER_PRODUCT = "installer-product"
+    LINUX_PRODUCT = "linux-product"
+    DMG_PRODUCT = "dmg-product"
+    CORE_UPDATE = "core-update"
+    SUPPORT = "support"
+
+
 @dataclass(frozen=True)
 class FilenameRule:
     kind: FilenameKind
@@ -50,6 +59,9 @@ class ReleaseAsset:
     key: str
     filename: FilenameRule
     platform: str
+    architecture: str
+    candidate_class: CandidateClass
+    runnable: bool
     roles: frozenset[Role]
     public_order: int
     release_notes_order: int | None = None
@@ -75,6 +87,9 @@ def _asset(
     key: str,
     name: str,
     platform: str,
+    architecture: str,
+    candidate_class: CandidateClass,
+    runnable: bool,
     *,
     public: int,
     literal: bool = False,
@@ -94,6 +109,9 @@ def _asset(
             name,
         ),
         platform=platform,
+        architecture=architecture,
+        candidate_class=candidate_class,
+        runnable=runnable,
         roles=frozenset(roles),
         public_order=public,
         release_notes_order=notes_table,
@@ -102,14 +120,17 @@ def _asset(
 
 
 _WINDOWS_ASSETS = (
-    _asset("windows_opencl_installer", "windows64.opencl.installer.exe", "windows", public=0, notes_table=1, direct=2),
-    _asset("windows_opencl_portable", "windows64.opencl.portable.zip", "windows", public=1, notes_table=0, direct=0),
-    _asset("windows_nvidia_installer", "windows64.nvidia.installer.exe", "windows", public=2, notes_table=5, direct=6),
-    _asset("windows_nvidia_portable", "windows64.nvidia.portable.zip", "windows", public=3, notes_table=4, direct=5),
+    _asset("windows_opencl_installer", "windows64.opencl.installer.exe", "windows", "x86_64", CandidateClass.INSTALLER_PRODUCT, True, public=0, notes_table=1, direct=2),
+    _asset("windows_opencl_portable", "windows64.opencl.portable.zip", "windows", "x86_64", CandidateClass.PORTABLE_PRODUCT, True, public=1, notes_table=0, direct=0),
+    _asset("windows_nvidia_installer", "windows64.nvidia.installer.exe", "windows", "x86_64", CandidateClass.INSTALLER_PRODUCT, True, public=2, notes_table=5, direct=6),
+    _asset("windows_nvidia_portable", "windows64.nvidia.portable.zip", "windows", "x86_64", CandidateClass.PORTABLE_PRODUCT, True, public=3, notes_table=4, direct=5),
     _asset(
         "windows_directml_experimental",
         "windows64.experimental.directml.portable.zip",
         "windows",
+        "x86_64",
+        CandidateClass.PORTABLE_PRODUCT,
+        True,
         public=4,
         notes_table=6,
         direct=7,
@@ -118,6 +139,9 @@ _WINDOWS_ASSETS = (
         "windows_openvino_experimental",
         "windows64.experimental.openvino.portable.zip",
         "windows",
+        "x86_64",
+        CandidateClass.PORTABLE_PRODUCT,
+        True,
         public=5,
         notes_table=7,
         direct=8,
@@ -126,6 +150,9 @@ _WINDOWS_ASSETS = (
         "windows_rocm_gfx103x_experimental",
         "windows64.experimental.rocm.gfx103x.portable.zip",
         "windows",
+        "x86_64",
+        CandidateClass.PORTABLE_PRODUCT,
+        True,
         public=6,
         notes_table=8,
         direct=9,
@@ -134,6 +161,9 @@ _WINDOWS_ASSETS = (
         "windows_rocm_gfx110x_experimental",
         "windows64.experimental.rocm.gfx110x.portable.zip",
         "windows",
+        "x86_64",
+        CandidateClass.PORTABLE_PRODUCT,
+        True,
         public=7,
         notes_table=9,
         direct=10,
@@ -142,6 +172,9 @@ _WINDOWS_ASSETS = (
         "windows_rocm_gfx1151_experimental",
         "windows64.experimental.rocm.gfx1151.portable.zip",
         "windows",
+        "x86_64",
+        CandidateClass.PORTABLE_PRODUCT,
+        True,
         public=8,
         notes_table=10,
         direct=11,
@@ -150,16 +183,22 @@ _WINDOWS_ASSETS = (
         "windows_rocm_gfx120x_experimental",
         "windows64.experimental.rocm.gfx120x.portable.zip",
         "windows",
+        "x86_64",
+        CandidateClass.PORTABLE_PRODUCT,
+        True,
         public=9,
         notes_table=11,
         direct=12,
     ),
-    _asset("windows_installer", "windows64.with-katago.installer.exe", "windows", public=10, notes_table=3, direct=4),
-    _asset("windows_portable", "windows64.with-katago.portable.zip", "windows", public=11, notes_table=2, direct=3),
+    _asset("windows_installer", "windows64.with-katago.installer.exe", "windows", "x86_64", CandidateClass.INSTALLER_PRODUCT, True, public=10, notes_table=3, direct=4),
+    _asset("windows_portable", "windows64.with-katago.portable.zip", "windows", "x86_64", CandidateClass.PORTABLE_PRODUCT, True, public=11, notes_table=2, direct=3),
     _asset(
         "windows_no_engine_installer",
         "windows64.without.engine.installer.exe",
         "windows",
+        "x86_64",
+        CandidateClass.INSTALLER_PRODUCT,
+        True,
         public=12,
         notes_table=13,
         direct=16,
@@ -168,15 +207,21 @@ _WINDOWS_ASSETS = (
         "windows_no_engine_portable",
         "windows64.without.engine.portable.zip",
         "windows",
+        "x86_64",
+        CandidateClass.PORTABLE_PRODUCT,
+        True,
         public=13,
         notes_table=12,
         direct=15,
     ),
-    _asset("windows_core_update", "windows64.core-update.zip", "windows", public=14, notes=True, direct=1),
+    _asset("windows_core_update", "windows64.core-update.zip", "windows", "x86_64", CandidateClass.CORE_UPDATE, False, public=14, notes=True, direct=1),
     _asset(
         "windows_update_manifest",
         "lizzieyzy-next-update-manifest.json",
         "windows",
+        "x86_64",
+        CandidateClass.SUPPORT,
+        False,
         public=15,
         literal=True,
     ),
@@ -184,6 +229,9 @@ _WINDOWS_ASSETS = (
         "windows_tensorrt_split_001",
         "windows64.nvidia.tensorrt.portable.7z.001",
         "windows",
+        "x86_64",
+        CandidateClass.SUPPORT,
+        False,
         public=16,
         notes=True,
         direct=13,
@@ -192,31 +240,37 @@ _WINDOWS_ASSETS = (
         "windows_tensorrt_split_002",
         "windows64.nvidia.tensorrt.portable.7z.002",
         "windows",
+        "x86_64",
+        CandidateClass.SUPPORT,
+        False,
         public=17,
         notes=True,
         direct=14,
     ),
-    _asset("windows_tensorrt_split_readme", "windows64.nvidia.tensorrt.portable.README.txt", "windows", public=18),
+    _asset("windows_tensorrt_split_readme", "windows64.nvidia.tensorrt.portable.README.txt", "windows", "x86_64", CandidateClass.SUPPORT, False, public=18),
     _asset(
         "windows_tensorrt_split_manifest",
         "windows64.nvidia.tensorrt.portable.manifest.json",
         "windows",
+        "x86_64",
+        CandidateClass.SUPPORT,
+        False,
         public=19,
     ),
-    _asset("windows_tensorrt_split_sha256", "windows64.nvidia.tensorrt.portable.sha256.txt", "windows", public=20),
+    _asset("windows_tensorrt_split_sha256", "windows64.nvidia.tensorrt.portable.sha256.txt", "windows", "x86_64", CandidateClass.SUPPORT, False, public=20),
 )
 
 _LINUX_ASSETS = (
-    _asset("linux64_opencl", "linux64.opencl.zip", "linux", public=0, notes_table=17, direct=20),
-    _asset("linux64_nvidia", "linux64.nvidia.zip", "linux", public=1, notes_table=18, direct=21),
-    _asset("linux64", "linux64.with-katago.zip", "linux", public=2, notes_table=16, direct=19),
+    _asset("linux64_opencl", "linux64.opencl.zip", "linux", "x86_64", CandidateClass.LINUX_PRODUCT, True, public=0, notes_table=17, direct=20),
+    _asset("linux64_nvidia", "linux64.nvidia.zip", "linux", "x86_64", CandidateClass.LINUX_PRODUCT, True, public=1, notes_table=18, direct=21),
+    _asset("linux64", "linux64.with-katago.zip", "linux", "x86_64", CandidateClass.LINUX_PRODUCT, True, public=2, notes_table=16, direct=19),
 )
 
 _MAC_AMD64_ASSETS = (
-    _asset("mac_amd64", "mac-intel.with-katago.dmg", "mac-amd64", public=0, notes_table=15, direct=18),
+    _asset("mac_amd64", "mac-intel.with-katago.dmg", "mac-amd64", "x86_64", CandidateClass.DMG_PRODUCT, True, public=0, notes_table=15, direct=18),
 )
 _MAC_ARM64_ASSETS = (
-    _asset("mac_arm64", "mac-apple-silicon.with-katago.dmg", "mac-arm64", public=0, notes_table=14, direct=17),
+    _asset("mac_arm64", "mac-apple-silicon.with-katago.dmg", "mac-arm64", "arm64", CandidateClass.DMG_PRODUCT, True, public=0, notes_table=14, direct=17),
 )
 
 _DISPATCH_INPUTS = (("release_prerelease", "true"),)
@@ -281,6 +335,15 @@ def asset(key: str) -> ReleaseAsset:
         if item.key == key:
             return item
     raise TopologyError(f"Unknown release asset: {key}")
+
+
+def asset_for_name(platform: str, date_tag: str, name: str) -> ReleaseAsset:
+    unit = release_unit(platform)
+    require_date_tag(date_tag)
+    for item in unit.assets:
+        if item.filename.render(date_tag) == name:
+            return item
+    raise TopologyError(f"Release asset {name!r} does not belong to platform {platform!r}")
 
 
 def public_inventory(platform: str, date_tag: str) -> tuple[str, ...]:

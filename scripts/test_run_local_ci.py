@@ -99,6 +99,15 @@ class RunLocalCiTest(unittest.TestCase):
         self.assertIn("Run full Windows verification gate", [step.name for step in steps])
         self.assertNotIn("Verify local Markdown links", [step.name for step in steps])
 
+    def test_acceptance_helpers_are_tested_on_both_ci_platforms(self):
+        for profile in ("windows", "portable"):
+            with self.subTest(profile=profile):
+                commands = [step.command for step in run_local_ci.build_steps(
+                    profile, "mvn", "bash", "pwsh", "scripts")]
+                for script in ("scripts/test_prepare_cpu_engine_acceptance.py",
+                               "scripts/test_run_acceptance.py"):
+                    self.assertTrue(any(script in command for command in commands), script)
+
     def test_desktop_plan_selects_all_required_classes(self):
         steps = run_local_ci.build_steps("portable", "mvn", None, None, "desktop")
 

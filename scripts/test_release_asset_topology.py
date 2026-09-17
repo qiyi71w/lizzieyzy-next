@@ -156,6 +156,85 @@ class ReleaseAssetTopologyContractTest(unittest.TestCase):
         self.assertEqual(LINUX_PUBLIC, topology.public_inventory("linux", DATE_TAG))
         self.assertEqual(MAC_ARM64_PUBLIC, topology.public_inventory("mac-arm64", DATE_TAG))
         self.assertEqual(MAC_AMD64_PUBLIC, topology.public_inventory("mac-amd64", DATE_TAG))
+    def test_asset_identity_lookup_round_trips_canonical_metadata(self) -> None:
+        cases = (
+            (
+                "windows",
+                WINDOWS_PUBLIC[11],
+                "windows_portable",
+                "x86_64",
+                topology.CandidateClass.PORTABLE_PRODUCT,
+                True,
+            ),
+            (
+                "windows",
+                WINDOWS_PUBLIC[10],
+                "windows_installer",
+                "x86_64",
+                topology.CandidateClass.INSTALLER_PRODUCT,
+                True,
+            ),
+            (
+                "windows",
+                WINDOWS_PUBLIC[14],
+                "windows_core_update",
+                "x86_64",
+                topology.CandidateClass.CORE_UPDATE,
+                False,
+            ),
+            (
+                "windows",
+                WINDOWS_PUBLIC[15],
+                "windows_update_manifest",
+                "x86_64",
+                topology.CandidateClass.SUPPORT,
+                False,
+            ),
+            (
+                "windows",
+                WINDOWS_PUBLIC[16],
+                "windows_tensorrt_split_001",
+                "x86_64",
+                topology.CandidateClass.SUPPORT,
+                False,
+            ),
+            (
+                "linux",
+                LINUX_PUBLIC[2],
+                "linux64",
+                "x86_64",
+                topology.CandidateClass.LINUX_PRODUCT,
+                True,
+            ),
+            (
+                "mac-amd64",
+                MAC_AMD64_PUBLIC[0],
+                "mac_amd64",
+                "x86_64",
+                topology.CandidateClass.DMG_PRODUCT,
+                True,
+            ),
+            (
+                "mac-arm64",
+                MAC_ARM64_PUBLIC[0],
+                "mac_arm64",
+                "arm64",
+                topology.CandidateClass.DMG_PRODUCT,
+                True,
+            ),
+        )
+
+        for platform, name, key, architecture, candidate_class, runnable in cases:
+            with self.subTest(key=key):
+                item = topology.asset_for_name(platform, DATE_TAG, name)
+                self.assertIs(topology.asset(key), item)
+                self.assertEqual(architecture, item.architecture)
+                self.assertIs(candidate_class, item.candidate_class)
+                self.assertIs(runnable, item.runnable)
+
+        with self.assertRaisesRegex(topology.TopologyError, "does not belong"):
+            topology.asset_for_name("linux", DATE_TAG, WINDOWS_PUBLIC[11])
+
 
     def test_role_queries_preserve_current_subsets_and_order(self) -> None:
         self.assertEqual(DIRECT_DOWNLOAD, topology.direct_download_names(DATE_TAG))

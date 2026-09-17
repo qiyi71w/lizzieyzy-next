@@ -77,6 +77,9 @@ ENGINE_PROCESS_REQUIRED_TESTS = (
 
 
 PY_COMPILE_FILES = (
+    "scripts/prepare_cpu_engine_acceptance.py",
+    "scripts/test_prepare_cpu_engine_acceptance.py",
+    "scripts/test_run_acceptance.py",
     "scripts/build_katago_cuda_dependencies.py",
     "scripts/test_build_katago_cuda.py",
     "scripts/build_katago_directml_dependencies.py",
@@ -134,6 +137,8 @@ PY_COMPILE_FILES = (
 )
 
 DIRECT_PYTHON_TESTS = (
+    "scripts/test_prepare_cpu_engine_acceptance.py",
+    "scripts/test_run_acceptance.py",
     "scripts/test_build_katago_cuda.py",
     "scripts/test_build_katago_directml.py",
     "scripts/test_build_katago_openvino.py",
@@ -333,6 +338,8 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
     return [
         Step("Verify repository line endings", (python, "scripts/check_line_endings.py"), group="repository"),
         Step("Verify bundled JCEF logic", (python, "scripts/test_prepare_bundled_jcef.py")),
+        Step("Verify CPU acceptance provisioning", (python, "scripts/test_prepare_cpu_engine_acceptance.py")),
+        Step("Verify acceptance runner outcomes", (python, "scripts/test_run_acceptance.py")),
         Step(
             "Verify bundled NVIDIA runtime packaging",
             (python, "scripts/test_prepare_bundled_nvidia_runtime.py"),
