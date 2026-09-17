@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "provider": "tensorrt",
+  "version": "10.9.0.34",
+  "cudaVersion": "12.8.0",
+  "runtimeFiles": [
+    "nvinfer_10.dll",
+    "nvinfer_builder_resource_10.dll",
+    "nvinfer_dispatch_10.dll",
+    "nvinfer_lean_10.dll",
+    "nvinfer_plugin_10.dll",
+    "nvinfer_vc_plugin_10.dll",
+    "nvonnxparser_10.dll"
+  ],
+  "archive": {
+    "name": "tensorrt",
+    "version": "10.9.0.34",
+    "url": "https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.9.0/zip/TensorRT-10.9.0.34.Windows.win10.cuda-12.8.zip",
+    "sizeBytes": 1845842538,
+    "sha256": "c2758eb60191f01a47b24f54700e5463f577ebe129cd18fe835d0aa9f1e1a16d"
+  }
+}

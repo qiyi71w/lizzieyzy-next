@@ -242,6 +242,25 @@ missing GPU. Receipts must identify the correct backend and executable size/dige
 completeness check does not replace checking the final package bytes,
 signed macOS bundles or public download hashes.
 
+## Windows TensorRT source evidence
+
+`windows-tensorrt` uses the same sealed Windows CUDA 12.8/cuDNN 9.8 SDK plus the existing
+TensorRT 10.9.0.34 redistribution. `scripts/katago_tensorrt_dependencies.json` locks the
+official archive's size, SHA-256 and seven runtime DLLs. Headers, import libraries,
+acknowledgements and the parser runtime are retained; unlisted DLLs fail the build.
+
+```powershell
+python scripts/build_katago_tensorrt_dependencies.py --output "$env:TEMP/katago-trt-sdk"
+python scripts/build_katago_source.py --source upstream-katago --output "$env:TEMP/katago-trt-build" --target windows-tensorrt --windows-sdk "$env:TEMP/katago-trt-sdk/prefix"
+python scripts/package_katago_source_windows.py --build "$env:TEMP/katago-trt-build" --sdk "$env:TEMP/katago-trt-sdk/prefix" --output "$env:TEMP/katago-trt-package"
+```
+
+The normal x64 MSVC 14.44 environment is required. Packaging verifies every PE import,
+runtime closure and the relocated executable with a system-only PATH. The source SHA
+and compiler are recorded without claiming a new official KataGo release. A CPU-hosted
+`version` check is not TensorRT inference or hardware acceptance: those remain `NOT_RUN`.
+This workflow neither uploads release assets nor updates stable downloads.
+
 ## Integration gates still required
 
 - Lock and fetch build SDKs and dependency archives by version and digest without changing the
