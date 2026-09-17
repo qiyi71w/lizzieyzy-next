@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "baselineTag": "v1.18.1",
+  "baselines": {
+    "linux-cpu": {
+      "assetName": "katago-v1.18.1-eigen-linux-x64.zip",
+      "sizeBytes": 41780528,
+      "sha256": "993b642601e806037003d11e43775e7b4fc65281aed9b9469b7122f18fc16811"
+    },
+    "linux-opencl": {
+      "assetName": "katago-v1.18.1-opencl-linux-x64.zip",
+      "sizeBytes": 41325151,
+      "sha256": "81ecea81526adb412a392ec728dbdf9627e754df7cf1a7a3dbb8ef220182184a"
+    },
+    "linux-nvidia": {
+      "assetName": "katago-v1.18.1-cuda12.1-cudnn9.8.0-linux-x64.zip",
+      "sizeBytes": 50870294,
+      "sha256": "242e6720e085a67bbb6605408fbcf607812185e40cea5f5fe4090e71201a49c0"
+    }
+  },
+  "distributions": [
+    {
+      "name": "Ubuntu 22.04 amd64",
+      "image": "ubuntu@sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986"
+    },
+    {
+      "name": "Ubuntu 24.04 amd64",
+      "image": "ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4"
+    }
+  ]
+}

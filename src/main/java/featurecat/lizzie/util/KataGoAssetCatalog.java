@@ -16,12 +16,13 @@ public final class KataGoAssetCatalog {
   private final String katagoVersion;
   private final String katagoReleaseTag;
   private final String katagoSourceCommit;
+  private final String engineReleaseBase;
   private final String modelReleaseTag;
   private final String defaultModelId;
   private final Map<String, Model> models;
   private final Map<String, Asset> assets;
 
-  private KataGoAssetCatalog(JSONObject root) {
+  KataGoAssetCatalog(JSONObject root) {
     int schemaVersion = root.getInt("schemaVersion");
     if (schemaVersion != 1) {
       throw new IllegalStateException("Unsupported KataGo asset catalog schema: " + schemaVersion);
@@ -29,10 +30,20 @@ public final class KataGoAssetCatalog {
     katagoVersion = required(root, "katagoVersion");
     katagoReleaseTag = required(root, "katagoReleaseTag");
     katagoSourceCommit = required(root, "katagoSourceCommit");
+    engineReleaseBase = engineReleaseBase(root);
     modelReleaseTag = required(root, "modelReleaseTag");
     defaultModelId = required(root, "defaultModelId");
     models = Collections.unmodifiableMap(parseModels(root.getJSONObject("models")));
     assets = Collections.unmodifiableMap(parseAssets(root.getJSONObject("assets")));
+    if (root.optString("origin", "official-release").equals("project-source-build")) {
+      for (Asset asset : assets.values()) {
+        String expected =
+            "katago-source-" + katagoSourceCommit.substring(0, 12) + "-" + asset.id() + ".zip";
+        if (!expected.equals(asset.assetName())) {
+          throw new IllegalStateException("Source asset does not identify its commit and target");
+        }
+      }
+    }
     if (!models.containsKey(defaultModelId)) {
       throw new IllegalStateException("Unknown default KataGo model: " + defaultModelId);
     }
@@ -101,7 +112,30 @@ public final class KataGoAssetCatalog {
   }
 
   public String assetDownloadUrl(Asset asset) {
-    return releaseUrl(katagoReleaseTag, asset.assetName());
+    if (!asset.equals(assets.get(asset.id()))) {
+      throw new IllegalArgumentException("Asset is not from the trusted catalog");
+    }
+    return engineReleaseBase + "/" + asset.assetName();
+  }
+
+  private static String engineReleaseBase(JSONObject root) {
+    String origin = root.optString("origin", "official-release");
+    if (origin.equals("official-release")) {
+      if (root.has("engineReleaseRepository") || root.has("engineReleaseTag")) {
+        throw new IllegalStateException("Official assets cannot override the download repository");
+      }
+      return "https://github.com/lightvector/KataGo/releases/download/"
+          + required(root, "katagoReleaseTag");
+    }
+    if (!origin.equals("project-source-build")
+        || !root.optString("engineReleaseRepository").equals("wimi321/lizzieyzy-next")
+        || !required(root, "katagoSourceCommit").matches("[0-9a-f]{40}")
+        || !required(root, "engineReleaseTag")
+            .matches("next-\\d{4}-\\d{2}-\\d{2}\\.[1-9][0-9]*")) {
+      throw new IllegalStateException("Invalid trusted project source release identity");
+    }
+    return "https://github.com/wimi321/lizzieyzy-next/releases/download/"
+        + required(root, "engineReleaseTag");
   }
 
   private static String releaseUrl(String tag, String fileName) {
@@ -145,6 +179,9 @@ public final class KataGoAssetCatalog {
     Map<String, Asset> parsed = new LinkedHashMap<>();
     for (String id : values.keySet()) {
       JSONObject value = values.getJSONObject(id);
+      if (!required(value, "assetName").matches("[A-Za-z0-9][A-Za-z0-9._-]*\\.zip")) {
+        throw new IllegalStateException("Unsafe KataGo asset name");
+      }
       parsed.put(
           id,
           new Asset(
