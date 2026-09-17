@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino, windows-nvidia]
+        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino, windows-nvidia, windows-tensorrt]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
@@ -66,6 +66,10 @@ jobs:
         # GPU inference is a separate hardware gate, not an executable-version check.
         shell: pwsh
         run: |
+          if ("${{ matrix.target }}" -eq 'windows-tensorrt') {
+            python scripts/build_katago_tensorrt_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+            if ($LASTEXITCODE -ne 0) { throw 'Locked TensorRT SDK build failed' }
+          }
           if ("${{ matrix.target }}" -eq 'windows-nvidia') {
             python scripts/build_katago_cuda_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
             if ($LASTEXITCODE -ne 0) { throw 'Locked CUDA SDK build failed' }

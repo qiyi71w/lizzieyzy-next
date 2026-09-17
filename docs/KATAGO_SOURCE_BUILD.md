@@ -251,8 +251,8 @@ python scripts/package_katago_source_windows.py --build C:/build/katago `
 Run these commands from the selected x64 developer environment; an unverified SDK, wrong compiler
 toolset, stale output, missing DLL, or failed engine process is a hard failure, not a fallback to
 an older KataGo executable. DirectML and OpenVINO use the separately locked SDK extensions
-described above, as does Windows CUDA. TensorRT and ROCm builds are not yet implemented
-by this workflow; Linux CUDA remains a separate pending target.
+described above, as do Windows CUDA and TensorRT. Linux CUDA has a separate sealed SDK
+and external-runtime audit. The four ROCm builds remain pending integration.
 
 | Platform | Backends |
 | --- | --- |
@@ -268,6 +268,28 @@ missing GPU. Receipts must identify the correct backend and executable size/dige
 completeness check does not replace checking the final package bytes,
 signed macOS bundles or public download hashes.
 
+## Windows TensorRT source evidence
+
+`windows-tensorrt` uses the same sealed Windows CUDA 12.8/cuDNN 9.8 SDK plus the existing
+TensorRT 10.9.0.34 redistribution. `scripts/katago_tensorrt_dependencies.json` locks the
+official archive's size, SHA-256 and seven runtime DLLs. Headers, import libraries,
+acknowledgements and the parser runtime are retained; unlisted DLLs fail the build.
+The same lock pins Protobuf 3.21.12 source for the upstream ONNX emitter. It is compiled
+statically with the matching MSVC runtime, so no new protobuf DLL is needed and no
+symbols are exchanged with the private protobuf inside NVIDIA's parser.
+
+```powershell
+python scripts/build_katago_tensorrt_dependencies.py --output "$env:TEMP/katago-trt-sdk"
+python scripts/build_katago_source.py --source upstream-katago --output "$env:TEMP/katago-trt-build" --target windows-tensorrt --windows-sdk "$env:TEMP/katago-trt-sdk/prefix"
+python scripts/package_katago_source_windows.py --build "$env:TEMP/katago-trt-build" --sdk "$env:TEMP/katago-trt-sdk/prefix" --output "$env:TEMP/katago-trt-package"
+```
+
+The normal x64 MSVC 14.44 environment is required. Packaging verifies every PE import,
+runtime closure and the relocated executable with a system-only PATH. The source SHA
+and compiler are recorded without claiming a new official KataGo release. A CPU-hosted
+`version` check is not TensorRT inference or hardware acceptance: those remain `NOT_RUN`.
+This workflow neither uploads release assets nor updates stable downloads.
+
 ## Integration gates still required
 
 Linux CUDA packages also carry the hash-locked SDK's `libz.so.1`, required dynamically by
@@ -278,7 +300,8 @@ cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the b
 - Build and audit every target in CI, then feed those exact verified artifacts into full packages.
 - Publish trusted self-built engine catalogs for repair and on-demand installation; do not let a
   repair silently replace the new engine with an old official release.
-- Complete #449 runtime probing, legacy single-engine `allow` fallback and GUI/SGF regression.
+- Complete #449 runtime probing and GUI/SGF regression. The owner removed the legacy
+  single-engine `allow` fallback from scope; unsupported engines retain ordinary analysis.
 - Collect all final assets in Draft and audit them before any pre-release publication.
 
 The current stable release, official download catalog and R2 assets must remain untouched.
