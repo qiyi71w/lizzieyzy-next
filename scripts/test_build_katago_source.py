@@ -100,17 +100,20 @@ class SourceBuildTest(unittest.TestCase):
             stale = output / "katago"
             stale.write_bytes(b"stale")
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
-                with self.assertRaises(FileExistsError):
-                    build(path / "source", output, "windows-nvidia", [], 2)
+                with patch("build_katago_source.cuda_sdk_tools.verify_sdk", return_value={"lockSha256": "a" * 64}):
+                    with self.assertRaises(FileExistsError):
+                        build(path / "source", output, "windows-nvidia", [], 2, windows_sdk=path / "sdk")
             self.assertEqual(b"stale", stale.read_bytes())
 
     def test_build_failure_records_failure_not_approval(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
-                with patch("build_katago_source.subprocess.run", side_effect=RuntimeError("compile failed")):
+                with patch("build_katago_source.subprocess.run", side_effect=RuntimeError("compile failed")), \
+                        patch("build_katago_source.cuda_sdk_tools.verify_sdk", return_value={"lockSha256": "a" * 64}), \
+                        patch("build_katago_source.file_record", return_value={"sha256": "a" * 64}):
                     with self.assertRaises(RuntimeError):
-                        build(path / "source", path / "build", "windows-nvidia", [], 2)
+                        build(path / "source", path / "build", "windows-nvidia", [], 2, windows_sdk=path / "sdk")
             text = (path / "build/source-build.json").read_text()
             self.assertIn('"buildStatus": "FAIL"', text)
             self.assertIn('"packagingStatus": "NOT_RUN"', text)
