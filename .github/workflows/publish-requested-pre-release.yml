@@ -12,6 +12,11 @@ on:
         description: Reviewed request file under .github/release-requests
         required: true
         type: string
+      publish_after_verification:
+        description: Publish the verified self-built candidate after final package acceptance
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: write
@@ -27,6 +32,7 @@ jobs:
     timeout-minutes: 360
     outputs:
       release_tag: ${{ steps.request.outputs.release_tag }}
+      published: ${{ steps.publish.outputs.published }}
 
     steps:
       - name: Checkout request discovery source
@@ -140,20 +146,34 @@ jobs:
             scripts.test_validate_release_workflow_identity
 
       - name: Build, verify, and publish the pre-release
+        id: publish
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_REQUEST_FILE: ${{ steps.request.outputs.request_file }}
           RELEASE_REPOSITORY: ${{ github.repository }}
           RELEASE_TARGET_SHA: ${{ steps.request.outputs.target_sha }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          PUBLISH_AFTER_VERIFICATION: ${{ inputs.publish_after_verification }}
         run: |
+          set -euo pipefail
+          extra_args=()
+          published=true
+          origin="$(python3 -c 'import json; print(json.load(open("src/main/resources/katago-assets.json"))["origin"])')"
+          if [[ "$origin" == "project-source-build" ]] && \
+             [[ "$RELEASE_EVENT" != "workflow_dispatch" || "$PUBLISH_AFTER_VERIFICATION" != "true" ]]; then
+            extra_args+=(--prepare-only)
+            published=false
+          fi
           python3 scripts/publish_release_request.py \
             --request "$RELEASE_REQUEST_FILE" \
             --repository "$RELEASE_REPOSITORY" \
-            --target-sha "$RELEASE_TARGET_SHA"
+            --target-sha "$RELEASE_TARGET_SHA" "${extra_args[@]}"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
 
   dispatch-test-channel-pointer:
     name: Dispatch test-channel pointer
     needs: publish
+    if: needs.publish.outputs.published == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

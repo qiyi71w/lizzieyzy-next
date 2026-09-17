@@ -843,6 +843,17 @@ class ReviewedReleaseNotesTest(unittest.TestCase):
 
 
 class ReleaseWorkflowResilienceTest(unittest.TestCase):
+    def test_source_candidates_wait_for_explicit_post_acceptance_publication(self) -> None:
+        workflow = (
+            SCRIPT_PATH.parents[1] / ".github/workflows/publish-requested-pre-release.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("publish_after_verification:", workflow)
+        self.assertIn("default: false", workflow)
+        self.assertIn('"$RELEASE_EVENT" != "workflow_dispatch"', workflow)
+        self.assertIn('"$PUBLISH_AFTER_VERIFICATION" != "true"', workflow)
+        self.assertIn("extra_args+=(--prepare-only)", workflow)
+        self.assertIn("if: needs.publish.outputs.published == 'true'", workflow)
+
     def test_release_retry_uses_the_existing_requested_tag_target(self) -> None:
         workflow = (
             SCRIPT_PATH.parents[1]
@@ -1132,6 +1143,29 @@ class ReleasePublisherTest(unittest.TestCase):
             self.assertEqual(RELEASE_TAG, payload["tag_name"])
             self.assertEqual(TARGET_SHA, payload["target_commitish"])
         self.assertEqual(self.release_notes(), client.update_payloads[-1]["body"])
+
+    def test_prepare_only_verifies_every_gate_without_publication_then_reuses_assets(self) -> None:
+        client = self.prepared_successful_client()
+        publisher = self.publisher(client)
+        publisher.prepare_only = True
+        candidate = publisher.publish()
+        self.assertTrue(candidate["draft"])
+        self.assertTrue(candidate["prerelease"])
+        self.assertTrue(client.update_payloads)
+        self.assertTrue(all(payload.get("draft") is not False for payload in client.update_payloads))
+        self.assertEqual([], client.dispatched)
+        published = self.publisher(client).publish()
+        self.assertFalse(published["draft"])
+        self.assertEqual([], client.dispatched)
+
+    def test_prepare_only_still_rejects_incomplete_assets(self) -> None:
+        client = self.prepared_successful_client()
+        client.assets.pop()
+        publisher = self.publisher(client)
+        publisher.prepare_only = True
+        with self.assertRaises(PUBLISH.PublishError):
+            publisher.publish()
+        self.assertTrue(client.release["draft"])
 
     def test_rerun_reuses_tag_created_before_a_lost_response(self) -> None:
         client = self.prepared_successful_client()
