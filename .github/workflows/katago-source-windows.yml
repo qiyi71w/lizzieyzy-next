@@ -18,11 +18,11 @@ jobs:
   source-build:
     name: Source Windows (${{ matrix.target }})
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino, windows-nvidia, windows-tensorrt]
+        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino, windows-nvidia, windows-tensorrt, windows-rocm-gfx103x, windows-rocm-gfx110x, windows-rocm-gfx1151, windows-rocm-gfx120x]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
@@ -66,6 +66,10 @@ jobs:
         # GPU inference is a separate hardware gate, not an executable-version check.
         shell: pwsh
         run: |
+          if ("${{ matrix.target }}" -like 'windows-rocm-*') {
+            python scripts/build_katago_rocm_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --target "${{ matrix.target }}" --jobs 3
+            if ($LASTEXITCODE -ne 0) { throw 'Locked ROCm SDK build failed' }
+          }
           if ("${{ matrix.target }}" -eq 'windows-tensorrt') {
             python scripts/build_katago_tensorrt_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
             if ($LASTEXITCODE -ne 0) { throw 'Locked TensorRT SDK build failed' }

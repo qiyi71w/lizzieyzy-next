@@ -22,6 +22,7 @@ import build_katago_openvino_dependencies as openvino_sdk_tools
 import build_katago_cuda_dependencies as cuda_sdk_tools
 import build_katago_tensorrt_dependencies as tensorrt_sdk_tools
 import build_katago_linux_cuda_dependencies as linux_cuda_sdk_tools
+import build_katago_rocm_dependencies as rocm_sdk_tools
 
 
 TARGETS = {
@@ -183,6 +184,8 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
                       openvino_sdk_tools.TARGET: openvino_sdk_tools,
                       cuda_sdk_tools.TARGET: cuda_sdk_tools,
                       tensorrt_sdk_tools.TARGET: tensorrt_sdk_tools}.get(target)
+    if target in rocm_sdk_tools.TARGETS:
+        provider_tools = rocm_sdk_tools
     if target in windows_sdk_tools.TARGETS or provider_tools is not None:
         if windows_sdk is None:
             raise ValueError("Windows builds require --windows-sdk with verified pinned dependencies")
@@ -190,16 +193,18 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
             raise ValueError("Windows SDK settings cannot override pinned dependencies")
         sdk_tools = provider_tools or windows_sdk_tools
         sdk_receipt = sdk_tools.verify_sdk(windows_sdk)
+        if provider_tools is rocm_sdk_tools and sdk_receipt.get("target") != target:
+            raise ValueError("ROCm SDK belongs to a different GPU family")
         sdk_prefix = windows_sdk
         options.extend(provider_tools.engine_options(windows_sdk) if provider_tools is not None
                        else windows_sdk_tools.engine_options(windows_sdk, target))
         build_env = windows_sdk_tools.environment(windows_sdk.resolve())
-        if provider_tools in (cuda_sdk_tools, tensorrt_sdk_tools):
+        if provider_tools in (cuda_sdk_tools, tensorrt_sdk_tools, rocm_sdk_tools):
             build_env = provider_tools.environment(windows_sdk.resolve())
         elif provider_tools is not None:
             build_env["PATH"] = str(windows_sdk.resolve() / "runtime") + os.pathsep + build_env["PATH"]
     elif windows_sdk is not None:
-        raise ValueError("--windows-sdk is only valid for Windows CPU/OpenCL/ONNX/CUDA targets")
+        raise ValueError("--windows-sdk is only valid for supported Windows targets")
     # Never reuse a stale executable after a failed configure/build.
     output.mkdir(parents=True, exist_ok=False)
     result = {
@@ -227,6 +232,8 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
             ):
                 subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, env=build_env)
         check_source(source)
+        if target in rocm_sdk_tools.TARGETS:
+            rocm_sdk_tools.validate_build(output)
         binary = output / ("katago.exe" if os.name == "nt" else "katago")
         if TARGETS[target][0] == "Darwin":
             result["macOSMinimumVersion"] = macos_minimum_version(
