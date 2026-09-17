@@ -99,7 +99,7 @@ def main() -> None:
     require(workflow, 'runtime_version_engines=(', "build-windows-release.yml")
     require(workflow, 'driver_gated_static_engines=(', "build-windows-release.yml")
     require(workflow, 'tensorrt_engine=', "build-windows-release.yml")
-    require(workflow, "--expected-version 1.18.1", "build-windows-release.yml")
+    require(workflow, '--expected-version "$(python3 scripts/katago_asset_catalog.py get katagoVersion)"', "build-windows-release.yml")
     require(package_script, "write_tensorrt_version_file", "package_windows_exe.sh")
     require(package_script, "Windows TensorRT bundle", "package_windows_exe.sh")
     require(workflow, "without an NVIDIA display driver", "build-windows-release.yml")

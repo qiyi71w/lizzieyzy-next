@@ -90,6 +90,7 @@ jobs:
         shell: bash
         env:
           PREPARE_WINDOWS_EXPERIMENTAL: 'true'
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ./scripts/prepare_bundled_katago.sh
@@ -162,8 +163,13 @@ jobs:
           grep -qx "release-tag=v3.0.6" "dist/windows/input-with-katago/readboard/lizzieyzy-next-readboard-manifest.txt"
           grep -qx "asset-name=readboard-github-release-v3.0.6.zip" "dist/windows/input-with-katago/readboard/lizzieyzy-next-readboard-manifest.txt"
           grep -qx "sha256=1ba4c265f560cd988be24f4ea0eeb29516883f42ece477bd32b72f8bccf6565d" "dist/windows/input-with-katago/readboard/lizzieyzy-next-readboard-manifest.txt"
-          grep -qx 'KataGo release: v1.18.1' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
-          grep -qx 'Windows bundle: katago-v1.18.1-eigen-windows-x64.zip' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
+          grep -Fqx "KataGo release: $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)" "dist/windows/input-with-katago/engines/katago/VERSION.txt"
+          grep -Fqx "Windows bundle: $(python3 scripts/katago_asset_catalog.py get assets.windows-cpu.assetName)" "dist/windows/input-with-katago/engines/katago/VERSION.txt"
+          for spec in 'with-katago|windows-cpu' 'opencl|windows-opencl' 'nvidia|windows-nvidia' 'nvidia.tensorrt|windows-tensorrt'; do
+            IFS='|' read -r flavor target <<<"$spec"
+            python3 scripts/audit_katago_source_bundle.py --target "$target" \
+              --engine "dist/windows/input-${flavor}/engines/katago/windows-x64"
+          done
           grep -qx 'Model source: kata1-tf3-b11c768-s11500M-d6163M.bin.gz' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
           grep -qx 'Model architecture: transformer' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
           grep -qx 'Minimum KataGo version: 1.17.0' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
@@ -173,7 +179,7 @@ jobs:
           test -f "dist/windows/input-opencl/PROJECT_INFO.txt"
           test -f "dist/windows/input-opencl/readboard/readboard.exe"
           test -f "dist/windows/input-opencl/readboard/lizzieyzy-next-readboard-manifest.txt"
-          grep -qx 'Windows OpenCL bundle: katago-v1.18.1-opencl-windows-x64.zip' "dist/windows/input-opencl/engines/katago/VERSION.txt"
+          grep -Fqx "Windows OpenCL bundle: $(python3 scripts/katago_asset_catalog.py get assets.windows-opencl.assetName)" "dist/windows/input-opencl/engines/katago/VERSION.txt"
           test -f "dist/windows/app-image-with-katago/LizzieYzy Next/LizzieYzy Next.exe"
           test -f "dist/windows/app-image-with-katago/LizzieYzy Next/app/PROJECT_INFO.txt"
           grep -q "java-options=-Dlizzie.next.version=$RELEASE_TAG" "dist/windows/app-image-with-katago/LizzieYzy Next/app/LizzieYzy Next.cfg"
@@ -236,7 +242,8 @@ jobs:
             test -f "$engine_dir/katago.exe"
             test -f "$engine_dir/lizzieyzy-next-katago-engine-manifest.txt"
             grep -qx "$backend" "$engine_dir/lizzieyzy-next-engine-backend.txt"
-            grep -qx "KataGo release: v1.18.1" "$engine_dir/lizzieyzy-next-katago-engine-manifest.txt"
+            grep -Fqx "KataGo release: $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)" "$engine_dir/lizzieyzy-next-katago-engine-manifest.txt"
+            python3 scripts/audit_katago_source_bundle.py --target "$catalog_id" --engine "$engine_dir"
             grep -qx "Asset SHA-256: $asset_sha" "$engine_dir/lizzieyzy-next-katago-engine-manifest.txt"
             test -f "dist/windows/app-image-${flavor}/${app_name}/${app_name}.exe"
             test -f "dist/release/${RELEASE_DATE_TAG}-windows64.${flavor}.portable.zip"
@@ -251,26 +258,28 @@ jobs:
           test -f "dist/release/${RELEASE_DATE_TAG}-windows64.nvidia.tensorrt.portable.sha256.txt"
           test -f "engines/katago/windows-x64-nvidia-tensorrt/lizzieyzy-next-katago-engine-manifest.txt"
           test -f "engines/katago/windows-x64-nvidia-tensorrt/katago-human-sl-cuda.exe"
-          echo "e207abb6e2403f0f34e9f4cac6079b988bf853537367d18f899c4b246eeb044c  engines/katago/windows-x64-nvidia-tensorrt/katago-human-sl-cuda.exe" | sha256sum -c -
-          grep -qx "KataGo release: v1.18.1" \
+          companion_sha="$(python3 scripts/katago_asset_catalog.py get assets.windows-nvidia.executableSha256)"
+          trt_sha="$(python3 scripts/katago_asset_catalog.py get assets.windows-tensorrt.sha256)"
+          echo "$companion_sha  engines/katago/windows-x64-nvidia-tensorrt/katago-human-sl-cuda.exe" | sha256sum -c -
+          grep -Fqx "KataGo release: $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)" \
             "engines/katago/windows-x64-nvidia-tensorrt/lizzieyzy-next-katago-engine-manifest.txt"
-          grep -qx "Asset SHA-256: 49b7229803b2ccee5205cc9d1f7b1a37790469405324de5e5acaafe7a8a9172a" \
+          grep -Fqx "Asset SHA-256: $trt_sha" \
             "engines/katago/windows-x64-nvidia-tensorrt/lizzieyzy-next-katago-engine-manifest.txt"
           grep -qx "HumanSL companion: katago-human-sl-cuda.exe" \
             "engines/katago/windows-x64-nvidia-tensorrt/lizzieyzy-next-katago-engine-manifest.txt"
-          grep -qx "HumanSL companion SHA-256: e207abb6e2403f0f34e9f4cac6079b988bf853537367d18f899c4b246eeb044c" \
+          grep -Fqx "HumanSL companion SHA-256: $companion_sha" \
             "engines/katago/windows-x64-nvidia-tensorrt/lizzieyzy-next-katago-engine-manifest.txt"
           test -f "dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/katago-human-sl-cuda.exe"
-          echo "e207abb6e2403f0f34e9f4cac6079b988bf853537367d18f899c4b246eeb044c  dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/katago-human-sl-cuda.exe" | sha256sum -c -
+          echo "$companion_sha  dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/katago-human-sl-cuda.exe" | sha256sum -c -
           test -f "dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/nvrtc64_120_0.dll"
           test -f "dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/nvrtc-builtins64_128.dll"
           grep -Eq '^- CUDA NVRTC: 12\.8\.61 \| .* \| sha256=e43603b09f8a52d681ceb814c00b655af19da53692ab91671dabbf8071c8f93d[[:space:]]*$' \
             "dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/lizzieyzy-next-nvidia-runtime-manifest.txt"
           grep -Eq '^- NVIDIA TensorRT: 10\.9\.0\.34 \| .* \| sha256=c2758eb60191f01a47b24f54700e5463f577ebe129cd18fe835d0aa9f1e1a16d[[:space:]]*$' \
             "dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/lizzieyzy-next-nvidia-runtime-manifest.txt"
-          grep -qx "KataGo release: v1.18.1" \
+          grep -Fqx "KataGo release: $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)" \
             "dist/windows/input-nvidia.tensorrt/engines/katago/VERSION.txt"
-          grep -qx "Windows TensorRT bundle: katago-v1.18.1-trt10.9.0-cuda12.8-windows-x64.zip" \
+          grep -Fqx "Windows TensorRT bundle: $(python3 scripts/katago_asset_catalog.py get assets.windows-tensorrt.assetName)" \
             "dist/windows/input-nvidia.tensorrt/engines/katago/VERSION.txt"
           grep -q "Optional TensorRT split package for RTX 30 series and earlier" "dist/release/${RELEASE_DATE_TAG}-windows64.nvidia.tensorrt.portable.README.txt"
           grep -q '"engineBackend": "nvidia-tensorrt"' "dist/release/${RELEASE_DATE_TAG}-windows64.nvidia.tensorrt.portable.manifest.json"
@@ -363,20 +372,20 @@ jobs:
             test -f "$engine"
             version_output="$("$engine" version 2>&1)"
             printf '%s\n%s\n' "$engine" "$version_output"
-            grep -q 'KataGo v1\.18\.1' <<<"$version_output"
+            grep -Fq "KataGo $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)" <<<"$version_output"
           done
           # CPU, OpenCL, ONNX and ROCm can report their version without initializing a
           # device. CUDA/TensorRT cannot pass the Windows loader on a hosted runner
           # without an NVIDIA display driver, so only those binaries use the static
           # marker audit after the runtime-file checks above.
           python3 scripts/audit_katago_binary_version.py \
-            --expected-version 1.18.1 \
+            --expected-version "$(python3 scripts/katago_asset_catalog.py get katagoVersion)" \
             --reject-version 1.17.0 \
             --reject-version 1.17.1 \
             --reject-version 1.17.2 \
             "${driver_gated_static_engines[@]}"
           python3 scripts/audit_katago_binary_version.py \
-            --expected-version 1.18.1 \
+            --expected-version "$(python3 scripts/katago_asset_catalog.py get katagoVersion)" \
             --reject-version 1.17.0 \
             --reject-version 1.17.1 \
             --reject-version 1.17.2 \
@@ -384,8 +393,8 @@ jobs:
           python3 scripts/audit_katago_package_metadata.py \
             --version-file "dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/VERSION.txt" \
             --engine-manifest "dist/windows/app-image-nvidia.tensorrt/LizzieYzy Next NVIDIA TensorRT/app/engines/katago/windows-x64/lizzieyzy-next-katago-engine-manifest.txt" \
-            --expected-version 1.18.1 \
-            --expected-asset katago-v1.18.1-trt10.9.0-cuda12.8-windows-x64.zip
+            --expected-version "$(python3 scripts/katago_asset_catalog.py get katagoVersion)" \
+            --expected-asset "$(python3 scripts/katago_asset_catalog.py get assets.windows-tensorrt.assetName)"
 
       - name: Smoke test bundled Windows app images
         shell: powershell

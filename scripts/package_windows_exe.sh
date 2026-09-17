@@ -605,6 +605,32 @@ prepare_bundled_tensorrt_engine_assets() {
     exit 1
   fi
   log_step "Preparing optional TensorRT KataGo engine [$TENSORRT_KATAGO_ASSET]"
+  if [[ "$("$PYTHON_BIN" "$ROOT_DIR/scripts/katago_asset_catalog.py" origin)" == "project-source-build" ]]; then
+    "$PYTHON_BIN" "$ROOT_DIR/scripts/prepare_katago_source_assets.py" \
+      --catalog "$ROOT_DIR/src/main/resources/katago-assets.json" --targets windows-tensorrt \
+      --cache "$TENSORRT_KATAGO_CACHE_DIR" --engines "$ROOT_DIR/engines/katago"
+    "$PYTHON_BIN" - "$companion_source" "$output_dir" "$HUMAN_SL_CUDA_COMPANION_NAME" \
+      "$HUMAN_SL_CUDA_COMPANION_SHA256" "$TENSORRT_ENGINE_MANIFEST_NAME" <<'PY'
+import hashlib
+from pathlib import Path
+import shutil
+import sys
+
+source, output, name, expected, manifest = sys.argv[1:]
+def digest(path):
+    with Path(path).open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+if digest(source) != expected:
+    raise SystemExit("Source-built HumanSL companion checksum mismatch")
+destination = Path(output) / name
+shutil.copy2(source, destination)
+if digest(destination) != expected:
+    raise SystemExit("Copied source-built HumanSL companion checksum mismatch")
+with (Path(output) / manifest).open("a", encoding="utf-8") as handle:
+    handle.write(f"HumanSL companion: {name}\nHumanSL companion SHA-256: {expected}\n")
+PY
+    return
+  fi
   "$PYTHON_BIN" - \
     "$TENSORRT_KATAGO_URL" \
     "$TENSORRT_KATAGO_CACHE_DIR" \

@@ -85,6 +85,7 @@ jobs:
 
       - name: Prepare bundled KataGo assets
         env:
+          GH_TOKEN: ${{ github.token }}
           HTTPS_PROXY: ""
           HTTP_PROXY: ""
           ALL_PROXY: ""
@@ -98,7 +99,8 @@ jobs:
       - name: Audit macOS arm64 display version
         run: |
           app_root="dist/macos/app-image/LizzieYzy Next.app/Contents/app"
-          grep -qx "KataGo release: v1.18.1" "$app_root/engines/katago/VERSION.txt"
+          grep -Fqx "KataGo release: $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)" "$app_root/engines/katago/VERSION.txt"
+          python3 scripts/audit_katago_source_bundle.py --target macos-arm64 --engine "$app_root/engines/katago/macos-arm64"
           grep -qx "Model source: kata1-tf3-b11c768-s11500M-d6163M.bin.gz" "$app_root/engines/katago/VERSION.txt"
           grep -qx "Model architecture: transformer" "$app_root/engines/katago/VERSION.txt"
           grep -qx "Minimum KataGo version: 1.17.0" "$app_root/engines/katago/VERSION.txt"

@@ -82,6 +82,8 @@ jobs:
         run: mvn -DskipTests package
 
       - name: Prepare bundled KataGo assets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ./scripts/prepare_bundled_katago.sh
@@ -119,12 +121,14 @@ jobs:
             test -x "$engine_dir/katago"
             test -f "$engine_dir/lizzieyzy-next-engine-backend.txt"
             grep -qx "${expected_backend[$flavor]}" "$engine_dir/lizzieyzy-next-engine-backend.txt"
+            target="linux-${expected_backend[$flavor]}"
+            python3 scripts/audit_katago_source_bundle.py --target "$target" --engine "$engine_dir"
           done
           manifest="dist/stage/${RELEASE_DATE_TAG}-linux64.with-katago/Lizzieyzy/engines/katago/VERSION.txt"
-          grep -qx "KataGo release: v1.18.1" "$manifest"
-          grep -qx "Linux bundle: katago-v1.18.1-eigen-linux-x64.zip" "$manifest"
-          grep -qx "Linux OpenCL bundle: katago-v1.18.1-opencl-linux-x64.zip" "$manifest"
-          grep -qx "Linux NVIDIA bundle: katago-v1.18.1-cuda12.1-cudnn9.8.0-linux-x64.zip" "$manifest"
+          grep -Fqx "KataGo release: $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)" "$manifest"
+          grep -Fqx "Linux bundle: $(python3 scripts/katago_asset_catalog.py get assets.linux-cpu.assetName)" "$manifest"
+          grep -Fqx "Linux OpenCL bundle: $(python3 scripts/katago_asset_catalog.py get assets.linux-opencl.assetName)" "$manifest"
+          grep -Fqx "Linux NVIDIA bundle: $(python3 scripts/katago_asset_catalog.py get assets.linux-nvidia.assetName)" "$manifest"
           grep -qx "Model source: kata1-tf3-b11c768-s11500M-d6163M.bin.gz" "$manifest"
           grep -qx "Model architecture: transformer" "$manifest"
           grep -qx "Minimum KataGo version: 1.17.0" "$manifest"
@@ -132,7 +136,7 @@ jobs:
             "73f6454eba62d2f6d099af8ce66d8c3fde6225e223c55817da0627590e98b0ae"
           cpu_version="$("dist/stage/${RELEASE_DATE_TAG}-linux64.with-katago/Lizzieyzy/engines/katago/linux-x64/katago" version 2>&1)"
           echo "$cpu_version"
-          echo "$cpu_version" | grep -q "KataGo v1.18.1"
+          echo "$cpu_version" | grep -Fq "KataGo $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)"
           echo "$cpu_version" | grep -q "Using Eigen"
 
       - name: Validate public Linux assets
