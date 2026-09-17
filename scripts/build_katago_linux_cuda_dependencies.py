@@ -90,6 +90,18 @@ def verify_sdk(prefix: Path) -> dict:
     return receipt
 
 
+def prepare_toolkit_layout(prefix: Path) -> None:
+    # NVIDIA redist uses lib/, while nvcc's own link profile searches lib64/.
+    # Keep both inside the sealed SDK; do not borrow the runner's system CUDA.
+    libraries = prefix / "cuda/lib"
+    if not all((libraries / name).is_file() for name in ("libcudadevrt.a", "libcudart_static.a")):
+        raise ValueError("CUDA compiler runtime archives are missing")
+    alias = prefix / "cuda/lib64"
+    if alias.exists() or alias.is_symlink():
+        raise ValueError("CUDA lib64 layout already exists")
+    alias.symlink_to("lib", target_is_directory=True)
+
+
 def build_sdk(output: Path, jobs: int) -> Path:
     output = output.resolve()
     lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
@@ -110,6 +122,7 @@ def build_sdk(output: Path, jobs: int) -> Path:
                 scratch = output / (item["name"] + "-extracted")
                 install_archive(archive, prefix, item, scratch)
                 shutil.rmtree(scratch)
+            prepare_toolkit_layout(prefix)
             for name in ("cuda/bin/nvcc", "cuda/nvvm/libdevice/libdevice.10.bc",
                          "cuda/include/cuda_runtime.h", "cuda/include/cub/cub.cuh",
                          "cuda/lib/libcudart_static.a", "cuda/lib/libcublas.so", "cuda/lib/libnvrtc.so",

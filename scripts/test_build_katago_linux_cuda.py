@@ -141,6 +141,22 @@ class LinuxCudaSourceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "receipt or files"):
                 cuda.verify_sdk(root)
 
+    @unittest.skipIf(os.name == "nt", "Linux nvcc layout is tested on POSIX hosts")
+    def test_nvcc_lib64_layout_resolves_only_locked_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            libraries = root / "cuda/lib"
+            libraries.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "archives are missing"):
+                cuda.prepare_toolkit_layout(root)
+            for name in ("libcudadevrt.a", "libcudart_static.a"):
+                (libraries / name).write_bytes(b"locked")
+            cuda.prepare_toolkit_layout(root)
+            self.assertEqual(libraries.resolve(), (root / "cuda/lib64").resolve())
+            self.assertEqual(b"locked", (root / "cuda/lib64/libcudadevrt.a").read_bytes())
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                cuda.prepare_toolkit_layout(root)
+
     def test_elf_external_dependencies_and_abi_are_bounded(self):
         header = "Class: ELF64\nMachine: Advanced Micro Devices X86-64\n"
         dynamic = "(NEEDED) Shared library: [libcudnn.so.9]\n(RUNPATH) Library runpath: [$ORIGIN]\n"
