@@ -103,8 +103,28 @@ Two regressions failed before the fix; the targeted suite passed 42 tests,
 including accepting more child evidence despite fewer root visits. The move
 clock, quality filters and candidate legality are unchanged.
 
-The `.6` tag also remains unchanged and unpublished. `.7` must rebuild and verify
-all final packages; class-overlay tests do not certify final signed packages.
+The `.6` tag also remains unchanged and unpublished. The final signed `.7` Apple
+Silicon package passed digest, Gatekeeper, notarization, stapling, 85-dylib audit,
+layout, real bundled-JVM launch/analysis/exit and post-exit signature verification.
+Its unmodified application JAR and engine passed five-second automatic analysis,
+five-position whole-game analysis, HumanSL end/restore and native focus protocol
+checks. Windows build, app-image smoke and MSI upgrade gates also passed, but
+[run 35237475347](https://github.com/wimi321/lizzieyzy-next/actions/runs/35237475347)
+failed uploading an installer with HTTP 500. No `.7` asset is replaced or published.
+
+[PR #510](https://github.com/wimi321/lizzieyzy-next/pull/510) fixes a synchronization
+race found during full regression: failure and response quiescence must be read
+as one state, not separately. A deterministic delayed-listener test failed before
+the fix and passed afterwards for both authority and mirror. All 59 local gates
+passed with 4,147 JUnit tests, zero failures/errors and 64 conditional skips; exact
+Windows/Linux CI, native process checks and desktop smoke also passed.
+
+[PR #511](https://github.com/wimi321/lizzieyzy-next/pull/511) uploads one asset per
+bounded retry, reconciles lost responses by SHA-256 and never overwrites completed
+files. Unknown partial objects and mismatched digests fail closed. Its 60 local
+gates and exact Windows/Linux CI passed. The new `next-2026-09-18.1` candidate must
+rebuild all application packages and repeat final signed-package acceptance;
+previous candidate tests or class overlays cannot substitute for that acceptance.
 
 The unpublished `.2` candidate exposed two application-packaging defects.
 [PR #497](https://github.com/wimi321/lizzieyzy-next/pull/497) restores the exact
