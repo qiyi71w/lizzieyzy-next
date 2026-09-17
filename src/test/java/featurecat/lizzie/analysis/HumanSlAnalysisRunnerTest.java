@@ -209,7 +209,7 @@ class HumanSlAnalysisRunnerTest {
         HumanSlAnalysisRunner.adaptiveVerificationVisits(
             64, Duration.ofMillis(100).toNanos(), Duration.ofSeconds(9).toNanos()));
     assertEquals(
-        80,
+        64,
         HumanSlAnalysisRunner.adaptiveVerificationVisits(
             64, Duration.ofSeconds(7).toNanos(), Duration.ofSeconds(3).toNanos()));
     assertEquals(
@@ -391,20 +391,16 @@ class HumanSlAnalysisRunnerTest {
   }
 
   @Test
-  void completedVerificationVisits_usesActualWorkRatherThanRequestedLimit() {
-    assertEquals(
-        17,
-        HumanSlAnalysisRunner.completedVerificationVisits(
-            new JSONObject().put("rootInfo", new JSONObject().put("visits", 17)), 64));
-    assertEquals(64, HumanSlAnalysisRunner.completedVerificationVisits(new JSONObject(), 64));
-    assertEquals(
-        64,
-        HumanSlAnalysisRunner.completedVerificationVisits(
-            new JSONObject().put("rootInfo", new JSONObject().put("visits", -1)), 64));
+  void deeperVerificationRejectsEmptyResultsWithoutInventingEvidence() {
+    JSONObject previous =
+        new JSONObject()
+            .put("moveInfos", new JSONArray().put(new JSONObject().put("move", "B2")));
+    assertFalse(HumanSlAnalysisRunner.hasAtLeastVerificationEvidence(previous, new JSONObject()));
+    assertTrue(HumanSlAnalysisRunner.hasAtLeastVerificationEvidence(previous, previous));
   }
 
   @Test
-  void bestHumanMove_timeLimitedFirstVerificationKeepsOnlyVerifiedMoves() throws Exception {
+  void bestHumanMove_partialFirstVerificationKeepsOnlyVerifiedMoves() throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
       boardWithHistory(history);
@@ -421,7 +417,7 @@ class HumanSlAnalysisRunnerTest {
                 if (!request.has("allowMoves")) {
                   return response;
                 }
-                // The engine reached its time limit before 64 visits. A3 was not verified.
+                // Root visits alone do not reveal why search ended. A3 was not verified.
                 return response
                     .put("rootInfo", new JSONObject().put("visits", 17))
                     .put(
@@ -439,7 +435,7 @@ class HumanSlAnalysisRunnerTest {
         assertEquals(
             java.util.Optional.of("B2"),
             runner.bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
-        assertEquals(2, process.sentRequests.size());
+        assertEquals(3, process.sentRequests.size());
         assertTrue(process.isAlive());
         double policyTime =
             process.sentRequests.get(0).getJSONObject("overrideSettings").getDouble("maxTime");
@@ -469,7 +465,61 @@ class HumanSlAnalysisRunnerTest {
             runner
                 .bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10))
                 .isEmpty());
-        assertEquals(2, process.sentRequests.size());
+        assertEquals(3, process.sentRequests.size());
+      }
+    }
+  }
+
+  @Test
+  void weightlessRootVisitsDoNotSuppressDeeperSearch() throws Exception {
+    assertWeightlessSearchResult(33, 96, "A3");
+  }
+
+  @Test
+  void timeLimitedDeeperSearchDoesNotReplaceMoreVerifiedEvidence() throws Exception {
+    assertWeightlessSearchResult(2, 2, "B2");
+  }
+
+  @Test
+  void moreWeightlessChildEvidenceIsKeptEvenWithFewerRootVisits() throws Exception {
+    assertWeightlessSearchResult(2, 96, "A3");
+  }
+
+  private static void assertWeightlessSearchResult(
+      int deeperRootVisits, int deeperChildVisits, String expectedMove)
+      throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+      boardWithHistory(history);
+      FakeProcess process =
+          new FakeProcess(
+              request -> {
+                boolean deep = request.optInt("maxVisits") > 64;
+                return new JSONObject()
+                    .put("id", request.getString("id"))
+                    .put("humanPolicy", new JSONObject().put("A3", 0.5).put("B2", 0.5))
+                    .put("rootInfo", new JSONObject().put("visits", deep ? deeperRootVisits : 17))
+                    .put(
+                        "moveInfos",
+                        new JSONArray()
+                            .put(
+                                new JSONObject()
+                                    .put("move", deep ? "A3" : "B2")
+                                    .put("order", 0)
+                                    .put("visits", deep ? deeperChildVisits : 64)
+                                    .put("utility", 0.5)));
+              });
+      try (HumanSlAnalysisRunner runner =
+          new HumanSlAnalysisRunner(List.of("katago", "analysis"), ignored -> process)) {
+        assertEquals(
+            java.util.Optional.of(expectedMove),
+            runner.bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
+        assertEquals(3, process.sentRequests.size());
+        assertEquals(64, process.sentRequests.get(1).getInt("maxVisits"));
+        assertTrue(process.sentRequests.get(2).getInt("maxVisits") > 64);
+        assertTrue(
+            process.sentRequests.get(2).getJSONObject("overrideSettings").getDouble("maxTime")
+                > 0.0);
       }
     }
   }
