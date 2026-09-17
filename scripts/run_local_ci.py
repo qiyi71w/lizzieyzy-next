@@ -80,6 +80,8 @@ PY_COMPILE_FILES = (
     "scripts/prepare_cpu_engine_acceptance.py",
     "scripts/test_prepare_cpu_engine_acceptance.py",
     "scripts/test_run_acceptance.py",
+    "scripts/build_katago_cuda_dependencies.py",
+    "scripts/test_build_katago_cuda.py",
     "scripts/build_katago_directml_dependencies.py",
     "scripts/build_katago_openvino_dependencies.py",
     "scripts/test_build_katago_openvino.py",
@@ -137,6 +139,7 @@ PY_COMPILE_FILES = (
 DIRECT_PYTHON_TESTS = (
     "scripts/test_prepare_cpu_engine_acceptance.py",
     "scripts/test_run_acceptance.py",
+    "scripts/test_build_katago_cuda.py",
     "scripts/test_build_katago_directml.py",
     "scripts/test_build_katago_openvino.py",
     "scripts/test_build_katago_windows.py",

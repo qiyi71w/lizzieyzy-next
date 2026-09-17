@@ -18,11 +18,11 @@ jobs:
   source-build:
     name: Source Windows (${{ matrix.target }})
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino]
+        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino, windows-nvidia]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
@@ -63,11 +63,15 @@ jobs:
         shell: pwsh
         run: python scripts/build_katago_openvino_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
       - name: Compile exact upstream commit
+        # GPU inference is a separate hardware gate, not an executable-version check.
         shell: pwsh
-        run: >-
-          python scripts/build_katago_source.py --source upstream-katago
-          --output "$env:RUNNER_TEMP/katago-build" --target "${{ matrix.target }}"
-          --windows-sdk "$env:RUNNER_TEMP/katago-sdk/prefix" --jobs 3
+        run: |
+          if ("${{ matrix.target }}" -eq 'windows-nvidia') {
+            python scripts/build_katago_cuda_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+            if ($LASTEXITCODE -ne 0) { throw 'Locked CUDA SDK build failed' }
+          }
+          python scripts/build_katago_source.py --source upstream-katago --output "$env:RUNNER_TEMP/katago-build" --target "${{ matrix.target }}" --windows-sdk "$env:RUNNER_TEMP/katago-sdk/prefix" --jobs 3
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned source build failed' }
       - name: Audit relocated PE engine and dependencies
         shell: pwsh
         run: >-

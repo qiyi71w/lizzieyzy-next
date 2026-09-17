@@ -3,6 +3,37 @@
 This tooling is a prerequisite for the move-focus pre-release, not permission to publish it.
 The production package builders and stable/R2 channels are unchanged until all release gates pass.
 
+## Windows CUDA evidence build
+
+`windows-nvidia` builds the pinned source using the existing MSVC 14.44 toolset,
+CUDA 12.8.0 components (NVCC/NVRTC 12.8.61) and cuDNN 9.8.0.87. The exact archives,
+sizes and SHA-256 values are in
+[katago_cuda_dependencies.json](../scripts/katago_cuda_dependencies.json).
+These are the same runtime versions selected by the production NVIDIA packager;
+this does not upgrade CUDA, cuDNN or the model. NVIDIA's compiler header explicitly
+accepts MSVC 19.44; no unsupported-compiler override is used.
+
+The common static SDK is extended in place only after input verification. Compiler,
+headers and import libraries are constrained to that sealed prefix. Environment
+overrides cannot select a different CUDA toolkit. The upstream CUDA architecture
+selection remains unchanged, including the pre-RTX and RTX 50 targets.
+
+The portable evidence artifact contains the 24 declared runtime DLLs, including
+cuDNN graph/attention, NVRTC compiler/builtins and its alternate DLL, nvJitLink and the same MSVC DLLs as
+the existing official package. It never copies the old engine or its unrelated
+OpenSSL/zlib shared libraries. Every DLL is audited, and the relocated engine must
+report its version with the developer SDK removed from `PATH`. NVIDIA's display
+driver is a system prerequisite, not a bundled DLL. GPU inference, throughput and
+Windows 10/11 final application acceptance remain **NOT_RUN** on the hosted runner.
+
+```powershell
+python scripts/build_katago_cuda_dependencies.py --output C:/build/cuda-sdk --jobs 3
+python scripts/build_katago_source.py --source C:/src/KataGo --output C:/build/cuda-engine `
+  --target windows-nvidia --windows-sdk C:/build/cuda-sdk/prefix --jobs 3
+python scripts/package_katago_source_windows.py --build C:/build/cuda-engine `
+  --sdk C:/build/cuda-sdk/prefix --output C:/build/cuda-evidence
+```
+
 ## Windows OpenVINO evidence build
 
 `windows-openvino` uses the same pinned KataGo source and MSVC/static protobuf
@@ -194,7 +225,8 @@ python scripts/package_katago_source_windows.py --build C:/build/katago `
 Run these commands from the selected x64 developer environment; an unverified SDK, wrong compiler
 toolset, stale output, missing DLL, or failed engine process is a hard failure, not a fallback to
 an older KataGo executable. DirectML and OpenVINO use the separately locked SDK extensions
-described above. CUDA, TensorRT and ROCm builds are not yet implemented by this workflow.
+described above, as does Windows CUDA. TensorRT and ROCm builds are not yet implemented
+by this workflow; Linux CUDA remains a separate pending target.
 
 | Platform | Backends |
 | --- | --- |
