@@ -66,10 +66,13 @@ public final class RealCpuEngineAcceptanceIT {
           .normalize();
   private static final Duration STARTUP_BUDGET = Duration.ofSeconds(60);
   private static final Duration POSITION_BUDGET = Duration.ofSeconds(30);
-  private static final Duration ANALYSIS_BUDGET = Duration.ofSeconds(90);
+  // The pinned flagship Transformer took 83 seconds for the root alone on hosted Eigen CPU.
+  // Allow a bounded cold search, but still require positive, legal visits on the exact node.
+  private static final Duration ANALYSIS_BUDGET = Duration.ofSeconds(300);
   private static final Duration STOP_BUDGET = Duration.ofSeconds(10);
   private static final Duration QUIT_BUDGET = Duration.ofSeconds(15);
   private static final Duration CLEANUP_BUDGET = Duration.ofSeconds(10);
+  private static final long PROBE_BUDGET_SECONDS = 450;
 
   @Test
   void analyzesPinnedCpuEngineThroughProductionOwnership() throws Exception {
@@ -96,7 +99,7 @@ public final class RealCpuEngineAcceptanceIT {
                 engineId,
                 source.commit,
                 Boolean.toString(source.dirty)),
-            225);
+            PROBE_BUDGET_SECONDS);
 
     JSONObject record = new JSONObject(Files.readString(result, StandardCharsets.UTF_8));
     validateResult(record, inputs, source, engineId, result);
@@ -256,8 +259,12 @@ public final class RealCpuEngineAcceptanceIT {
     long analysisStart = System.nanoTime();
     Deadline analysisDeadline = Deadline.after(ANALYSIS_BUDGET);
     AtomicReference<MoveData> firstCandidate = new AtomicReference<>();
+    AtomicBoolean firstOutput = new AtomicBoolean();
     await(
         () -> {
+          if (!real.getBestMoves().isEmpty() && firstOutput.compareAndSet(false, true)) {
+            state.firstOutputMillis = elapsedMillis(analysisStart);
+          }
           Optional<MoveData> candidate = positiveLegalCandidate(capturedTarget);
           candidate.ifPresent(value -> firstCandidate.compareAndSet(null, value));
           return real.isPondering()
@@ -271,6 +278,16 @@ public final class RealCpuEngineAcceptanceIT {
     assertApplicationPosition(history, capturedTarget, rulesTarget, true);
     long analysisMillis = elapsedMillis(analysisStart);
     state.analysisMillis = analysisMillis;
+    Files.writeString(
+        result.resolveSibling("cpu-timing.json"),
+        new JSONObject()
+            .put("availableProcessors", Runtime.getRuntime().availableProcessors())
+            .put("coldAnalysisBudgetMs", ANALYSIS_BUDGET.toMillis())
+            .put("firstOutputMs", state.firstOutputMillis)
+            .put("firstPositiveVisitsMs", analysisMillis)
+            .put("firstPositiveVisits", candidate.playouts)
+            .put("purpose", "functional acceptance, not a throughput benchmark")
+            .toString(2));
 
     phase(state, result, "analysis-stop");
     long stopStart = System.nanoTime();
@@ -1221,7 +1238,9 @@ public final class RealCpuEngineAcceptanceIT {
     assertTrue(result.getJSONObject("phasesMs").getLong("stop") <= STOP_BUDGET.toMillis());
     assertTrue(result.getJSONObject("phasesMs").getLong("quit") <= QUIT_BUDGET.toMillis());
     assertTrue(result.getJSONObject("phasesMs").getLong("cleanup") <= CLEANUP_BUDGET.toMillis());
-    assertTrue(result.getJSONObject("phasesMs").getLong("total") <= Duration.ofSeconds(225).toMillis());
+    assertTrue(
+        result.getJSONObject("phasesMs").getLong("total")
+            <= Duration.ofSeconds(PROBE_BUDGET_SECONDS).toMillis());
 
     JSONObject stop = result.getJSONObject("stop");
     requireKeys(
@@ -1440,6 +1459,7 @@ public final class RealCpuEngineAcceptanceIT {
     private long startupMillis = -1L;
     private long positionMillis = -1L;
     private long analysisMillis = -1L;
+    private long firstOutputMillis = -1L;
     private long stopMillis = -1L;
     private long quitMillis = -1L;
   }

@@ -69,6 +69,8 @@ python3 scripts/run_acceptance.py --scenario real-cpu-engine \
 
 CPU 准备器按 `src/main/resources/katago-assets.json` 校验 Linux Eigen 引擎归档和模型，提取归档内的配置，并输出包含实际路径及哈希的 `manifest.json`。上例三个资源路径必须取自该 manifest；已有 manifest 的输出根目录会被拒绝。准备阶段可能联网，运行阶段不下载资源。`real-cpu-engine` 通过生产引擎管理器启动真实 KataGo，验证规则和快照盘面、当前节点正访问量、停止静默窗口以及进程／reader／临时 SGF 清理。
 
+这是功能验收，不是吞吐基准。默认旗舰 Transformer 在托管 Eigen CPU 上曾耗时约 83 秒才输出零访问量根节点候选，因此冷搜索预算为 300 秒，整个探针上限为 450 秒；仍必须收到合法候选的正访问量并写入冻结的当前节点，零访问量、超时或跳过均不能通过。原始 GTP trace 和 `cpu-timing.json` 分别保留首批候选、首个有效搜索的证据，不修改模型、归档配置或正式应用的等待参数。
+
 每个资源下载的 socket 等待上限为 30 秒，传输预算为 600 秒；在每次读取前后检查预算，已开始的单次读取最多再等待一个 socket 时限。停滞或超预算会失败并移除 `.part`，不会发布该资源或 manifest；已有校验通过的缓存仍可复用。
 
 离线验收需要将整个 runner、应用和引擎进程树置于已验证的断网环境，使用相同资源和新的 `--output` 目录再执行一次；普通运行成功本身不证明离线可用。Linux/Xvfb 结果不代表 Windows/macOS 原生文件选择器或最终发布包验收。
