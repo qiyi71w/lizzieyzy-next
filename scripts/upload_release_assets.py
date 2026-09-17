@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -122,6 +123,12 @@ def upload_one(client, path, *, attempts=4, sleep=time.sleep):
             client.upload(path)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             error = type(exc).__name__
+            stderr = exc.stderr or b''
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode('utf-8', errors='replace')
+            status = re.search(r'\bHTTP [1-5][0-9]{2}\b', stderr)
+            if status:
+                error += ': ' + status.group(0)
         # A lost HTTP response can still mean success. Reconcile before any retry/delete.
         asset = client.lookup(path.name)
         if completed(asset, size, digest):

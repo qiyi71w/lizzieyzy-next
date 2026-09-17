@@ -39,7 +39,7 @@ class FakeClient:
         if behavior == 'timeout':
             raise subprocess.TimeoutExpired(['gh'], 900)
         if behavior in ('500', 'lost-response'):
-            raise subprocess.CalledProcessError(1, ['gh'])
+            raise subprocess.CalledProcessError(1, ['gh'], stderr=b'HTTP 500: server error')
 
 
 class UploadTests(unittest.TestCase):
@@ -96,7 +96,7 @@ class UploadTests(unittest.TestCase):
 
     def test_exhausted_retries_fail_closed(self):
         client = FakeClient(self.path, ['500'] * 4)
-        with self.assertRaisesRegex(IdentityError, 'did not complete'):
+        with self.assertRaisesRegex(IdentityError, r'did not complete.*HTTP 500'):
             self.run_upload(client)
         self.assertEqual((client.uploads, client.deletes), (4, 3))
 
