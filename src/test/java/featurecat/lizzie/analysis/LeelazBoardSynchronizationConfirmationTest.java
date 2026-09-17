@@ -2,6 +2,7 @@ package featurecat.lizzie.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,6 +14,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Timer;
@@ -25,6 +27,102 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class LeelazBoardSynchronizationConfirmationTest {
+
+  @Test
+  void failedLastResponseCannotBecomeSuccessfulWhileItsListenerIsDelayed() throws Exception {
+    assertFailureDuringConfirmation(false);
+  }
+
+  @Test
+  void failedMirrorResponseCannotBecomeSuccessfulWhileItsListenerIsDelayed() throws Exception {
+    assertFailureDuringConfirmation(true);
+  }
+
+  private void assertFailureDuringConfirmation(boolean failMirror) throws Exception {
+    try (TestEnvironment ignored = new TestEnvironment()) {
+      ReadinessControlledLeelaz engine = new ReadinessControlledLeelaz();
+      Lizzie.leelaz = engine;
+      engine.isLoaded = true;
+      ByteArrayOutputStream output = new ByteArrayOutputStream();
+      setOutput(engine, output);
+      Leelaz mirror = failMirror ? new ReadinessControlledLeelaz() : null;
+      ByteArrayOutputStream mirrorOutput = new ByteArrayOutputStream();
+      if (mirror != null) {
+        mirror.isLoaded = true;
+        setOutput(mirror, mirrorOutput);
+      }
+      Method bindingMethod = Leelaz.class.getDeclaredMethod("currentReaderStreamBinding");
+      bindingMethod.setAccessible(true);
+      Object binding = bindingMethod.invoke(failMirror ? mirror : engine);
+      Field lineageField = binding.getClass().getDeclaredField("analysisStateLineage");
+      lineageField.setAccessible(true);
+      Object lineage = lineageField.get(binding);
+      Method register = lineage.getClass().getDeclaredMethod("registerResponse");
+      register.setAccessible(true);
+      register.invoke(lineage);
+      Method settle = lineage.getClass().getDeclaredMethod("settleResponse", boolean.class);
+      settle.setAccessible(true);
+      CountDownLatch failurePublished = new CountDownLatch(1);
+      CountDownLatch releaseListener = new CountDownLatch(1);
+      Method onChange = lineage.getClass().getDeclaredMethod("onChange", Runnable.class);
+      onChange.setAccessible(true);
+      onChange.invoke(
+          lineage,
+          (Runnable) () -> {
+            failurePublished.countDown();
+            try {
+              assertTrue(releaseListener.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException failure) {
+              Thread.currentThread().interrupt();
+              throw new AssertionError(failure);
+            }
+          });
+      AtomicInteger successes = new AtomicInteger();
+      AtomicInteger failures = new AtomicInteger();
+      engine.confirmBoardSynchronization(
+          mirror, successes::incrementAndGet, detail -> failures.incrementAndGet());
+      if (mirror != null) {
+        mirror.processCommandResponseLineForTest("=" + commandId(mirrorOutput) + " KataGo");
+      }
+      AtomicReference<Throwable> workerFailure = new AtomicReference<>();
+      Thread timeout =
+          new Thread(
+              () -> {
+                try {
+                  settle.invoke(lineage, false);
+                } catch (Throwable failure) {
+                  workerFailure.set(failure);
+                }
+              },
+              "controlled-position-timeout");
+      timeout.setDaemon(true);
+      engine.beforeReadiness =
+          () -> {
+            timeout.start();
+            try {
+              assertTrue(failurePublished.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException failure) {
+              Thread.currentThread().interrupt();
+              throw new AssertionError(failure);
+            }
+          };
+      try {
+        engine.processCommandResponseLineForTest("=" + commandId(output) + " KataGo");
+        assertEquals(0, successes.get(), "failed quiescent lineage must not publish success");
+      } finally {
+        releaseListener.countDown();
+        timeout.join(5_000L);
+      }
+      assertFalse(timeout.isAlive());
+      assertNull(workerFailure.get());
+      assertEquals(1, failures.get());
+      assertFalse((failMirror ? mirror : engine).isLoaded);
+      if (failMirror) assertTrue(engine.isLoaded, "confirmed authority remains usable");
+      engine.processCommandResponseLineForTest("=" + commandId(output) + " late");
+      assertEquals(0, successes.get());
+      assertEquals(1, failures.get());
+    }
+  }
 
   @Test
   void synchronousResponseDuringDispatchSettlesBeforeTimeoutScheduling() throws Exception {
@@ -183,6 +281,26 @@ class LeelazBoardSynchronizationConfirmationTest {
       Lizzie.config = previousConfig;
       Lizzie.frame = previousFrame;
       Lizzie.leelaz = previousEngine;
+    }
+  }
+
+  private static final class ReadinessControlledLeelaz extends Leelaz {
+    private Runnable beforeReadiness;
+
+    private ReadinessControlledLeelaz() throws IOException {
+      super("");
+    }
+
+    @Override
+    protected long readBoardGmaRestoreResponseTimeoutMillis() {
+      return 30_000L;
+    }
+
+    @Override
+    void beforeBoardSynchronizationReadinessForTest() {
+      Runnable action = beforeReadiness;
+      beforeReadiness = null;
+      if (action != null) action.run();
     }
   }
 
