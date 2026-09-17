@@ -32,12 +32,14 @@ def engine_options(prefix: Path) -> list[str]:
     architectures = json.loads(LOCK_PATH.read_text(encoding="utf-8"))["hipArchitectures"]
     options = [option for option in common.engine_options(prefix, "windows-cpu")
                if not option.startswith(("-DEIGEN3_INCLUDE_DIRS=", "-DCMAKE_PREFIX_PATH=", "-DCMAKE_FIND_ROOT_PATH="))]
-    return options + [f"-DCMAKE_PREFIX_PATH={hip};{prefix}", f"-DCMAKE_FIND_ROOT_PATH={hip};{prefix}",
+    options += [f"-DCMAKE_PREFIX_PATH={hip};{prefix}", f"-DCMAKE_FIND_ROOT_PATH={hip};{prefix}",
                       f"-DCMAKE_HIP_COMPILER_ROCM_ROOT={hip}",
                       f"-DCMAKE_HIP_COMPILER={hip / 'lib/llvm/bin/clang++.exe'}",
                       f"-DCMAKE_CXX_COMPILER={hip / 'lib/llvm/bin/clang++.exe'}",
                       f"-DCMAKE_C_COMPILER={hip / 'lib/llvm/bin/clang.exe'}",
                       "-DCMAKE_HIP_ARCHITECTURES=" + ";".join(architectures)]
+    # CMake writes HIP paths into quoted .cmake source; native backslashes become escapes.
+    return [option.replace("\\", "/") for option in options]
 
 
 def environment(prefix: Path) -> dict[str, str]:

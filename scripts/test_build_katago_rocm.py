@@ -3,7 +3,7 @@
 import copy
 import io
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 import subprocess
 import unittest
@@ -49,12 +49,23 @@ class RocmSourceTest(unittest.TestCase):
             self.assertRegex(item["sha256"], r"^[0-9a-f]{64}$")
 
     def test_configuration_uses_locked_compiler_and_all_architectures(self):
-        options = [item.replace("\\", "/") for item in rocm.engine_options(Path("/tmp/Chinese space/sdk"))]
+        options = rocm.engine_options(Path("/tmp/Chinese space/sdk"))
         self.assertTrue(any(item.endswith("rocm/lib/llvm/bin/clang++.exe") for item in options))
         self.assertIn("-DCMAKE_HIP_ARCHITECTURES=" + ";".join(self.lock["hipArchitectures"]), options)
         self.assertTrue(any(item.endswith("lib/zlibstatic.lib") for item in options))
         self.assertFalse(any(item.startswith("-DEIGEN3_INCLUDE_DIRS=") for item in options))
         self.assertFalse(any("KATAGO_WIN_MSVC_TOOLSET_CHECKED" in item for item in options))
+
+    def test_windows_paths_are_safe_when_cmake_serializes_hip_compiler_state(self):
+        prefix = PureWindowsPath(r"D:\a\_temp\SDK with spaces")
+        with patch.object(Path, "resolve", return_value=prefix), \
+                patch.object(rocm.common, "engine_options", return_value=[
+                    r"-DZLIB_LIBRARY=D:\a\_temp\SDK with spaces\lib\zlibstatic.lib"]):
+            options = rocm.engine_options(Path("ignored"))
+        self.assertTrue(all("\\" not in value for value in options))
+        self.assertIn("-DCMAKE_HIP_COMPILER_ROCM_ROOT=D:/a/_temp/SDK with spaces/rocm", options)
+        self.assertIn("-DZLIB_LIBRARY=D:/a/_temp/SDK with spaces/lib/zlibstatic.lib", options)
+        self.assertIn("-DCMAKE_HIP_COMPILER=D:/a/_temp/SDK with spaces/rocm/lib/llvm/bin/clang++.exe", options)
 
     def test_environment_does_not_reuse_unrelated_hip_path(self):
         prefix = Path("sdk path").resolve()
