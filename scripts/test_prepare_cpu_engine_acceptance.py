@@ -300,17 +300,18 @@ class CpuAcceptanceProvisionerTest(unittest.TestCase):
                 pass
 
         probe = """
-import json, sys
+import json, sys, time
 from pathlib import Path
 from scripts import prepare_cpu_engine_acceptance as provisioner
 # Exercise only HTTP failures with cached fixtures on every CI host.
 provisioner.supported_host = lambda: True
 provisioner.DOWNLOAD_TIMEOUT_SECONDS = 0.2
 provisioner.DOWNLOAD_DEADLINE_SECONDS = 0.5
+started = time.monotonic()
 try:
     provisioner.prepare(Path(sys.argv[1]), catalog_path=Path(sys.argv[2]))
 except provisioner.ProvisioningError:
-    print(json.dumps({"failed": True}))
+    print(json.dumps({"failed": True, "elapsed": time.monotonic() - started}))
 else:
     print(json.dumps({"failed": False}))
 """
@@ -337,11 +338,14 @@ else:
                         cwd=SCRIPT_DIR.parent,
                         capture_output=True,
                         text=True,
-                        timeout=4,
+                        # Windows interpreter/AV startup is not the HTTP deadline.
+                        timeout=20,
                     )
                     self.assertEqual(0, result.returncode, result.stderr)
                     self.assertTrue(requested.is_set(), "download did not reach the HTTP peer")
-                    self.assertTrue(json.loads(result.stdout)["failed"])
+                    observed = json.loads(result.stdout)
+                    self.assertTrue(observed["failed"])
+                    self.assertLess(observed["elapsed"], 3, "HTTP deadline was not enforced")
                     self.assertEqual({"cache"}, {entry.name for entry in root.iterdir()})
                     self.assertEqual(
                         {self.catalog["assets"]["linux-cpu"]["assetName"]},

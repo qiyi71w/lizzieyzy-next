@@ -843,6 +843,21 @@ class ReviewedReleaseNotesTest(unittest.TestCase):
 
 
 class ReleaseWorkflowResilienceTest(unittest.TestCase):
+    def test_draft_download_privilege_is_isolated_from_native_test_execution(self) -> None:
+        workflow = (
+            SCRIPT_PATH.parents[1] / ".github/workflows/acceptance-integration.yml"
+        ).read_text(encoding="utf-8")
+        prepare, execute = workflow.split("  linux-sgf-cpu:", 1)
+        self.assertIn("persist-credentials: false", prepare)
+        self.assertIn("python3 -I -", prepare)
+        self.assertNotIn("python3 scripts/", prepare)
+        self.assertIn("hashlib.file_digest", prepare)
+        self.assertIn("contents: read", execute)
+        self.assertNotIn("contents: write", execute)
+        self.assertNotIn("GH_TOKEN:", execute)
+        self.assertIn("needs: prepare-source-archive", execute)
+        self.assertIn("path: target/acceptance-assets/cache", execute)
+
     def test_source_candidates_wait_for_explicit_post_acceptance_publication(self) -> None:
         workflow = (
             SCRIPT_PATH.parents[1] / ".github/workflows/publish-requested-pre-release.yml"

@@ -19,6 +19,7 @@ import build_katago_directml_dependencies as directml
 import build_katago_openvino_dependencies as openvino
 import build_katago_cuda_dependencies as cuda
 import build_katago_tensorrt_dependencies as tensorrt
+import build_katago_rocm_dependencies as rocm
 
 SYSTEM_LIBRARIES = {"kernel32.dll", "advapi32.dll", "user32.dll", "gdi32.dll", "shell32.dll",
                     "ole32.dll", "oleaut32.dll", "ws2_32.dll", "bcrypt.dll", "crypt32.dll",
@@ -28,6 +29,7 @@ SYSTEM_LIBRARIES = {"kernel32.dll", "advapi32.dll", "user32.dll", "gdi32.dll", "
 DIRECTML_SYSTEM_LIBRARIES = {"setupapi.dll", "dbghelp.dll", "d3d12.dll", "dxgi.dll"}
 OPENVINO_SYSTEM_LIBRARIES = {"setupapi.dll", "dbghelp.dll", "dxgi.dll"}
 CUDA_SYSTEM_LIBRARIES = {"setupapi.dll", "dbghelp.dll", "nvcuda.dll"}
+ROCM_SYSTEM_LIBRARIES = {"setupapi.dll", "dbghelp.dll", "dxgi.dll", "d3d12.dll", "psapi.dll"}
 
 
 def inspect_pe(headers: str, dependencies: str, bundled: set[str] | None = None,
@@ -73,14 +75,18 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
     target = original.get("target")
     onnx_tools = {directml.TARGET: directml, openvino.TARGET: openvino}.get(target)
     provider_tools = {cuda.TARGET: cuda, tensorrt.TARGET: tensorrt}.get(target, onnx_tools)
+    if target in rocm.TARGETS:
+        provider_tools = rocm
     verified_sdk = provider_tools.verify_sdk(sdk) if provider_tools else verify_sdk(sdk)
     lock = provider_tools.LOCK_PATH if provider_tools else LOCK_PATH
-    if (target not in TARGETS | {directml.TARGET, openvino.TARGET, cuda.TARGET, tensorrt.TARGET} or original.get("sourceCommit") != SOURCE_COMMIT
+    if (target not in TARGETS | rocm.TARGETS | {directml.TARGET, openvino.TARGET, cuda.TARGET, tensorrt.TARGET} or original.get("sourceCommit") != SOURCE_COMMIT
             or original.get("origin") != "project-source-build" or original.get("buildStatus") != "PASS"
             or original.get("dependencyLockSha256") != digest(lock)
             or original.get("sdkReceipt") != file_record(sdk / "sdk-receipt.json", sdk)
             or original.get("executable") != file_record(build / "katago.exe", build)):
         raise ValueError("Build or SDK identity changed before packaging")
+    if provider_tools is rocm and verified_sdk.get("target") != target:
+        raise ValueError("ROCm runtime belongs to a different GPU family")
     output.mkdir(parents=True, exist_ok=False)
     receipt = dict(original, packagingStatus="FAIL", dependencyAuditStatus="FAIL",
                    hardwareAcceptanceStatus="NOT_RUN")
@@ -95,6 +101,9 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
             bundled = set(provider_tools.runtime_files())
             for name in bundled:
                 shutil.copy2(sdk / "runtime" / name, output / name)
+            if provider_tools is rocm:
+                for name in rocm.RUNTIME_DIRECTORIES:
+                    shutil.copytree(sdk / "runtime" / name, output / name)
         audits = {}
         for binary in sorted(output.iterdir()):
             if not binary.is_file():
@@ -105,7 +114,8 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
                                {directml.TARGET: DIRECTML_SYSTEM_LIBRARIES,
                                 openvino.TARGET: OPENVINO_SYSTEM_LIBRARIES,
                                 cuda.TARGET: CUDA_SYSTEM_LIBRARIES,
-                                tensorrt.TARGET: CUDA_SYSTEM_LIBRARIES}.get(target, set()))
+                                tensorrt.TARGET: CUDA_SYSTEM_LIBRARIES}.get(
+                                    target, ROCM_SYSTEM_LIBRARIES if provider_tools is rocm else set()))
             if any(name.lower() == "opencl.dll" for name in audit["needed"]):
                 if not (output / "OpenCL.dll").is_file():
                     raise ValueError("OpenCL loader missing from portable bundle")

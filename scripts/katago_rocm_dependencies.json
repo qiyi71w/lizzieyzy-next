@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "provider": "rocm",
+  "version": "7.13.0",
+  "sdk": {
+    "name": "AMD TheRock HIP SDK",
+    "version": "7.13.0",
+    "url": "https://repo.amd.com/rocm/tarball-multi-arch/therock-dist-windows-gfx110X-all-7.13.0.tar.gz",
+    "sizeBytes": 5374290649,
+    "sha256": "4f0b974d97637ed9c237af7dea5996c43b21b8d938103659f6ab7e978b388826",
+    "archiveRoot": "therock-dist-windows-gfx110X-all-7.13.0rc2",
+    "checksumOrigin": "SHA-256 computed from the official AMD archive; .info/version reports 7.13.0"
+  },
+  "hipArchitectures": ["gfx906", "gfx908", "gfx90a", "gfx942", "gfx950", "gfx1010", "gfx1011", "gfx1012", "gfx1030", "gfx1031", "gfx1032", "gfx1033", "gfx1034", "gfx1035", "gfx1036", "gfx1100", "gfx1101", "gfx1102", "gfx1103", "gfx1150", "gfx1151", "gfx1152", "gfx1153", "gfx1200", "gfx1201"],
+  "runtimeFiles": ["MIOpen.dll", "amd_comgr0713.dll", "amdhip64_7.dll", "amdocl64.dll", "bz2.dll", "hipblas.dll", "hiprtc-builtins07013.dll", "hiprtc07013.dll", "libcrypto-3-x64.dll", "libhipblaslt.dll", "libssl-3-x64.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll", "rocblas.dll", "rocm_kpack.dll", "rocsolver.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll", "z.dll", "zip.dll"],
+  "runtimes": {
+    "windows-rocm-gfx103x": {
+      "name": "Existing RDNA2 runtime",
+      "url": "https://github.com/lightvector/KataGo/releases/download/v1.18.1/katago-v1.18.1-rocm7.13-gfx103X-windows-x64.zip",
+      "sizeBytes": 217380864,
+      "sha256": "1786cf55cd474cc240c12f65ba2d9971e35f8d057bd019ae570ec615476c9d59"
+    },
+    "windows-rocm-gfx110x": {
+      "name": "Existing RDNA3 runtime",
+      "url": "https://github.com/lightvector/KataGo/releases/download/v1.18.1/katago-v1.18.1-rocm7.13-gfx110X-windows-x64.zip",
+      "sizeBytes": 221478994,
+      "sha256": "2b89770a36dafe66ed90731aceb7f6f84ba082f50da39b9ef0d606c4d2af481a"
+    },
+    "windows-rocm-gfx1151": {
+      "name": "Existing Strix Halo runtime",
+      "url": "https://github.com/lightvector/KataGo/releases/download/v1.18.1/katago-v1.18.1-rocm7.13-gfx1151-windows-x64.zip",
+      "sizeBytes": 176153193,
+      "sha256": "e9c7496825ed88c8312191e6df4ae185e0363014fe6e689856da2144743ec142"
+    },
+    "windows-rocm-gfx120x": {
+      "name": "Existing RDNA4 runtime",
+      "url": "https://github.com/lightvector/KataGo/releases/download/v1.18.1/katago-v1.18.1-rocm7.13-gfx120X-windows-x64.zip",
+      "sizeBytes": 556862129,
+      "sha256": "f98f20b204d2ebb996959764e94453ccf996099ea6f46f377d6649180c5c38b3"
+    }
+  }
+}
