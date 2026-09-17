@@ -74,7 +74,6 @@ import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
-import javax.swing.JPopupMenu;
 import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -773,7 +772,7 @@ public final class SgfUiAcceptanceIT {
     press(robot, KeyEvent.VK_A);
     press(robot, KeyEvent.VK_V);
     robot.keyRelease(KeyEvent.VK_CONTROL);
-    robot.waitForIdle();
+    robot.delay(100);
     await(
         () -> edt(() -> LizzieFrame.text.getText().equals(file.toAbsolutePath().toString())),
         Deadline.after(Duration.ofSeconds(5)),
@@ -888,18 +887,38 @@ public final class SgfUiAcceptanceIT {
       throws Exception {
     Deadline deadline = Deadline.after(timeout);
     JMenuItem item = edt(() -> findMenuAction(action));
-    JMenu parent =
-        edt(
-            () -> {
-              if (!(item.getParent() instanceof JPopupMenu popup)
-                  || !(popup.getInvoker() instanceof JMenu menu)) {
-                throw new AssertionError("menu action has no visible parent menu: " + action);
-              }
-              return menu;
-            });
-    clickComponent(robot, parent);
+    JMenu parent = edt(() -> topLevelMenuContaining(item));
+    AtomicReference<Component> invokerRef = new AtomicReference<>();
+    await(
+        () -> {
+          Component invoker = edt(() -> visibleMenuInvoker(parent));
+          invokerRef.set(invoker);
+          return invoker != null;
+        },
+        deadline,
+        "visible production menu " + parent.getText());
+    clickComponent(robot, invokerRef.get());
     await(() -> edt(item::isShowing), deadline, "visible menu item " + action);
     clickComponent(robot, item);
+  }
+
+  private static Component visibleMenuInvoker(JMenu menu) {
+    if (menu.isShowing()) {
+      return menu;
+    }
+    WindowMenuStrip strip = Lizzie.frame == null ? null : Lizzie.frame.windowMenuStrip;
+    if (strip == null || !strip.isShowing()) {
+      return null;
+    }
+    String text = menu.getText();
+    return descendants(strip).stream()
+        .filter(JButton.class::isInstance)
+        .map(JButton.class::cast)
+        .filter(Component::isShowing)
+        .filter(JButton::isEnabled)
+        .filter(button -> text != null && text.equals(button.getText()))
+        .findFirst()
+        .orElse(null);
   }
 
   private static JMenuItem findMenuAction(String action) {
@@ -931,6 +950,33 @@ public final class SgfUiAcceptanceIT {
       }
     }
     return null;
+  }
+
+  private static JMenu topLevelMenuContaining(JMenuItem target) {
+    JMenuBar bar = LizzieFrame.menu;
+    if (bar != null) {
+      for (int index = 0; index < bar.getMenuCount(); index++) {
+        JMenu menu = bar.getMenu(index);
+        if (containsMenuItem(menu, target)) {
+          return menu;
+        }
+      }
+    }
+    throw new AssertionError("menu action has no production top-level menu: " + target);
+  }
+
+  private static boolean containsMenuItem(JMenuItem item, JMenuItem target) {
+    if (item == target) {
+      return true;
+    }
+    if (item instanceof JMenu menu) {
+      for (Component child : menu.getMenuComponents()) {
+        if (child instanceof JMenuItem menuItem && containsMenuItem(menuItem, target)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private static void focusBoard() throws Exception {
@@ -1008,13 +1054,13 @@ public final class SgfUiAcceptanceIT {
     robot.mouseMove(x, y);
     robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
     robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
-    robot.waitForIdle();
+    robot.delay(100);
   }
 
   private static void press(Robot robot, int key) {
     robot.keyPress(key);
     robot.keyRelease(key);
-    robot.waitForIdle();
+    robot.delay(100);
   }
 
   private static Robot robot() throws Exception {
