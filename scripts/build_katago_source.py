@@ -17,6 +17,7 @@ from probe_katago_focus import SOURCE_COMMIT
 from build_katago_macos_dependencies import sdk_environment, verify_sdk
 import build_katago_linux_dependencies as linux_sdk_tools
 import build_katago_windows_dependencies as windows_sdk_tools
+import build_katago_directml_dependencies as directml_sdk_tools
 
 
 TARGETS = {
@@ -171,17 +172,21 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
         build_env["LD_LIBRARY_PATH"] = str(linux_sdk.resolve() / "lib")
     elif linux_sdk is not None:
         raise ValueError("--linux-sdk is only valid for Linux CPU/OpenCL targets")
-    if target in windows_sdk_tools.TARGETS:
+    if target in windows_sdk_tools.TARGETS or target == directml_sdk_tools.TARGET:
         if windows_sdk is None:
-            raise ValueError("Windows CPU/OpenCL builds require --windows-sdk with verified pinned dependencies")
+            raise ValueError("Windows builds require --windows-sdk with verified pinned dependencies")
         if sdk:
             raise ValueError("Windows SDK settings cannot override pinned dependencies")
-        sdk_receipt = windows_sdk_tools.verify_sdk(windows_sdk)
+        sdk_tools = directml_sdk_tools if target == directml_sdk_tools.TARGET else windows_sdk_tools
+        sdk_receipt = sdk_tools.verify_sdk(windows_sdk)
         sdk_prefix = windows_sdk
-        options.extend(windows_sdk_tools.engine_options(windows_sdk, target))
+        options.extend(directml_sdk_tools.engine_options(windows_sdk) if target == directml_sdk_tools.TARGET
+                       else windows_sdk_tools.engine_options(windows_sdk, target))
         build_env = windows_sdk_tools.environment(windows_sdk.resolve())
+        if target == directml_sdk_tools.TARGET:
+            build_env["PATH"] = str(windows_sdk.resolve() / "runtime") + os.pathsep + build_env["PATH"]
     elif windows_sdk is not None:
-        raise ValueError("--windows-sdk is only valid for Windows CPU/OpenCL targets")
+        raise ValueError("--windows-sdk is only valid for Windows CPU/OpenCL/DirectML targets")
     # Never reuse a stale executable after a failed configure/build.
     output.mkdir(parents=True, exist_ok=False)
     result = {

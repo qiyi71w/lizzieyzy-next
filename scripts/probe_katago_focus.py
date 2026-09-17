@@ -35,7 +35,8 @@ def parse_analysis(line: str) -> tuple[int, dict[str, int]] | None:
 
 
 class GtpProbe:
-    def __init__(self, executable: Path, model: Path, evidence: Path, timeout: float):
+    def __init__(self, executable: Path, model: Path, evidence: Path, timeout: float,
+                 onnx_provider: str | None = None):
         self.timeout = timeout
         self.sequence = 0
         self.lines: queue.Queue[str | None] = queue.Queue()
@@ -43,7 +44,8 @@ class GtpProbe:
         config = evidence / "gtp.cfg"
         config.write_text(
             "logAllGTPCommunication = false\nlogSearchInfo = false\nlogToStderr = true\n"
-            "numSearchThreads = 2\nrules = chinese\nponderingEnabled = false\n",
+            "numSearchThreads = 2\nrules = chinese\nponderingEnabled = false\n"
+            + (f"onnxProvider = {onnx_provider}\n" if onnx_provider else ""),
             encoding="utf-8",
         )
         self.stderr = (evidence / "stderr.log").open("w", encoding="utf-8")
@@ -129,14 +131,18 @@ class GtpProbe:
             self.stderr.close()
 
 
-def probe(executable: Path, model: Path, evidence: Path, timeout: float = 120) -> dict:
+def probe(executable: Path, model: Path, evidence: Path, timeout: float = 120,
+          onnx_provider: str | None = None) -> dict:
     if not 1 <= timeout <= 600:
         raise ValueError("timeout must be between 1 and 600 seconds")
+    if onnx_provider not in {None, "cpu", "directml", "openvino"}:
+        raise ValueError("Unsupported ONNX execution provider")
     executable, model, evidence = executable.resolve(), model.resolve(), evidence.resolve()
     if not executable.is_file() or not model.is_file():
         raise ValueError("explicit executable and model files are required")
     evidence.mkdir(parents=True, exist_ok=False)
-    result = {"status": "FAIL", "sourceCommit": SOURCE_COMMIT, "steps": []}
+    result = {"status": "FAIL", "sourceCommit": SOURCE_COMMIT, "steps": [],
+              "executionProvider": onnx_provider or "native"}
     session = None
     try:
         # A first macOS launch can wait for OS security scanning before main().
@@ -152,8 +158,10 @@ def probe(executable: Path, model: Path, evidence: Path, timeout: float = 120) -
             result["operationTimeoutSeconds"] = timeout
         if f"Git revision: {SOURCE_COMMIT}" not in version:
             raise ValueError("binary does not report the pinned upstream source commit")
+        if onnx_provider and "Using ONNX Runtime backend" not in version:
+            raise ValueError("Requested ONNX provider on a non-ONNX engine")
         result.update(version=version, executableSha256=sha256(executable), modelSha256=sha256(model))
-        session = GtpProbe(executable, model, evidence, timeout)
+        session = GtpProbe(executable, model, evidence, timeout, onnx_provider)
         for command in ("boardsize 19", "komi 7.5", "play B D4", "play W Q16"):
             session.command(command)
         base = "kata-analyze B interval 10 rootInfo true minmoves 20"
@@ -189,10 +197,11 @@ def main() -> int:
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument("--onnx-provider", choices=("cpu", "directml", "openvino"))
     args = parser.parse_args()
     if not 1 <= args.timeout <= 600:
         parser.error("timeout must be between 1 and 600 seconds")
-    result = probe(args.engine, args.model, args.evidence, args.timeout)
+    result = probe(args.engine, args.model, args.evidence, args.timeout, args.onnx_provider)
     print(json.dumps({"status": result["status"], "rootVisits": [s["rootVisits"] for s in result["steps"]]}))
     return 0
 
