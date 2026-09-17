@@ -34,6 +34,15 @@ def inspect_pe(headers: str, dependencies: str) -> dict:
     return {"needed": needed}
 
 
+def portable_environment() -> dict[str, str]:
+    # os.environ is case-insensitive on Windows; its copied dict is not.
+    env = {name.upper(): value for name, value in os.environ.items()}
+    if not env.get("SYSTEMROOT"):
+        raise ValueError("Windows system directory is unavailable")
+    env["PATH"] = str(Path(env["SYSTEMROOT"]) / "System32")
+    return env
+
+
 def package(build: Path, sdk: Path, output: Path) -> dict:
     if platform.system() != "Windows" or platform.machine().lower() not in {"amd64", "x86_64"}:
         raise ValueError("Windows packaging needs a native Windows/x86_64 host")
@@ -68,8 +77,7 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
                     raise ValueError("OpenCL loader missing from portable bundle")
             audits[binary.name] = audit
         # No build SDK or developer-tool PATH can supply an accidentally missing DLL.
-        env = os.environ.copy()
-        env["PATH"] = str(Path(env["SystemRoot"]) / "System32")
+        env = portable_environment()
         result = subprocess.run([str(output / "katago.exe"), "version"], env=env, cwd=output,
                                 check=True, capture_output=True, text=True, timeout=30)
         if result.stdout != original["versionOutput"]:

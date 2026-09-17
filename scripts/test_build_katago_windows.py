@@ -12,10 +12,20 @@ from build_katago_windows_dependencies import (
 )
 from build_katago_macos_dependencies import digest, inventory
 from build_katago_source import build
-from package_katago_source_windows import inspect_pe
+from package_katago_source_windows import inspect_pe, portable_environment
 
 
 class WindowsSourceTest(unittest.TestCase):
+    def test_portable_launch_handles_windows_environment_case_without_sdk_paths(self):
+        for spelling in ("SystemRoot", "SYSTEMROOT", "systemroot"):
+            with patch.dict(os.environ, {spelling: "C:/Windows", "Path": "C:/developer-sdk/bin"}, clear=True):
+                env = portable_environment()
+            self.assertEqual(str(Path("C:/Windows") / "System32"), env["PATH"])
+            self.assertNotIn("Path", env)
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "system directory"):
+                portable_environment()
+
     def test_eigen_headers_do_not_configure_unrelated_fortran(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
