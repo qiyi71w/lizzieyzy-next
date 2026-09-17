@@ -16,6 +16,7 @@
 - DirectML and OpenVINO executed ONNX unit tests and CPU inference. This is not GPU/NPU inference evidence.
 - Native Swing checks include same-tree focus and SGF root/edge persistence, quick-curve completion and pause preservation, five seconds per move, whole-game start/pause/resume/stop/completion, and HumanSL end/restore.
 - The independent-analysis thread-alias conflict found by the real whole-game run was fixed in [PR #492](https://github.com/wimi321/lizzieyzy-next/pull/492). The same previously failing configuration then completed all five tested positions at 500 visits.
+- A subsequent default-B11 repeat exposed two foreground handoff races, fixed in [PR #495](https://github.com/wimi321/lizzieyzy-next/pull/495): closing/reopening a terminal window must not discard its completion callback, and temporary idleness during snapshot restoration must not be mistaken for a user pause. Both cases have deterministic red/green regressions. The fixed native start/pause/resume/stop/reopen/complete sequence passed again without adding sleeps or changing analysis budgets. The final fix passed all 59 local gates, including 4,131 JUnit tests with zero failures/errors and 64 conditional skips.
 - Missing CUDA, TensorRT, OpenCL, ROCm, Intel Metal and DirectML/OpenVINO GPU/NPU hardware remains `PENDING_HARDWARE`, not PASS. Hosted Windows Server 2022 checks do not certify Windows 10/11 or a user's GPU.
 
 ## Exact ROCm license inventory
