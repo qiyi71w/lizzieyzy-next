@@ -46,6 +46,44 @@ def require(text: str, value: str, source: str) -> None:
         raise AssertionError(f"{source} is missing required launcher guard: {value}")
 
 
+def verify_nvidia_dependency_origin(workflow: str) -> None:
+    start = workflow.index("          for nvidia_engine in ")
+    end = workflow.index("          done", start) + len("          done")
+    block = "\n".join(line[10:] for line in workflow[start:end].splitlines())
+    require(block, 'test -f "$nvidia_engine/z.dll"', "official zlib dependency")
+    require(block, "scripts/audit_katago_source_bundle.py --target windows-nvidia", "source audit")
+    if os.name == "nt" or shutil.which("bash") is None:
+        return
+    with tempfile.TemporaryDirectory(prefix="nvidia origin ") as temporary:
+        root = Path(temporary)
+        inputs = [root / "dist/windows/input-nvidia/engines/katago/windows-x64",
+                  root / "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64"]
+        for directory in inputs:
+            directory.mkdir(parents=True)
+        # Stub only the external command boundary; inventory validation has its own tests.
+        script = '''set -euo pipefail
+python3() {
+  if [ "$1" = scripts/katago_asset_catalog.py ]; then printf '%s\\n' "$ORIGIN";
+  else test "$1" = scripts/audit_katago_source_bundle.py; test "$AUDIT" = PASS; fi
+}
+''' + block
+
+        def run(origin, audit="PASS"):
+            return subprocess.run(["bash", "-c", script], cwd=root,
+                                  env=dict(os.environ, ORIGIN=origin, AUDIT=audit)).returncode
+
+        assert run("project-source-build") == 0
+        assert run("project-source-build", "FAIL") != 0
+        assert run("official-release") != 0
+        for directory in inputs:
+            (directory / "z.dll").touch()
+        assert run("official-release") == 0
+        for directory in inputs:
+            (directory / "z.dll").unlink()
+            assert run("official-release") != 0
+            (directory / "z.dll").touch()
+
+
 def main() -> None:
     package_script = (ROOT / "scripts/package_windows_exe.sh").read_text(encoding="utf-8")
     verify_engine_staging(package_script)
@@ -138,11 +176,7 @@ def main() -> None:
     require(package_script, "write_tensorrt_version_file", "package_windows_exe.sh")
     require(package_script, "Windows TensorRT bundle", "package_windows_exe.sh")
     require(workflow, "without an NVIDIA display driver", "build-windows-release.yml")
-    require(
-        workflow,
-        "windows-x64/z.dll",
-        "build-windows-release.yml",
-    )
+    verify_nvidia_dependency_origin(workflow)
     if "windows-x64/libz.dll" in workflow:
         raise AssertionError("KataGo 1.18 Windows bundles use z.dll, not the legacy libz.dll name")
     require(

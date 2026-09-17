@@ -210,7 +210,6 @@ jobs:
           grep -q "java-options=-Dlizzie.next.version=$RELEASE_TAG" "dist/windows/app-image-without.engine/LizzieYzy Next/app/LizzieYzy Next.cfg"
           test -f "dist/windows/input-nvidia/engines/katago/windows-x64/cublasLt64_12.dll"
           test -f "dist/windows/input-nvidia/engines/katago/windows-x64/cudnn64_9.dll"
-          test -f "dist/windows/input-nvidia/engines/katago/windows-x64/z.dll"
           test -f "dist/windows/input-nvidia/engines/katago/windows-x64/lizzieyzy-next-nvidia-runtime-manifest.txt"
           grep -q "Profile: cuda12.8-cudnn9" "dist/windows/input-nvidia/engines/katago/windows-x64/lizzieyzy-next-nvidia-runtime-manifest.txt"
           find "dist/windows/input-nvidia/engines/katago/windows-x64" -maxdepth 1 -type f -name 'nvJitLink*.dll' | grep -q .
@@ -223,7 +222,16 @@ jobs:
           test -f "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64/cublas64_12.dll"
           test -f "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64/cublasLt64_12.dll"
           test -f "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64/cudnn64_9.dll"
-          test -f "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64/z.dll"
+          # Reviewed source builds statically link zlib; official archives ship z.dll.
+          for nvidia_engine in \
+            "dist/windows/input-nvidia/engines/katago/windows-x64" \
+            "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64"; do
+            if [ "$(python3 scripts/katago_asset_catalog.py origin)" = "project-source-build" ]; then
+              python3 scripts/audit_katago_source_bundle.py --target windows-nvidia --engine "$nvidia_engine"
+            else
+              test -f "$nvidia_engine/z.dll"
+            fi
+          done
           find "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64" -maxdepth 1 -type f -name 'nvJitLink*.dll' | grep -q .
           test -f "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64/nvrtc64_120_0.dll"
           test -f "dist/windows/app-image-nvidia/LizzieYzy Next NVIDIA/app/engines/katago/windows-x64/nvrtc-builtins64_128.dll"
