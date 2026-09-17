@@ -1,0 +1,46 @@
+name: Transfer Verified Pinned Source Assets
+run-name: "Transfer pinned engines ${{ inputs.source_tag }} to ${{ inputs.target_tag }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Existing release containing the exact pinned archives
+        required: true
+      target_tag:
+        description: Existing immutable pre-release Draft tag
+        required: true
+      target_sha:
+        description: Exact commit pointed to by the destination tag
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: source-asset-transfer-${{ inputs.target_tag }}
+  cancel-in-progress: false
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify transfer safety
+        run: python -m unittest scripts.test_transfer_pinned_source_assets scripts.test_upload_release_assets
+      - name: Transfer and verify archives without executing engines
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          TARGET_TAG: ${{ inputs.target_tag }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: >-
+          python scripts/transfer_pinned_source_assets.py
+          --source-tag "$SOURCE_TAG" --target-tag "$TARGET_TAG" --target-sha "$TARGET_SHA"
