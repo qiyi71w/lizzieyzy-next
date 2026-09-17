@@ -109,9 +109,7 @@ class AnalysisResourceCoordinatorTest {
     AnalysisResourceCoordinator.foregroundPlayoutSample(owner, 40);
     Thread.sleep(260L);
     AnalysisResourceCoordinator.foregroundPlayoutSample(owner, 90);
-    Method awaitIdle = LoggingRuntime.class.getDeclaredMethod("awaitIdle");
-    awaitIdle.setAccessible(true);
-    awaitIdle.invoke(runtime);
+    awaitLogs(runtime);
     String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
     assertTrue(app.contains("engine event=foreground-throughput playouts=90"), app);
     assertTrue(app.contains("playoutsPerSecond="), app);
@@ -195,9 +193,7 @@ class AnalysisResourceCoordinatorTest {
         owner, AnalysisResourceCoordinator.Purpose.AUTO_QUICK_ANALYSIS);
     AnalysisResourceCoordinator.processStopped(
         owner, AnalysisResourceCoordinator.Purpose.MAIN_BOARD, null);
-    Method awaitIdle = LoggingRuntime.class.getDeclaredMethod("awaitIdle");
-    awaitIdle.setAccessible(true);
-    awaitIdle.invoke(runtime);
+    awaitLogs(runtime);
 
     String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
     assertTrue(app.contains("engine event=bootstrap"), app);
@@ -268,9 +264,7 @@ class AnalysisResourceCoordinatorTest {
       replacement.destroy();
       AnalysisResourceCoordinator.processStopped(
           owner, AnalysisResourceCoordinator.Purpose.MAIN_BOARD, replacement);
-      Method awaitIdle = LoggingRuntime.class.getDeclaredMethod("awaitIdle");
-      awaitIdle.setAccessible(true);
-      awaitIdle.invoke(runtime);
+      awaitLogs(runtime);
 
       String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
       assertTrue(app.contains("pid=202"), app);
@@ -336,6 +330,14 @@ class AnalysisResourceCoordinatorTest {
     } else {
       System.setProperty(name, value);
     }
+  }
+
+  private static void awaitLogs(LoggingRuntime runtime) throws Exception {
+    Method awaitIdle = LoggingRuntime.class.getDeclaredMethod(
+        "awaitIdle", long.class, java.util.concurrent.TimeUnit.class);
+    awaitIdle.setAccessible(true);
+    assertTrue((Boolean) awaitIdle.invoke(runtime, 10L, java.util.concurrent.TimeUnit.SECONDS),
+        "submitted diagnostic records did not reach the log writer");
   }
 
   private static final class ControllableProcess extends Process {
