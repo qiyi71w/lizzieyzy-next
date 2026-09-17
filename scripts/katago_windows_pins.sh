@@ -22,7 +22,7 @@ HUMAN_SL_CUDA_COMPANION_SHA256="${HUMAN_SL_CUDA_COMPANION_SHA256:-$(_katago_pin_
 TENSORRT_KATAGO_TAG="${TENSORRT_KATAGO_TAG:-$KATAGO_RELEASE_TAG}"
 TENSORRT_KATAGO_ASSET="${TENSORRT_KATAGO_ASSET:-$(_katago_pin_get assets.windows-tensorrt.assetName)}"
 TENSORRT_KATAGO_SHA256="${TENSORRT_KATAGO_SHA256:-$(_katago_pin_get assets.windows-tensorrt.sha256)}"
-TENSORRT_KATAGO_URL="${TENSORRT_KATAGO_URL:-https://github.com/lightvector/KataGo/releases/download/${TENSORRT_KATAGO_TAG}/${TENSORRT_KATAGO_ASSET}}"
+TENSORRT_KATAGO_URL="${TENSORRT_KATAGO_URL:-$("$PYTHON_BIN" "$_KATAGO_PINS_ROOT/scripts/katago_asset_catalog.py" asset-url windows-tensorrt)}"
 
 unset -f _katago_pin_get
 unset _KATAGO_PINS_ROOT

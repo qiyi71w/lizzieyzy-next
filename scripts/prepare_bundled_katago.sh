@@ -12,7 +12,7 @@ catalog_get() {
 
 CACHE_DIR="${CACHE_DIR:-$ROOT_DIR/.cache/katago}"
 KATAGO_TAG="${KATAGO_TAG:-$(catalog_get katagoReleaseTag)}"
-KATAGO_RELEASE_BASE="https://github.com/lightvector/KataGo/releases/download/${KATAGO_TAG}"
+KATAGO_RELEASE_BASE="$("$CATEGORY_READER" "$ASSET_CATALOG_READER" engine-release-base)"
 # The regular Windows bundle prioritizes compatibility for mixed consumer hardware.
 WINDOWS_ASSET="${WINDOWS_ASSET:-$(catalog_get assets.windows-cpu.assetName)}"
 WINDOWS_OPENCL_ASSET="${WINDOWS_OPENCL_ASSET:-$(catalog_get assets.windows-opencl.assetName)}"
