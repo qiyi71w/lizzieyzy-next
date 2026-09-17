@@ -129,6 +129,28 @@ acceptance.
 
 ## Required package matrix
 
+The independent `Pinned KataGo Windows Source` workflow covers CPU and OpenCL evidence builds
+on Windows Server 2022 using the MSVC 14.44 toolset. Every dependency archive is hash-locked in
+`scripts/katago_windows_dependencies.json`; compiler/SDK versions and file identities are recorded.
+It uses a static C runtime, disables AVX2, and rejects unknown PE imports. Only the verified
+Khronos OpenCL loader is bundled for OpenCL, not a GPU vendor driver. Relocated binaries must
+report the same source identity with the developer SDK removed from `PATH`. CPU additionally
+executes the real same-tree focus probe. No unsigned evidence executable is published as a user
+download. Windows 10/11 final application and GPU acceptance remain separate requirements.
+
+```powershell
+python scripts/build_katago_windows_dependencies.py --output C:/build/locked-sdk --jobs 3
+python scripts/build_katago_source.py --source C:/src/KataGo --output C:/build/katago `
+  --target windows-cpu --windows-sdk C:/build/locked-sdk/prefix --jobs 3
+python scripts/package_katago_source_windows.py --build C:/build/katago `
+  --sdk C:/build/locked-sdk/prefix --output C:/build/portable-evidence
+```
+
+Run these commands from the selected x64 developer environment; an unverified SDK, wrong compiler
+toolset, stale output, missing DLL, or failed engine process is a hard failure, not a fallback to
+an older KataGo executable. CUDA, TensorRT and experimental execution-provider builds are not
+implemented by this CPU/OpenCL workflow.
+
 | Platform | Backends |
 | --- | --- |
 | Windows x64 | Eigen, OpenCL, CUDA, TensorRT, DirectML, OpenVINO |

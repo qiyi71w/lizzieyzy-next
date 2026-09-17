@@ -101,7 +101,7 @@ class SourceBuildTest(unittest.TestCase):
             stale.write_bytes(b"stale")
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
                 with self.assertRaises(FileExistsError):
-                    build(path / "source", output, "windows-cpu", [], 2)
+                    build(path / "source", output, "windows-nvidia", [], 2)
             self.assertEqual(b"stale", stale.read_bytes())
 
     def test_build_failure_records_failure_not_approval(self):
@@ -110,7 +110,7 @@ class SourceBuildTest(unittest.TestCase):
             with patch("build_katago_source.check_host"), patch("build_katago_source.check_source"):
                 with patch("build_katago_source.subprocess.run", side_effect=RuntimeError("compile failed")):
                     with self.assertRaises(RuntimeError):
-                        build(path / "source", path / "build", "windows-cpu", [], 2)
+                        build(path / "source", path / "build", "windows-nvidia", [], 2)
             text = (path / "build/source-build.json").read_text()
             self.assertIn('"buildStatus": "FAIL"', text)
             self.assertIn('"packagingStatus": "NOT_RUN"', text)

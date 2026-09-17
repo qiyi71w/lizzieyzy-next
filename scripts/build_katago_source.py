@@ -16,6 +16,7 @@ import shutil
 from probe_katago_focus import SOURCE_COMMIT
 from build_katago_macos_dependencies import sdk_environment, verify_sdk
 import build_katago_linux_dependencies as linux_sdk_tools
+import build_katago_windows_dependencies as windows_sdk_tools
 
 
 TARGETS = {
@@ -136,7 +137,8 @@ def macos_sdk_options(prefix: Path) -> list[str]:
 
 
 def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
-          macos_sdk: Path | None = None, linux_sdk: Path | None = None) -> dict:
+          macos_sdk: Path | None = None, linux_sdk: Path | None = None,
+          windows_sdk: Path | None = None) -> dict:
     check_host(target)
     source, output = source.resolve(), output.resolve()
     check_source(source)
@@ -169,6 +171,17 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
         build_env["LD_LIBRARY_PATH"] = str(linux_sdk.resolve() / "lib")
     elif linux_sdk is not None:
         raise ValueError("--linux-sdk is only valid for Linux CPU/OpenCL targets")
+    if target in windows_sdk_tools.TARGETS:
+        if windows_sdk is None:
+            raise ValueError("Windows CPU/OpenCL builds require --windows-sdk with verified pinned dependencies")
+        if sdk:
+            raise ValueError("Windows SDK settings cannot override pinned dependencies")
+        sdk_receipt = windows_sdk_tools.verify_sdk(windows_sdk)
+        sdk_prefix = windows_sdk
+        options.extend(windows_sdk_tools.engine_options(windows_sdk, target))
+        build_env = windows_sdk_tools.environment(windows_sdk.resolve())
+    elif windows_sdk is not None:
+        raise ValueError("--windows-sdk is only valid for Windows CPU/OpenCL targets")
     # Never reuse a stale executable after a failed configure/build.
     output.mkdir(parents=True, exist_ok=False)
     result = {
@@ -284,11 +297,12 @@ def main() -> int:
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--macos-sdk", type=Path)
     parser.add_argument("--linux-sdk", type=Path)
+    parser.add_argument("--windows-sdk", type=Path)
     args = parser.parse_args()
     if not 1 <= args.jobs <= 64:
         parser.error("jobs must be between 1 and 64")
     result = build(args.source, args.output, args.target, args.sdk, args.jobs,
-                   args.macos_sdk, args.linux_sdk)
+                   args.macos_sdk, args.linux_sdk, args.windows_sdk)
     print(json.dumps(result, indent=2))
     return 0
 
