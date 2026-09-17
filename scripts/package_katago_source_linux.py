@@ -19,11 +19,13 @@ SYSTEM_LIBRARIES = {"libc.so.6", "libm.so.6", "libpthread.so.0", "libdl.so.2", "
                     "libstdc++.so.6", "libgcc_s.so.1", "ld-linux-x86-64.so.2"}
 
 
-def inspect_elf(header: str, dynamic: str, versions: str, maximum_glibc: str) -> dict:
+def inspect_elf(header: str, dynamic: str, versions: str, maximum_glibc: str,
+                external_libraries: frozenset[str] = frozenset()) -> dict:
     if not re.search(r"Class:\s+ELF64\b", header) or not re.search(r"Machine:\s+Advanced Micro Devices X86-64", header):
         raise ValueError("Expected native ELF64/x86_64")
     needed = re.findall(r"\(NEEDED\).*?\[([^\]]+)\]", dynamic)
-    if any("/" in name or name not in SYSTEM_LIBRARIES | {"libOpenCL.so.1"} for name in needed):
+    if any("/" in name or name not in SYSTEM_LIBRARIES | {"libOpenCL.so.1"} | external_libraries
+           for name in needed):
         raise ValueError("Unapproved or absolute dynamic library dependency")
     rpaths = re.findall(r"\((?:RUNPATH|RPATH)\).*?\[([^\]]*)\]", dynamic)
     if any(path not in {"", "$ORIGIN"} for paths in rpaths for path in paths.split(":")):

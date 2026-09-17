@@ -148,7 +148,7 @@ application packages remain separate release gates.
 
 ## Linux CPU and OpenCL evidence builds
 
-`katago-source-linux.yml` builds two native x86_64 evidence targets on Ubuntu 22.04.
+`katago-source-linux.yml` builds three native x86_64 evidence targets on Ubuntu 22.04.
 It pins and verifies Eigen 3.4.0, zlib 1.3.1, libzip 1.11.4 and the Khronos
 2024.10.24 OpenCL headers/ICD loader. The loader is not a GPU driver; no vendor
 driver or CUDA runtime is installed or changed. OpenCL GPU execution remains unverified.
@@ -180,6 +180,32 @@ minimum requirements of any released package.
 The CPU job must run ordinary/single/multiple/remove/clear focus with the pinned
 upstream b6 test model. It preserves raw GTP evidence and fails on timeout, rejection
 or tree reset. A green compile-only job is not CPU acceptance.
+
+### Linux CUDA evidence
+
+The `linux-nvidia` target separately locks CUDA 12.1.1 (NVCC 12.1.105) and cuDNN
+9.8.0.87 in `scripts/katago_linux_cuda_dependencies.json`. NVIDIA's seven archives
+are checked for both byte size and SHA-256 before installation into an isolated SDK.
+The existing CUDA 12.1 architecture range is unchanged; no driver is installed.
+
+```sh
+python3 scripts/build_katago_linux_cuda_dependencies.py --output /path/to/new/cuda-sdk
+python3 scripts/build_katago_source.py \
+  --source /path/to/clean/KataGo --output /path/to/new/cuda-build \
+  --target linux-nvidia --linux-sdk /path/to/new/cuda-sdk/prefix
+python3 scripts/package_katago_source_linux_cuda.py \
+  --build /path/to/new/cuda-build --sdk /path/to/new/cuda-sdk/prefix \
+  --output /path/to/new/cuda-package
+```
+
+Like the existing official Linux CUDA AppImage, this evidence package requires external
+CUDA/cuDNN libraries. It does not silently add vendor runtime gigabytes to user packages.
+The receipt records their hashes, ELF dependencies and the real relocated engine's
+`version` output using the locked external SDK. It rejects build-host RPATHs, missing
+runtime components, and requirements above GLIBC 2.34 / GLIBCXX 3.4.30 / CXXABI 1.3.13,
+the ceilings observed in the previous official CUDA payload. This is not GPU inference
+or final distribution certification: both hardware and production ABI acceptance remain
+`NOT_RUN`, and the final release gate still refuses incomplete acceptance.
 
 ## Real protocol acceptance
 
