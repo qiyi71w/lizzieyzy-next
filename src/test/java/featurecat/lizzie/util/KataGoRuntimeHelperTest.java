@@ -1079,7 +1079,7 @@ public class KataGoRuntimeHelperTest {
                         assertTrue(
                             Files.readString(
                                     targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"))
-                                .contains("KataGo release: v1.18.1"));
+                                .contains("KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag()));
                         assertTrue(
                             Files.readString(
                                     targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"))
@@ -1721,7 +1721,7 @@ public class KataGoRuntimeHelperTest {
                         assertTrue(
                             Files.readString(
                                     targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"))
-                                .contains("KataGo release: v1.18.1"));
+                                .contains("KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag()));
                         assertTrue(
                             KataGoRuntimeHelper.inspectTensorRtInstall(result.snapshot).active);
                       }));

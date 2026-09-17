@@ -158,7 +158,7 @@ jobs:
           set -euo pipefail
           extra_args=()
           published=true
-          origin="$(python3 -c 'import json; print(json.load(open("src/main/resources/katago-assets.json"))["origin"])')"
+          origin="$(python3 -c 'import json; print(json.load(open("src/main/resources/katago-assets.json")).get("origin", "official-release"))')"
           if [[ "$origin" == "project-source-build" ]] && \
              [[ "$RELEASE_EVENT" != "workflow_dispatch" || "$PUBLISH_AFTER_VERIFICATION" != "true" ]]; then
             extra_args+=(--prepare-only)
