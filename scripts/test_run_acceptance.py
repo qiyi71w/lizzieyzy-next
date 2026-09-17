@@ -44,7 +44,14 @@ class FakeChild:
 class AcceptanceRunnerTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="run-acceptance-test.")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
+        # The runner is Linux-only; its unit tests use a fake child on every host.
+        self.killpg_patch = mock.patch.object(MODULE.os, "killpg", create=True)
+        self.killpg_patch.start()
+        self.addCleanup(self.killpg_patch.stop)
+        self.sigkill_patch = mock.patch.object(MODULE.signal, "SIGKILL", 9, create=True)
+        self.sigkill_patch.start()
+        self.addCleanup(self.sigkill_patch.stop)
         self.engine = self.root / "katago"
         self.engine.write_bytes(b"engine")
         self.engine.chmod(self.engine.stat().st_mode | stat.S_IXUSR)
@@ -394,4 +401,3 @@ class AcceptanceRunnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

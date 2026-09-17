@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import shutil
 import stat
 import subprocess
@@ -152,16 +153,20 @@ def download_verified(
     part.unlink(missing_ok=True)
     try:
         deadline = time.monotonic() + DOWNLOAD_DEADLINE_SECONDS
+        received = 0
         with opener(url) as response, part.open("wb") as output:
             read_chunk = getattr(response, "read1", response.read)
             while True:
                 if time.monotonic() >= deadline:
                     raise ProvisioningError(f"download deadline exceeded for {label}")
-                chunk = read_chunk(1024 * 1024)
+                chunk = read_chunk(min(1024 * 1024, expected_size - received + 1))
                 if time.monotonic() >= deadline:
                     raise ProvisioningError(f"download deadline exceeded for {label}")
                 if not chunk:
                     break
+                received += len(chunk)
+                if received > expected_size:
+                    raise ProvisioningError(f"download exceeds pinned size for {label}")
                 output.write(chunk)
         verify_file(part, expected_size, expected_sha256, label)
         os.replace(part, destination)
@@ -262,6 +267,10 @@ def write_manifest_atomic(path: Path, manifest: dict[str, Any]) -> None:
         raise
 
 
+def supported_host() -> bool:
+    return platform.system() == "Linux" and platform.machine().lower() in ("x86_64", "amd64")
+
+
 def prepare(
     root: Path,
     *,
@@ -271,7 +280,7 @@ def prepare(
 ) -> Path:
     root = root.expanduser().resolve()
     catalog_path = catalog_path.expanduser().resolve()
-    if sys.platform != "linux" or os.uname().machine not in ("x86_64", "amd64"):
+    if not supported_host():
         raise ProvisioningError("CPU acceptance provisioning requires Linux x64")
     root.mkdir(parents=True, exist_ok=True)
     manifest_path = root / "manifest.json"

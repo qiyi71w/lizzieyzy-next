@@ -101,12 +101,20 @@ class CpuAcceptanceProvisionerTest(unittest.TestCase):
         self.temp.cleanup()
 
     def prepare(self, **kwargs: object) -> Path:
-        return MODULE.prepare(
-            self.root / "acceptance",
-            catalog_path=self.catalog_path,
-            version_runner=lambda _path: self.version_output,
-            **kwargs,
-        )
+        # These tests use a fake executable/version runner, not a real Linux binary.
+        with mock.patch.object(MODULE, "supported_host", return_value=True):
+            return MODULE.prepare(
+                self.root / "acceptance",
+                catalog_path=self.catalog_path,
+                version_runner=lambda _path: self.version_output,
+                **kwargs,
+            )
+
+    def test_unsupported_host_fails_before_output_creation(self) -> None:
+        with mock.patch.object(MODULE, "supported_host", return_value=False):
+            with self.assertRaisesRegex(MODULE.ProvisioningError, "requires Linux x64"):
+                MODULE.prepare(self.root / "not-created", catalog_path=self.catalog_path)
+        self.assertFalse((self.root / "not-created").exists())
 
     def seed_cache(self) -> Path:
         cache = self.root / "acceptance" / "cache"
@@ -162,6 +170,27 @@ class CpuAcceptanceProvisionerTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ProvisioningError, "SHA-256 mismatch"):
             self.prepare(opener=mock.Mock(side_effect=OSError("offline")))
 
+    def test_oversized_http_body_stops_before_reading_or_writing_unbounded_data(self) -> None:
+        class EndlessResponse(Response):
+            read_count = 0
+
+            def read1(self, size: int = -1) -> bytes:
+                self.read_count += 1
+                if self.read_count > 2:
+                    raise AssertionError("reader continued after the pinned file size")
+                return b"x" * size
+
+        response = EndlessResponse()
+        destination = self.root / "oversized.bin"
+        with self.assertRaisesRegex(MODULE.ProvisioningError, "exceeds pinned size"):
+            MODULE.download_verified(
+                "https://example.invalid/oversized", destination, 8, sha256(b"x" * 8),
+                "fixture", lambda _url: response,
+            )
+        self.assertEqual(1, response.read_count)
+        self.assertFalse(destination.exists())
+        self.assertFalse(destination.with_name(destination.name + ".part").exists())
+
     def test_stalled_and_slow_http_bodies_fail_without_publication(self) -> None:
         stop = threading.Event()
         requested = threading.Event()
@@ -190,6 +219,8 @@ class CpuAcceptanceProvisionerTest(unittest.TestCase):
 import json, sys
 from pathlib import Path
 from scripts import prepare_cpu_engine_acceptance as provisioner
+# Exercise only HTTP failures with cached fixtures on every CI host.
+provisioner.supported_host = lambda: True
 provisioner.DOWNLOAD_TIMEOUT_SECONDS = 0.2
 provisioner.DOWNLOAD_DEADLINE_SECONDS = 0.5
 try:
