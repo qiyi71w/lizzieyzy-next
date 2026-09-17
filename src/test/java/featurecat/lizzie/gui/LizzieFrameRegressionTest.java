@@ -277,6 +277,56 @@ class LizzieFrameRegressionTest {
   }
 
   @Test
+  void engineThreadCommentUpdatesOnlyMutateHtmlOnEdt(@TempDir Path tempDir) throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = ConfigTestHelper.createForTests(tempDir);
+      AtomicInteger offEdtWrites = new AtomicInteger();
+      class CheckedCommentPane extends JPaintTextPane {
+        boolean monitor;
+
+        @Override
+        public void setText(String text) {
+          if (monitor && !SwingUtilities.isEventDispatchThread()) {
+            offEdtWrites.incrementAndGet();
+            return;
+          }
+          super.setText(text);
+        }
+      }
+      AtomicReference<CheckedCommentPane> paneReference = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() -> {
+        CheckedCommentPane pane = new CheckedCommentPane();
+        pane.setEditorKit(new LizzieFrame.HtmlKit());
+        pane.monitor = true;
+        paneReference.set(pane);
+      });
+      CheckedCommentPane pane = paneReference.get();
+      Method render =
+          LizzieFrame.class.getDeclaredMethod("setRenderedComment", JPaintTextPane.class, String.class);
+      render.setAccessible(true);
+      try (var worker = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+        worker.submit(() -> {
+          for (int index = 0; index < 20; index++) {
+            try {
+              render.invoke(null, pane, CommentDisplayRenderer.render("Comment " + index));
+            } catch (ReflectiveOperationException failure) {
+              throw new RuntimeException(failure);
+            }
+          }
+        }).get(10, TimeUnit.SECONDS);
+      }
+      SwingUtilities.invokeAndWait(() -> {});
+      assertEquals(0, offEdtWrites.get(), "Engine callbacks must not mutate Swing HTML off the EDT");
+      assertTrue(pane.getText().contains("Comment 19"));
+      assertFalse(pane.isOpaque());
+      assertEquals(0, pane.getCaretPosition());
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
   void commentDisplayStaysTransparentAfterThemeRefresh(@TempDir Path tempDir) throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
