@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import re
@@ -24,6 +25,7 @@ VENDOR_LIBRARIES = frozenset({
     "libcudnn_graph.so.9", "libcudnn_heuristic.so.9", "libcudnn_ops.so.9",
 })
 DRIVER_LIBRARIES = frozenset({"libcuda.so.1"})
+BUNDLED_LIBRARIES = frozenset({"libz.so.1"})
 
 
 def audit_binary(binary: Path) -> dict:
@@ -31,7 +33,7 @@ def audit_binary(binary: Path) -> dict:
              for flag in ("-h", "-d", "--version-info")]
     # The prior official AppImage payload needs at most these ABI versions.
     try:
-        audit = inspect_elf(*texts, "2.34", VENDOR_LIBRARIES | DRIVER_LIBRARIES)
+        audit = inspect_elf(*texts, "2.34", VENDOR_LIBRARIES | DRIVER_LIBRARIES | BUNDLED_LIBRARIES)
     except ValueError as error:
         raise ValueError(f"{binary.name}: {error}") from error
     for family, ceiling in (("GLIBCXX", (3, 4, 30)), ("CXXABI", (1, 3, 13))):
@@ -42,7 +44,7 @@ def audit_binary(binary: Path) -> dict:
     return audit
 
 
-def external_runtime(sdk: Path, executable_audit: dict) -> dict:
+def external_runtime(sdk: Path, executable_audit: dict, bundled_audits: dict | None = None) -> dict:
     records = {}
     audits = {}
     for name in sorted(VENDOR_LIBRARIES):
@@ -57,6 +59,7 @@ def external_runtime(sdk: Path, executable_audit: dict) -> dict:
         audits[name] = audit_binary(path)
     for audit in [executable_audit, *audits.values()]:
         missing = (set(audit["needed"]) & VENDOR_LIBRARIES) - records.keys()
+        missing |= (set(audit["needed"]) & BUNDLED_LIBRARIES) - (bundled_audits or {}).keys()
         if missing:
             raise ValueError(f"External CUDA dependency closure is incomplete: {sorted(missing)}")
     return {"mode": "external", "libraries": records, "elfAudit": audits,
@@ -83,16 +86,25 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
         (output / "katago").chmod(0o755)
         shutil.copytree(build / "source-licenses", output / "licenses/KataGo")
         shutil.copytree(sdk / "share/licenses", output / "licenses/dependencies")
+        # cuDNN needs zlib dynamically even though KataGo itself links static zlib.
+        # Ship the same hash-locked SDK build, never borrow a build-host library.
+        bundled_audits = {}
+        for name in sorted(BUNDLED_LIBRARIES):
+            shutil.copy2(sdk / "lib" / name, output / name, follow_symlinks=True)
+            bundled_audits[name] = audit_binary(output / name)
         audit = audit_binary(output / "katago")
         if not {"libcublas.so.12", "libcudnn.so.9", "libnvrtc.so.12"} <= set(audit["needed"]):
             raise ValueError("CUDA engine did not link the intended runtime")
-        runtime = external_runtime(sdk, audit)
-        result = subprocess.run([str(output / "katago"), "version"], env=environment(sdk), cwd=output,
+        runtime = external_runtime(sdk, audit, bundled_audits)
+        env = environment(sdk)
+        env["LD_LIBRARY_PATH"] = str(output) + os.pathsep + env["LD_LIBRARY_PATH"]
+        result = subprocess.run([str(output / "katago"), "version"], env=env, cwd=output,
                                 check=True, capture_output=True, text=True, timeout=30)
         if result.stdout != original["versionOutput"]:
             raise ValueError("Relocated CUDA engine identity changed")
         receipt.update(packagingStatus="PASS", dependencyAuditStatus="PASS", elfAudit=audit,
-                       externalRuntime=runtime, versionExecution="locked-external-sdk-no-gpu",
+                       externalRuntime=runtime, bundledElfAudit=bundled_audits,
+                       versionExecution="locked-external-sdk-no-gpu",
                        executable=file_record(output / "katago", output),
                        files=[file_record(path, output) for path in sorted(output.rglob("*")) if path.is_file()],
                        dependencies=verified["dependencies"])

@@ -188,6 +188,12 @@ class LinuxCudaSourceTest(unittest.TestCase):
                 result = external_runtime(sdk, {"needed": ["libcudnn.so.9"]})
                 self.assertEqual("external", result["mode"])
                 self.assertEqual("NOT_RUN", result["gpuExecutionStatus"])
+                with patch("package_katago_source_linux_cuda.audit_binary", return_value={"needed": ["libz.so.1"]}):
+                    with self.assertRaisesRegex(ValueError, "closure is incomplete"):
+                        external_runtime(sdk, {"needed": ["libcudnn.so.9"]})
+                    complete = external_runtime(sdk, {"needed": ["libcudnn.so.9"]},
+                                                {"libz.so.1": {"needed": ["libc.so.6"]}})
+                    self.assertEqual("external", complete["mode"])
                 (sdk / "cuda/lib/libcudnn.so.9").unlink()
                 with self.assertRaisesRegex(ValueError, "Missing or ambiguous"):
                     external_runtime(sdk, {"needed": ["libcudnn.so.9"]})

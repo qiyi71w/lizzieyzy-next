@@ -270,6 +270,9 @@ signed macOS bundles or public download hashes.
 
 ## Integration gates still required
 
+Linux CUDA packages also carry the hash-locked SDK's `libz.so.1`, required dynamically by
+cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the build host.
+
 - Lock and fetch build SDKs and dependency archives by version and digest without changing the
   existing CUDA/cuDNN, TensorRT, ROCm and ONNX execution-provider runtime choices.
 - Build and audit every target in CI, then feed those exact verified artifacts into full packages.
