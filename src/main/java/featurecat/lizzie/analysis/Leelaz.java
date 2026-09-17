@@ -4829,6 +4829,11 @@ public class Leelaz {
       return pendingResponses > 0;
     }
 
+    private synchronized boolean hasSuccessfulResponses() {
+      // A failed last response also makes the lineage quiescent; observe both atomically.
+      return pendingResponses == 0 && !failed.get();
+    }
+
     private void onChange(Runnable listener) {
       boolean runImmediately;
       synchronized (this) {
@@ -20870,7 +20875,7 @@ public class Leelaz {
     }
 
     private boolean isConfirmed(boolean fenceConfirmed) {
-      return fenceConfirmed && isCurrent() && !lineage.isFailed() && !lineage.hasPendingResponses();
+      return fenceConfirmed && isCurrent() && lineage.hasSuccessfulResponses();
     }
   }
 
@@ -21115,8 +21120,9 @@ public class Leelaz {
         settleFailure(dependencyFailure);
         return;
       }
-      if (authority.lineage.hasPendingResponses()
-          || (mirror != null && mirror.lineage.hasPendingResponses())
+      beforeBoardSynchronizationReadinessForTest();
+      if (!authority.lineage.hasSuccessfulResponses()
+          || (mirror != null && !mirror.lineage.hasSuccessfulResponses())
           || (waitForRestoreOwners
               && (authority.lineage.pendingRestoreOwners.get() > 0
                   || (mirror != null && mirror.lineage.pendingRestoreOwners.get() > 0)))
@@ -21205,6 +21211,8 @@ public class Leelaz {
       }
     }
   }
+
+  void beforeBoardSynchronizationReadinessForTest() {}
 
   static void scheduleBoardSynchronizationTimeout(
       Timer timer, TimerTask task, long delayMillis, AtomicBoolean settled) {
