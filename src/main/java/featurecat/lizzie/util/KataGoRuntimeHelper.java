@@ -4336,7 +4336,7 @@ public final class KataGoRuntimeHelper {
                         automaticBenchmarkDescription(target),
                         session);
                 final JDialog progressNotice = notice;
-                if (session.isCancelled()) return;
+                if (session.isCancelled() || !isAutomaticBenchmarkContextIdle()) return;
                 BenchmarkPauseResult pauseResult = pauseCurrentAnalysisForBenchmark();
                 if (!pauseResult.accepted()) {
                   return;
@@ -4859,7 +4859,7 @@ public final class KataGoRuntimeHelper {
               boolean benchmarkPauseAccepted = false;
 
               try {
-                if (benchmarkSession.isCancelled()) {
+                if (benchmarkSession.isCancelled() || !isAutomaticBenchmarkContextIdle()) {
                   return;
                 }
                 BenchmarkPauseResult pauseResult = pauseCurrentAnalysisForBenchmark();
@@ -4896,6 +4896,7 @@ public final class KataGoRuntimeHelper {
   }
 
   private static boolean isCurrentPrimaryEngineEligibleForAutomaticBenchmark() {
+    if (!isAutomaticBenchmarkContextIdle()) return false;
     Leelaz engine = Lizzie.leelaz;
     if (engine == null || Utils.isBlank(engine.engineCommand())) {
       return false;
@@ -4921,6 +4922,35 @@ public final class KataGoRuntimeHelper {
       }
     });
     return false;
+  }
+
+  static boolean isAutomaticBenchmarkContextIdle() {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      java.util.concurrent.FutureTask<Boolean> check =
+          new java.util.concurrent.FutureTask<>(KataGoRuntimeHelper::isAutomaticBenchmarkContextIdle);
+      SwingUtilities.invokeLater(check);
+      try {
+        return check.get(5, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+        return false;
+      }
+    }
+    if (Lizzie.config == null || Lizzie.config.isAutoAna
+        || EngineManager.occupiesEngineGameAdmission()) return false;
+    if (Lizzie.frame != null && Lizzie.frame.hasUserTaskForStartupBenchmark()) return false;
+    // A loaded game must not lose its engine to delayed startup tuning, even while
+    // quick/manual analysis is handing off or the user is browsing its initial node.
+    if (Lizzie.board != null) {
+      var root = Lizzie.board.getHistory().getStart();
+      if (!root.getVariations().isEmpty()) return false;
+      for (var stone : root.getData().stones) {
+        if (stone != featurecat.lizzie.rules.Stone.EMPTY) return false;
+      }
+    }
+    return !AnalysisResourceCoordinator.hasActiveLocalComputeProcess();
   }
 
   static boolean isEngineEligibleForAutomaticStartupBenchmark(
