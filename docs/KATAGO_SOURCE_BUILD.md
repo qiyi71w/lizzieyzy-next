@@ -345,3 +345,20 @@ cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the b
 - Collect all final assets in Draft and audit them before any pre-release publication.
 
 The current stable release, official download catalog and R2 assets must remain untouched.
+
+### Production Linux compatibility evidence
+
+The Linux source workflow runs `audit_katago_linux_compatibility.py` after relocation.
+It verifies the SHA-locked previous official 1.18.1 archive, extracts its AppImage
+payload without FUSE, and compares GLIBC, GLIBCXX and CXXABI symbol ceilings against
+every new bundled ELF file. It then runs both old and new executables inside pinned
+native amd64 Ubuntu 22.04 and 24.04 containers. The CPU target additionally performs
+a real GTP move with the pinned upstream model in each distribution.
+
+The new engine is tested with only the system C++ runtime installed; the old bundle's
+SSL/OpenCL system dependencies are added afterward for the baseline comparison. Engine packages,
+reference payloads and SDKs are mounted read-only, CUDA/cuDNN remain separately verified
+external dependencies, and no driver is installed on the runner or user's system.
+The log records actual libc/libstdc++ package versions. A failed loader or symbol check
+produces a retained FAIL report, never a missing-hardware waiver. GPU inference is not
+performed or claimed by this compatibility check. Final app packaging remains separate.

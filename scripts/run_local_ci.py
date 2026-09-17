@@ -107,6 +107,8 @@ PY_COMPILE_FILES = (
     "scripts/katago_asset_catalog.py",
     "scripts/test_katago_asset_catalog.py",
     "scripts/stage_katago_source_release.py",
+    "scripts/audit_katago_linux_compatibility.py",
+    "scripts/test_audit_katago_linux_compatibility.py",
     "scripts/prepare_katago_source_assets.py",
     "scripts/test_prepare_katago_source_assets.py",
     "scripts/test_stage_katago_source_release.py",
@@ -148,6 +150,7 @@ PY_COMPILE_FILES = (
 )
 
 DIRECT_PYTHON_TESTS = (
+    "scripts/test_audit_katago_linux_compatibility.py",
     "scripts/test_prepare_katago_source_assets.py",
     "scripts/test_prepare_cpu_engine_acceptance.py",
     "scripts/test_run_acceptance.py",
