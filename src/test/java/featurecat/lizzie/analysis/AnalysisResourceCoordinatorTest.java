@@ -142,6 +142,32 @@ class AnalysisResourceCoordinatorTest {
   }
 
   @Test
+  void startupTuningCanIgnoreOnlyTheCurrentPrimaryProcess() {
+    Object owner = new Object();
+    Object auxiliaryOwner = new Object();
+    ControllableProcess primary = new ControllableProcess();
+    ControllableProcess auxiliary = new ControllableProcess();
+    try {
+      AnalysisResourceCoordinator.processStarted(
+          owner, AnalysisResourceCoordinator.Purpose.MAIN_BOARD, "katago gtp", primary);
+      assertFalse(AnalysisResourceCoordinator.hasActiveLocalComputeOtherThan(owner));
+      AnalysisResourceCoordinator.processStarted(
+          auxiliaryOwner, AnalysisResourceCoordinator.Purpose.OTHER, "katago analysis", auxiliary);
+      assertTrue(AnalysisResourceCoordinator.hasActiveLocalComputeOtherThan(owner));
+      AnalysisResourceCoordinator.processStopped(
+          auxiliaryOwner, AnalysisResourceCoordinator.Purpose.OTHER, auxiliary);
+      assertTrue(AnalysisResourceCoordinator.hasActiveLocalComputeOtherThan(owner));
+      auxiliary.destroy();
+      assertFalse(AnalysisResourceCoordinator.hasActiveLocalComputeOtherThan(owner));
+      assertTrue(AnalysisResourceCoordinator.hasActiveLocalComputeOtherThan(new Object()));
+    } finally {
+      primary.destroy();
+      auxiliary.destroy();
+      AnalysisResourceCoordinator.activeLocalComputeProcessCount();
+    }
+  }
+
+  @Test
   void optInDiagnosticsAreStructuredAndNeverPersistSecrets() throws Exception {
     Path jsonl = tempDir.resolve("analysis-resource-diagnostics.jsonl");
     LoggingRuntime runtime =

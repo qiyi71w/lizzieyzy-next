@@ -4515,6 +4515,18 @@ public class LizzieFrame extends JFrame {
     return manualAutoAnalysisStarting;
   }
 
+  public boolean hasUserTaskForStartupBenchmark() {
+    HumanSlTrainingSession.State trainingState = humanSlTrainingSession.state();
+    return manualAutoAnalysisStarting
+        || isWholeGameAnalysisStartingOrRunning()
+        || humanSlGame != null
+        || trainingState == HumanSlTrainingSession.State.PREPARING
+        || trainingState == HumanSlTrainingSession.State.PLAYING
+        || trainingState == HumanSlTrainingSession.State.REVIEWING
+        || isPlayingAgainstLeelaz
+        || isAnaPlayingAgainstLeelaz;
+  }
+
   private boolean hasManualAutoAnalysisStartConflict(AnalysisEngine allowedAutomaticEngine) {
     if (isWholeGameAnalysisStartingOrRunning() || isWholeGameAnalysisConflict()) {
       return true;

@@ -70,6 +70,50 @@ class LizzieFrameRegressionTest {
   private static final int BOARD_AREA = BOARD_SIZE * BOARD_SIZE;
 
   @Test
+  void startupBenchmarkYieldsToUserTasksAndLoadedGameAtRoot() throws Exception {
+    Config previousConfig = Lizzie.config;
+    LizzieFrame previousFrame = Lizzie.frame;
+    Board previousBoard = Lizzie.board;
+    try {
+      Lizzie.config = allocate(Config.class);
+      Lizzie.frame = allocate(LizzieFrame.class);
+      var training = new featurecat.lizzie.training.HumanSlTrainingSession();
+      setField(Lizzie.frame, "humanSlTrainingSession", training);
+      Lizzie.board = allocate(Board.class);
+      var history = new BoardHistoryList(BoardData.empty(19, 19));
+      setDeclaredField(Board.class, Lizzie.board, "history", history);
+      Method idle = featurecat.lizzie.util.KataGoRuntimeHelper.class
+          .getDeclaredMethod("isAutomaticBenchmarkContextIdle");
+      idle.setAccessible(true);
+      assertTrue((Boolean) idle.invoke(null));
+      Lizzie.config.isAutoAna = true;
+      assertFalse((Boolean) idle.invoke(null));
+      Lizzie.config.isAutoAna = false;
+      setField(Lizzie.frame, "manualAutoAnalysisStarting", true);
+      assertFalse((Boolean) idle.invoke(null));
+      setField(Lizzie.frame, "manualAutoAnalysisStarting", false);
+      for (var state : List.of(
+          featurecat.lizzie.training.HumanSlTrainingSession.State.PREPARING,
+          featurecat.lizzie.training.HumanSlTrainingSession.State.PLAYING,
+          featurecat.lizzie.training.HumanSlTrainingSession.State.REVIEWING)) {
+        training.setState(state);
+        assertFalse((Boolean) idle.invoke(null));
+      }
+      training.setState(featurecat.lizzie.training.HumanSlTrainingSession.State.IDLE);
+      history.getStart().getData().stones[0] = Stone.BLACK;
+      assertFalse((Boolean) idle.invoke(null));
+      history.getStart().getData().stones[0] = Stone.EMPTY;
+      history.getStart().getVariations().add(new BoardHistoryNode(BoardData.empty(19, 19)));
+      assertFalse((Boolean) idle.invoke(null));
+      assertSame(history.getStart(), history.getCurrentHistoryNode());
+    } finally {
+      Lizzie.config = previousConfig;
+      Lizzie.frame = previousFrame;
+      Lizzie.board = previousBoard;
+    }
+  }
+
+  @Test
   void autoSaveFilesUseConfiguredWorkDirectoryInsteadOfProcessCwd(@TempDir Path workDir) {
     File autoSave = LizzieFrame.autoSaveFile(workDir.toFile(), 2, "sgf");
 
