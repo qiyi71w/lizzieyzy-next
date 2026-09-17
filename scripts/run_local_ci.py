@@ -149,6 +149,8 @@ PY_COMPILE_FILES = (
     "scripts/test_validate_release_workflow_identity.py",
     "scripts/upload_release_assets.py",
     "scripts/test_upload_release_assets.py",
+    "scripts/transfer_pinned_source_assets.py",
+    "scripts/test_transfer_pinned_source_assets.py",
     "scripts/test_windows_launcher_packaging.py",
     "scripts/test_windows_ci_diagnostics.py",
     "scripts/validate_release_notes.py",
@@ -198,6 +200,7 @@ UNITTEST_MODULES = (
     "scripts.test_validate_windows_release_assets",
     "scripts.test_validate_release_workflow_identity",
     "scripts.test_upload_release_assets",
+    "scripts.test_transfer_pinned_source_assets",
 )
 
 BASH_SYNTAX_FILES = (
