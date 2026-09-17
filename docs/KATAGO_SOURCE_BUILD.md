@@ -345,3 +345,27 @@ cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the b
 - Collect all final assets in Draft and audit them before any pre-release publication.
 
 The current stable release, official download catalog and R2 assets must remain untouched.
+
+## Installing reviewed source archives into full packages
+
+The release build reads `origin` from `katago-assets.json`. A `project-source-build`
+catalog selects `prepare_katago_source_assets.py` for the native platform. It verifies
+the archive length, SHA-256, executable and complete inventory before copying files,
+preserving runtime directories, licenses and the source receipt. The old official
+download/source-builder path is not a fallback for a failed self-built archive.
+
+Windows TensorRT uses the same verified archives and adds the hash-locked CUDA HumanSL
+companion. Existing NVIDIA runtime preparation is unchanged. Before macOS signing or
+Windows/Linux publication, `audit_katago_source_bundle.py` checks the exact executable,
+source identity and every original file in the installed bundle against its receipt.
+Final platform signing may legitimately change macOS executable hashes afterwards;
+the final signed assets are bound to their workflow by the existing release provenance.
+
+The reviewed source catalog must point to the exact forthcoming application release
+tag, not another release. The publisher first creates its normal immutable tag/Draft,
+then waits up to 20 minutes for the 15 previously staged source archives to be uploaded.
+Every asset must match the committed catalog's size and GitHub SHA-256 digest before
+application packaging is dispatched. Release jobs use the short-lived workflow token
+to read those Draft assets; repair downloads use the same public URLs after publication.
+Missing archives leave the Draft unpublished. Unexpected, duplicate or modified assets
+fail verification, including the final public recheck. No old engine is substituted.

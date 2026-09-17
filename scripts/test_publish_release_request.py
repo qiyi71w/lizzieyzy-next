@@ -1044,6 +1044,62 @@ class ReleasePublisherTest(unittest.TestCase):
         for spec in PUBLISH.WORKFLOWS:
             client.seed_workflow_run(spec.workflow_file)
 
+    def source_catalog(self) -> dict:
+        catalog = PUBLISH.katago_catalog.load_catalog(PUBLISH.katago_catalog.DEFAULT_CATALOG)
+        catalog.update(origin="project-source-build", katagoSourceCommit=PUBLISH.SOURCE_COMMIT,
+                       engineReleaseRepository=FakeClient.repository, engineReleaseTag=RELEASE_TAG)
+        catalog["assets"] = {target: {
+            "assetName": f"katago-source-{PUBLISH.SOURCE_COMMIT[:12]}-{target}.zip",
+            "sizeBytes": 100, "sha256": "b" * 64, "executableSha256": "c" * 64,
+        } for target in PUBLISH.TARGETS}
+        return catalog
+
+    def source_publisher(self, client, catalog=None):
+        return PUBLISH.ReleasePublisher(client, self.request(), TARGET_SHA, self.release_notes(),
+            sleep=lambda seconds: None, poll_seconds=0, ci_timeout_seconds=0,
+            source_catalog=self.source_catalog() if catalog is None else catalog)
+
+    def test_source_catalog_cannot_reference_another_release_or_omit_a_target(self):
+        for missing in (False, True):
+            catalog = self.source_catalog()
+            if missing:
+                catalog["assets"].pop("linux-cpu")
+            else:
+                catalog["engineReleaseTag"] = "next-2026-01-01.1"
+            with self.assertRaisesRegex(PUBLISH.PublishError, "exact release"):
+                self.source_publisher(FakeClient(), catalog)
+
+    def test_missing_source_archives_block_before_any_workflow_dispatch(self):
+        client = FakeClient()
+        publisher = self.source_publisher(client)
+        with self.assertRaisesRegex(PUBLISH.PublishError, "Missing source archives"):
+            publisher.publish()
+        self.assertEqual([], client.dispatched)
+        self.assertTrue(client.release["draft"])
+
+    def test_source_archive_digests_must_match_reviewed_catalog(self):
+        client = FakeClient()
+        publisher = self.source_publisher(client)
+        client.assets = [{"name": name, "size": value["sizeBytes"], "state": "uploaded",
+                          "digest": "sha256:" + value["sha256"]}
+                         for name, value in publisher.source_assets.items()]
+        publisher._wait_for_source_assets(7)
+        client.assets[0]["digest"] = "sha256:" + "d" * 64
+        with self.assertRaisesRegex(PUBLISH.PublishError, "differs from reviewed"):
+            publisher._wait_for_source_assets(7)
+
+    def test_source_archives_are_rechecked_in_final_public_inventory(self):
+        client = self.prepared_successful_client()
+        publisher = self.source_publisher(client)
+        client.assets.extend({"name": name, "size": value["sizeBytes"], "state": "uploaded",
+                              "digest": "sha256:" + value["sha256"]}
+                             for name, value in publisher.source_assets.items())
+        runs = publisher._require_successful_target_runs()
+        self.assertEqual(len(all_asset_names()) + 15, len(publisher._verify_platform_assets(7, runs)))
+        client.assets.pop()
+        with self.assertRaisesRegex(PUBLISH.PublishError, "missing assets"):
+            publisher._verify_platform_assets(7, runs)
+
     def prepared_successful_client(self) -> FakeClient:
         client = FakeClient()
         client.assets = [fake_asset_metadata(name) for name in all_asset_names()]
