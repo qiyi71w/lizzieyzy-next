@@ -383,6 +383,98 @@ class HumanSlAnalysisRunnerTest {
   }
 
   @Test
+  void engineSearchBudget_reservesDeliveryTimeEvenForShortMoves() {
+    assertEquals(8.1175, HumanSlAnalysisRunner.engineSearchSeconds(Duration.ofSeconds(10)), 0.0001);
+    assertEquals(0.0425, HumanSlAnalysisRunner.engineSearchSeconds(Duration.ofMillis(100)), 0.0001);
+    assertEquals(0.0, HumanSlAnalysisRunner.engineSearchSeconds(Duration.ZERO));
+    assertEquals(0.0, HumanSlAnalysisRunner.engineSearchSeconds(Duration.ofSeconds(-1)));
+  }
+
+  @Test
+  void completedVerificationVisits_usesActualWorkRatherThanRequestedLimit() {
+    assertEquals(
+        17,
+        HumanSlAnalysisRunner.completedVerificationVisits(
+            new JSONObject().put("rootInfo", new JSONObject().put("visits", 17)), 64));
+    assertEquals(64, HumanSlAnalysisRunner.completedVerificationVisits(new JSONObject(), 64));
+    assertEquals(
+        64,
+        HumanSlAnalysisRunner.completedVerificationVisits(
+            new JSONObject().put("rootInfo", new JSONObject().put("visits", -1)), 64));
+  }
+
+  @Test
+  void bestHumanMove_timeLimitedFirstVerificationKeepsOnlyVerifiedMoves() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+      boardWithHistory(history);
+      FakeProcess process =
+          new FakeProcess(
+              request -> {
+                double maxTime = request.getJSONObject("overrideSettings").getDouble("maxTime");
+                assertTrue(maxTime > 0.0 && maxTime < 10.0);
+                assertFalse(request.has("maxTime"));
+                JSONObject response =
+                    new JSONObject()
+                        .put("id", request.getString("id"))
+                        .put("humanPolicy", new JSONObject().put("A3", 0.9).put("B2", 0.1));
+                if (!request.has("allowMoves")) {
+                  return response;
+                }
+                // The engine reached its time limit before 64 visits. A3 was not verified.
+                return response
+                    .put("rootInfo", new JSONObject().put("visits", 17))
+                    .put(
+                        "moveInfos",
+                        new JSONArray()
+                            .put(
+                                new JSONObject()
+                                    .put("move", "B2")
+                                    .put("order", 0)
+                                    .put("visits", 16)
+                                    .put("utility", 0.5)));
+              });
+      try (HumanSlAnalysisRunner runner =
+          new HumanSlAnalysisRunner(List.of("katago", "analysis"), ignored -> process)) {
+        assertEquals(
+            java.util.Optional.of("B2"),
+            runner.bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
+        assertEquals(2, process.sentRequests.size());
+        assertTrue(process.isAlive());
+        double policyTime =
+            process.sentRequests.get(0).getJSONObject("overrideSettings").getDouble("maxTime");
+        double verificationTime =
+            process.sentRequests.get(1).getJSONObject("overrideSettings").getDouble("maxTime");
+        assertTrue(verificationTime < policyTime);
+      }
+    }
+  }
+
+  @Test
+  void bestHumanMove_timeLimitedVerificationDoesNotFallBackToRawPolicy() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+      boardWithHistory(history);
+      FakeProcess process =
+          new FakeProcess(
+              request ->
+                  new JSONObject()
+                      .put("id", request.getString("id"))
+                      .put("humanPolicy", new JSONObject().put("A3", 1.0))
+                      .put("rootInfo", new JSONObject().put("visits", 1))
+                      .put("moveInfos", new JSONArray()));
+      try (HumanSlAnalysisRunner runner =
+          new HumanSlAnalysisRunner(List.of("katago", "analysis"), ignored -> process)) {
+        assertTrue(
+            runner
+                .bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10))
+                .isEmpty());
+        assertEquals(2, process.sentRequests.size());
+      }
+    }
+  }
+
+  @Test
   void bestHumanMove_acceptsPassOnlyWhenEndgameSearchSelectsIt() throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       BoardHistoryList history = endgameHistory();
@@ -495,6 +587,15 @@ class HumanSlAnalysisRunnerTest {
       for (int index = 1; index < process.sentRequests.size(); index++) {
         JSONObject request = process.sentRequests.get(index);
         assertTrue(request.has("allowMoves"));
+        assertFalse(request.has("maxTime"));
+        assertTrue(request.getJSONObject("overrideSettings").getDouble("maxTime") > 0.0);
+        assertTrue(
+            request.getJSONObject("overrideSettings").getDouble("maxTime")
+                < process
+                    .sentRequests
+                    .get(index - 1)
+                    .getJSONObject("overrideSettings")
+                    .getDouble("maxTime"));
         assertEquals(
             2.0,
             request.getJSONObject("overrideSettings").getDouble("humanSLCpuctPermanent"),

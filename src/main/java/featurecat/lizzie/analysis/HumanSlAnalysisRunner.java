@@ -258,7 +258,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       String probeId = "humansl-policy-" + nextRequestId.getAndIncrement();
       JSONObject probe =
           buildHumanSlRequest(probeId, positionNode, profile, POLICY_PROBE_VISITS, rootSymmetries);
-      JSONObject probeResponse = request(probe, remainingRequestTime(deadlineNanos));
+      JSONObject probeResponse = requestHumanMove(probe, remainingRequestTime(deadlineNanos));
       Object policy = extractHumanPolicy(probeResponse);
       if (policy == null) {
         return Optional.empty();
@@ -301,7 +301,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
               new ArrayList<String>(verificationMoves));
       long verificationStartedNanos = System.nanoTime();
       JSONObject verifiedResponse =
-          request(verificationRequest, remainingRequestTime(deadlineNanos));
+          requestHumanMove(verificationRequest, remainingRequestTime(deadlineNanos));
       long verificationElapsedNanos = Math.max(1L, System.nanoTime() - verificationStartedNanos);
       if (allowPass && isSearchTopMovePass(verifiedResponse)) {
         return Optional.of("pass");
@@ -311,10 +311,12 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       boolean volatileCandidates =
           HumanLikeMoveSelector.needsDeepVerification(
               selectableMoves, verifiedResponse.optJSONArray("moveInfos"), profile);
-      int completedVisits = verificationVisits;
+      int completedVisits = completedVerificationVisits(verifiedResponse, verificationVisits);
+      boolean timeLimited = completedVisits < verificationVisits;
       long completedElapsedNanos = verificationElapsedNanos;
       for (int round = 0;
           round < MAX_ADAPTIVE_VERIFICATION_ROUNDS
+              && !timeLimited
               && shouldAdaptivelyDeepen(profile, volatileCandidates);
           round++) {
         int deepVisits =
@@ -336,9 +338,10 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
                 new ArrayList<String>(verificationMoves));
         long deepStartedNanos = System.nanoTime();
         try {
-          finalResponse = request(deepRequest, remainingAdaptiveRequestTime(deadlineNanos));
+          finalResponse = requestHumanMove(deepRequest, remainingAdaptiveRequestTime(deadlineNanos));
           completedElapsedNanos = Math.max(1L, System.nanoTime() - deepStartedNanos);
-          completedVisits = deepVisits;
+          completedVisits = completedVerificationVisits(finalResponse, deepVisits);
+          timeLimited = completedVisits < deepVisits;
           volatileCandidates =
               HumanLikeMoveSelector.needsDeepVerification(
                   selectableMoves, finalResponse.optJSONArray("moveInfos"), profile);
@@ -843,6 +846,30 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
                 MAX_ADAPTIVE_VERIFICATION_VISITS,
                 Math.max(minimumTarget, Math.floor(estimatedVisits)));
     return targetVisits > safeCompletedVisits ? targetVisits : safeCompletedVisits;
+  }
+
+  private JSONObject requestHumanMove(JSONObject request, Duration timeout)
+      throws IOException, TimeoutException {
+    // maxVisits alone is not a clock, especially with HumanSL's weightless exploration.
+    // Leave time for the engine's final batch, JSON output and delivery to the game controller.
+    request.getJSONObject("overrideSettings").put("maxTime", engineSearchSeconds(timeout));
+    return request(request, timeout);
+  }
+
+  static double engineSearchSeconds(Duration timeout) {
+    long remainingNanos = Math.max(0L, timeout.toNanos());
+    long reserveNanos =
+        Math.min(TimeUnit.MILLISECONDS.toNanos(ADAPTIVE_RETURN_RESERVE_MILLIS), remainingNanos / 2L);
+    return (remainingNanos - reserveNanos) / 1_000_000_000.0 * ADAPTIVE_TIME_USE_RATIO;
+  }
+
+  static int completedVerificationVisits(JSONObject response, int requestedVisits) {
+    JSONObject root = response.optJSONObject("rootInfo");
+    double visits = root == null ? Double.NaN : root.optDouble("visits", Double.NaN);
+    if (!Double.isFinite(visits) || visits < 0.0) {
+      return requestedVisits;
+    }
+    return (int) Math.max(1, Math.min(MAX_ADAPTIVE_VERIFICATION_VISITS, visits));
   }
 
   static boolean shouldAdaptivelyDeepen(String profile, boolean volatileCandidates) {
