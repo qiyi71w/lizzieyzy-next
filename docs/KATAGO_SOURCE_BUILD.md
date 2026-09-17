@@ -305,6 +305,7 @@ python3 scripts/stage_katago_source_release.py \
   --packages /path/to/packages-by-target \
   --acceptance /path/to/acceptance-by-target \
   --base-catalog src/main/resources/katago-assets.json \
+  --source /path/to/clean/pinned/KataGo \
   --output /path/to/new/release-staging \
   --tag next-YYYY-MM-DD.N
 ```
@@ -321,6 +322,8 @@ repair archives keep the compiled engine and notices, reusing the existing separ
 locked runtime installers instead of duplicating gigabytes. Other targets retain their
 full audited dependency closure. `source-release.json` describes the exact archive
 inventory and runtime policy; the original source receipt remains included as evidence.
+Default GTP and analysis templates are included from the same clean pinned source
+checkout. Archives are reopened and every stored file is hashed before staging completes.
 
 The shared catalog distinguishes official releases from `project-source-build`. Only
 the reviewed `wimi321/lizzieyzy-next` immutable release URL is accepted for project
