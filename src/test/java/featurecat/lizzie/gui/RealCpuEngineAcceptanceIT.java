@@ -12,6 +12,8 @@ import featurecat.lizzie.analysis.EngineRulesResult;
 import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveData;
+import featurecat.lizzie.logging.LoggingRuntime;
+import featurecat.lizzie.logging.TraceScope;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardData;
 import featurecat.lizzie.rules.BoardHistoryList;
@@ -126,6 +128,21 @@ public final class RealCpuEngineAcceptanceIT {
       runProbe(fixture, inputs, engineId, source, work, result, snapshots, state);
       exitCode = 0;
     } catch (Throwable failure) {
+      try {
+        String diagnostics = "phase=" + state.phase + "\n";
+        if (state.engine != null) {
+          diagnostics += "pondering=" + state.engine.isPondering()
+              + "\nengineVisits=" + state.engine.getBestMovesPlayouts()
+              + "\nnodeVisits=" + (state.target == null ? -1 : state.target.getData().getPlayouts()) + "\n";
+        }
+        for (java.lang.management.ThreadInfo thread :
+            java.lang.management.ManagementFactory.getThreadMXBean().dumpAllThreads(true, true)) {
+          diagnostics += thread + "\n";
+        }
+        Files.writeString(result.resolveSibling("failure-diagnostic.txt"), diagnostics);
+      } catch (Throwable diagnosticFailure) {
+        failure.addSuppressed(diagnosticFailure);
+      }
       CleanupOutcome cleanup = cleanupAfterFailure(state, snapshots);
       JSONObject failureResult =
           failureRecord(fixture, inputs, engineId, source, work, result, state, cleanup, failure);
@@ -168,6 +185,7 @@ public final class RealCpuEngineAcceptanceIT {
         startupDeadline,
         "real main window");
     dismissDialogs();
+    LoggingRuntime.current().orElseThrow().startFullTrace(Set.of(TraceScope.ENGINE_GTP));
 
     long positionStart = System.nanoTime();
     Deadline positionDeadline = Deadline.after(POSITION_BUDGET);
