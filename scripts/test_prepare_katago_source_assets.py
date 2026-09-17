@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 import test_stage_katago_source_release as fixtures
-from katago_asset_catalog import DEFAULT_CATALOG
+from katago_asset_catalog import DEFAULT_CATALOG, validate_catalog
 from prepare_katago_source_assets import DESTINATIONS, download, prepare, unpack
 
 
@@ -61,10 +61,15 @@ class PrepareSourceAssetsTest(unittest.TestCase):
         official["origin"] = "official-release"
         official.pop("engineReleaseRepository", None)
         official.pop("engineReleaseTag", None)
+        for target, asset in official["assets"].items():
+            asset["assetName"] = f"katago-{official['katagoReleaseTag']}-{target}.zip"
+        validate_catalog(official)
         official_path = self.root / "official.json"
         official_path.write_text(json.dumps(official))
-        with self.assertRaisesRegex(ValueError, "reviewed source catalog"):
-            prepare(official_path, ["windows-cpu"], self.root / "cache", self.engines)
+        with mock.patch("prepare_katago_source_assets.download") as fetch:
+            with self.assertRaisesRegex(ValueError, "reviewed source catalog"):
+                prepare(official_path, ["windows-cpu"], self.root / "cache", self.engines)
+            fetch.assert_not_called()
         with self.assertRaisesRegex(ValueError, "duplicate"):
             self.prepare(["windows-cpu", "windows-cpu"])
 
