@@ -170,10 +170,6 @@ final class FunctionSearchController implements KeyEventDispatcher {
           Lizzie.config.isCommentPanelAutoHiddenByMode()
               ? "FunctionSearch.dependency.commentPanel"
               : null;
-      case "config.tracking.text-color" ->
-          Lizzie.config.trackingPointTextAutoColor
-              ? "FunctionSearch.dependency.trackingTextColor"
-              : null;
       case "config.theme.background-image",
           "config.theme.board-image",
           "config.theme.black-stone-image",

@@ -340,8 +340,9 @@ cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the b
 - Build and audit every target in CI, then feed those exact verified artifacts into full packages.
 - Publish trusted self-built engine catalogs for repair and on-demand installation; do not let a
   repair silently replace the new engine with an old official release.
-- Complete #449 runtime probing and GUI/SGF regression. The owner removed the legacy
-  single-engine `allow` fallback from scope; unsupported engines retain ordinary analysis.
+- Complete #449 runtime probing and GUI/SGF regression. The approved release scope removes the
+  legacy `allow` fallback: unsupported engines retain ordinary analysis, with an upgrade hint
+  for point evaluation. A main-program update does not replace an external or old engine.
 - Collect all final assets in Draft and audit them before any pre-release publication.
 
 The current stable release, official download catalog and R2 assets must remain untouched.

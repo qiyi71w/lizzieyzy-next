@@ -6371,8 +6371,8 @@ class BoardNodeKindHistoryPipelineTest {
     }
 
     @Override
-    public boolean isPonderingOrWasPonderingBeforeTracking() {
-      return trackPonderCalls ? pretendingToPonder : super.isPonderingOrWasPonderingBeforeTracking();
+    public boolean isPondering() {
+      return trackPonderCalls ? pretendingToPonder : super.isPondering();
     }
 
     @Override

@@ -2,6 +2,7 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.GameInfo;
+import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.rules.Board;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -18,6 +19,17 @@ import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 
 public class RightClickMenu extends JPopupMenu {
+  static String trackingUnavailableKey(Leelaz.MoveFocusCapability capability, boolean tooltip) {
+    if (capability == Leelaz.MoveFocusCapability.UNSUPPORTED) {
+      return tooltip
+          ? "RightClickMenu.trackPoint.upgradeTooltip"
+          : "RightClickMenu.trackPoint.upgradeRequired";
+    }
+    return tooltip
+        ? "RightClickMenu.trackPoint.unavailableTooltip"
+        : "RightClickMenu.trackPoint.requiresCapability";
+  }
+
   //	public static int mousex;
   //	public static int mousey;
   public static int[] coords = LizzieFrame.outOfBoundCoordinate;
@@ -178,7 +190,18 @@ public class RightClickMenu extends JPopupMenu {
                       RightClickMenu.coords[0], RightClickMenu.coords[1]);
               boolean isTracked = Lizzie.frame.isTrackingPoint(coordName);
               boolean hasTracked = Lizzie.frame.hasTrackingPoints();
-              trackPoint.setVisible(canTrack && !isTracked);
+              trackPoint.setVisible(!isTracked && Lizzie.board.iscoordsempty(coords[0], coords[1]));
+              trackPoint.setEnabled(canTrack);
+              trackPoint.setText(
+                  resourceBundle.getString(
+                      canTrack
+                          ? "RightClickMenu.trackPoint"
+                          : trackingUnavailableKey(Lizzie.leelaz.moveFocusCapability(), false)));
+              trackPoint.setToolTipText(
+                  resourceBundle.getString(
+                      canTrack
+                          ? "RightClickMenu.trackPoint.tooltip"
+                          : trackingUnavailableKey(Lizzie.leelaz.moveFocusCapability(), true)));
               untrackPoint.setVisible(isTracked);
               clearAllTracked.setVisible(hasTracked);
             }
@@ -249,6 +272,7 @@ public class RightClickMenu extends JPopupMenu {
     cancelavoid.setIcon(iconRecycle);
     trackPoint = new JFontMenuItem(resourceBundle.getString("RightClickMenu.trackPoint"));
     trackPoint.setIcon(iconTrackPoint);
+    trackPoint.setToolTipText(resourceBundle.getString("RightClickMenu.trackPoint.tooltip"));
     untrackPoint = new JFontMenuItem(resourceBundle.getString("RightClickMenu.untrackPoint"));
     untrackPoint.setIcon(iconRemovePoint);
     clearAllTracked = new JFontMenuItem(resourceBundle.getString("RightClickMenu.clearAllTracked"));

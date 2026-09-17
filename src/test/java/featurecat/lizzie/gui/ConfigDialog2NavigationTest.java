@@ -47,7 +47,7 @@ public final class ConfigDialog2NavigationTest {
     assertTrue(result.contains("rebound.focus=true"), result);
     assertTrue(result.contains("rebound.visible=true"), result);
     assertTrue(result.contains("value-preserved=true"), result);
-    assertTrue(result.contains("catalog.count=80"), result);
+    assertTrue(result.contains("catalog.count=" + FunctionCatalog.configSettingTargets().size()), result);
     assertTrue(result.contains("catalog.visible=true"), result);
     assertTrue(result.contains("catalog.focus=true"), result);
     assertTrue(result.contains("catalog.title=true"), result);

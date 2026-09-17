@@ -45,13 +45,6 @@ class RuleAwareFakeLeelaz extends Leelaz {
   }
 
   @Override
-  public boolean isPonderingOrWasPonderingBeforeTracking() {
-    return trackPonderCalls
-        ? pretendingToPonder
-        : super.isPonderingOrWasPonderingBeforeTracking();
-  }
-
-  @Override
   public void notPondering() {
     if (!trackPonderCalls) {
       super.notPondering();

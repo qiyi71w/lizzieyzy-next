@@ -1,0 +1,86 @@
+name: Native Windows Move Focus
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/move-focus-acceptance.yml'
+      - 'src/main/java/featurecat/lizzie/analysis/**'
+      - 'src/main/java/featurecat/lizzie/gui/LizzieFrame.java'
+      - 'src/test/java/featurecat/lizzie/gui/MoveFocusNativeAcceptanceIT.java'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-focus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-focus:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: lightvector/KataGo
+          ref: 47aadc08518b3e121f22539796c911002f699584
+          path: upstream-katago
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Select MSVC 14.44 x64 toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'MSVC C++ toolchain not found' }
+          $command = '"' + $vs + '\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 -vcvars_ver=14.44 >nul && set'
+          $variables = & cmd.exe /d /s /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Locked MSVC environment unavailable' }
+          $allowed = @('PATH', 'INCLUDE', 'LIB', 'LIBPATH', 'VCToolsVersion', 'VSCMD_ARG_TGT_ARCH', 'WindowsSDKVersion', 'WindowsSdkDir', 'VCToolsInstallDir', 'VCINSTALLDIR')
+          foreach ($line in $variables) {
+            $parts = $line -split '=', 2
+            if ($parts.Count -eq 2 -and $parts[0] -in $allowed) {
+              $line | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+      - name: Build and audit the pinned CPU engine
+        shell: pwsh
+        run: |
+          python scripts/build_katago_windows_dependencies.py --output "$env:RUNNER_TEMP/focus-sdk" --jobs 3
+          if ($LASTEXITCODE -ne 0) { throw 'SDK failed' }
+          python scripts/build_katago_source.py --source upstream-katago --output "$env:RUNNER_TEMP/focus-build" --target windows-cpu --windows-sdk "$env:RUNNER_TEMP/focus-sdk/prefix" --jobs 3
+          if ($LASTEXITCODE -ne 0) { throw 'Engine build failed' }
+          python scripts/package_katago_source_windows.py --build "$env:RUNNER_TEMP/focus-build" --sdk "$env:RUNNER_TEMP/focus-sdk/prefix" --output "$env:RUNNER_TEMP/focus-engine"
+          if ($LASTEXITCODE -ne 0) { throw 'Engine dependency audit failed' }
+      - name: Exercise the real native application with the real engine
+        shell: pwsh
+        run: |
+          $model = "$env:GITHUB_WORKSPACE/upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz"
+          mvn -B '-Dfmt.skip=true' '-Djava.awt.headless=false' '-Dlizzie.desktop.required=true' '-Dlizzie.focus.acceptance=true' "-Dlizzie.focus.engine=$env:RUNNER_TEMP/focus-engine/katago.exe" "-Dlizzie.focus.model=$model" '-Dtest=MoveFocusNativeAcceptanceIT' test
+          if ($LASTEXITCODE -ne 0) { throw 'Native focus acceptance failed' }
+          [xml]$report = Get-Content 'target/surefire-reports/TEST-featurecat.lizzie.gui.MoveFocusNativeAcceptanceIT.xml'
+          if ([int]$report.testsuite.tests -ne 1 -or [int]$report.testsuite.failures -ne 0 -or [int]$report.testsuite.errors -ne 0 -or [int]$report.testsuite.skipped -ne 0) {
+            throw 'Required native case was missing, skipped, or failed'
+          }
+      - name: Keep native evidence without claiming GPU acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-focus-windows-${{ github.sha }}
+          path: |
+            target/desktop-smoke/probes/
+            target/surefire-reports/
+            ${{ runner.temp }}/focus-sdk/build.log
+            ${{ runner.temp }}/focus-build/build.log
+            ${{ runner.temp }}/focus-build/source-build.json
+            ${{ runner.temp }}/focus-engine/source-package.json
+          if-no-files-found: error
+          retention-days: 7

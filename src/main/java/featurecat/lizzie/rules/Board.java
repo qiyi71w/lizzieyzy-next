@@ -4243,7 +4243,7 @@ public class Board {
     Leelaz engine = Lizzie.leelaz;
     return prepareHistoryNavigationRestore(
         stepIn,
-        engine != null && engine.isPonderingOrWasPonderingBeforeTracking() ? engine::ponder : null);
+        engine != null && engine.isPondering() ? engine::ponder : null);
   }
 
   private HistoryNavigationRestore prepareHistoryNavigationRestore(
@@ -4476,7 +4476,7 @@ public class Board {
     HistoryNavigationRestore restore;
     synchronized (this) {
       if (!submitOrdinaryEngineForwarding(engine, () -> true)) return;
-      boolean resumePonder = engine.isPonderingOrWasPonderingBeforeTracking();
+      boolean resumePonder = engine.isPondering();
       ExactSnapshotEngineRestore.PreparedRestore exact =
           ExactSnapshotEngineRestore.prepare(
                   engine.captureHistoryNavigationExactSnapshotRestoreAdmission(mirror), node)
@@ -4513,7 +4513,7 @@ public class Board {
     HistoryNavigationRestore restore;
     synchronized (this) {
       if (!submitOrdinaryEngineForwarding(engine, () -> true)) return;
-      boolean resumePonder = engine.isPonderingOrWasPonderingBeforeTracking();
+      boolean resumePonder = engine.isPondering();
       Optional<ExactSnapshotEngineRestore.PreparedRestore> exact =
           fromRoot
               ? Optional.empty()

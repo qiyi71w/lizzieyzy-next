@@ -44,9 +44,9 @@ class FunctionSearchTest {
             "FunctionSearch.category.sync",
             "FunctionSearch.category.view"),
         FunctionCatalog.categoryKeys());
-    assertEquals(80, FunctionCatalog.configSettingTargets().size());
+    assertEquals(76, FunctionCatalog.configSettingTargets().size());
     assertEquals(
-        80,
+        76,
         FunctionCatalog.configSettingTargets().stream()
             .map(FunctionCatalog.ConfigSettingTarget::id)
             .distinct()
@@ -61,6 +61,15 @@ class FunctionSearchTest {
             .allMatch(entry -> FunctionCatalog.categoryKeys().contains(entry.categoryKey())));
     assertEquals(1, FunctionCatalog.entries().stream().filter(entry -> entry.id().equals("game.komi")).count());
     assertEquals(1, FunctionCatalog.entries().stream().filter(entry -> entry.id().equals("engine.rules")).count());
+  }
+
+  @Test
+  void sameTreeFocusExposesOnlyTheRemainingOutlineSettings() {
+    List<String> trackingIds = FunctionCatalog.configSettingTargets().stream()
+        .map(FunctionCatalog.ConfigSettingTarget::id)
+        .filter(id -> id.startsWith("config.tracking."))
+        .toList();
+    assertEquals(List.of("config.tracking.outline", "config.tracking.outline-opacity"), trackingIds);
   }
 
   @Test
