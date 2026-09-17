@@ -32,6 +32,44 @@ import org.junit.jupiter.api.Test;
 
 class TrackingProductionCutoverTest {
   @Test
+  void firstResumeProbesAnEngineWhoseInitializationWasPaused() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");
+      paused.setAccessible(true);
+      paused.setBoolean(environment.frame, true);
+      assertFalse(environment.engine.startMoveFocusProbeAfterInitialization());
+      assertEquals("", environment.commands());
+      paused.setBoolean(environment.frame, false);
+      assertTrue(environment.engine.ponderIfAnalysisControlAllows());
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.SUPPORTED, environment.engine.moveFocusCapability());
+      assertEquals(1, environment.commands().lines().filter(line -> line.contains("focus pass 0")).count());
+      environment.engine.ponder();
+      environment.settleCommands();
+      assertEquals(1, environment.commands().lines().filter(line -> line.contains("focus pass 0")).count());
+    }
+  }
+
+  @Test
+  void retiredPositionProbeDoesNotPermanentlyBlockTheNextProbe() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());
+      String probe = environment.commands().trim();
+      String id = probe.substring(0, probe.indexOf(' '));
+      Lizzie.board.setHistory(new BoardHistoryList(BoardData.empty(2, 2)));
+      environment.dispatch("?" + id + " unknown analyze option focus");
+      environment.dispatch("");
+      environment.respondedCommands = 1;
+      assertEquals(Leelaz.MoveFocusCapability.UNKNOWN, environment.engine.moveFocusCapability());
+      assertTrue(environment.engine.startMoveFocusProbeAfterInitialization(),
+          "A settled probe for an old board must not retain the current stream's probe slot");
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.SUPPORTED, environment.engine.moveFocusCapability());
+      assertEquals(2, environment.commands().lines().filter(line -> line.contains("focus pass 0")).count());
+    }
+  }
+
+  @Test
   void userPausedAnalysisDoesNotStartCapabilityProbe() throws Exception {
     try (TestEnvironment environment = TestEnvironment.open()) {
       Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");

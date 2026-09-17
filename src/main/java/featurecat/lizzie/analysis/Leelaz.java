@@ -625,6 +625,7 @@ public class Leelaz {
       if (!current()) {
         if (moveFocusProbe == this && readerStreamBinding == binding && !binding.terminated) {
           moveFocusBoundary = null;
+          moveFocusProbe = null;
           moveFocusCapability = MoveFocusCapability.UNKNOWN;
           trySendCommandFromQueue();
         }
@@ -637,7 +638,10 @@ public class Leelaz {
           ponderCurrentPosition(addPlayer, blackToPlay);
         }
       }
-      if (current()) moveFocusCapability = capability;
+      if (current()) {
+        moveFocusCapability = capability;
+        moveFocusProbe = null;
+      }
     }
   }
 
@@ -862,13 +866,17 @@ public class Leelaz {
   }
 
   public boolean startMoveFocusProbeAfterInitialization() {
+    return startMoveFocusProbeIfAnalysisAllowed(false, false);
+  }
+
+  private boolean startMoveFocusProbeIfAnalysisAllowed(boolean addPlayer, boolean blackToPlay) {
     synchronized (analysisControlPonderLock()) {
       if (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused()) return false;
-      return startMoveFocusProbeWhenAnalysisAllowed();
+      return startMoveFocusProbeWhenAnalysisAllowed(addPlayer, blackToPlay);
     }
   }
 
-  private boolean startMoveFocusProbeWhenAnalysisAllowed() {
+  private boolean startMoveFocusProbeWhenAnalysisAllowed(boolean addPlayer, boolean blackToPlay) {
     LifecycleCompletionClaim completing = lifecycleCompletionCommandContext.get();
     if (completing != null && completing == lifecycleCompletionClaim
         && moveFocusCapability() == MoveFocusCapability.UNKNOWN && isKatago) {
@@ -878,7 +886,7 @@ public class Leelaz {
       completing.runAfterEndpointRelease(() -> {
         if (readerStreamBinding == binding && !binding.terminated
             && isCurrentAnalysisInfoTarget(target) && pauseGeneration == moveFocusPauseGeneration) {
-          if (!startMoveFocusProbeAfterInitialization()) ponderIfAnalysisControlAllows();
+          if (!startMoveFocusProbeIfAnalysisAllowed(addPlayer, blackToPlay)) ponderIfAnalysisControlAllows();
         }
       });
       return true;
@@ -894,7 +902,7 @@ public class Leelaz {
         if (moveFocusCapability() != MoveFocusCapability.UNKNOWN || normalCommandSendInProgress
             || !commandQueue().isEmpty()) return false;
         moveFocusCapabilityBinding = binding;
-        moveFocusProbe = new MoveFocusProbe(false, false);
+        moveFocusProbe = new MoveFocusProbe(addPlayer, blackToPlay);
         moveFocusCapability = MoveFocusCapability.PROBING;
       }
     }
@@ -926,6 +934,7 @@ public class Leelaz {
         if (probe) {
           moveFocusBoundary = null;
           if (readerStreamBinding == binding && !binding.terminated) {
+            if (moveFocusProbe == probeContext) moveFocusProbe = null;
             moveFocusCapability = MoveFocusCapability.UNKNOWN;
           }
           trySendCommandFromQueue();
@@ -20928,6 +20937,9 @@ public class Leelaz {
   }
 
   public void ponder(boolean addPlayer, boolean blackToPlay) {
+    if (moveFocusCapability() == MoveFocusCapability.PROBING) return;
+    if (!noAnalyze && !isInitialBoardSynchronizationActive()
+        && startMoveFocusProbeIfAnalysisAllowed(addPlayer, blackToPlay)) return;
     if (moveFocusCapability() == MoveFocusCapability.PROBING) return;
     ponderCurrentPosition(addPlayer, blackToPlay);
   }
