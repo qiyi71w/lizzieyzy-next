@@ -136,14 +136,10 @@ def audit(package: Path, sdk: Path, model: Path, output: Path) -> dict:
                     external = ":/sdk/cuda/lib:/sdk/cudnn/lib" if target == "linux-nvidia" else ""
                     baseline_env = "LD_LIBRARY_PATH=/baseline/squashfs-root/usr/lib" + external
                     candidate_env = "LD_LIBRARY_PATH=/engine" + external
-                    before = checked(["docker", "exec", "-e", baseline_env, identifier,
-                                      "/baseline/squashfs-root/usr/bin/katago", "version"], log)
                     after = checked(["docker", "exec", "-e", candidate_env, identifier, "/engine/katago", "version"], log)
-                    verify_version(before, False)
                     verify_version(after, True)
                     check = dict(distribution, status="PASS", installedRuntimePackages=packages,
-                                 baselineVersionOutput=before, sourceVersionOutput=after,
-                                 gpuInferenceStatus="NOT_RUN")
+                                 sourceVersionOutput=after, gpuInferenceStatus="NOT_RUN")
                     if target == "linux-cpu":
                         gtp = checked(["docker", "exec", "-i", "-e", candidate_env, identifier,
                                        "/engine/katago", "gtp", "-config", "/probe.cfg", "-model", "/probe-model.bin.gz"],
@@ -151,6 +147,19 @@ def audit(package: Path, sdk: Path, model: Path, output: Path) -> dict:
                         if not re.search(r"(?m)^=3 (?:[A-HJ-T][1-9][0-9]?|pass|resign)\s*$", gtp):
                             raise ValueError("distribution CPU inference did not return a legal GTP move")
                         check["cpuInferenceStatus"] = "PASS"
+                    # Test the new engine before adding the old bundle's system dependencies.
+                    # Otherwise an accidental old SSL/OpenCL dependency could be concealed.
+                    baseline_packages = ["openssl"]
+                    if target == "linux-opencl":
+                        baseline_packages.append("ocl-icd-libopencl1")
+                    checked(["docker", "exec", identifier, "apt-get", "install", "-y",
+                             "--no-install-recommends", *baseline_packages], log)
+                    check["baselineSystemPackages"] = checked(
+                        ["docker", "exec", identifier, "dpkg-query", "-W", *baseline_packages], log)
+                    before = checked(["docker", "exec", "-e", baseline_env, identifier,
+                                      "/baseline/squashfs-root/usr/bin/katago", "version"], log)
+                    verify_version(before, False)
+                    check["baselineVersionOutput"] = before
                     result["distributionChecks"].append(check)
                 finally:
                     checked(["docker", "rm", "--force", identifier], log)

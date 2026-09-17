@@ -352,7 +352,8 @@ every new bundled ELF file. It then runs both old and new executables inside pin
 native amd64 Ubuntu 22.04 and 24.04 containers. The CPU target additionally performs
 a real GTP move with the pinned upstream model in each distribution.
 
-Only the system C++ runtime is installed inside disposable containers. Engine packages,
+The new engine is tested with only the system C++ runtime installed; the old bundle's
+SSL/OpenCL system dependencies are added afterward for the baseline comparison. Engine packages,
 reference payloads and SDKs are mounted read-only, CUDA/cuDNN remain separately verified
 external dependencies, and no driver is installed on the runner or user's system.
 The log records actual libc/libstdc++ package versions. A failed loader or symbol check
