@@ -665,6 +665,9 @@ class EngineGameMatchRulesPrepareRestoreTest {
 
   private static final class SilentMenu extends Menu {
     @Override
+    public void changeicon(int index) {}
+
+    @Override
     public void toggleEngineMenuStatus(boolean isPondering, boolean isThinking) {}
 
     @Override
