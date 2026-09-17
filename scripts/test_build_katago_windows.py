@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from build_katago_windows_dependencies import (
-    LOCK_PATH, build_sdk, common_options, engine_options, environment, verify_sdk,
+    LOCK_PATH, build_sdk, common_options, engine_options, environment, install_eigen_headers, verify_sdk,
 )
 from build_katago_macos_dependencies import digest, inventory
 from build_katago_source import build
@@ -16,6 +16,20 @@ from package_katago_source_windows import inspect_pe
 
 
 class WindowsSourceTest(unittest.TestCase):
+    def test_eigen_headers_do_not_configure_unrelated_fortran(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            for name in ("Eigen", "unsupported"):
+                (source / name).mkdir(parents=True)
+                (source / name / "Core").write_text("verified header")
+            with patch("build_katago_windows_dependencies.subprocess.run") as command:
+                install_eigen_headers(source, root / "sdk")
+                command.assert_not_called()
+            self.assertEqual("verified header", (root / "sdk/include/eigen3/Eigen/Core").read_text())
+            with self.assertRaisesRegex(ValueError, "headers missing"):
+                install_eigen_headers(root / "missing", root / "other")
+
     def test_lock_contains_exact_libraries_and_not_gpu_drivers(self):
         lock = json.loads(LOCK_PATH.read_text())
         self.assertEqual("14.44", lock["msvcToolset"])

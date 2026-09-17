@@ -73,6 +73,14 @@ def engine_options(prefix: Path, target: str) -> list[str]:
     return options
 
 
+def install_eigen_headers(source: Path, prefix: Path) -> None:
+    # Eigen is header-only here. Its CMake install also probes unrelated Fortran BLAS targets.
+    for name in ("Eigen", "unsupported"):
+        if not (source / name).is_dir():
+            raise ValueError(f"Eigen headers missing: {name}")
+        shutil.copytree(source / name, prefix / "include/eigen3" / name)
+
+
 def build_sdk(output: Path, jobs: int) -> Path:
     if platform.system() != "Windows" or platform.machine().lower() not in {"amd64", "x86_64"}:
         raise ValueError("Windows SDK requires a native Windows/x86_64 host")
@@ -104,13 +112,16 @@ def build_sdk(output: Path, jobs: int) -> Path:
                                check=True, stdout=log, stderr=subprocess.STDOUT)
                 source = extract_verified(archive, output / (name + "-source"), dependency["sha256"])
                 build = output / (name + "-build")
-                for command in (
-                    ["cmake", "-S", str(source), "-B", str(build), "-G", "Ninja",
-                     *common_options(prefix), *dependency["cmake"]],
-                    ["cmake", "--build", str(build), "--parallel", str(jobs)],
-                    ["cmake", "--install", str(build)],
-                ):
-                    subprocess.run(command, check=True, env=env, stdout=log, stderr=subprocess.STDOUT)
+                if name == "eigen":
+                    install_eigen_headers(source, prefix)
+                else:
+                    for command in (
+                        ["cmake", "-S", str(source), "-B", str(build), "-G", "Ninja",
+                         *common_options(prefix), *dependency["cmake"]],
+                        ["cmake", "--build", str(build), "--parallel", str(jobs)],
+                        ["cmake", "--install", str(build)],
+                    ):
+                        subprocess.run(command, check=True, env=env, stdout=log, stderr=subprocess.STDOUT)
                 licenses = prefix / "share/licenses" / name
                 licenses.mkdir(parents=True)
                 for path in source.iterdir():
