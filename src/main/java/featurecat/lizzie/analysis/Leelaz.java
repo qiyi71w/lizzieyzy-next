@@ -924,7 +924,9 @@ public class Leelaz {
     Runnable send = () -> sendMoveFocusCommand(
         "kata-analyze " + getInterval() + " rootInfo true focus pass 0", probe);
     // Physical write admission must never wait while holding the user-pause monitor.
-    if (Thread.holdsLock(analysisControlPonderLock())) COMMAND_DISPATCH_EXECUTOR.execute(send);
+    if (SwingUtilities.isEventDispatchThread() || Thread.holdsLock(analysisControlPonderLock())) {
+      COMMAND_DISPATCH_EXECUTOR.execute(send);
+    }
     else send.run();
     return true;
   }

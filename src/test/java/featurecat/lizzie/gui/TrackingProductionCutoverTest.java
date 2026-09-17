@@ -32,6 +32,36 @@ import org.junit.jupiter.api.Test;
 
 class TrackingProductionCutoverTest {
   @Test
+  void probeFromUiThreadDoesNotWaitForPhysicalWriteAdmission() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      Field lockField = EngineManager.class.getDeclaredField("ENGINE_GAME_ANALYSIS_OUTPUT_MUTATION_LOCK");
+      lockField.setAccessible(true);
+      java.util.concurrent.locks.ReentrantLock admission =
+          (java.util.concurrent.locks.ReentrantLock) lockField.get(null);
+      java.util.concurrent.CountDownLatch returned = new java.util.concurrent.CountDownLatch(1);
+      java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+          new java.util.concurrent.atomic.AtomicReference<>();
+      admission.lock();
+      try {
+        javax.swing.SwingUtilities.invokeLater(() -> {
+          try { assertTrue(environment.engine.startMoveFocusProbeAfterInitialization()); }
+          catch (Throwable thrown) { failure.set(thrown); }
+          finally { returned.countDown(); }
+        });
+        assertTrue(returned.await(2, java.util.concurrent.TimeUnit.SECONDS),
+            "capability probing must never block the UI on physical admission");
+        assertEquals("", environment.commands());
+      } finally {
+        admission.unlock();
+        assertTrue(returned.await(2, java.util.concurrent.TimeUnit.SECONDS));
+      }
+      assertEquals(null, failure.get());
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.SUPPORTED, environment.engine.moveFocusCapability());
+    }
+  }
+
+  @Test
   void pauseCancelsInitializationProbeWaitingForPhysicalWrite() throws Exception {
     assertPauseCancelsProbeWaitingForPhysicalWrite(false);
   }
