@@ -24,6 +24,7 @@ import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadCancelledException;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadSession;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.SetupResult;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.SetupSnapshot;
+import featurecat.lizzie.util.katago.tuning.KataGoCommandSpec;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Constructor;
@@ -37,6 +38,7 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -2632,6 +2634,52 @@ public class KataGoRuntimeHelperTest {
 
           assertEquals(1, occurrences(command, "numAnalysisThreads=3"));
           assertEquals(1, occurrences(command, "numSearchThreadsPerAnalysisThread=4"));
+          assertFalse(command.contains("numSearchThreads="));
+        });
+  }
+
+  @Test
+  void managedAnalysisThreadsRemoveConflictingGtpAliasWithoutRewritingConfig() throws Exception {
+    Path root = Files.createTempDirectory("katago-analysis-thread-alias");
+    Path config = Files.writeString(root.resolve("custom analysis.cfg"), "numSearchThreads = 2\n");
+    String original = Files.readString(config);
+    withConfig(
+        root,
+        () -> {
+          for (boolean wholeGame : new boolean[] {false, true}) {
+            String command =
+                KataGoRuntimeHelper.optimizeAnalysisEngineCommand(
+                    "katago analysis -model model.bin.gz -config \"" + config + "\"",
+                    wholeGame ? 500 : 32,
+                    false,
+                    wholeGame);
+            Map<String, String> overrides =
+                KataGoCommandSpec.parse(Utils.splitCommand(command)).effectiveOverrides();
+            assertEquals("", overrides.get("numSearchThreads"));
+            assertTrue(Integer.parseInt(overrides.get("numSearchThreadsPerAnalysisThread")) > 0);
+            assertEquals(original, Files.readString(config));
+          }
+        });
+  }
+
+  @Test
+  void explicitlyChosenGtpThreadOverrideIsNotReplacedByAnalysisAlias() throws Exception {
+    Path root = Files.createTempDirectory("katago-analysis-explicit-thread-alias");
+    withConfig(
+        root,
+        () -> {
+          String command =
+              KataGoRuntimeHelper.optimizeAnalysisEngineCommand(
+                  "katago analysis -model model.bin.gz -config analysis.cfg "
+                      + "-override-config numSearchThreads=7,numAnalysisThreads=3",
+                  500,
+                  false,
+                  true);
+          Map<String, String> overrides =
+              KataGoCommandSpec.parse(Utils.splitCommand(command)).effectiveOverrides();
+          assertEquals("7", overrides.get("numSearchThreads"));
+          assertEquals("3", overrides.get("numAnalysisThreads"));
+          assertFalse(overrides.containsKey("numSearchThreadsPerAnalysisThread"));
         });
   }
 
