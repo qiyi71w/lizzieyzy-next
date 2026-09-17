@@ -126,6 +126,23 @@ gates and exact Windows/Linux CI passed. The new `next-2026-09-18.1` candidate m
 rebuild all application packages and repeat final signed-package acceptance;
 previous candidate tests or class overlays cannot substitute for that acceptance.
 
+The final signed `next-2026-09-18.1` Apple Silicon package passed digest, signing,
+Gatekeeper, notarization, stapling, native launch/analysis/exit and focus checks.
+Its unmodified JAR and engine passed automatic analysis, whole-game analysis and
+HumanSL. Linux and both macOS builds passed. Windows build, package/dependency
+audits, application smoke and MSI upgrade tests also passed, but its upload
+failed with repeated HTTP 500/timeouts. This candidate remains unpublished.
+
+[PR #514](https://github.com/wimi321/lizzieyzy-next/pull/514) retains the tested
+Windows packages for one day and separates upload into an Ubuntu job. A retry
+rehashes the original build inventory and never replaces completed release
+assets. It also joins test terminal workers before disposing their global
+fixtures. All 62 local gates passed (4,147 JUnit tests, zero failures/errors,
+64 conditional skips); the 89-test synchronization class passed ten consecutive
+runs, and Windows/Linux CI plus native process and desktop smoke passed.
+The `next-2026-09-18.2` candidate must rebuild all application packages and repeat
+final signed-package checks before publishing. Stable assets remain unchanged.
+
 The unpublished `.2` candidate exposed two application-packaging defects.
 [PR #497](https://github.com/wimi321/lizzieyzy-next/pull/497) restores the exact
 reviewed macOS engine files after jpackage's implicit ad-hoc signing, before
