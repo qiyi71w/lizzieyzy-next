@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [windows-cpu, windows-opencl, windows-directml]
+        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
@@ -51,13 +51,17 @@ jobs:
             }
           }
       - name: Build locked Windows SDK
-        if: matrix.target != 'windows-directml'
+        if: matrix.target == 'windows-cpu' || matrix.target == 'windows-opencl'
         shell: pwsh
         run: python scripts/build_katago_windows_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
       - name: Build locked DirectML SDK without changing runtime versions
         if: matrix.target == 'windows-directml'
         shell: pwsh
         run: python scripts/build_katago_directml_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+      - name: Build locked OpenVINO SDK without changing runtime versions
+        if: matrix.target == 'windows-openvino'
+        shell: pwsh
+        run: python scripts/build_katago_openvino_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
       - name: Compile exact upstream commit
         shell: pwsh
         run: >-
@@ -77,7 +81,7 @@ jobs:
           --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
           --evidence "$env:RUNNER_TEMP/focus-probe" --timeout 120
       - name: Execute ONNX unit tests and real CPU inference
-        if: matrix.target == 'windows-directml'
+        if: matrix.target == 'windows-directml' || matrix.target == 'windows-openvino'
         shell: pwsh
         run: |
           $engine = "$env:RUNNER_TEMP/katago-package/katago.exe"
