@@ -18,11 +18,11 @@ jobs:
   source-build:
     name: Source Windows (${{ matrix.target }})
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        target: [windows-cpu, windows-opencl]
+        target: [windows-cpu, windows-opencl, windows-directml]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
@@ -51,8 +51,13 @@ jobs:
             }
           }
       - name: Build locked Windows SDK
+        if: matrix.target != 'windows-directml'
         shell: pwsh
         run: python scripts/build_katago_windows_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+      - name: Build locked DirectML SDK without changing runtime versions
+        if: matrix.target == 'windows-directml'
+        shell: pwsh
+        run: python scripts/build_katago_directml_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
       - name: Compile exact upstream commit
         shell: pwsh
         run: >-
@@ -71,6 +76,21 @@ jobs:
           python scripts/probe_katago_focus.py --engine "$env:RUNNER_TEMP/katago-package/katago.exe"
           --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
           --evidence "$env:RUNNER_TEMP/focus-probe" --timeout 120
+      - name: Execute ONNX unit tests and real CPU inference
+        if: matrix.target == 'windows-directml'
+        shell: pwsh
+        run: |
+          $engine = "$env:RUNNER_TEMP/katago-package/katago.exe"
+          Push-Location upstream-katago
+          try {
+            & $engine runtests
+            if ($LASTEXITCODE -ne 0) { throw 'KataGo unit tests failed' }
+            New-Item -ItemType Directory "$env:RUNNER_TEMP/onnx-tiny" | Out-Null
+            & $engine runtinynntests "$env:RUNNER_TEMP/onnx-tiny" 1.0
+            if ($LASTEXITCODE -ne 0) { throw 'ONNX CPU inference failed' }
+          } finally { Pop-Location }
+          python scripts/probe_katago_focus.py --engine $engine --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz --evidence "$env:RUNNER_TEMP/focus-probe" --timeout 120 --onnx-provider cpu
+          if ($LASTEXITCODE -ne 0) { throw 'ONNX CPU same-tree focus probe failed' }
       - name: Retain evidence, never publish a release
         if: always()
         uses: actions/upload-artifact@v4

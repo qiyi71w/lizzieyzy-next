@@ -3,6 +3,28 @@
 This tooling is a prerequisite for the move-focus pre-release, not permission to publish it.
 The production package builders and stable/R2 channels are unchanged until all release gates pass.
 
+## Windows DirectML evidence build
+
+The source matrix also builds `windows-directml` at the same pinned KataGo commit.
+It uses the common MSVC 14.44 SDK plus static protobuf 3.21.12. The additional
+lock is [katago_directml_dependencies.json](../scripts/katago_directml_dependencies.json).
+ONNX Runtime 1.24.4 and DirectML 1.15.4 come from Microsoft's NuGet packages;
+their DLLs must be byte-identical to those in the already-shipped official
+KataGo 1.18.1 DirectML asset. Only the existing MSVC redistributables are copied
+from that SHA-verified asset, never its old `katago.exe` or unrelated DLLs.
+
+The sealed SDK covers headers, import libraries, static libraries, notices and
+every runtime file. Packaging requires all eleven runtime DLLs, audits x64 PE
+imports (including delay imports), and runs the relocated engine with developer
+SDK paths removed. The example provider configuration remains `directml`.
+
+Windows CI runs upstream unit tests, tiny real ONNX inference, and the same-tree
+focus protocol using the explicitly recorded **CPU execution provider**. This
+is protocol/model execution evidence, **not DirectML GPU acceptance**. DirectML
+adapter selection, actual GPU throughput and Windows 10 hardware checks remain
+pending; this artifact-only workflow neither publishes a release nor upgrades
+the production package catalog.
+
 ## Source identity
 
 - Repository: <https://github.com/lightvector/KataGo>

@@ -13,6 +13,23 @@ from probe_katago_focus import GtpProbe, parse_analysis, probe, sha256
 
 
 class FocusProbeTest(unittest.TestCase):
+    def test_onnx_provider_cannot_inject_configuration_or_silently_use_another_backend(self):
+        with self.assertRaisesRegex(ValueError, "execution provider"):
+            probe(Path("unused"), Path("unused"), Path("unused"), onnx_provider="cpu\nrules=bad")
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            engine, model = path / "engine", path / "model"
+            engine.write_bytes(b"engine")
+            model.write_bytes(b"model")
+            from probe_katago_focus import SOURCE_COMMIT
+            with patch("probe_katago_focus.subprocess.run") as command:
+                command.return_value.stdout = f"Git revision: {SOURCE_COMMIT}\nUsing Eigen(CPU) backend\n"
+                with self.assertRaisesRegex(ValueError, "non-ONNX"):
+                    probe(engine, model, path / "evidence", onnx_provider="cpu")
+            result = json.loads((path / "evidence/result.json").read_text())
+            self.assertEqual("cpu", result["executionProvider"])
+            self.assertEqual("FAIL", result["status"])
+
     def fake_session(self, lines):
         session = object.__new__(GtpProbe)
         session.timeout = 0.01

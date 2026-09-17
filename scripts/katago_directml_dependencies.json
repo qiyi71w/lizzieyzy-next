@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "provider": "directml",
+  "dependencies": [
+    {
+      "name": "protobuf",
+      "version": "3.21.12",
+      "url": "https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protobuf-cpp-3.21.12.tar.gz",
+      "sha256": "4eab9b524aa5913c6fffb20b2a8abf5ef7f95a80bc0701f3a6dbb4c607f73460"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.24.4",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg",
+      "sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681"
+    },
+    {
+      "name": "directml",
+      "version": "1.15.4",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg",
+      "sha256": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9"
+    },
+    {
+      "name": "baseline-runtime",
+      "version": "v1.18.1",
+      "url": "https://github.com/lightvector/KataGo/releases/download/v1.18.1/katago-v1.18.1-onnx1.24.4-directml-windows-x64.zip",
+      "sha256": "cc5ab3923344a2c35b023307794850b5453f1f7ebbd80b7372bf4485d9ce37ee"
+    }
+  ],
+  "runtimeFiles": [
+    "onnxruntime.dll",
+    "onnxruntime_providers_shared.dll",
+    "DirectML.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll",
+    "msvcp140_codecvt_ids.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "vcruntime140_threads.dll"
+  ]
+}
