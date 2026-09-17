@@ -428,9 +428,12 @@ class EngineGtpLoggingTest {
   }
 
   private static void awaitLogs(LoggingRuntime runtime) throws Exception {
-    Method method = LoggingRuntime.class.getDeclaredMethod("awaitIdle");
+    Method method =
+        LoggingRuntime.class.getDeclaredMethod("awaitIdle", long.class, TimeUnit.class);
     method.setAccessible(true);
-    method.invoke(runtime);
+    assertTrue(
+        (Boolean) method.invoke(runtime, 10L, TimeUnit.SECONDS),
+        "All submitted log events must reach disk before asserting engine identities");
   }
 
   private static void setField(Object target, String name, Object value) throws Exception {
