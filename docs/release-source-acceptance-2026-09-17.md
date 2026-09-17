@@ -39,7 +39,34 @@ classifies this expected preemption without hiding genuine engine failures.
 The corrected native replay completed five positions at 500 visits, restored
 increasing foreground visits and verified the error dialog was absent. All 59
 local gates passed (4,134 JUnit tests, zero failures/errors, 64 conditional skips).
-The `.3` tag remains unchanged and unpublished; `.4` must rebuild final packages.
+The `.3` tag remains unchanged and unpublished.
+
+The signed `.4` package passed signature and native-launch checks, but native
+whole-game testing then exposed concurrent HTML comment mutation.
+[PR #502](https://github.com/wimi321/lizzieyzy-next/pull/502) serializes both comment
+display paths on the EDT. Two native whole-game repeats passed without an
+uncaught exception. [PR #503](https://github.com/wimi321/lizzieyzy-next/pull/503)
+removes the conflicting GTP thread alias from the transient HumanSL launch
+profile; the original file remains unchanged. The actual B11/HumanSL process
+completed its turn and restored the primary engine.
+
+[PR #504](https://github.com/wimi321/lizzieyzy-next/pull/504) prevents delayed
+startup tuning from stealing compute after a game is loaded or a foreground
+task starts. Native five-second automatic analysis, five-position whole-game
+analysis at 500 visits and HumanSL all passed against the signed package with
+the reviewed class overlay. All 59 final local gates passed: 4,138 JUnit tests,
+zero failures/errors, 64 conditional skips. An earlier stress run with concurrent
+Maven load hit the ten-second HumanSL deadline; serialized acceptance passed.
+
+All `.4` Windows application packages built, but their final audit still required
+the official binary's `z.dll`. The pinned project CUDA build statically links
+zlib and libzip and passed its actual PE dependency audit. The origin-aware check
+retains the official DLL requirement and checks the complete reviewed source
+inventory in both staging and the final application image. A shell fixture
+rejects missing official DLLs and failed source audits. No old DLL is added.
+
+The `.4` tag remains unchanged and unpublished. `.5` must rebuild and verify all
+final signed packages; class-overlay tests do not certify those final packages.
 
 The unpublished `.2` candidate exposed two application-packaging defects.
 [PR #497](https://github.com/wimi321/lizzieyzy-next/pull/497) restores the exact
