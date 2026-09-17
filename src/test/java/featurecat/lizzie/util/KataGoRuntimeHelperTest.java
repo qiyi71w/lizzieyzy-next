@@ -2514,6 +2514,33 @@ public class KataGoRuntimeHelperTest {
   }
 
   @Test
+  void startupBenchmarkPreemptionSurvivesProcessErrorWrapping() {
+    IOException preempted = KataGoRuntimeHelper.benchmarkIsolationLostException();
+    assertTrue(KataGoRuntimeHelper.isBenchmarkPreempted(preempted));
+    assertTrue(KataGoRuntimeHelper.isBenchmarkPreempted(new IOException("launch", preempted)));
+    assertTrue(KataGoRuntimeHelper.isBenchmarkPreempted(
+        new IOException("outer", new IOException("inner", preempted))));
+  }
+
+  @Test
+  void startupBenchmarkStillReportsRealFailuresAndDoesNotMatchErrorText() {
+    assertFalse(KataGoRuntimeHelper.isBenchmarkPreempted(null));
+    assertFalse(KataGoRuntimeHelper.isBenchmarkPreempted(new IOException("Missing runtime")));
+    assertFalse(KataGoRuntimeHelper.isBenchmarkPreempted(
+        new IOException(KataGoRuntimeHelper.benchmarkIsolationLostException().getMessage())));
+    assertFalse(KataGoRuntimeHelper.isBenchmarkPreempted(
+        new IOException("launch", new IOException("exit 1"))));
+  }
+
+  @Test
+  void startupBenchmarkFailureClassificationHandlesCyclicCauses() {
+    IOException first = new IOException("first");
+    IOException second = new IOException("second", first);
+    first.initCause(second);
+    assertFalse(KataGoRuntimeHelper.isBenchmarkPreempted(first));
+  }
+
+  @Test
   void automaticStartupBenchmarkOnlyAcceptsLocalEngineCommands() {
     assertTrue(
         KataGoRuntimeHelper.isEngineEligibleForAutomaticStartupBenchmark(
