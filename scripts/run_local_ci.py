@@ -147,6 +147,8 @@ PY_COMPILE_FILES = (
     "scripts/test_validate_release_notes.py",
     "scripts/test_validate_windows_release_assets.py",
     "scripts/test_validate_release_workflow_identity.py",
+    "scripts/upload_release_assets.py",
+    "scripts/test_upload_release_assets.py",
     "scripts/test_windows_launcher_packaging.py",
     "scripts/test_windows_ci_diagnostics.py",
     "scripts/validate_release_notes.py",
@@ -195,6 +197,7 @@ UNITTEST_MODULES = (
     "scripts.test_r2_release",
     "scripts.test_validate_windows_release_assets",
     "scripts.test_validate_release_workflow_identity",
+    "scripts.test_upload_release_assets",
 )
 
 BASH_SYNTAX_FILES = (
