@@ -16,6 +16,7 @@ from build_katago_source import SOURCE_COMMIT, file_record
 from build_katago_windows_dependencies import LOCK_PATH, TARGETS, verify_sdk
 from build_katago_macos_dependencies import digest
 import build_katago_directml_dependencies as directml
+import build_katago_openvino_dependencies as openvino
 
 SYSTEM_LIBRARIES = {"kernel32.dll", "advapi32.dll", "user32.dll", "gdi32.dll", "shell32.dll",
                     "ole32.dll", "oleaut32.dll", "ws2_32.dll", "bcrypt.dll", "crypt32.dll",
@@ -23,6 +24,7 @@ SYSTEM_LIBRARIES = {"kernel32.dll", "advapi32.dll", "user32.dll", "gdi32.dll", "
 
 
 DIRECTML_SYSTEM_LIBRARIES = {"setupapi.dll", "dbghelp.dll", "d3d12.dll", "dxgi.dll"}
+OPENVINO_SYSTEM_LIBRARIES = {"setupapi.dll", "dbghelp.dll", "dxgi.dll"}
 
 
 def inspect_pe(headers: str, dependencies: str, bundled: set[str] | None = None,
@@ -66,10 +68,10 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
     build, sdk, output = build.resolve(), sdk.resolve(), output.resolve()
     original = json.loads((build / "source-build.json").read_text(encoding="utf-8"))
     target = original.get("target")
-    is_directml = target == directml.TARGET
-    verified_sdk = directml.verify_sdk(sdk) if is_directml else verify_sdk(sdk)
-    lock = directml.LOCK_PATH if is_directml else LOCK_PATH
-    if (target not in TARGETS | {directml.TARGET} or original.get("sourceCommit") != SOURCE_COMMIT
+    onnx_tools = {directml.TARGET: directml, openvino.TARGET: openvino}.get(target)
+    verified_sdk = onnx_tools.verify_sdk(sdk) if onnx_tools else verify_sdk(sdk)
+    lock = onnx_tools.LOCK_PATH if onnx_tools else LOCK_PATH
+    if (target not in TARGETS | {directml.TARGET, openvino.TARGET} or original.get("sourceCommit") != SOURCE_COMMIT
             or original.get("origin") != "project-source-build" or original.get("buildStatus") != "PASS"
             or original.get("dependencyLockSha256") != digest(lock)
             or original.get("sdkReceipt") != file_record(sdk / "sdk-receipt.json", sdk)
@@ -85,8 +87,8 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
         if target == "windows-opencl":
             shutil.copy2(sdk / "bin/OpenCL.dll", output / "OpenCL.dll")
         bundled = {"OpenCL.dll"} if target == "windows-opencl" else set()
-        if is_directml:
-            bundled = set(directml.runtime_files())
+        if onnx_tools:
+            bundled = set(onnx_tools.runtime_files())
             for name in bundled:
                 shutil.copy2(sdk / "runtime" / name, output / name)
         audits = {}
@@ -96,7 +98,8 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
             headers, dependencies = [subprocess.check_output(["dumpbin", flag, str(binary)], text=True)
                                      for flag in ("/headers", "/dependents")]
             audit = inspect_pe(headers, dependencies, bundled,
-                               DIRECTML_SYSTEM_LIBRARIES if is_directml else set())
+                               {directml.TARGET: DIRECTML_SYSTEM_LIBRARIES,
+                                openvino.TARGET: OPENVINO_SYSTEM_LIBRARIES}.get(target, set()))
             if any(name.lower() == "opencl.dll" for name in audit["needed"]):
                 if not (output / "OpenCL.dll").is_file():
                     raise ValueError("OpenCL loader missing from portable bundle")
@@ -108,8 +111,9 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
                                 check=True, capture_output=True, text=True, timeout=30)
         if result.stdout != original["versionOutput"]:
             raise ValueError("Portable engine identity differs after packaging")
-        if is_directml:
-            (output / "provider.cfg").write_text("onnxProvider = directml\n", encoding="utf-8")
+        if onnx_tools:
+            (output / "provider.cfg").write_text(
+                f"onnxProvider = {verified_sdk['provider']}\n", encoding="utf-8")
         receipt.update(packagingStatus="PASS", dependencyAuditStatus="PASS", peAudit=audits,
                        executable=file_record(output / "katago.exe", output),
                        files=[file_record(path, output) for path in sorted(output.rglob("*")) if path.is_file()],

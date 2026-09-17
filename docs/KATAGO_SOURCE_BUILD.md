@@ -3,6 +3,29 @@
 This tooling is a prerequisite for the move-focus pre-release, not permission to publish it.
 The production package builders and stable/R2 channels are unchanged until all release gates pass.
 
+## Windows OpenVINO evidence build
+
+`windows-openvino` uses the same pinned KataGo source and MSVC/static protobuf
+toolchain, with [its own dependency lock](../scripts/katago_openvino_dependencies.json).
+It preserves the shipped OpenVINO 2026.2.1 runtime. Every OpenVINO and oneTBB DLL
+must match both Intel's SHA-verified toolkit and the current official KataGo
+1.18.1 bundle. ORT headers and notices use the exact upstream build revision
+`7e76a52398ebf966bcbe4a10e552f438059edfce`, not floating latest headers.
+
+The import library is generated only after verifying the actual ORT C exports.
+The artifact contains all thirty-one required runtime DLLs, including GPU/NPU
+plugins, along with ORT, OpenVINO and oneTBB notices. The old executable and
+unrelated OpenSSL/shared protobuf DLLs are not copied. The Intel GPU plugin's
+OpenCL loader comes from the pinned common SDK rather than an incidental driver
+installation on the build host. Dependency closure and
+relocated startup are audited just like the other Windows source targets.
+
+CI runs upstream unit tests and real inference/focus protocol using the explicit
+**ONNX CPU provider**. The packaged provider configuration remains `openvino`.
+Intel GPU/NPU device selection, drivers and performance remain **NOT_RUN**;
+CPU-provider CI evidence does not certify those devices. This is an artifact-only
+build and does not change production downloads or publish a release.
+
 ## Windows DirectML evidence build
 
 The source matrix also builds `windows-directml` at the same pinned KataGo commit.

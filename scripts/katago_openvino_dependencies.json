@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "provider": "openvino",
+  "onnxruntimeSourceCommit": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+  "dependencies": [
+    {
+      "name": "protobuf",
+      "version": "3.21.12",
+      "url": "https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protobuf-cpp-3.21.12.tar.gz",
+      "sha256": "4eab9b524aa5913c6fffb20b2a8abf5ef7f95a80bc0701f3a6dbb4c607f73460"
+    },
+    {
+      "name": "baseline-runtime",
+      "version": "v1.18.1",
+      "url": "https://github.com/lightvector/KataGo/releases/download/v1.18.1/katago-v1.18.1-onnx-openvino2026.2.1-windows-x64.zip",
+      "sha256": "3bde52d034e59949d8527cfafdff5a854425048faca0a448788766dfd79bd039"
+    },
+    {
+      "name": "openvino",
+      "version": "2026.2.1",
+      "url": "https://storage.openvinotoolkit.org/repositories/openvino/packages/2026.2.1/windows/openvino_toolkit_windows_2026.2.1.21919.ede283a88e3_x86_64.zip",
+      "sha256": "7de2d4992979e872077be559b72f1ca38f1bd3c4d1a1114b775ee43d61d2139c"
+    },
+    {
+      "name": "onnxruntime_c_api.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_c_api.h",
+      "sha256": "3696c76361f1c701cb59a4b9a01bea0d696e2f4cf70da58ffe92248dba993dd9"
+    },
+    {
+      "name": "onnxruntime_cxx_api.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_cxx_api.h",
+      "sha256": "8a573a4b3d0f44477359743b91d76b41911b759e5b03a77726cf1b7c5dd047ab"
+    },
+    {
+      "name": "onnxruntime_cxx_inline.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_cxx_inline.h",
+      "sha256": "97f960b1bc4a372918893ef4c77102dee725ccfce0d76607f4570b03e7e28325"
+    },
+    {
+      "name": "onnxruntime_float16.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_float16.h",
+      "sha256": "88b242845d25981633a0bbd1c148e273cf8bfb016ea3f57c4af41a06530f72b0"
+    },
+    {
+      "name": "onnxruntime_ep_c_api.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_ep_c_api.h",
+      "sha256": "4b1cf462bb8410336aa9e4062d2b5f8d0d2c9ebc8fb5c98eb1189b6056c882d9"
+    },
+    {
+      "name": "onnxruntime_error_code.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_error_code.h",
+      "sha256": "5ce3b054e798eced8d14f5b86e98692fd33470463f96194ce0700a2d53dd8721"
+    },
+    {
+      "name": "onnxruntime_run_options_config_keys.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_run_options_config_keys.h",
+      "sha256": "973037c14b0f1af0854ae25cd676776f79dbcfd2a6791f6ee17a5374c2a62550"
+    },
+    {
+      "name": "onnxruntime_session_options_config_keys.h",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/include/onnxruntime/core/session/onnxruntime_session_options_config_keys.h",
+      "sha256": "f3a80fcec7fa9e38de3191fc48714231892bc9c5dc8a06adecebf946a1937a29"
+    },
+    {
+      "name": "LICENSE",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/LICENSE",
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+    },
+    {
+      "name": "ThirdPartyNotices.txt",
+      "version": "7e76a52398ebf966bcbe4a10e552f438059edfce",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/7e76a52398ebf966bcbe4a10e552f438059edfce/ThirdPartyNotices.txt",
+      "sha256": "957a78a0842ee4f18408fe9065be3c06281eba6774fe1d2aed35de3138a67a00"
+    }
+  ],
+  "runtimeFiles": [
+    "OpenCL.dll",
+    "onnxruntime.dll",
+    "onnxruntime_providers_shared.dll",
+    "onnxruntime_providers_openvino.dll",
+    "openvino.dll",
+    "openvino_auto_batch_plugin.dll",
+    "openvino_auto_plugin.dll",
+    "openvino_c.dll",
+    "openvino_hetero_plugin.dll",
+    "openvino_intel_cpu_plugin.dll",
+    "openvino_intel_gpu_plugin.dll",
+    "openvino_intel_npu_compiler.dll",
+    "openvino_intel_npu_compiler_loader.dll",
+    "openvino_intel_npu_plugin.dll",
+    "openvino_ir_frontend.dll",
+    "openvino_onnx_frontend.dll",
+    "openvino_paddle_frontend.dll",
+    "openvino_pytorch_frontend.dll",
+    "openvino_tensorflow_frontend.dll",
+    "openvino_tensorflow_lite_frontend.dll",
+    "tbb12.dll",
+    "tbbbind_2_5.dll",
+    "tbbmalloc.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll",
+    "msvcp140_codecvt_ids.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "vcruntime140_threads.dll"
+  ]
+}
