@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import urllib.request
 import uuid
 import zipfile
@@ -23,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CATALOG = ROOT / "src" / "main" / "resources" / "katago-assets.json"
 ARCHIVE_RELEASE_BASE = "https://github.com/lightvector/KataGo/releases/download"
 SHA256_LENGTH = 64
+DOWNLOAD_TIMEOUT_SECONDS = 30
+DOWNLOAD_DEADLINE_SECONDS = 600
 
 
 class ProvisioningError(RuntimeError):
@@ -134,7 +137,7 @@ def open_url(url: str) -> BinaryIO:
     request = urllib.request.Request(
         url, headers={"User-Agent": "lizzieyzy-next-acceptance/1"}
     )
-    return urllib.request.urlopen(request)
+    return urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS)
 
 
 def download_verified(
@@ -148,8 +151,18 @@ def download_verified(
     part = destination.with_name(destination.name + ".part")
     part.unlink(missing_ok=True)
     try:
+        deadline = time.monotonic() + DOWNLOAD_DEADLINE_SECONDS
         with opener(url) as response, part.open("wb") as output:
-            shutil.copyfileobj(response, output, length=1024 * 1024)
+            read_chunk = getattr(response, "read1", response.read)
+            while True:
+                if time.monotonic() >= deadline:
+                    raise ProvisioningError(f"download deadline exceeded for {label}")
+                chunk = read_chunk(1024 * 1024)
+                if time.monotonic() >= deadline:
+                    raise ProvisioningError(f"download deadline exceeded for {label}")
+                if not chunk:
+                    break
+                output.write(chunk)
         verify_file(part, expected_size, expected_sha256, label)
         os.replace(part, destination)
     except ProvisioningError:

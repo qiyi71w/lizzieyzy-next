@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import hashlib
+import http.server
 import importlib.util
 import io
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import zipfile
 from pathlib import Path
@@ -158,6 +161,82 @@ class CpuAcceptanceProvisionerTest(unittest.TestCase):
         (cache / archive_name).write_bytes(b"x" * len(self.archive))
         with self.assertRaisesRegex(MODULE.ProvisioningError, "SHA-256 mismatch"):
             self.prepare(opener=mock.Mock(side_effect=OSError("offline")))
+
+    def test_stalled_and_slow_http_bodies_fail_without_publication(self) -> None:
+        stop = threading.Event()
+        requested = threading.Event()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                requested.set()
+                self.send_response(200)
+                self.send_header("Content-Length", "8192")
+                self.end_headers()
+                self.wfile.flush()
+                if self.path == "/stall":
+                    stop.wait(5)
+                else:
+                    while not stop.wait(0.02):
+                        try:
+                            self.wfile.write(b"x")
+                            self.wfile.flush()
+                        except OSError:
+                            break
+
+            def log_message(self, *_args: object) -> None:
+                pass
+
+        probe = """
+import json, sys
+from pathlib import Path
+from scripts import prepare_cpu_engine_acceptance as provisioner
+provisioner.DOWNLOAD_TIMEOUT_SECONDS = 0.2
+provisioner.DOWNLOAD_DEADLINE_SECONDS = 0.5
+try:
+    provisioner.prepare(Path(sys.argv[1]), catalog_path=Path(sys.argv[2]))
+except provisioner.ProvisioningError:
+    print(json.dumps({"failed": True}))
+else:
+    print(json.dumps({"failed": False}))
+"""
+        for mode in ("stall", "slow"):
+            with self.subTest(mode=mode):
+                stop.clear()
+                requested.clear()
+                server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                root = self.root / mode
+                self.catalog["models"]["fixture-model"]["downloadUrl"] = (
+                    f"http://127.0.0.1:{server.server_port}/{mode}"
+                )
+                self.catalog_path.write_text(json.dumps(self.catalog), encoding="utf-8")
+                cache = root / "cache"
+                cache.mkdir(parents=True)
+                (cache / self.catalog["assets"]["linux-cpu"]["assetName"]).write_bytes(
+                    self.archive
+                )
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-c", probe, str(root), str(self.catalog_path)],
+                        cwd=SCRIPT_DIR.parent,
+                        capture_output=True,
+                        text=True,
+                        timeout=4,
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertTrue(requested.is_set(), "download did not reach the HTTP peer")
+                    self.assertTrue(json.loads(result.stdout)["failed"])
+                    self.assertEqual({"cache"}, {entry.name for entry in root.iterdir()})
+                    self.assertEqual(
+                        {self.catalog["assets"]["linux-cpu"]["assetName"]},
+                        {entry.name for entry in cache.iterdir()},
+                    )
+                finally:
+                    stop.set()
+                    server.shutdown()
+                    server.server_close()
+                    thread.join()
 
     def test_path_traversal_archive_is_rejected_before_extraction(self) -> None:
         self.archive = archive_bytes(unsafe_name="../escaped")

@@ -49,7 +49,27 @@ python3 scripts/run_acceptance.py --scenario search --scenario settings
 python3 scripts/run_acceptance.py --scenario quick-analysis --engine /absolute/path/to/katago --model /absolute/path/to/model.bin.gz
 ```
 
-省略 `--scenario` 会运行全部场景，需要同时提供真实 Linux KataGo 与模型。`search` 复用中英文真实输入链；`settings` 点击生产设置保存按钮，再用新 JVM 读取同一隔离配置；`quick-analysis` 从已可用的前台引擎导入 SGF，验证自动快析完成、共享引擎交回后的 visits 增长，以及快析期间用户暂停的保持。它不覆盖启动期间导入竞态或 Windows 原生文件选择器。
+省略 `--scenario` 只运行默认的 `search`、`settings`、`quick-analysis`，需要同时提供真实 Linux KataGo 与模型。`search` 复用中英文真实输入链；`settings` 点击生产设置保存按钮，再用新 JVM 读取同一隔离配置；`quick-analysis` 从已可用的前台引擎导入 SGF，验证自动快析完成、共享引擎交回后的 visits 增长，以及快析期间用户暂停的保持。它不覆盖启动期间导入竞态或 Windows 原生文件选择器。
+
+以下两个场景必须显式选择，不随默认场景运行：
+
+```bash
+python3 scripts/run_acceptance.py --scenario sgf-ui
+python3 scripts/prepare_cpu_engine_acceptance.py --root target/acceptance/cpu-assets
+python3 scripts/run_acceptance.py --scenario real-cpu-engine \
+  --engine /absolute/path/from/manifest/to/katago \
+  --model /absolute/path/from/manifest/to/model.bin.gz \
+  --engine-config /absolute/path/from/manifest/to/default_gtp.cfg \
+  --engine-manifest target/acceptance/cpu-assets/manifest.json
+```
+
+`sgf-ui` 用真实菜单、Swing 文件选择器和键盘操作完成打开、分支导航、受控 Java GTP 分析、另存为、取消覆盖、退出及新进程重开。它校验整棵 SGF 树的语义保留；重开定位遵循 `loadSgfLast` 的主分支语义，不要求保留保存前选中的旁支。
+
+CPU 准备器按 `src/main/resources/katago-assets.json` 校验 Linux Eigen 引擎归档和模型，提取归档内的配置，并输出包含实际路径及哈希的 `manifest.json`。上例三个资源路径必须取自该 manifest；已有 manifest 的输出根目录会被拒绝。准备阶段可能联网，运行阶段不下载资源。`real-cpu-engine` 通过生产引擎管理器启动真实 KataGo，验证规则和快照盘面、当前节点正访问量、停止静默窗口以及进程／reader／临时 SGF 清理。
+
+每个资源下载的 socket 等待上限为 30 秒，传输预算为 600 秒；在每次读取前后检查预算，已开始的单次读取最多再等待一个 socket 时限。停滞或超预算会失败并移除 `.part`，不会发布该资源或 manifest；已有校验通过的缓存仍可复用。
+
+离线验收需要将整个 runner、应用和引擎进程树置于已验证的断网环境，使用相同资源和新的 `--output` 目录再执行一次；普通运行成功本身不证明离线可用。Linux/Xvfb 结果不代表 Windows/macOS 原生文件选择器或最终发布包验收。
 
 每次运行创建新的 `target/acceptance/run-*`，保留 `acceptance.json`、Maven/JUnit 日志、子 JVM 配置、阶段记录和窗口截图。`--output` 可指定不存在的证据目录；`--timeout` 限制整体耗时。缺少引擎资源为 BLOCKED，缺少或跳过必跑用例不会成为 PASS。摘要记录源码 SHA 和工作树状态；未提交源码的本地结果不是已提交 Windows 候选的验收证明。
 
