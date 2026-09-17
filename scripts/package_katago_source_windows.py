@@ -18,6 +18,7 @@ from build_katago_macos_dependencies import digest
 import build_katago_directml_dependencies as directml
 import build_katago_openvino_dependencies as openvino
 import build_katago_cuda_dependencies as cuda
+import build_katago_tensorrt_dependencies as tensorrt
 
 SYSTEM_LIBRARIES = {"kernel32.dll", "advapi32.dll", "user32.dll", "gdi32.dll", "shell32.dll",
                     "ole32.dll", "oleaut32.dll", "ws2_32.dll", "bcrypt.dll", "crypt32.dll",
@@ -71,10 +72,10 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
     original = json.loads((build / "source-build.json").read_text(encoding="utf-8"))
     target = original.get("target")
     onnx_tools = {directml.TARGET: directml, openvino.TARGET: openvino}.get(target)
-    provider_tools = cuda if target == cuda.TARGET else onnx_tools
+    provider_tools = {cuda.TARGET: cuda, tensorrt.TARGET: tensorrt}.get(target, onnx_tools)
     verified_sdk = provider_tools.verify_sdk(sdk) if provider_tools else verify_sdk(sdk)
     lock = provider_tools.LOCK_PATH if provider_tools else LOCK_PATH
-    if (target not in TARGETS | {directml.TARGET, openvino.TARGET, cuda.TARGET} or original.get("sourceCommit") != SOURCE_COMMIT
+    if (target not in TARGETS | {directml.TARGET, openvino.TARGET, cuda.TARGET, tensorrt.TARGET} or original.get("sourceCommit") != SOURCE_COMMIT
             or original.get("origin") != "project-source-build" or original.get("buildStatus") != "PASS"
             or original.get("dependencyLockSha256") != digest(lock)
             or original.get("sdkReceipt") != file_record(sdk / "sdk-receipt.json", sdk)
@@ -103,7 +104,8 @@ def package(build: Path, sdk: Path, output: Path) -> dict:
             audit = inspect_pe(headers, dependencies, bundled,
                                {directml.TARGET: DIRECTML_SYSTEM_LIBRARIES,
                                 openvino.TARGET: OPENVINO_SYSTEM_LIBRARIES,
-                                cuda.TARGET: CUDA_SYSTEM_LIBRARIES}.get(target, set()))
+                                cuda.TARGET: CUDA_SYSTEM_LIBRARIES,
+                                tensorrt.TARGET: CUDA_SYSTEM_LIBRARIES}.get(target, set()))
             if any(name.lower() == "opencl.dll" for name in audit["needed"]):
                 if not (output / "OpenCL.dll").is_file():
                     raise ValueError("OpenCL loader missing from portable bundle")

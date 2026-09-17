@@ -148,7 +148,7 @@ application packages remain separate release gates.
 
 ## Linux CPU and OpenCL evidence builds
 
-`katago-source-linux.yml` builds two native x86_64 evidence targets on Ubuntu 22.04.
+`katago-source-linux.yml` builds three native x86_64 evidence targets on Ubuntu 22.04.
 It pins and verifies Eigen 3.4.0, zlib 1.3.1, libzip 1.11.4 and the Khronos
 2024.10.24 OpenCL headers/ICD loader. The loader is not a GPU driver; no vendor
 driver or CUDA runtime is installed or changed. OpenCL GPU execution remains unverified.
@@ -180,6 +180,32 @@ minimum requirements of any released package.
 The CPU job must run ordinary/single/multiple/remove/clear focus with the pinned
 upstream b6 test model. It preserves raw GTP evidence and fails on timeout, rejection
 or tree reset. A green compile-only job is not CPU acceptance.
+
+### Linux CUDA evidence
+
+The `linux-nvidia` target separately locks CUDA 12.1.1 (NVCC 12.1.105) and cuDNN
+9.8.0.87 in `scripts/katago_linux_cuda_dependencies.json`. NVIDIA's seven archives
+are checked for both byte size and SHA-256 before installation into an isolated SDK.
+The existing CUDA 12.1 architecture range is unchanged; no driver is installed.
+
+```sh
+python3 scripts/build_katago_linux_cuda_dependencies.py --output /path/to/new/cuda-sdk
+python3 scripts/build_katago_source.py \
+  --source /path/to/clean/KataGo --output /path/to/new/cuda-build \
+  --target linux-nvidia --linux-sdk /path/to/new/cuda-sdk/prefix
+python3 scripts/package_katago_source_linux_cuda.py \
+  --build /path/to/new/cuda-build --sdk /path/to/new/cuda-sdk/prefix \
+  --output /path/to/new/cuda-package
+```
+
+Like the existing official Linux CUDA AppImage, this evidence package requires external
+CUDA/cuDNN libraries. It does not silently add vendor runtime gigabytes to user packages.
+The receipt records their hashes, ELF dependencies and the real relocated engine's
+`version` output using the locked external SDK. It rejects build-host RPATHs, missing
+runtime components, and requirements above GLIBC 2.34 / GLIBCXX 3.4.30 / CXXABI 1.3.13,
+the ceilings observed in the previous official CUDA payload. This is not GPU inference
+or final distribution certification: both hardware and production ABI acceptance remain
+`NOT_RUN`, and the final release gate still refuses incomplete acceptance.
 
 ## Real protocol acceptance
 
@@ -225,8 +251,8 @@ python scripts/package_katago_source_windows.py --build C:/build/katago `
 Run these commands from the selected x64 developer environment; an unverified SDK, wrong compiler
 toolset, stale output, missing DLL, or failed engine process is a hard failure, not a fallback to
 an older KataGo executable. DirectML and OpenVINO use the separately locked SDK extensions
-described above, as does Windows CUDA. TensorRT and ROCm builds are not yet implemented
-by this workflow; Linux CUDA remains a separate pending target.
+described above, as do Windows CUDA and TensorRT. Linux CUDA has a separate sealed SDK
+and external-runtime audit. The four ROCm builds remain pending integration.
 
 | Platform | Backends |
 | --- | --- |
@@ -242,7 +268,32 @@ missing GPU. Receipts must identify the correct backend and executable size/dige
 completeness check does not replace checking the final package bytes,
 signed macOS bundles or public download hashes.
 
+## Windows TensorRT source evidence
+
+`windows-tensorrt` uses the same sealed Windows CUDA 12.8/cuDNN 9.8 SDK plus the existing
+TensorRT 10.9.0.34 redistribution. `scripts/katago_tensorrt_dependencies.json` locks the
+official archive's size, SHA-256 and seven runtime DLLs. Headers, import libraries,
+acknowledgements and the parser runtime are retained; unlisted DLLs fail the build.
+The same lock pins Protobuf 3.21.12 source for the upstream ONNX emitter. It is compiled
+statically with the matching MSVC runtime, so no new protobuf DLL is needed and no
+symbols are exchanged with the private protobuf inside NVIDIA's parser.
+
+```powershell
+python scripts/build_katago_tensorrt_dependencies.py --output "$env:TEMP/katago-trt-sdk"
+python scripts/build_katago_source.py --source upstream-katago --output "$env:TEMP/katago-trt-build" --target windows-tensorrt --windows-sdk "$env:TEMP/katago-trt-sdk/prefix"
+python scripts/package_katago_source_windows.py --build "$env:TEMP/katago-trt-build" --sdk "$env:TEMP/katago-trt-sdk/prefix" --output "$env:TEMP/katago-trt-package"
+```
+
+The normal x64 MSVC 14.44 environment is required. Packaging verifies every PE import,
+runtime closure and the relocated executable with a system-only PATH. The source SHA
+and compiler are recorded without claiming a new official KataGo release. A CPU-hosted
+`version` check is not TensorRT inference or hardware acceptance: those remain `NOT_RUN`.
+This workflow neither uploads release assets nor updates stable downloads.
+
 ## Integration gates still required
+
+Linux CUDA packages also carry the hash-locked SDK's `libz.so.1`, required dynamically by
+cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the build host.
 
 - Lock and fetch build SDKs and dependency archives by version and digest without changing the
   existing CUDA/cuDNN, TensorRT, ROCm and ONNX execution-provider runtime choices.

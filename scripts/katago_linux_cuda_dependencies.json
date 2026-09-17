@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "buildHost": "ubuntu-22.04-x86_64",
+  "cudaVersion": "12.1.1",
+  "nvccVersion": "12.1.105",
+  "cudnnVersion": "9.8.0.87",
+  "runtimeMode": "external",
+  "dependencies": [
+    {
+      "name": "cuda-nvcc", "version": "12.1.105", "destination": "cuda",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvcc/linux-x86_64/cuda_nvcc-linux-x86_64-12.1.105-archive.tar.xz",
+      "sizeBytes": 44459684,
+      "sha256": "0b85f7eee17788abbd170b0b493c74ce2e9fd5a9604461b99c2c378165e1083b"
+    },
+    {
+      "name": "cuda-cccl", "version": "12.1.109", "destination": "cuda",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cccl/linux-x86_64/cuda_cccl-linux-x86_64-12.1.109-archive.tar.xz",
+      "sizeBytes": 1024940,
+      "sha256": "b84ef3ec3dc1b4891267be25846f0c3ed7f9fa84154d59eba805402b86991baa"
+    },
+    {
+      "name": "cuda-cudart", "version": "12.1.105", "destination": "cuda",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/linux-x86_64/cuda_cudart-linux-x86_64-12.1.105-archive.tar.xz",
+      "sizeBytes": 984372,
+      "sha256": "6096ec878c8c443258d39c6e9cf2decef127f8aa8da594fdc5a336d047ab6bd9"
+    },
+    {
+      "name": "cuda-nvrtc", "version": "12.1.105", "destination": "cuda",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvrtc/linux-x86_64/cuda_nvrtc-linux-x86_64-12.1.105-archive.tar.xz",
+      "sizeBytes": 30298852,
+      "sha256": "bb15706aca6760770f0bfb814517f875ab0cfd479bc6b1d5dd7792c5ded8317b"
+    },
+    {
+      "name": "libcublas", "version": "12.1.3.1", "destination": "cuda",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/linux-x86_64/libcublas-linux-x86_64-12.1.3.1-archive.tar.xz",
+      "sizeBytes": 486381128,
+      "sha256": "90044d7ad8c44f33cb670c1fe6f2c22246db6c22c2db22c7a172bb61cccb438c"
+    },
+    {
+      "name": "libnvjitlink", "version": "12.1.105", "destination": "cuda",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/libnvjitlink/linux-x86_64/libnvjitlink-linux-x86_64-12.1.105-archive.tar.xz",
+      "sizeBytes": 25844852,
+      "sha256": "21ee6206cf9509e1c1c31be918b1971da8eb1e7c5492804ecd6750105c7db6b4"
+    },
+    {
+      "name": "cudnn", "version": "9.8.0.87", "destination": "cudnn",
+      "url": "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-9.8.0.87_cuda12-archive.tar.xz",
+      "sizeBytes": 923946888,
+      "sha256": "321b9b33bb1287404d93d5672d352f16feabc4b220ac6ae0b86e4b27f257dcf4"
+    }
+  ]
+}

@@ -20,6 +20,8 @@ import build_katago_windows_dependencies as windows_sdk_tools
 import build_katago_directml_dependencies as directml_sdk_tools
 import build_katago_openvino_dependencies as openvino_sdk_tools
 import build_katago_cuda_dependencies as cuda_sdk_tools
+import build_katago_tensorrt_dependencies as tensorrt_sdk_tools
+import build_katago_linux_cuda_dependencies as linux_cuda_sdk_tools
 
 
 TARGETS = {
@@ -162,21 +164,25 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
         build_env = sdk_environment(macos_sdk.resolve())
     elif macos_sdk is not None:
         raise ValueError("--macos-sdk is only valid for macOS targets")
-    if target in linux_sdk_tools.TARGETS:
+    if target in linux_sdk_tools.TARGETS or target == linux_cuda_sdk_tools.TARGET:
         if linux_sdk is None:
-            raise ValueError("Linux CPU/OpenCL builds require --linux-sdk with verified pinned dependencies")
+            raise ValueError("Linux builds require --linux-sdk with verified pinned dependencies")
         if sdk:
             raise ValueError("Linux SDK settings cannot override pinned dependencies")
-        sdk_receipt = linux_sdk_tools.verify_sdk(linux_sdk)
+        linux_tools = linux_cuda_sdk_tools if target == linux_cuda_sdk_tools.TARGET else linux_sdk_tools
+        sdk_receipt = linux_tools.verify_sdk(linux_sdk)
         sdk_prefix = linux_sdk
-        options.extend(linux_sdk_tools.engine_options(linux_sdk, target))
-        build_env = linux_sdk_tools.environment(linux_sdk.resolve())
-        build_env["LD_LIBRARY_PATH"] = str(linux_sdk.resolve() / "lib")
+        options.extend(linux_cuda_sdk_tools.engine_options(linux_sdk) if target == linux_cuda_sdk_tools.TARGET
+                       else linux_sdk_tools.engine_options(linux_sdk, target))
+        build_env = linux_tools.environment(linux_sdk.resolve())
+        if target in linux_sdk_tools.TARGETS:
+            build_env["LD_LIBRARY_PATH"] = str(linux_sdk.resolve() / "lib")
     elif linux_sdk is not None:
-        raise ValueError("--linux-sdk is only valid for Linux CPU/OpenCL targets")
+        raise ValueError("--linux-sdk is only valid for Linux targets")
     provider_tools = {directml_sdk_tools.TARGET: directml_sdk_tools,
                       openvino_sdk_tools.TARGET: openvino_sdk_tools,
-                      cuda_sdk_tools.TARGET: cuda_sdk_tools}.get(target)
+                      cuda_sdk_tools.TARGET: cuda_sdk_tools,
+                      tensorrt_sdk_tools.TARGET: tensorrt_sdk_tools}.get(target)
     if target in windows_sdk_tools.TARGETS or provider_tools is not None:
         if windows_sdk is None:
             raise ValueError("Windows builds require --windows-sdk with verified pinned dependencies")
@@ -188,8 +194,8 @@ def build(source: Path, output: Path, target: str, sdk: list[str], jobs: int,
         options.extend(provider_tools.engine_options(windows_sdk) if provider_tools is not None
                        else windows_sdk_tools.engine_options(windows_sdk, target))
         build_env = windows_sdk_tools.environment(windows_sdk.resolve())
-        if provider_tools is cuda_sdk_tools:
-            build_env = cuda_sdk_tools.environment(windows_sdk.resolve())
+        if provider_tools in (cuda_sdk_tools, tensorrt_sdk_tools):
+            build_env = provider_tools.environment(windows_sdk.resolve())
         elif provider_tools is not None:
             build_env["PATH"] = str(windows_sdk.resolve() / "runtime") + os.pathsep + build_env["PATH"]
     elif windows_sdk is not None:
