@@ -88,8 +88,23 @@ seconds; time-limited responses retained their actual 10-24 root visits rather
 than claiming 64. This is functional smoke evidence, not a playing-strength
 benchmark.
 
-The `.5` tag remains unchanged and unpublished. `.6` must rebuild and verify all
-final signed packages; class-overlay tests do not certify those final packages.
+The `.5` tag remains unchanged and unpublished. Its complete Windows build,
+all package audits, app-image smoke tests and MSI upgrade/configuration repair
+passed in [run 35227799699](https://github.com/wimi321/lizzieyzy-next/actions/runs/35227799699).
+This verifies the packaging repair, not the HumanSL application fix.
+
+Further upstream source review found that root visits omit HumanSL weightless
+playouts, so a root count below the request limit cannot prove time exhaustion.
+The private `.6` pipeline was cancelled. [PR #508](https://github.com/wimi321/lizzieyzy-next/pull/508)
+removes that inference, estimates affordable deeper work from elapsed time and
+the prior request limit, and retains the previous response if a later bounded
+search has fewer searched child visits. Child visits include weightless work.
+Two regressions failed before the fix; the targeted suite passed 42 tests,
+including accepting more child evidence despite fewer root visits. The move
+clock, quality filters and candidate legality are unchanged.
+
+The `.6` tag also remains unchanged and unpublished. `.7` must rebuild and verify
+all final packages; class-overlay tests do not certify final signed packages.
 
 The unpublished `.2` candidate exposed two application-packaging defects.
 [PR #497](https://github.com/wimi321/lizzieyzy-next/pull/497) restores the exact
