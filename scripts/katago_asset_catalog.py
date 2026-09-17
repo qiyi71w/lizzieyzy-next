@@ -12,6 +12,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CATALOG = ROOT / "src" / "main" / "resources" / "katago-assets.json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+SOURCE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+PROJECT_REPOSITORY = "wimi321/lizzieyzy-next"
 
 
 def load_catalog(path: Path) -> dict[str, Any]:
@@ -28,6 +30,7 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
     release_tag = require_text(catalog, "katagoReleaseTag")
     if release_tag != f"v{version}":
         raise ValueError("katagoReleaseTag must match katagoVersion")
+    engine_release_base(catalog)
     models = catalog.get("models")
     assets = catalog.get("assets")
     if not isinstance(models, dict) or not models:
@@ -52,7 +55,13 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
     for asset_id, asset in assets.items():
         validate_entry(asset, f"asset {asset_id}")
         name = require_text(asset, "assetName")
-        if f"-{release_tag}-" not in name:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*\.zip", name):
+            raise ValueError(f"asset {asset_id} has unsafe assetName")
+        if catalog.get("origin", "official-release") == "project-source-build":
+            expected = f"katago-source-{catalog['katagoSourceCommit'][:12]}-{asset_id}.zip"
+            if name != expected:
+                raise ValueError(f"asset {asset_id} must identify the pinned source and target")
+        elif f"-{release_tag}-" not in name:
             raise ValueError(f"asset {asset_id} does not use {release_tag}: {name}")
         executable_sha = asset.get("executableSha256", "")
         if executable_sha and not SHA256_RE.fullmatch(executable_sha):
@@ -62,6 +71,28 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
         raise ValueError("asset windows-nvidia requires executableSha256")
     if "windows-tensorrt" not in assets:
         raise ValueError("asset windows-tensorrt is required")
+
+
+def engine_release_base(catalog: dict[str, Any]) -> str:
+    origin = catalog.get("origin", "official-release")
+    if origin == "official-release":
+        if "engineReleaseRepository" in catalog or "engineReleaseTag" in catalog:
+            raise ValueError("official assets cannot override the download repository")
+        return f"https://github.com/lightvector/KataGo/releases/download/{catalog['katagoReleaseTag']}"
+    if origin != "project-source-build":
+        raise ValueError("unrecognized KataGo asset origin")
+    if catalog.get("engineReleaseRepository") != PROJECT_REPOSITORY:
+        raise ValueError("source engines must use the project release repository")
+    if not SOURCE_COMMIT_RE.fullmatch(str(catalog.get("katagoSourceCommit", ""))):
+        raise ValueError("source engines require a full source commit")
+    tag = require_text(catalog, "engineReleaseTag")
+    if not re.fullmatch(r"next-\d{4}-\d{2}-\d{2}\.[1-9][0-9]*", tag):
+        raise ValueError("source engines require an immutable project release tag")
+    return f"https://github.com/{PROJECT_REPOSITORY}/releases/download/{tag}"
+
+
+def asset_download_url(catalog: dict[str, Any], asset_id: str) -> str:
+    return engine_release_base(catalog) + "/" + catalog["assets"][asset_id]["assetName"]
 
 
 def validate_entry(entry: Any, label: str) -> None:
@@ -107,11 +138,18 @@ def main() -> int:
     get_parser.add_argument("path")
     model_url_parser = subparsers.add_parser("model-url")
     model_url_parser.add_argument("model_id")
+    subparsers.add_parser("engine-release-base")
+    asset_url_parser = subparsers.add_parser("asset-url")
+    asset_url_parser.add_argument("asset_id")
     args = parser.parse_args()
 
     catalog = load_catalog(args.catalog)
     if args.command == "model-url":
         print(model_download_url(catalog, args.model_id))
+    if args.command == "asset-url":
+        print(asset_download_url(catalog, args.asset_id))
+    if args.command == "engine-release-base":
+        print(engine_release_base(catalog))
     if args.command == "get":
         value = resolve(catalog, args.path)
         if isinstance(value, (dict, list)):

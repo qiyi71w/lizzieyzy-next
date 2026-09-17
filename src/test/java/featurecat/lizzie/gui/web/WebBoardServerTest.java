@@ -46,6 +46,9 @@ public class WebBoardServerTest {
   void tearDown() throws Exception {
     try {
       ownedClients.forEach(TestClient::close);
+      // Stop the owned server before awaiting clients, so a pending close handshake
+      // cannot outlive the fixture and depend on the library's heartbeat timeout.
+      if (server != null) server.stop(1000);
       for (TestClient client : ownedClients) {
         assertTrue(client.closed.await(3, TimeUnit.SECONDS), "owned client did not close");
       }
@@ -72,7 +75,6 @@ public class WebBoardServerTest {
     rejected.connectBlocking(2, TimeUnit.SECONDS);
     assertTrue(closeLatch.await(3, TimeUnit.SECONDS), "3rd connection should be closed");
 
-    clients.forEach(TestClient::close);
   }
 
   @Test
@@ -93,7 +95,6 @@ public class WebBoardServerTest {
     assertTrue(c.connectBlocking(2, TimeUnit.SECONDS));
     assertTrue(msgLatch.await(3, TimeUnit.SECONDS));
     assertTrue(received.get().contains("full_state"));
-    c.close();
   }
 
   @RepeatedTest(10)
@@ -128,7 +129,6 @@ public class WebBoardServerTest {
       assertTrue(ref.get().contains("test"));
     }
 
-    clients.forEach(TestClient::close);
   }
 
   @Test
