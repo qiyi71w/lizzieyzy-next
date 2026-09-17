@@ -45,6 +45,9 @@ def environment(prefix: Path) -> dict[str, str]:
     hip = prefix.resolve() / "rocm"
     env["HIP_PATH"] = hip.as_posix()
     env["ROCM_PATH"] = hip.as_posix()
+    env["HIP_PLATFORM"] = "amd"
+    env["HIP_DEVICE_LIB_PATH"] = (hip / "lib/llvm/amdgcn/bitcode").as_posix()
+    env["LLVM_PATH"] = (hip / "lib/llvm").as_posix()
     env["PATH"] = os.pathsep.join((str(prefix / "runtime"), str(hip / "bin"),
                                  str(hip / "lib/llvm/bin"), env.get("PATH", "")))
     return env
@@ -166,7 +169,8 @@ def build_sdk(output: Path, target: str, jobs: int) -> Path:
             shutil.move(hip, prefix / "rocm")
             hip = prefix / "rocm"
             for name in ("lib/llvm/bin/clang++.exe", "lib/llvm/bin/clang.exe", "lib/MIOpen.lib",
-                         "lib/hipblas.lib", "include/hip/hip_runtime.h"):
+                         "lib/hipblas.lib", "include/hip/hip_runtime.h",
+                         "lib/llvm/amdgcn/bitcode/hip.bc", "lib/llvm/amdgcn/bitcode/ockl.bc"):
                 if not (hip / name).is_file():
                     raise ValueError(f"ROCm SDK component missing: {name}")
             for path in hip.rglob("*"):

@@ -58,10 +58,14 @@ class RocmSourceTest(unittest.TestCase):
 
     def test_environment_does_not_reuse_unrelated_hip_path(self):
         prefix = Path("sdk path").resolve()
-        with patch.dict(rocm.os.environ, {"HIP_PATH": "old", "ROCM_PATH": "old", "CXXFLAGS": "unsafe"}):
+        with patch.dict(rocm.os.environ, {"HIP_PATH": "old", "ROCM_PATH": "old", "CXXFLAGS": "unsafe",
+                                         "HIP_DEVICE_LIB_PATH": "old", "LLVM_PATH": "old", "HIP_PLATFORM": "nvidia"}):
             env = rocm.environment(prefix)
         self.assertEqual((prefix / "rocm").as_posix(), env["HIP_PATH"])
         self.assertEqual(env["HIP_PATH"], env["ROCM_PATH"])
+        self.assertEqual("amd", env["HIP_PLATFORM"])
+        self.assertEqual((prefix / "rocm/lib/llvm/amdgcn/bitcode").as_posix(), env["HIP_DEVICE_LIB_PATH"])
+        self.assertEqual((prefix / "rocm/lib/llvm").as_posix(), env["LLVM_PATH"])
         self.assertNotIn("CXXFLAGS", env)
         self.assertTrue(env["PATH"].startswith(str(prefix / "runtime")))
 

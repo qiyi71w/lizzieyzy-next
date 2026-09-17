@@ -285,6 +285,10 @@ The native Windows workflow compiles all four targets, retaining the broad upstr
 architecture range. Upstream still probes MSVC compatibility; packaging rejects selection
 of a different toolset instead of silently changing the locked build. The HIP SDK and
 Windows developer environment are not needed on end-user machines.
+The build process supplies upstream's required `HIP_PLATFORM`, `HIP_DEVICE_LIB_PATH`
+and `LLVM_PATH` alongside `HIP_PATH`, all scoped to the sealed SDK rather than changing
+machine-wide settings. A real compiler/cmath preflight preserves stderr before upstream's
+otherwise-silent toolset probe, so missing device libraries are diagnosable.
 
 ```powershell
 python scripts/build_katago_rocm_dependencies.py --output C:/build/locked-sdk `
