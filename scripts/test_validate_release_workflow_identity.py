@@ -301,13 +301,13 @@ class ReleaseWorkflowIdentityWiringTest(unittest.TestCase):
         workflow = self.workflow("build-windows-release.yml")
         self.assertRegex(
             workflow,
-            r"runs-on: windows-latest\s+timeout-minutes: 280",
+            r"runs-on: windows-latest\s+timeout-minutes: 190",
         )
         self.assertNotIn("timeout-minutes: 300", workflow)
         publisher_wait = inspect.signature(publisher.ReleasePublisher).parameters[
             "run_timeout_seconds"
         ].default
-        self.assertGreater(publisher_wait, 280 * 60)
+        self.assertGreater(publisher_wait, (190 + 90) * 60)
 
     def test_windows_katago_version_audit_uses_runtime_checks_when_possible(self) -> None:
         workflow = self.workflow("build-windows-release.yml")

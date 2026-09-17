@@ -1,5 +1,15 @@
 # 发布检查清单
 
+## Windows 成品上传恢复
+
+Windows 构建、依赖审计、启动与升级测试通过后，将同一批成品和构建摘要保留为
+当前 Actions run 的不可覆盖 artifact，保留时间为 1 天。独立 Ubuntu 上传 job
+下载后核对原始 tag、提交、run、构建 attempt、文件集合、长度和 SHA-256，再上传
+到 Draft。上传失败时仅使用“Re-run failed jobs”，不重跑已经成功的构建 job。
+重传仍使用原始成品，只为当前上传 attempt 生成新的摘要证明，不改变已完成文件。
+临时 artifact 会占用 Actions 存储，满 1 天自动过期；过期后不能声称原成品可恢复，
+必须建立新编号候选，不重建覆盖旧版本资产。正式频道和 R2 不参与此临时留存。
+
 ## 固定源码引擎归档传输恢复
 
 本机上传持续失败时，可手动运行 `Transfer Verified Pinned Source Assets`，

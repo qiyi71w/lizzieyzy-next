@@ -28,7 +28,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 280
+    timeout-minutes: 190
     env:
       RELEASE_DATE_TAG: ${{ inputs.date_tag }}
       RELEASE_TAG: ${{ inputs.release_tag }}
@@ -97,7 +97,7 @@ jobs:
 
       - name: Build Windows installer and portable package
         id: release_metadata
-        timeout-minutes: 240
+        timeout-minutes: 150
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -490,7 +490,46 @@ jobs:
             --target-sha "$RELEASE_TARGET_SHA" \
             --run-id "$RELEASE_RUN_ID" \
             --run-attempt "$RELEASE_RUN_ATTEMPT" \
-            --output dist/release-meta/release-asset-provenance.json
+            --output dist/release-meta/build-release-asset-provenance.json
+
+      - name: Retain tested Windows packages for upload-only recovery
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-release-assets-${{ github.run_id }}
+          path: |
+            dist/release/*
+            dist/release-meta/build-release-asset-provenance.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RELEASE_DATE_TAG: ${{ inputs.date_tag }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_PRERELEASE: ${{ inputs.release_prerelease }}
+      RELEASE_REPOSITORY: ${{ github.repository }}
+      RELEASE_TARGET_SHA: ${{ github.sha }}
+      RELEASE_GITHUB_REF: ${{ github.ref }}
+      RELEASE_RUN_ID: ${{ github.run_id }}
+      RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Download the tested packages from this workflow run
+        uses: actions/download-artifact@v6
+        with:
+          name: windows-release-assets-${{ github.run_id }}
+          path: dist
+      - name: Verify saved build identity and every package digest
+        run: python scripts/verify_saved_release_assets.py
 
       - name: Upload run-bound release asset provenance
         uses: actions/upload-artifact@v6
