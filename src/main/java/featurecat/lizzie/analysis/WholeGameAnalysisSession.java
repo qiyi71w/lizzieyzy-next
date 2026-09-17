@@ -326,12 +326,14 @@ public final class WholeGameAnalysisSession {
     remoteBackend = created.usesRemoteBackend();
     analysisModeKey = analysisModeKey(created);
     frame.attachWholeGameAnalysisEngine(this, created);
-    if (!created.usesSharedForegroundEngine()
-        && Lizzie.leelaz != null
-        && Lizzie.leelaz.isPondering()) {
-      Lizzie.leelaz.notPondering();
-      Lizzie.leelaz.nameCmd();
-      resumeForegroundAnalysis = true;
+    if (!created.usesSharedForegroundEngine() && Lizzie.leelaz != null) {
+      // Snapshot handback may temporarily idle the foreground engine; only a user pause
+      // means that ordinary analysis should stay paused after this independent task.
+      resumeForegroundAnalysis |= !frame.isUserAnalysisPaused();
+      if (Lizzie.leelaz.isPondering()) {
+        Lizzie.leelaz.notPondering();
+        Lizzie.leelaz.nameCmd();
+      }
     }
     if (stageToResume == State.DEEP) {
       beginDeepStage();
