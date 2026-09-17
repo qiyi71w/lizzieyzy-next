@@ -2,9 +2,43 @@
 """Static release guards for portable Windows JVM launchers."""
 
 from pathlib import Path
+import os
+import shutil
+import subprocess
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def verify_engine_staging(package_script: str) -> None:
+    start = package_script.index("copy_bundle_engine_assets() {")
+    end = package_script.index("\n}\n", start) + len("\n}\n")
+    function = package_script[start:end]
+    installer = package_script[package_script.index("build_installer() {"):]
+    require(installer, 'rm -rf "$input_dir" "$installer_dir"', "fresh installer input")
+    require(installer, '--type exe', "installer type")
+    require(installer, '--verbose', "installer failure diagnostics")
+    require(installer, '>&2 || return $?', "installer failure propagation")
+    if os.name == "nt" or shutil.which("bash") is None:
+        return  # The deterministic shell fixture runs in the POSIX script gate.
+    with tempfile.TemporaryDirectory(prefix="engine staging ") as temporary:
+        root = Path(temporary)
+        source = root / "engines/katago/windows-x64-opencl"
+        (source / "licenses/nested").mkdir(parents=True)
+        (source / "licenses/nested/LICENSE").write_text("license")
+        (source / "katago.exe").write_bytes(b"verified engine")
+        (root / "weights").mkdir()
+        (root / "weights/default.bin.gz").write_bytes(b"model")
+        script = 'set -euo pipefail\nROOT_DIR="$1"\n' + function + '''
+copy_bundle_engine_assets "$ROOT_DIR/input" windows-x64-opencl windows-x64
+copy_bundle_engine_assets "$ROOT_DIR/input" windows-x64-opencl windows-x64
+'''
+        subprocess.run(["bash", "-c", script, "fixture", str(root)], check=True)
+        destination = root / "input/engines/katago/windows-x64"
+        actual = sorted(p.relative_to(destination).as_posix() for p in destination.rglob("*") if p.is_file())
+        if actual != ["katago.exe", "licenses/nested/LICENSE"]:
+            raise AssertionError(f"Repeated staging nested or duplicated the engine: {actual}")
 
 
 def require(text: str, value: str, source: str) -> None:
@@ -14,6 +48,7 @@ def require(text: str, value: str, source: str) -> None:
 
 def main() -> None:
     package_script = (ROOT / "scripts/package_windows_exe.sh").read_text(encoding="utf-8")
+    verify_engine_staging(package_script)
     runtime_tools = (ROOT / "scripts/package_runtime_tools.py").read_text(encoding="utf-8")
     smoke_script = (ROOT / "scripts/windows_smoke_test.ps1").read_text(encoding="utf-8")
     lizzie_source = (ROOT / "src/main/java/featurecat/lizzie/Lizzie.java").read_text(
