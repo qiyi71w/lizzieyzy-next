@@ -4285,7 +4285,7 @@ public final class KataGoRuntimeHelper {
         return false;
       }
     }
-    return !AnalysisResourceCoordinator.hasActiveLocalComputeProcess();
+    return !AnalysisResourceCoordinator.hasActiveLocalComputeOtherThan(Lizzie.leelaz);
   }
 
   public static void startAppleSiliconAutoOptimizationAsync() {

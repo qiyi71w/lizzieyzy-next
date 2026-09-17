@@ -247,6 +247,20 @@ public final class AnalysisResourceCoordinator {
     return activeLocalComputeProcessCount() > 0;
   }
 
+  public static boolean hasActiveLocalComputeOtherThan(Object owner) {
+    Process owned;
+    synchronized (REGISTERED_PROCESSES) {
+      ProcessRegistration registration = REGISTERED_PROCESSES.get(owner);
+      owned = registration == null ? null : registration.process;
+    }
+    synchronized (ACTIVE_LOCAL_COMPUTE_PROCESSES) {
+      for (Process process : ACTIVE_LOCAL_COMPUTE_PROCESSES) {
+        if (process != owned && isProcessAlive(process)) return true;
+      }
+    }
+    return false;
+  }
+
   static int activeLocalComputeProcessCount() {
     synchronized (ACTIVE_LOCAL_COMPUTE_PROCESSES) {
       int alive = 0;
