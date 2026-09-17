@@ -32,6 +32,76 @@ import org.junit.jupiter.api.Test;
 
 class TrackingProductionCutoverTest {
   @Test
+  void pauseCancelsInitializationProbeWaitingForPhysicalWrite() throws Exception {
+    assertPauseCancelsProbeWaitingForPhysicalWrite(false);
+  }
+
+  @Test
+  void pauseCancelsResumedProbeWaitingForPhysicalWrite() throws Exception {
+    assertPauseCancelsProbeWaitingForPhysicalWrite(true);
+  }
+
+  private void assertPauseCancelsProbeWaitingForPhysicalWrite(boolean resumed) throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");
+      paused.setAccessible(true);
+      if (resumed) {
+        paused.setBoolean(environment.frame, true);
+        assertFalse(environment.engine.startMoveFocusProbeAfterInitialization());
+        paused.setBoolean(environment.frame, false);
+      }
+      Field lockField = EngineManager.class.getDeclaredField("ENGINE_GAME_ANALYSIS_OUTPUT_MUTATION_LOCK");
+      lockField.setAccessible(true);
+      java.util.concurrent.locks.ReentrantLock admission =
+          (java.util.concurrent.locks.ReentrantLock) lockField.get(null);
+      java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+          new java.util.concurrent.atomic.AtomicReference<>();
+      Thread writer = new Thread(() -> {
+        try {
+          if (resumed) environment.engine.ponderIfAnalysisControlAllows();
+          else environment.engine.startMoveFocusProbeAfterInitialization();
+        } catch (Throwable thrown) { failure.set(thrown); }
+      }, "focus-probe-admission-regression");
+      java.util.concurrent.CountDownLatch pauseComplete = new java.util.concurrent.CountDownLatch(1);
+      Thread pauser = new Thread(() -> {
+        environment.engine.pauseForAnalysisControl(() -> {
+          try { paused.setBoolean(environment.frame, true); }
+          catch (IllegalAccessException exception) { throw new AssertionError(exception); }
+        });
+        pauseComplete.countDown();
+      }, "focus-probe-pause-regression");
+      admission.lock();
+      try {
+        writer.start();
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+        while (!admission.hasQueuedThreads() && System.nanoTime() < deadline) Thread.sleep(1);
+        assertTrue(admission.hasQueuedThreads(), "probe must reach physical write admission");
+        assertEquals("", environment.commands());
+        pauser.start();
+        assertTrue(pauseComplete.await(2, java.util.concurrent.TimeUnit.SECONDS),
+            "pause must complete without waiting for physical write admission");
+      } finally {
+        admission.unlock();
+        writer.join(2000);
+        pauser.join(2000);
+      }
+      assertFalse(writer.isAlive());
+      assertFalse(pauser.isAlive());
+      assertEquals(null, failure.get());
+      long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+      while (environment.engine.moveFocusCapability() == Leelaz.MoveFocusCapability.PROBING
+          && System.nanoTime() < deadline) Thread.sleep(1);
+      assertEquals(Leelaz.MoveFocusCapability.UNKNOWN, environment.engine.moveFocusCapability());
+      assertEquals("", environment.commands(), "cancelled probe must not reach the engine");
+      paused.setBoolean(environment.frame, false);
+      assertTrue(environment.engine.ponderIfAnalysisControlAllows());
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.SUPPORTED, environment.engine.moveFocusCapability(),
+          "commands=" + environment.commands() + ", pondering=" + environment.engine.isPondering());
+    }
+  }
+
+  @Test
   void firstResumeProbesAnEngineWhoseInitializationWasPaused() throws Exception {
     try (TestEnvironment environment = TestEnvironment.open()) {
       Field paused = LizzieFrame.class.getDeclaredField("userAnalysisPaused");
@@ -173,6 +243,48 @@ class TrackingProductionCutoverTest {
       environment.engine.ponder();
       environment.settleCommands();
       assertEquals(1, environment.commands().lines().filter(line -> line.contains("focus pass")).count());
+    }
+  }
+
+  @Test
+  void officialLegacyParserResponseEstablishesUnsupportedOnlyAfterResponseEnd() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());
+      String probe = environment.commands().trim();
+      String id = probe.substring(0, probe.indexOf(' '));
+      String arguments = probe.substring(probe.indexOf("kata-analyze ") + "kata-analyze ".length());
+      environment.dispatch("?" + id
+          + " Could not parse analyze arguments or arguments out of range: '" + arguments + "'");
+      assertEquals(Leelaz.MoveFocusCapability.PROBING, environment.engine.moveFocusCapability());
+      environment.dispatch("");
+      environment.respondedCommands = 1;
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.UNSUPPORTED, environment.engine.moveFocusCapability());
+      assertTrue(environment.engine.isPondering());
+    }
+  }
+
+  @Test
+  void engineFailureDoesNotDowngradeToAnUnsupportedCapabilityOrStartAnotherProtocol() throws Exception {
+    for (String error : List.of("CUDA out of memory", "internal error", "connection lost",
+        "Could not parse analyze arguments or arguments out of range: 'unrelated request'")) {
+      try (TestEnvironment environment = TestEnvironment.open()) {
+        assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());
+        String probe = environment.commands().trim();
+        String id = probe.substring(0, probe.indexOf(' '));
+        environment.dispatch("?" + id + " " + error);
+        environment.dispatch("");
+        environment.respondedCommands = 1;
+        environment.settleCommands();
+        assertEquals(Leelaz.MoveFocusCapability.PROBING, environment.engine.moveFocusCapability(), error);
+        assertFalse(environment.engine.isPondering(), error);
+        Field unrestored = Leelaz.class.getDeclaredField("engineStateUnrestored");
+        unrestored.setAccessible(true);
+        assertTrue(unrestored.getBoolean(environment.engine), error);
+        environment.engine.ponder();
+        environment.settleCommands();
+        assertEquals(probe, environment.commands().trim(), "must fail closed: " + error);
+      }
     }
   }
 

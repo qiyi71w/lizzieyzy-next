@@ -602,23 +602,30 @@ public class Leelaz {
   private volatile String ordinaryFocusBaseCommand;
   private volatile long moveFocusPauseGeneration;
   private volatile MoveFocusProbe moveFocusProbe;
+  private volatile ReaderStreamBinding moveFocusProbeRequestedBinding;
+  private volatile MoveFocusProbe deferredMoveFocusProbe;
 
   private final class MoveFocusProbe {
     final ReaderStreamBinding binding = currentReaderStreamBinding();
     final AnalysisInfoTarget target = captureAnalysisInfoTarget();
     final long generation = analysisOutputGeneration.get();
-    final long pauseGeneration = moveFocusPauseGeneration;
+    final long pauseGeneration;
     final boolean addPlayer;
     final boolean blackToPlay;
 
-    MoveFocusProbe(boolean addPlayer, boolean blackToPlay) {
+    MoveFocusProbe(boolean addPlayer, boolean blackToPlay, long pauseGeneration) {
       this.addPlayer = addPlayer;
       this.blackToPlay = blackToPlay;
+      this.pauseGeneration = pauseGeneration;
+    }
+
+    boolean targetCurrent() {
+      return readerStreamBinding == binding && !binding.terminated
+          && generation == analysisOutputGeneration.get() && isCurrentAnalysisInfoTarget(target);
     }
 
     boolean current() {
-      return moveFocusProbe == this && readerStreamBinding == binding && !binding.terminated
-          && generation == analysisOutputGeneration.get() && isCurrentAnalysisInfoTarget(target);
+      return moveFocusProbe == this && targetCurrent();
     }
 
     void finish(MoveFocusCapability capability) {
@@ -866,23 +873,23 @@ public class Leelaz {
   }
 
   public boolean startMoveFocusProbeAfterInitialization() {
+    moveFocusProbeRequestedBinding = currentReaderStreamBinding();
     return startMoveFocusProbeIfAnalysisAllowed(false, false);
   }
 
   private boolean startMoveFocusProbeIfAnalysisAllowed(boolean addPlayer, boolean blackToPlay) {
-    synchronized (analysisControlPonderLock()) {
-      if (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused()) return false;
-      return startMoveFocusProbeWhenAnalysisAllowed(addPlayer, blackToPlay);
-    }
+    long pauseGeneration = moveFocusPauseGeneration;
+    if (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused()) return false;
+    return startMoveFocusProbeWhenAnalysisAllowed(addPlayer, blackToPlay, pauseGeneration);
   }
 
-  private boolean startMoveFocusProbeWhenAnalysisAllowed(boolean addPlayer, boolean blackToPlay) {
+  private boolean startMoveFocusProbeWhenAnalysisAllowed(
+      boolean addPlayer, boolean blackToPlay, long pauseGeneration) {
     LifecycleCompletionClaim completing = lifecycleCompletionCommandContext.get();
     if (completing != null && completing == lifecycleCompletionClaim
         && moveFocusCapability() == MoveFocusCapability.UNKNOWN && isKatago) {
       ReaderStreamBinding binding = currentReaderStreamBinding();
       AnalysisInfoTarget target = captureAnalysisInfoTarget();
-      long pauseGeneration = moveFocusPauseGeneration;
       completing.runAfterEndpointRelease(() -> {
         if (readerStreamBinding == binding && !binding.terminated
             && isCurrentAnalysisInfoTarget(target) && pauseGeneration == moveFocusPauseGeneration) {
@@ -899,17 +906,43 @@ public class Leelaz {
     if (moveFocusProbe != null && moveFocusProbe.binding == binding) return false;
     synchronized (engineArbitrationLock()) {
       synchronized (commandQueue()) {
-        if (moveFocusCapability() != MoveFocusCapability.UNKNOWN || normalCommandSendInProgress
-            || !commandQueue().isEmpty()) return false;
+        if (moveFocusCapability() != MoveFocusCapability.UNKNOWN
+            || pauseGeneration != moveFocusPauseGeneration
+            || (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused())) return false;
+        if (normalCommandSendInProgress || !commandQueue().isEmpty()) {
+          deferredMoveFocusProbe = new MoveFocusProbe(addPlayer, blackToPlay, pauseGeneration);
+          return true;
+        }
+        deferredMoveFocusProbe = null;
         moveFocusCapabilityBinding = binding;
-        moveFocusProbe = new MoveFocusProbe(addPlayer, blackToPlay);
+        moveFocusProbe = new MoveFocusProbe(addPlayer, blackToPlay, pauseGeneration);
         moveFocusCapability = MoveFocusCapability.PROBING;
       }
     }
     MoveFocusResponse probe = new MoveFocusResponse(null, true, true);
     moveFocusBoundary = probe;
-    sendMoveFocusCommand("kata-analyze " + getInterval() + " rootInfo true focus pass 0", probe);
+    Runnable send = () -> sendMoveFocusCommand(
+        "kata-analyze " + getInterval() + " rootInfo true focus pass 0", probe);
+    // Physical write admission must never wait while holding the user-pause monitor.
+    if (Thread.holdsLock(analysisControlPonderLock())) COMMAND_DISPATCH_EXECUTOR.execute(send);
+    else send.run();
     return true;
+  }
+
+  private void retryDeferredMoveFocusProbe() {
+    if (deferredMoveFocusProbe == null) return;
+    MoveFocusProbe deferred;
+    synchronized (engineArbitrationLock()) {
+      synchronized (commandQueue()) {
+        if (normalCommandSendInProgress || !commandQueue().isEmpty()) return;
+        deferred = deferredMoveFocusProbe;
+        deferredMoveFocusProbe = null;
+      }
+    }
+    if (deferred != null && deferred.targetCurrent()
+        && deferred.pauseGeneration == moveFocusPauseGeneration) {
+      startMoveFocusProbeIfAnalysisAllowed(deferred.addPlayer, deferred.blackToPlay);
+    }
   }
 
   private final class MoveFocusResponse implements Runnable {
@@ -947,6 +980,7 @@ public class Leelaz {
     boolean validBeforeWrite() {
       return !analyze || (probe ? probeContext.current()
           && probeContext.pauseGeneration == moveFocusPauseGeneration
+          && (Lizzie.frame == null || !Lizzie.frame.isUserAnalysisPaused())
           : state.current() && !state.paused && state.revision == revision
               && state.desired.equals(points));
     }
@@ -982,6 +1016,15 @@ public class Leelaz {
       }
     }
 
+    private boolean explicitlyRejectsFocus() {
+      String payload = gtpResponsePayload(currentCommandResponseLine()).trim();
+      if (payload.equalsIgnoreCase("unknown analyze option focus")) return true;
+      // Older official KataGo reports the exact rejected argument list, not a version gate.
+      return command != null && command.command.startsWith("kata-analyze ")
+          && payload.equals("Could not parse analyze arguments or arguments out of range: '"
+              + command.command.substring("kata-analyze ".length()) + "'");
+    }
+
     @Override public void run() {
       if (!terminalClaimed.compareAndSet(false, true)) return;
       timeout.cancel();
@@ -990,7 +1033,8 @@ public class Leelaz {
       if (error && !(probe && analyze)) { failClaimed(); return; }
       if (probe && analyze) {
         if (error) {
-          probeContext.finish(MoveFocusCapability.UNSUPPORTED);
+          if (explicitlyRejectsFocus()) probeContext.finish(MoveFocusCapability.UNSUPPORTED);
+          else failClaimed();
         } else {
           sendMoveFocusStop(null, true);
         }
@@ -12084,6 +12128,7 @@ public class Leelaz {
       return;
     }
     trySendCommandFromQueueNow();
+    retryDeferredMoveFocusProbe();
   }
 
   private boolean canDispatchOrdinaryCommandOffEventThread() {
@@ -18066,6 +18111,10 @@ public class Leelaz {
       if (cancellationFailure == null) {
         cancellationFailure = failure;
       }
+      if (onResponse instanceof MoveFocusResponse
+          && !((MoveFocusResponse) onResponse).validBeforeWrite()) {
+        ((MoveFocusResponse) onResponse).superseded = true;
+      }
       return true;
     }
 
@@ -20938,7 +20987,8 @@ public class Leelaz {
 
   public void ponder(boolean addPlayer, boolean blackToPlay) {
     if (moveFocusCapability() == MoveFocusCapability.PROBING) return;
-    if (!noAnalyze && !isInitialBoardSynchronizationActive()
+    if (moveFocusProbeRequestedBinding == currentReaderStreamBinding()
+        && !noAnalyze && !isInitialBoardSynchronizationActive()
         && startMoveFocusProbeIfAnalysisAllowed(addPlayer, blackToPlay)) return;
     if (moveFocusCapability() == MoveFocusCapability.PROBING) return;
     ponderCurrentPosition(addPlayer, blackToPlay);
