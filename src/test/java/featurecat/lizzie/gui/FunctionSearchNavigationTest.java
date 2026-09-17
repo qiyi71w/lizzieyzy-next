@@ -10,10 +10,13 @@ import featurecat.lizzie.search.FunctionSearch;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dialog;
+import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.event.WindowEvent;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -30,7 +33,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JTextField;
 import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.RepeatedTest;
 
 /** Exercises function-search navigation against a real production startup in an isolated JVM. */
 public final class FunctionSearchNavigationTest {
@@ -39,7 +42,7 @@ public final class FunctionSearchNavigationTest {
   private static final String MOVE_NUMBER_TARGET = "menu.showAllMoveNumberInBranch";
   private static final String MODAL_REASON = "FunctionSearch.unavailable.modal";
 
-  @Test
+  @RepeatedTest(5)
   void navigationPreservesRealStateAcrossNativeAndCustomMenus() throws Exception {
     DesktopProbeProcess.requireDisplay();
     for (String presentation : List.of("native", "custom")) {
@@ -88,6 +91,18 @@ public final class FunctionSearchNavigationTest {
         StandardCharsets.UTF_8);
     System.setProperty("lizzie.work.dir", work.toAbsolutePath().toString());
 
+    // This child starts with an isolated, account-free profile. Retain the source of late modals.
+    Toolkit.getDefaultToolkit()
+        .addAWTEventListener(
+            event -> {
+              if (event instanceof WindowEvent windowEvent
+                  && (windowEvent.getID() == WindowEvent.WINDOW_OPENED
+                      || windowEvent.getID() == WindowEvent.WINDOW_ACTIVATED)) {
+                recordWindowEvent(resultPath.getParent(), windowEvent);
+              }
+            },
+            java.awt.AWTEvent.WINDOW_EVENT_MASK);
+
     Lizzie.main(new String[0]);
     await(() -> Lizzie.frame != null && Lizzie.frame.isShowing(), "real main window", 30_000);
     runOnEdtAction(
@@ -124,6 +139,44 @@ public final class FunctionSearchNavigationTest {
     checkDestructiveCancellation(controller, evidence);
     checkKomiNavigation(controller, evidence);
     Files.writeString(resultPath, evidence.toString(), StandardCharsets.UTF_8);
+  }
+
+  private static void recordWindowEvent(Path evidence, WindowEvent event) {
+    Window window = event.getWindow();
+    StringBuilder record =
+        new StringBuilder(java.time.Instant.now().toString())
+            .append(' ')
+            .append(event.getID())
+            .append(' ')
+            .append(window.getClass().getName())
+            .append(" focused=")
+            .append(window.isFocused())
+            .append('\n');
+    if (window instanceof HtmlMessage) {
+      for (Component child : ((HtmlMessage) window).getContentPane().getComponents()) {
+        if (child instanceof javax.swing.JTextPane pane) {
+          try {
+            record.append(pane.getDocument().getText(0, pane.getDocument().getLength()));
+          } catch (javax.swing.text.BadLocationException failure) {
+            throw new AssertionError(failure);
+          }
+        }
+      }
+      record.append('\n');
+      for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+        record.append("  ").append(frame).append('\n');
+      }
+    }
+    try {
+      Files.writeString(
+          evidence.resolve("window-events.txt"),
+          record,
+          StandardCharsets.UTF_8,
+          StandardOpenOption.CREATE,
+          StandardOpenOption.APPEND);
+    } catch (java.io.IOException failure) {
+      throw new AssertionError("cannot retain native window evidence", failure);
+    }
   }
 
   private static void checkSettingNavigation(

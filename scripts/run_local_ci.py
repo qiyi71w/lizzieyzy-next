@@ -26,9 +26,12 @@ JAVA_REQUIRED_TESTS = (
     ("featurecat.lizzie.logging.LoggingProviderSmokeIT", "shadedArtifactWritesOneProviderEvent"),
 )
 DESKTOP_REQUIRED_TESTS = (
-    (
-        "featurecat.lizzie.gui.FunctionSearchNavigationTest",
-        "navigationPreservesRealStateAcrossNativeAndCustomMenus",
+    *tuple(
+        (
+            "featurecat.lizzie.gui.FunctionSearchNavigationTest",
+            f"navigationPreservesRealStateAcrossNativeAndCustomMenus()[{repetition}]",
+        )
+        for repetition in range(1, 6)
     ),
     (
         "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
