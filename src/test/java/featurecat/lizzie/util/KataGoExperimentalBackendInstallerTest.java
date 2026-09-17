@@ -19,7 +19,7 @@ class KataGoExperimentalBackendInstallerTest {
     for (Backend backend : Backend.values()) {
       KataGoAssetCatalog.Asset asset = backend.asset();
       assertEquals("experimental", asset.releaseTier());
-      assertTrue(asset.assetName().startsWith("katago-v1.18.1-"));
+      assertTrue(asset.assetName().startsWith("katago-source-47aadc08518b-"));
       assertEquals(64, asset.sha256().length());
     }
   }
@@ -47,7 +47,7 @@ class KataGoExperimentalBackendInstallerTest {
         Files.readString(target.resolve("lizzieyzy-next-engine-backend.txt")).trim());
     String manifest =
         Files.readString(target.resolve("lizzieyzy-next-katago-engine-manifest.txt"));
-    assertTrue(manifest.contains("KataGo release: v1.18.1"));
+    assertTrue(manifest.contains("KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag()));
     assertTrue(manifest.contains("Asset SHA-256: " + Backend.ROCM_GFX103X.asset().sha256()));
   }
 

@@ -930,7 +930,7 @@ public class KataGoRuntimeHelperTest {
   }
 
   @Test
-  void tensorRtInstallSpecUsesOfficialKataGoAssetAndWritableRuntimeTarget() throws Exception {
+  void tensorRtInstallSpecUsesReviewedSourceAssetAndWritableRuntimeTarget() throws Exception {
     withOsName(
         WINDOWS_OS_NAME,
         () -> {
@@ -944,12 +944,12 @@ public class KataGoRuntimeHelperTest {
                 KataGoRuntimeHelper.TensorRtInstallSpec spec =
                     KataGoRuntimeHelper.buildTensorRtInstallSpec(snapshot);
 
-                assertTrue(
-                    spec.katagoUrl.endsWith("/katago-v1.18.1-trt10.9.0-cuda12.8-windows-x64.zip"));
-                assertEquals(
-                    "49b7229803b2ccee5205cc9d1f7b1a37790469405324de5e5acaafe7a8a9172a",
-                    spec.katagoSha256);
-                assertEquals(8_375_820L, spec.katagoSizeBytes);
+                KataGoAssetCatalog catalog = KataGoAssetCatalog.get();
+                KataGoAssetCatalog.Asset asset = catalog.asset("windows-tensorrt");
+                assertTrue(spec.katagoUrl.endsWith("/katago-source-47aadc08518b-windows-tensorrt.zip"));
+                assertEquals(catalog.assetDownloadUrl(asset), spec.katagoUrl);
+                assertEquals(asset.sha256(), spec.katagoSha256);
+                assertEquals(asset.sizeBytes(), spec.katagoSizeBytes);
                 assertEquals(6, spec.runtimePackageCount);
                 assertTrue(spec.totalDownloadBytes > 3_000_000_000L);
                 assertEquals(
@@ -1079,7 +1079,7 @@ public class KataGoRuntimeHelperTest {
                         assertTrue(
                             Files.readString(
                                     targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"))
-                                .contains("KataGo release: v1.18.1"));
+                                .contains("KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag()));
                         assertTrue(
                             Files.readString(
                                     targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"))
@@ -1721,7 +1721,7 @@ public class KataGoRuntimeHelperTest {
                         assertTrue(
                             Files.readString(
                                     targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"))
-                                .contains("KataGo release: v1.18.1"));
+                                .contains("KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag()));
                         assertTrue(
                             KataGoRuntimeHelper.inspectTensorRtInstall(result.snapshot).active);
                       }));
@@ -2801,10 +2801,9 @@ public class KataGoRuntimeHelperTest {
       throws IOException {
     Files.writeString(
         directory.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
-        "KataGo release: v1.18.1\n"
-            + "Asset: katago-v1.18.1-trt10.9.0-cuda12.8-windows-x64.zip\n"
-            + "Asset SHA-256: "
-            + "49b7229803b2ccee5205cc9d1f7b1a37790469405324de5e5acaafe7a8a9172a\n");
+        "KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag() + "\n"
+            + "Asset: " + KataGoAssetCatalog.get().asset("windows-tensorrt").assetName() + "\n"
+            + "Asset SHA-256: " + KataGoAssetCatalog.get().asset("windows-tensorrt").sha256() + "\n");
   }
 
   private static SetupSnapshot createUnifiedNvidiaSnapshot(Path tempRoot) throws Exception {

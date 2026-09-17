@@ -13,7 +13,10 @@ class KataGoAssetCatalogTest(unittest.TestCase):
         catalog = katago_asset_catalog.load_catalog(katago_asset_catalog.DEFAULT_CATALOG)
         default_model = catalog["models"][catalog["defaultModelId"]]
 
-        self.assertEqual("1.18.1", catalog["katagoVersion"])
+        self.assertEqual("1.18.2", catalog["katagoVersion"])
+        self.assertEqual("project-source-build", catalog["origin"])
+        self.assertEqual("47aadc08518b3e121f22539796c911002f699584", catalog["katagoSourceCommit"])
+        self.assertEqual(15, len(catalog["assets"]))
         self.assertEqual("kata1-tf3-b11c768-s11500M-d6163M.bin.gz", default_model["fileName"])
         self.assertEqual(211568937, default_model["sizeBytes"])
         self.assertTrue(default_model["bundled"])
@@ -102,6 +105,7 @@ class KataGoAssetCatalogTest(unittest.TestCase):
 
     def test_official_origin_cannot_override_repository(self):
         catalog = katago_asset_catalog.load_catalog(katago_asset_catalog.DEFAULT_CATALOG)
+        catalog["origin"] = "official-release"
         catalog["engineReleaseRepository"] = "wimi321/lizzieyzy-next"
         with self.assertRaises(ValueError):
             katago_asset_catalog.validate_catalog(catalog)

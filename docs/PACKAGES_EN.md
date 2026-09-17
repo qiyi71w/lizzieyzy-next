@@ -59,7 +59,7 @@ These packages are outside the 13 stable recommendations and are published for m
 | `<date>-windows64.experimental.rocm.gfx1151.portable.zip` | AMD RDNA3.5 |
 | `<date>-windows64.experimental.rocm.gfx120x.portable.zip` | AMD RDNA4 |
 
-Each experimental package still contains KataGo v1.18.1, the B11 default weight, Java, and the application components. CI verifies asset integrity and launch structure; real performance and compatibility remain subject to reports from matching hardware.
+Each experimental package contains project-built KataGo v1.18.2, the B11 default weight, Java, and the application components. CI verifies asset integrity and launch structure; real performance and compatibility remain subject to reports from matching hardware.
 
 ## What Each Package Includes
 
@@ -110,8 +110,8 @@ Installers still exist, but they are now secondary to the portable flow.
 
 Current bundled defaults:
 
-- KataGo version: `v1.18.1` across CPU, OpenCL, CUDA, TensorRT, Metal, and Linux bundles; Linux NVIDIA remains on CUDA `12.1` for runtime compatibility
-- macOS release builds pin the official `v1.18.1` commit `92ee95c0a4b25fec214da00951ab69e97e207729`. If Homebrew lags, packaging builds Metal from that commit and verifies the real binary version instead of trusting `VERSION.txt` alone
+- KataGo reports `v1.18.2`: all 15 platform/backend targets are built by this project from merged upstream commit `47aadc08518b3e121f22539796c911002f699584`, not official release binaries. Linux NVIDIA remains on CUDA `12.1` for runtime compatibility
+- Downloads, full packages, and on-demand repair use the same SHA-256-pinned artifacts, never an old-engine fallback. See each archive's `source-release.json` and [source-build documentation](KATAGO_SOURCE_BUILD.md) for provenance, compilers, dependencies, and actual hardware acceptance
 - Default weight: official flagship B11 Transformer `kata1-tf3-b11c768-s11500M-d6163M.bin.gz`, shown as “Transformer B11 · 2026-09-07”
 - Default weight size: `211,568,937` bytes (about 202 MiB), SHA-256: `73f6454eba62d2f6d099af8ce66d8c3fde6225e223c55817da0627590e98b0ae`
 - B11 makes stronger individual evaluations and performs better in complex positions, but search can be slower; B10 remains available as an on-demand speed-first model and is not duplicated in full packages
@@ -119,9 +119,9 @@ Current bundled defaults:
 - Windows NVIDIA runtimes include matching NVRTC compiler and builtins; release audits verify exact DLLs, official asset hashes, and manifest records
 - Driver `570.65` or newer loads directly; `528.33–570.64` runs one lightweight real-inference probe; older drivers show an explicit repair state without silently changing backends
 - Transformer performs best through CUDA or Metal; OpenCL remains fully offline-capable but is normally slower
-- `core-update.zip` updates only the application and does not include KataGo 1.18.1 or B11; old users keep their current weight until they install a full bundle or explicitly download B11
+- `core-update.zip` contains no engine or weight. Same-tree focus requires a new full package or a `focus`-capable engine. Unsupported engines keep ordinary analysis; focus stays unavailable without starting a second engine or switching to the old protocol
 - Full-bundle migration changes only managed engines still using the old bundled `zhizi 28B` / `default.bin.gz`; custom weights, remote compute, and startup modes are preserved
-- TensorRT acceleration: RTX 30 series and earlier users may install it on demand from `KataGo Auto Setup`; RTX 40/50 default to CUDA. Offline users may download every Release split plus its README, manifest, and SHA-256 file, then extract from `.001`
+- Optional TensorRT: RTX 20 and GTX 16 users may install it on demand from `KataGo Auto Setup`; RTX 30/40/50 should prefer CUDA and compare measured local speeds. Offline users may download every Release split plus its README, manifest, and SHA-256 file, then extract from `.001`
 - The TensorRT runtime archive is pinned to SHA-256 `c2758eb60191f01a47b24f54700e5463f577ebe129cd18fe835d0aa9f1e1a16d`. TensorRT remains the main analysis backend, while a lightweight bundled CUDA companion loads HumanSL for AI Coach; preparation temporarily releases foreground GPU analysis and an idempotent lease restores only the captured engine when it is still current
 - Legacy `nvidia50-cuda` configurations remain recognized, while new downloads use the unified `windows64.nvidia` CUDA package
 - The TensorRT install UI uses `nvidia-smi` to detect the local NVIDIA GPU, with a lightweight model-name fallback when Compute Capability is unavailable

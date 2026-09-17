@@ -683,6 +683,7 @@ class ReleasePublisher:
         run_timeout_seconds: float = 4 * 60 * 60 + 45 * 60,
         ci_timeout_seconds: float = 20 * 60,
         source_catalog: dict | None = None,
+        prepare_only: bool = False,
     ) -> None:
         if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
             raise PublishError("target_sha must be a full 40-character commit SHA")
@@ -696,6 +697,7 @@ class ReleasePublisher:
         self.ci_timeout_seconds = ci_timeout_seconds
         self.run_urls: dict[str, str] = {}
         self.source_assets = self._source_asset_records(source_catalog)
+        self.prepare_only = prepare_only
         if not self._notes_text_complete(release_notes):
             raise PublishError("Reviewed release notes are missing the tag or a language section")
         validate_no_unresolved_note_markers(release_notes)
@@ -1384,6 +1386,13 @@ class ReleasePublisher:
         self._assert_canonical_notes(current)
         self._assert_live_tag_identity()
 
+        if self.prepare_only:
+            print(
+                f"Verified candidate {self.request.release_tag}; keeping Draft for final package acceptance",
+                flush=True,
+            )
+            return current
+
         release = self.client.update_release(
             release_id,
             {
@@ -1414,6 +1423,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--target-sha", required=True)
     parser.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL"))
+    parser.add_argument("--prepare-only", action="store_true",
+                        help="Build and verify every asset but leave the candidate unpublished")
     return parser.parse_args()
 
 
@@ -1433,7 +1444,8 @@ def main() -> int:
             api_url=args.api_url,
         )
         catalog = katago_catalog.load_catalog(katago_catalog.DEFAULT_CATALOG)
-        ReleasePublisher(client, request, args.target_sha, release_notes, source_catalog=catalog).publish()
+        ReleasePublisher(client, request, args.target_sha, release_notes, source_catalog=catalog,
+                         prepare_only=args.prepare_only).publish()
     except PublishError as exc:
         print(f"release publishing failed: {exc}", file=sys.stderr)
         return 1

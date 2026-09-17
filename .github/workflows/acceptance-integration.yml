@@ -21,7 +21,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare-source-archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # GitHub restricts Draft assets to push access. This job only reads JSON,
+    # downloads bytes and verifies a digest; it never executes PR code or engines.
+    permissions:
+      contents: write
+    outputs:
+      has_source: ${{ steps.archive.outputs.has_source }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: src/main/resources/katago-assets.json
+      - name: Read and verify the catalog-bound source archive only
+        id: archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 -I - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+
+          catalog = json.loads(Path('src/main/resources/katago-assets.json').read_text())
+          is_source = catalog.get('origin') == 'project-source-build'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('has_source=' + str(is_source).lower() + '\n')
+          if is_source:
+              repository = os.environ['EXPECTED_REPOSITORY']
+              tag = catalog.get('engineReleaseTag', '')
+              asset = catalog['assets']['linux-cpu']
+              name = asset.get('assetName', '')
+              sha = asset.get('sha256', '')
+              size = asset.get('sizeBytes')
+              if (catalog.get('engineReleaseRepository') != repository
+                      or not re.fullmatch(r'next-\d{4}-\d{2}-\d{2}\.[1-9]\d*', tag)
+                      or not re.fullmatch(r'katago-source-[0-9a-f]{12}-linux-cpu\.zip', name)
+                      or not re.fullmatch(r'[0-9a-f]{64}', sha)
+                      or type(size) is not int or not 0 < size < 100_000_000):
+                  raise SystemExit('Invalid source archive identity')
+              destination = Path(os.environ['RUNNER_TEMP']) / 'verified-cpu-archive'
+              destination.mkdir()
+              subprocess.run(['gh', 'release', 'download', tag, '--repo', repository,
+                              '--pattern', name, '--dir', str(destination)],
+                             check=True, capture_output=True, timeout=480)
+              archive = destination / name
+              with archive.open('rb') as source:
+                  digest = hashlib.file_digest(source, 'sha256').hexdigest()
+              if archive.stat().st_size != size or digest != sha:
+                  raise SystemExit('Source archive size or SHA-256 mismatch')
+              print('Verified source CPU archive; no executable was run')
+          PY
+      - uses: actions/upload-artifact@v6
+        if: steps.archive.outputs.has_source == 'true'
+        with:
+          name: verified-cpu-archive-${{ github.run_id }}
+          path: ${{ runner.temp }}/verified-cpu-archive/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
   linux-sgf-cpu:
+    needs: prepare-source-archive
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -35,9 +104,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb xauth fonts-dejavu-core fonts-noto-cjk
+      - uses: actions/download-artifact@v6
+        if: needs.prepare-source-archive.outputs.has_source == 'true'
+        with:
+          name: verified-cpu-archive-${{ github.run_id }}
+          path: target/acceptance-assets/cache
       - name: Prepare verified Linux Eigen and default model
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/prepare_cpu_engine_acceptance.py --root target/acceptance-assets
       - name: Run SGF dialogs and real CPU process acceptance
         env:

@@ -78,7 +78,7 @@
 | `<date>-windows64.experimental.rocm.gfx1151.portable.zip` | AMD RDNA3.5 |
 | `<date>-windows64.experimental.rocm.gfx120x.portable.zip` | AMD RDNA4 |
 
-实验包内同样包含 KataGo v1.18.1、B11 默认权重、Java 和应用组件；界面会清楚标明实验状态。打包和 CI 只证明资产完整与启动链路成立，真实性能和兼容性仍需对应硬件用户反馈。
+实验包内同样包含项目自编译 KataGo v1.18.2、B11 默认权重、Java 和应用组件；界面会清楚标明实验状态。打包和 CI 只证明资产完整与启动链路成立，真实性能和兼容性仍需对应硬件用户反馈。
 
 ## 每个包里内置了什么
 
@@ -130,8 +130,8 @@
 
 当前整合包默认使用：
 
-- KataGo 版本：`v1.18.1`，CPU、OpenCL、CUDA、TensorRT、Metal 和 Linux 包统一升级；Linux NVIDIA 为兼容系统运行时继续使用 CUDA `12.1`
-- macOS 发布构建固定使用官方 `v1.18.1` commit `92ee95c0a4b25fec214da00951ab69e97e207729`。如果 Homebrew 稳定版仍滞后，打包脚本会从该 commit 构建 Metal 引擎并校验真实二进制版本，不能只靠 `VERSION.txt` 宣称升级
+- KataGo 版本输出：`v1.18.2`，全部 15 个平台/后端使用官方已合并提交 `47aadc08518b3e121f22539796c911002f699584` 的项目自编译产物，不是官方发布二进制；Linux NVIDIA 为兼容系统运行时继续使用 CUDA `12.1`
+- 引擎下载、完整包和按需修复使用同一批固定 SHA-256 的产物。构建失败不得回退旧引擎；来源、编译器、依赖及真实硬件验收范围见归档内 `source-release.json` 和 [自编译说明](KATAGO_SOURCE_BUILD.md)
 - 默认权重：官方旗舰 B11 Transformer `kata1-tf3-b11c768-s11500M-d6163M.bin.gz`，界面显示为“Transformer B11 · 2026-09-07”
 - 默认权重大小：`211,568,937` 字节（约 202 MiB），SHA-256：`73f6454eba62d2f6d099af8ce66d8c3fde6225e223c55817da0627590e98b0ae`
 - B11 单次判断更强、复杂局面效果更好，但搜索速度可能较慢；B10 保留为“速度优先”按需下载，不重复内置
@@ -139,10 +139,10 @@
 - Windows NVIDIA 运行时同时携带对应版本的 NVRTC 编译器与 builtins，发布审计会检查精确 DLL、官方资产 SHA 和 manifest 记录，避免解压即引擎启动失败
 - 驱动 `570.65` 及以上直接加载；`528.33–570.64` 首次执行一次轻量真实推理探测；更旧驱动显示明确修复状态，不静默切换后端
 - Transformer 在 CUDA、Metal 上性能更好；OpenCL 仍可离线使用，但通常更慢
-- `core-update.zip` 只更新主程序，不包含 KataGo 1.18.1 或 B11；老用户原有权重会保留，升级 B11 需安装最新完整包或在一键设置中明确下载
+- `core-update.zip` 只更新主程序，不包含新引擎或 B11；同树选点评估需要新完整包或支持 `focus` 的引擎。不支持时保留普通分析，选点评估不可用，不启动第二个引擎或切回旧协议
 - 完整包升级只迁移仍使用旧内置 `zhizi 28B` / `default.bin.gz` 的托管引擎；自定义权重、远程算力和启动方式不会被覆盖
 - 快速曲线轻量模型：可在 `KataGo 一键设置 -> 权重管理` 按需下载官方 `b10c384h6nbttflrs.bin.gz`（约 38 MB），不进入完整包或普通引擎列表。它只补齐已加载棋谱的缺失曲线，主棋盘分析、对局或整盘精析开始时会退出并释放显存
-- TensorRT 加速：RTX 30 系及以下用户可在软件内 `KataGo 一键设置` 中按需安装，支持断点续传；RTX 40/50 默认推荐 CUDA，Release 上的 TensorRT 分卷包只是可选离线路径
+- TensorRT 可选后端：RTX 20、GTX 16 用户可在软件内 `KataGo 一键设置` 中按需安装，支持断点续传；RTX 30/40/50 优先使用 CUDA，速度以本机实测为准。Release 上的 TensorRT 分卷包只是可选离线路径
 - TensorRT runtime 归档固定校验 SHA-256 `c2758eb60191f01a47b24f54700e5463f577ebe129cd18fe835d0aa9f1e1a16d`。预装包保留 TensorRT 作为主分析后端，并内置轻量 CUDA 伴随引擎供 AI 陪练加载 HumanSL；准备陪练时会暂时释放前台持续分析的 GPU 计算资源，退出或失败后通过幂等 lease 仅恢复仍是当前目标的原引擎
 - 旧版 `nvidia50-cuda` 配置继续识别，但新下载统一迁移到 `windows64.nvidia` CUDA 包
 - TensorRT 安装界面会用 `nvidia-smi` 检测本机 NVIDIA GPU，并在无法读取 Compute Capability 时使用轻量型号映射作为 fallback
