@@ -3092,9 +3092,24 @@ public final class KataGoRuntimeHelper {
             + output.substring(Math.max(0, output.length() - 2000)).trim());
   }
 
-  private static IOException benchmarkIsolationLostException() {
-    return new IOException(
-        "KataGo tuning stopped because another engine resumed compute during the benchmark.");
+  private static final class BenchmarkPreemptedException extends IOException {
+    BenchmarkPreemptedException() {
+      super("KataGo tuning stopped because another engine resumed compute during the benchmark.");
+    }
+  }
+
+  static IOException benchmarkIsolationLostException() {
+    return new BenchmarkPreemptedException();
+  }
+
+  static boolean isBenchmarkPreempted(Throwable failure) {
+    var visited =
+        java.util.Collections.newSetFromMap(
+            new java.util.IdentityHashMap<Throwable, Boolean>());
+    for (Throwable cause = failure; cause != null && visited.add(cause); cause = cause.getCause()) {
+      if (cause instanceof BenchmarkPreemptedException) return true;
+    }
+    return false;
   }
 
   private static void requireLayeredBenchmarkComputeIsolation() throws IOException {
@@ -4345,10 +4360,7 @@ public final class KataGoRuntimeHelper {
                 rememberStartupBenchmarkDismissal(snapshot);
                 System.out.println("Apple Silicon KataGo auto benchmark cancelled by user.");
               } catch (Exception e) {
-                System.err.println(
-                    "Apple Silicon KataGo auto benchmark failed: " + e.getLocalizedMessage());
-                e.printStackTrace();
-                showAutomaticBenchmarkFailure(e);
+                reportAutomaticBenchmarkFailure("Apple Silicon KataGo auto benchmark", e);
               } finally {
                 if (notice != null) {
                   disposeBenchmarkNotice(notice);
@@ -4385,7 +4397,14 @@ public final class KataGoRuntimeHelper {
         + "</div>";
   }
 
-  private static void showAutomaticBenchmarkFailure(Exception error) {
+  private static void reportAutomaticBenchmarkFailure(String label, Exception error) {
+    // Losing compute ownership is normal when the user resumes analysis, not an engine failure.
+    if (isBenchmarkPreempted(error)) {
+      System.out.println(label + " yielded to active analysis; previous tuning is unchanged.");
+      return;
+    }
+    System.err.println(label + " failed: " + error.getLocalizedMessage());
+    error.printStackTrace();
     if (Lizzie.frame != null)
       SwingUtilities.invokeLater(
           () ->
@@ -4859,8 +4878,7 @@ public final class KataGoRuntimeHelper {
                 rememberStartupBenchmarkDismissal(snapshot);
                 System.out.println("First-run KataGo benchmark cancelled by user.");
               } catch (Exception e) {
-                System.err.println("First-run KataGo benchmark failed: " + e.getLocalizedMessage());
-                showAutomaticBenchmarkFailure(e);
+                reportAutomaticBenchmarkFailure("First-run KataGo benchmark", e);
               } finally {
                 if (notice != null) {
                   disposeBenchmarkNotice(notice);
