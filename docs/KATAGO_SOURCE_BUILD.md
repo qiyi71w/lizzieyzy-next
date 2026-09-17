@@ -292,6 +292,46 @@ This workflow neither uploads release assets nor updates stable downloads.
 
 ## Integration gates still required
 
+### Sealed source release staging
+
+`scripts/stage_katago_source_release.py` consumes one audited package per target and
+separate, executable-bound acceptance evidence. It checks every byte in the original
+inventory, including licenses and nested ROCm runtime data. Missing targets, changed
+files, path traversal, case collisions, symlinks, failed audits and old source identities
+all fail before a catalog becomes visible. It does not upload or publish anything.
+
+```sh
+python3 scripts/stage_katago_source_release.py \
+  --packages /path/to/packages-by-target \
+  --acceptance /path/to/acceptance-by-target \
+  --base-catalog src/main/resources/katago-assets.json \
+  --source /path/to/clean/pinned/KataGo \
+  --output /path/to/new/release-staging \
+  --tag next-YYYY-MM-DD.N
+```
+
+Each acceptance directory contains `hardware.json`: either a real focus probe result
+bound to that exact executable, or an explicit `PENDING_HARDWARE` record with a reason,
+source commit and executable digest. CPU execution cannot be deferred. ONNX CPU-provider
+evidence does not certify DirectML or Intel GPU/NPU hardware. Linux additionally requires
+`linux-compatibility.json`, recording the reference executable digest, symbol ceilings
+and passing distribution checks. Do not synthesize these records from a green compile.
+
+All 15 deterministic archives and the catalog are staged atomically. CUDA and TensorRT
+repair archives keep the compiled engine and notices, reusing the existing separately
+locked runtime installers instead of duplicating gigabytes. Other targets retain their
+full audited dependency closure. `source-release.json` describes the exact archive
+inventory and runtime policy; the original source receipt remains included as evidence.
+Default GTP and analysis templates are included from the same clean pinned source
+checkout. Archives are reopened and every stored file is hashed before staging completes.
+
+The shared catalog distinguishes official releases from `project-source-build`. Only
+the reviewed `wimi321/lizzieyzy-next` immutable release URL is accepted for project
+engines. Model URLs remain official and unchanged. Runtime repair, CUDA companions,
+experimental installation and TensorRT packaging use the same source-aware URL resolver.
+The checked-in production catalog is **not switched by staging**. Final archive upload,
+application package integration, signing and publication remain separate gates.
+
 Linux CUDA packages also carry the hash-locked SDK's `libz.so.1`, required dynamically by
 cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the build host.
 
@@ -306,3 +346,20 @@ cuDNN. CUDA/cuDNN remain external; zlib must not be silently resolved from the b
 - Collect all final assets in Draft and audit them before any pre-release publication.
 
 The current stable release, official download catalog and R2 assets must remain untouched.
+
+### Production Linux compatibility evidence
+
+The Linux source workflow runs `audit_katago_linux_compatibility.py` after relocation.
+It verifies the SHA-locked previous official 1.18.1 archive, extracts its AppImage
+payload without FUSE, and compares GLIBC, GLIBCXX and CXXABI symbol ceilings against
+every new bundled ELF file. It then runs both old and new executables inside pinned
+native amd64 Ubuntu 22.04 and 24.04 containers. The CPU target additionally performs
+a real GTP move with the pinned upstream model in each distribution.
+
+The new engine is tested with only the system C++ runtime installed; the old bundle's
+SSL/OpenCL system dependencies are added afterward for the baseline comparison. Engine packages,
+reference payloads and SDKs are mounted read-only, CUDA/cuDNN remain separately verified
+external dependencies, and no driver is installed on the runner or user's system.
+The log records actual libc/libstdc++ package versions. A failed loader or symbol check
+produces a retained FAIL report, never a missing-hardware waiver. GPU inference is not
+performed or claimed by this compatibility check. Final app packaging remains separate.

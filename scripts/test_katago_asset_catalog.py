@@ -68,6 +68,44 @@ class KataGoAssetCatalogTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "requires executableSha256"):
                 katago_asset_catalog.load_catalog(path)
 
+    def source_catalog(self):
+        catalog = katago_asset_catalog.load_catalog(katago_asset_catalog.DEFAULT_CATALOG)
+        catalog.update(origin="project-source-build", engineReleaseRepository="wimi321/lizzieyzy-next",
+                       engineReleaseTag="next-2026-09-17.1")
+        for asset_id, asset in catalog["assets"].items():
+            asset["assetName"] = f"katago-source-{catalog['katagoSourceCommit'][:12]}-{asset_id}.zip"
+        return catalog
+
+    def test_source_downloads_use_project_but_models_stay_official(self):
+        catalog = self.source_catalog()
+        katago_asset_catalog.validate_catalog(catalog)
+        self.assertTrue(katago_asset_catalog.asset_download_url(catalog, "windows-tensorrt").startswith(
+            "https://github.com/wimi321/lizzieyzy-next/releases/download/next-2026-09-17.1/"))
+        self.assertIn("lightvector/KataGo", katago_asset_catalog.model_download_url(catalog, "b10-balanced"))
+
+    def test_source_downloads_reject_foreign_repository_mutable_tag_and_wrong_commit(self):
+        for field, value in (("engineReleaseRepository", "evil/KataGo"), ("engineReleaseTag", "latest"),
+                             ("engineReleaseTag", "next-2026-09-17.1/../other"),
+                             ("katagoSourceCommit", "master"), ("origin", "unknown")):
+            with self.subTest(field=field, value=value):
+                catalog = self.source_catalog()
+                catalog[field] = value
+                with self.assertRaises(ValueError):
+                    katago_asset_catalog.validate_catalog(catalog)
+
+    def test_source_downloads_reject_wrong_asset_name(self):
+        for name in ("../engine.zip", "old-engine.zip", "folder\\engine.zip"):
+            catalog = self.source_catalog()
+            catalog["assets"]["windows-cpu"]["assetName"] = name
+            with self.assertRaises(ValueError):
+                katago_asset_catalog.validate_catalog(catalog)
+
+    def test_official_origin_cannot_override_repository(self):
+        catalog = katago_asset_catalog.load_catalog(katago_asset_catalog.DEFAULT_CATALOG)
+        catalog["engineReleaseRepository"] = "wimi321/lizzieyzy-next"
+        with self.assertRaises(ValueError):
+            katago_asset_catalog.validate_catalog(catalog)
+
 
 if __name__ == "__main__":
     unittest.main()
