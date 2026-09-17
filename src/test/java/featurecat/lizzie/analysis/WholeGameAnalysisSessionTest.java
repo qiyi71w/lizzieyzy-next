@@ -117,6 +117,42 @@ class WholeGameAnalysisSessionTest {
   }
 
   @Test
+  void idleForegroundDuringSnapshotRestoreStillResumesUnlessUserPaused() throws Exception {
+    for (boolean paused : List.of(false, true)) {
+      try (TestEnvironment env = TestEnvironment.open()) {
+        SessionFixture fixture = SessionFixture.create();
+        Lizzie.leelaz = allocate(Leelaz.class);
+        fixture.frame.userPaused = paused;
+        setField(fixture.session, "state", WholeGameAnalysisSession.State.PREPARING);
+        setField(fixture.session, "engineStartGeneration", 1);
+
+        invokeAcceptEngine(
+            fixture.session, fixture.engine, 1, WholeGameAnalysisSession.State.BASELINE);
+        fixture.session.cancel();
+        waitForFinished(fixture);
+
+        assertEquals(!paused, fixture.frame.resumeForeground);
+      }
+    }
+  }
+
+  @Test
+  void sharedEngineKeepsItsOwnForegroundLeaseRestoration() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      SessionFixture fixture = SessionFixture.create();
+      Lizzie.leelaz = allocate(Leelaz.class);
+      fixture.engine.shared = true;
+      setField(fixture.session, "state", WholeGameAnalysisSession.State.PREPARING);
+      setField(fixture.session, "engineStartGeneration", 1);
+      invokeAcceptEngine(
+          fixture.session, fixture.engine, 1, WholeGameAnalysisSession.State.BASELINE);
+      fixture.session.cancel();
+      waitForFinished(fixture);
+      assertFalse(fixture.frame.resumeForeground);
+    }
+  }
+
+  @Test
   void cancelMarksTheEngineShutdownBeforeTheAsyncCloserRuns() throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       SessionFixture fixture = SessionFixture.create();
@@ -910,6 +946,7 @@ class WholeGameAnalysisSessionTest {
     private boolean completeByInstallingAnalysis;
     private Integer requestResultOverride;
     private boolean loaded = true;
+    private boolean shared;
 
     private SessionAnalysisEngine() throws IOException {
       super(true);
@@ -933,6 +970,11 @@ class WholeGameAnalysisSessionTest {
     @Override
     public boolean isLoaded() {
       return loaded;
+    }
+
+    @Override
+    public boolean usesSharedForegroundEngine() {
+      return shared;
     }
 
     @Override
@@ -988,6 +1030,8 @@ class WholeGameAnalysisSessionTest {
     private int attachCount;
     private int finishedCount;
     private AnalysisEngine lastFinishedEngine;
+    private boolean resumeForeground;
+    private boolean userPaused;
 
     private TrackingFrame() {}
 
@@ -998,6 +1042,12 @@ class WholeGameAnalysisSessionTest {
         boolean resumeForegroundAnalysis) {
       finishedCount++;
       lastFinishedEngine = completedEngine;
+      resumeForeground = resumeForegroundAnalysis;
+    }
+
+    @Override
+    public boolean isUserAnalysisPaused() {
+      return userPaused;
     }
 
     @Override
