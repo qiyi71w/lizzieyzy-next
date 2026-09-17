@@ -204,7 +204,7 @@ class MacOSSigningSecurityTest(unittest.TestCase):
                     encoding="utf-8"
                 )
                 sign_step = workflow.index("sign_macos_release_with_retry.sh")
-                release_upload = workflow.index("gh release upload")
+                release_upload = workflow.index("upload_release_assets.py")
                 self.assertLess(sign_step, release_upload)
                 nearby = workflow[max(0, sign_step - 250): sign_step + 250]
                 self.assertNotIn("continue-on-error", nearby)

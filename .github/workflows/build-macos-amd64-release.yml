@@ -196,6 +196,7 @@ jobs:
           retention-days: 7
 
       - name: Upload verified assets to draft release
+        timeout-minutes: 90
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -208,7 +209,7 @@ jobs:
             --target-sha "$RELEASE_TARGET_SHA" \
             --github-ref "$RELEASE_GITHUB_REF" \
             --require-draft
-          gh release upload "$RELEASE_TAG" \
-            dist/release/*mac-intel.with-katago.dmg \
-            --repo "$RELEASE_REPOSITORY" \
-            --clobber
+          python3 scripts/upload_release_assets.py --platform mac-amd64 \
+            --date-tag "$RELEASE_DATE_TAG" --release-tag "$RELEASE_TAG" \
+            --prerelease "$RELEASE_PRERELEASE" --repository "$RELEASE_REPOSITORY" \
+            --target-sha "$RELEASE_TARGET_SHA" --github-ref "$RELEASE_GITHUB_REF"

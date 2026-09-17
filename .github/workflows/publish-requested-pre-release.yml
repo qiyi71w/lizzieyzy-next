@@ -143,7 +143,8 @@ jobs:
             scripts.test_validate_release_notes \
             scripts.test_macos_signing_security \
             scripts.test_validate_windows_release_assets \
-            scripts.test_validate_release_workflow_identity
+            scripts.test_validate_release_workflow_identity \
+            scripts.test_upload_release_assets
 
       - name: Build, verify, and publish the pre-release
         id: publish

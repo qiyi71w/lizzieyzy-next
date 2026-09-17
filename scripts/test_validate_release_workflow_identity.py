@@ -270,11 +270,12 @@ class ReleaseWorkflowIdentityWiringTest(unittest.TestCase):
                 )
                 self.assertIn("if-no-files-found: error", workflow[create:release_upload])
 
-    def test_every_clobber_is_guarded_and_windows_upload_is_last(self) -> None:
+    def test_every_upload_is_guarded_immutable_and_windows_upload_is_last(self) -> None:
         for name in self.build_workflows:
             with self.subTest(workflow=name):
                 workflow = self.workflow(name)
-                self.assertEqual(1, workflow.count("--clobber"))
+                self.assertNotIn("--clobber", workflow)
+                self.assertEqual(1, workflow.count("upload_release_assets.py"))
                 self.assertEqual(2, workflow.count("validate_release_workflow_identity.py"))
                 upload = workflow.index("Upload verified assets to draft release")
                 final_guard = workflow.index(
@@ -282,8 +283,9 @@ class ReleaseWorkflowIdentityWiringTest(unittest.TestCase):
                 )
                 self.assertLess(
                     final_guard,
-                    workflow.index("--clobber"),
+                    workflow.index("upload_release_assets.py"),
                 )
+                self.assertIn("timeout-minutes: 90", workflow[upload:])
 
         windows = self.workflow("build-windows-release.yml")
         upload = windows.index("Upload verified assets to draft release")
