@@ -75,6 +75,13 @@ def verify_version(text: str, source: bool) -> None:
         raise ValueError("distribution ran a different baseline engine")
 
 
+def write_probe_config(path: Path) -> None:
+    path.write_text(
+        "logAllGTPCommunication = false\nlogSearchInfo = false\nlogToStderr = true\n"
+        "numSearchThreads = 1\nrules = chinese\nponderingEnabled = false\nmaxVisits = 4\n",
+        encoding="utf-8")
+
+
 def audit(package: Path, sdk: Path, model: Path, output: Path) -> dict:
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise ValueError("distribution acceptance requires native Linux x86_64")
@@ -113,8 +120,7 @@ def audit(package: Path, sdk: Path, model: Path, output: Path) -> dict:
                     candidates[path.name] = checked(["readelf", "--version-info", str(path)], log)
             result["symbolCeilings"] = compare_symbols(baseline_symbols, candidates)
             config = output / "probe.cfg"
-            config.write_text("numSearchThreads = 1\nmaxVisits = 4\nlogToStderr = true\nlogDir = /tmp/katago-logs\n",
-                              encoding="utf-8")
+            write_probe_config(config)
             for distribution in lock["distributions"]:
                 image = distribution["image"]
                 checked(["docker", "pull", "--platform", "linux/amd64", image], log)

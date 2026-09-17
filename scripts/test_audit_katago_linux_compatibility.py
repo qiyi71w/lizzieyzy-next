@@ -6,11 +6,23 @@ import zipfile
 
 from audit_katago_linux_compatibility import (
     LOCK_PATH, SOURCE_COMMIT, compare_symbols, digest, extract_baseline, symbol_versions, verify_version,
+    write_probe_config,
 )
 
 
 class LinuxCompatibilityTest(unittest.TestCase):
     BASELINE = "GLIBC_2.3 GLIBC_2.34 GLIBCXX_3.4.9 GLIBCXX_3.4.30 CXXABI_1.3.13"
+
+    def test_gtp_fixture_defines_required_logging_and_rule_keys(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "gtp.cfg"
+            write_probe_config(path)
+            values = dict(line.split(" = ") for line in path.read_text(encoding="utf-8").splitlines())
+            self.assertEqual("false", values["logAllGTPCommunication"])
+            self.assertEqual("false", values["logSearchInfo"])
+            self.assertEqual("false", values["ponderingEnabled"])
+            self.assertEqual("chinese", values["rules"])
+            self.assertEqual("4", values["maxVisits"])
 
     def test_symbols_compare_numerically_not_lexicographically(self):
         self.assertEqual((3, 4, 30), symbol_versions(self.BASELINE)["GLIBCXX"])
