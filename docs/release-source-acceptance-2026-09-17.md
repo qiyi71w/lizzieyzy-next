@@ -65,7 +65,30 @@ retains the official DLL requirement and checks the complete reviewed source
 inventory in both staging and the final application image. A shell fixture
 rejects missing official DLLs and failed source audits. No old DLL is added.
 
-The `.4` tag remains unchanged and unpublished. `.5` must rebuild and verify all
+The `.4` tag remains unchanged and unpublished. The final signed `.5` Apple
+Silicon package passed signature, Gatekeeper, notarization, stapling, layout,
+native jpackage-launcher startup/analysis/exit and post-launch signature checks.
+Its unmodified JAR and engine passed the automatic and whole-game harnesses
+under the external test JDK 21. The internal signed Java CLI is not a supported
+test entry point; the real app launcher carries the required JIT entitlements
+and was separately tested with its bundled JVM.
+
+Final `.5` HumanSL testing failed even without concurrent benchmarking or Maven
+load. Its first 64-visit search could overrun a ten-second move clock because
+the client did not send an engine-side time limit. This supersedes the earlier
+assumption that only concurrent test load caused the timeout. Publication was
+stopped rather than repeatedly rerunning the failed package until it passed.
+[PR #506](https://github.com/wimi321/lizzieyzy-next/pull/506) sets the supported
+per-request `overrideSettings.maxTime`, reserves output/delivery time, and uses
+actual root visits rather than treating requested visits as completed work.
+Only searched/quality-checked candidates remain eligible. Two native Metal +
+B11 + HumanSL repeats passed AI opening, human move, AI reply, end and primary
+analysis restoration with the fix. Observed verification replies took 5.2-8.6
+seconds; time-limited responses retained their actual 10-24 root visits rather
+than claiming 64. This is functional smoke evidence, not a playing-strength
+benchmark.
+
+The `.5` tag remains unchanged and unpublished. `.6` must rebuild and verify all
 final signed packages; class-overlay tests do not certify those final packages.
 
 The unpublished `.2` candidate exposed two application-packaging defects.
