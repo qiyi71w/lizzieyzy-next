@@ -28,7 +28,6 @@ import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
 import java.awt.Window;
 import java.awt.geom.AffineTransform;
-import java.io.BufferedInputStream;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -47,11 +46,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.StringTokenizer;
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.SourceDataLine;
 import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JTable;
@@ -72,11 +66,9 @@ public class Utils {
   public static String aesKey2 = "iyekeeay2ueeaesk";
   public static String iv2 = "s6st73f49adc4c5d";
   private static int msemaphoretryroom = 1;
-  private static boolean alertedNoByoyomiSoundFile = false;
   private static final int MAX_AUTO_KATAGO_THREADS = 16;
   private static final String GTP_CONSOLE_MIGRATION_KEY = "migrated-hide-gtp-console-default-v2";
   private static final String APPLE_STYLE_MIGRATION_KEY = "migrated-apple-style-default-v1";
-  private static final String SOUND_RESOURCE_ROOT = "/assets/sound";
 
   public static void ajustScale(Graphics g) {
     if (Lizzie.isMultiScreen) {
@@ -1106,23 +1098,21 @@ public class Utils {
                 if (node.getData().blackCaptures > node.previous().get().getData().blackCaptures) {
                   if (node.getData().blackCaptures - node.previous().get().getData().blackCaptures
                       >= 3)
-                    playVoice(
-                        File.separator + "sound" + File.separator + "deadStoneMore.wav", false);
+                    playVoice(File.separator + "sound" + File.separator + "deadStoneMore.wav");
                   else
-                    playVoice(File.separator + "sound" + File.separator + "deadStone.wav", false);
+                    playVoice(File.separator + "sound" + File.separator + "deadStone.wav");
                 } else {
                   if (node.getData().whiteCaptures
                       > node.previous().get().getData().whiteCaptures) {
                     if (node.getData().whiteCaptures - node.previous().get().getData().whiteCaptures
                         >= 3)
-                      playVoice(
-                          File.separator + "sound" + File.separator + "deadStoneMore.wav", false);
+                      playVoice(File.separator + "sound" + File.separator + "deadStoneMore.wav");
                     else
-                      playVoice(File.separator + "sound" + File.separator + "deadStone.wav", false);
-                  } else playVoice(File.separator + "sound" + File.separator + "Stone.wav", false);
+                      playVoice(File.separator + "sound" + File.separator + "deadStone.wav");
+                  } else playVoice(File.separator + "sound" + File.separator + "Stone.wav");
                 }
               } else {
-                playVoice(File.separator + "sound" + File.separator + "Stone.wav", false);
+                playVoice(File.separator + "sound" + File.separator + "Stone.wav");
               }
             } catch (Exception e) {
               // TODO Auto-generated catch block
@@ -1137,79 +1127,15 @@ public class Utils {
 
   public static void playByoyomi(int seconds) {
     try {
-      playVoice(File.separator + "sound" + File.separator + seconds + ".wav", true);
+      playVoice(File.separator + "sound" + File.separator + seconds + ".wav");
     } catch (Exception e) {
       // TODO Auto-generated catch block
       e.printStackTrace();
     }
   }
 
-  private static void playVoice(String wav, boolean isByoyomi) throws Exception {
-    File file = new File("");
-    String courseFile = "";
-    try {
-      courseFile = file.getCanonicalPath();
-    } catch (IOException e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
-    }
-    String filePath = courseFile + wav;
-    if (!filePath.equals("")) {
-      try (AudioInputStream audioInputStream = openAudioInputStream(filePath, wav)) {
-        AudioFormat audioFormat = audioInputStream.getFormat();
-        DataLine.Info dataLineInfo =
-            new DataLine.Info(SourceDataLine.class, audioFormat, AudioSystem.NOT_SPECIFIED);
-        SourceDataLine sourceDataLine = (SourceDataLine) AudioSystem.getLine(dataLineInfo);
-        try {
-          sourceDataLine.open(audioFormat);
-          sourceDataLine.start();
-          int count;
-          byte tempBuffer[] = new byte[8192];
-          while ((count = audioInputStream.read(tempBuffer, 0, tempBuffer.length)) != -1) {
-            if (count > 0) {
-              sourceDataLine.write(tempBuffer, 0, count);
-            }
-          }
-          sourceDataLine.drain();
-        } finally {
-          sourceDataLine.close();
-        }
-      } catch (Exception e) {
-        if (isByoyomi) {
-          if (!alertedNoByoyomiSoundFile) {
-            alertedNoByoyomiSoundFile = true;
-            showMsg(Lizzie.resourceBundle.getString("Utils.noSoundFile") + wav + "\"");
-          }
-        } else {
-          Lizzie.config.playSound = false;
-          showMsg(Lizzie.resourceBundle.getString("Utils.noSoundFile") + wav + "\"");
-          Lizzie.config.uiConfig.put("play-sound", Lizzie.config.playSound);
-        }
-        return;
-      }
-    }
-  }
-
-  private static AudioInputStream openAudioInputStream(String filePath, String wav)
-      throws Exception {
-    File soundFile = new File(filePath);
-    if (soundFile.isFile()) {
-      return AudioSystem.getAudioInputStream(soundFile);
-    }
-
-    String normalized = wav.replace('\\', '/');
-    if (!normalized.startsWith("/")) {
-      normalized = "/" + normalized;
-    }
-    String resourcePath =
-        normalized.startsWith("/sound/")
-            ? SOUND_RESOURCE_ROOT + normalized.substring("/sound".length())
-            : SOUND_RESOURCE_ROOT + normalized;
-    InputStream soundStream = Utils.class.getResourceAsStream(resourcePath);
-    if (soundStream == null) {
-      throw new IOException("Missing bundled sound resource: " + resourcePath);
-    }
-    return AudioSystem.getAudioInputStream(new BufferedInputStream(soundStream));
+  private static void playVoice(String wav) {
+    SoundPlayer.play(wav);
   }
 
   private static Path getDistFile(String path, String newFolderName) throws IOException {
