@@ -430,6 +430,7 @@ class BoardRootSetupSeamTest {
   void conversionCommandConfirmsBeforeDiscardingRealHistory() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
+      EngineManager.isEmpty = true;
       BoardHistoryList history = SGFParser.parseSgf("(;SZ[3];B[aa];W[bb])", false);
       Lizzie.board.setHistory(history);
       TrackingFrame frame = (TrackingFrame) Lizzie.frame;

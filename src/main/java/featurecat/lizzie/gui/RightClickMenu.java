@@ -2,6 +2,7 @@ package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.GameInfo;
+import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.rules.Board;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -18,6 +19,17 @@ import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 
 public class RightClickMenu extends JPopupMenu {
+  static String trackingUnavailableKey(Leelaz.MoveFocusCapability capability, boolean tooltip) {
+    if (capability == Leelaz.MoveFocusCapability.UNSUPPORTED) {
+      return tooltip
+          ? "RightClickMenu.trackPoint.upgradeTooltip"
+          : "RightClickMenu.trackPoint.upgradeRequired";
+    }
+    return tooltip
+        ? "RightClickMenu.trackPoint.unavailableTooltip"
+        : "RightClickMenu.trackPoint.requiresCapability";
+  }
+
   //	public static int mousex;
   //	public static int mousey;
   public static int[] coords = LizzieFrame.outOfBoundCoordinate;
@@ -184,12 +196,12 @@ public class RightClickMenu extends JPopupMenu {
                   resourceBundle.getString(
                       canTrack
                           ? "RightClickMenu.trackPoint"
-                          : "RightClickMenu.trackPoint.requiresCapability"));
+                          : trackingUnavailableKey(Lizzie.leelaz.moveFocusCapability(), false)));
               trackPoint.setToolTipText(
                   resourceBundle.getString(
                       canTrack
                           ? "RightClickMenu.trackPoint.tooltip"
-                          : "RightClickMenu.trackPoint.unavailableTooltip"));
+                          : trackingUnavailableKey(Lizzie.leelaz.moveFocusCapability(), true)));
               untrackPoint.setVisible(isTracked);
               clearAllTracked.setVisible(hasTracked);
             }

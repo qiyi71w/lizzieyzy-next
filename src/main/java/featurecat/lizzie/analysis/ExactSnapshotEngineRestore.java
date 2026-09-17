@@ -7,12 +7,17 @@ import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -25,6 +30,12 @@ public final class ExactSnapshotEngineRestore {
   private static final int SGF_EXTENDED_COORD_THRESHOLD = 52;
   private static final String SGF_COORD_ALPHABET =
       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  static final String NO_WRITABLE_SNAPSHOT_LOCATION_DETAIL =
+      "No writable snapshot location is available. Check permissions for the temporary, engine "
+          + "working, and application runtime directories.";
+  static final String UNSUPPORTED_SNAPSHOT_TRANSPORT_DETAIL =
+      "This engine command cannot prove access to local snapshot files. Use Remote Compute or a "
+          + "direct local engine executable.";
   private static final ScheduledExecutorService DELETE_EXECUTOR =
       Executors.newSingleThreadScheduledExecutor(ExactSnapshotEngineRestore::newCleanupThread);
 
@@ -32,6 +43,7 @@ public final class ExactSnapshotEngineRestore {
 
   enum FailureCategory {
     ADMISSION_STALE,
+    SNAPSHOT_PREPARATION,
     UNSUPPORTED_REMOTE_POSITION,
     SEND_FAILED,
     GTP_ERROR,
@@ -151,16 +163,20 @@ public final class ExactSnapshotEngineRestore {
         }
       }
       requireSupportedRemotePosition(plan, remoteTargets);
-      if (plan.preclear) {
-        clearCapturedTargets(plan);
-      }
       try {
+        if (!localTargets.isEmpty()) {
+          StagedSnapshot stagedSnapshot = stageSnapshotSgf(plan, localTargets);
+          lifecycle = new RestoreLifecycle(stagedSnapshot);
+          stagedSnapshot.requireCurrent(plan.admission);
+          localTargets.get(0).beforeExactSnapshotPreclearForTest();
+        }
+        if (plan.preclear) {
+          clearCapturedTargets(plan, lifecycle == null ? null : lifecycle.stagedSnapshot);
+        }
         if (!remoteTargets.isEmpty()) {
           restoreRemoteSnapshotInBand(plan, remoteTargets);
         }
         if (!localTargets.isEmpty()) {
-          Path sgfFile = writeSnapshotSgf(plan);
-          lifecycle = new RestoreLifecycle(sgfFile);
           restoreLocalSnapshotSgf(plan, localTargets, lifecycle);
         }
       } catch (RuntimeException failure) {
@@ -240,12 +256,20 @@ public final class ExactSnapshotEngineRestore {
       RestorePlan plan, List<Leelaz> localTargets, RestoreLifecycle lifecycle) {
     Leelaz loadEngine = localTargets.get(0);
     Leelaz loadMirror = localTargets.size() > 1 ? localTargets.get(1) : null;
+    StagedTargetFile authorityFile = lifecycle.stagedSnapshot.forEngine(loadEngine);
+    StagedTargetFile mirrorFile =
+        loadMirror == null ? null : lifecycle.stagedSnapshot.forEngine(loadMirror);
     loadEngine.withExactSnapshotRestoreAdmission(
         plan.admission,
         () ->
             loadEngine.loadSgfForExactSnapshotRestore(
-                lifecycle.sgfFile,
+                authorityFile.physicalPath,
+                authorityFile.gtpFileName,
+                authorityFile.fileAccess,
                 loadMirror,
+                mirrorFile == null ? null : mirrorFile.physicalPath,
+                mirrorFile == null ? null : mirrorFile.gtpFileName,
+                mirrorFile == null ? null : mirrorFile.fileAccess,
                 plan.admission,
                 lifecycle::onLoadSgfConsumed,
                 lifecycle::onLoadDispatchStarted));
@@ -281,20 +305,28 @@ public final class ExactSnapshotEngineRestore {
     return Board.coordsAsName(x) + (boardHeight - y);
   }
 
-  private static void clearCapturedTargets(RestorePlan plan) {
+  private static void clearCapturedTargets(RestorePlan plan, StagedSnapshot stagedSnapshot) {
     for (Leelaz targetEngine : plan.targetEngines) {
-      sendCapturedRestoreCommand(plan, targetEngine, "clear_board", "preclear");
+      Leelaz.SnapshotFileAccess fileAccess =
+          targetEngine.useRemoteCompute || stagedSnapshot == null
+              ? null
+              : stagedSnapshot.forEngine(targetEngine).fileAccess;
+      sendCapturedRestoreCommand(plan, targetEngine, fileAccess, "clear_board", "preclear");
       targetEngine.onCapturedRestoreClearCommandSent();
     }
   }
 
   private static void sendCapturedRestoreCommand(
-      RestorePlan plan, Leelaz target, String command, String phase) {
+      RestorePlan plan,
+      Leelaz target,
+      Leelaz.SnapshotFileAccess fileAccess,
+      String command,
+      String phase) {
     final RuntimeException[] failure = new RuntimeException[1];
     target.withExactSnapshotRestoreAdmission(
         plan.admission,
         () -> {
-          if (!target.sendCommandToCapturedRestoreTarget(command, plan.admission)) {
+          if (!target.sendCommandToCapturedRestoreTarget(command, plan.admission, fileAccess)) {
             failure[0] =
                 new Failure(
                     FailureCategory.TAIL_REJECTED,
@@ -306,23 +338,187 @@ public final class ExactSnapshotEngineRestore {
     }
   }
 
-  private static Path writeSnapshotSgf(RestorePlan plan) {
-    Path sgfFile = null;
-    try {
-      sgfFile = Files.createTempFile("lizzie-snapshot-", ".sgf");
-      String sgf = buildSnapshotSgf(plan);
-      Files.writeString(sgfFile, sgf);
-      if (TrialDiag.ENABLED) {
-        System.out.println("[trial-sgf] " + sgf);
-      }
-      return sgfFile;
-    } catch (IOException ex) {
-      deleteFailedSnapshotFile(sgfFile, ex);
-      throw new IllegalStateException("Failed to build snapshot SGF for engine restore", ex);
-    } catch (RuntimeException ex) {
-      deleteFailedSnapshotFile(sgfFile, ex);
-      throw ex;
+  private static StagedSnapshot stageSnapshotSgf(RestorePlan plan, List<Leelaz> localTargets) {
+    List<SnapshotTargetAccess> targetAccesses = new ArrayList<>(localTargets.size());
+    for (Leelaz target : localTargets) {
+      targetAccesses.add(
+          new SnapshotTargetAccess(target, target.captureSnapshotFileAccess(plan.admission)));
     }
+
+    String sgf = buildSnapshotSgf(plan);
+    if (TrialDiag.ENABLED) {
+      System.out.println("[trial-sgf] " + sgf);
+    }
+    List<Throwable> failures = new ArrayList<>();
+    Path defaultTempDirectory = configuredTempDirectory();
+    StagedSnapshot staged =
+        tryStageSharedAbsolute(targetAccesses, defaultTempDirectory, sgf, false, failures);
+    if (staged == null) {
+      staged = tryStageWorkingDirectoryRelative(targetAccesses, sgf, failures);
+    }
+    if (staged == null) {
+      for (Path fallbackDirectory : sharedFallbackDirectories()) {
+        staged = tryStageSharedAbsolute(targetAccesses, fallbackDirectory, sgf, true, failures);
+        if (staged != null) {
+          break;
+        }
+      }
+    }
+    if (staged == null) {
+      IOException cause =
+          new IOException("No safe writable snapshot directory was available to every engine.");
+      failures.forEach(cause::addSuppressed);
+      throw new Failure(
+          FailureCategory.SNAPSHOT_PREPARATION,
+          NO_WRITABLE_SNAPSHOT_LOCATION_DETAIL,
+          cause);
+    }
+    try {
+      staged.requireCurrent(plan.admission);
+      return staged;
+    } catch (RuntimeException stale) {
+      staged.deleteImmediately(stale);
+      throw stale;
+    }
+  }
+
+  private static Path configuredTempDirectory() {
+    String configured = System.getProperty("java.io.tmpdir");
+    if (configured == null || configured.isBlank()) {
+      return null;
+    }
+    try {
+      return Path.of(configured).toAbsolutePath().normalize();
+    } catch (RuntimeException invalid) {
+      return null;
+    }
+  }
+
+  private static StagedSnapshot tryStageSharedAbsolute(
+      List<SnapshotTargetAccess> targets,
+      Path directory,
+      String sgf,
+      boolean createDirectory,
+      List<Throwable> failures) {
+    if (directory == null
+        || !isSafeGtpFileName(directory.toAbsolutePath().normalize().toString())) {
+      return null;
+    }
+    Path snapshotFile = null;
+    try {
+      if (createDirectory) {
+        Files.createDirectories(directory);
+      }
+      snapshotFile = writeSnapshotFile(directory, sgf);
+      String gtpFileName = snapshotFile.toAbsolutePath().normalize().toString();
+      if (!isSafeGtpFileName(gtpFileName)) {
+        throw new IOException("Snapshot absolute path is not safe for GTP: " + gtpFileName);
+      }
+      List<StagedTargetFile> targetFiles = new ArrayList<>(targets.size());
+      for (SnapshotTargetAccess target : targets) {
+        targetFiles.add(
+            new StagedTargetFile(target.engine, target.fileAccess, snapshotFile, gtpFileName));
+      }
+      return new StagedSnapshot(targetFiles, Set.of(snapshotFile));
+    } catch (IOException | RuntimeException failure) {
+      deleteFailedSnapshotFile(snapshotFile, failure);
+      failures.add(failure);
+      return null;
+    }
+  }
+
+  private static StagedSnapshot tryStageWorkingDirectoryRelative(
+      List<SnapshotTargetAccess> targets, String sgf, List<Throwable> failures) {
+    for (SnapshotTargetAccess target : targets) {
+      if (target.fileAccess.provenWorkingDirectory() == null) {
+        return null;
+      }
+    }
+    Map<Path, Path> filesByDirectory = new LinkedHashMap<>();
+    List<StagedTargetFile> targetFiles = new ArrayList<>(targets.size());
+    try {
+      for (SnapshotTargetAccess target : targets) {
+        Path workingDirectory = target.fileAccess.provenWorkingDirectory();
+        Path snapshotFile = filesByDirectory.get(workingDirectory);
+        if (snapshotFile == null) {
+          snapshotFile = writeSnapshotFile(workingDirectory, sgf);
+          filesByDirectory.put(workingDirectory, snapshotFile);
+        }
+        String gtpFileName = snapshotFile.getFileName().toString();
+        if (!isSafeGtpFileName(gtpFileName)) {
+          throw new IOException("Snapshot relative path is not safe for GTP: " + gtpFileName);
+        }
+        targetFiles.add(
+            new StagedTargetFile(target.engine, target.fileAccess, snapshotFile, gtpFileName));
+      }
+      return new StagedSnapshot(targetFiles, new LinkedHashSet<>(filesByDirectory.values()));
+    } catch (IOException | RuntimeException failure) {
+      for (Path snapshotFile : filesByDirectory.values()) {
+        deleteFailedSnapshotFile(snapshotFile, failure);
+      }
+      failures.add(failure);
+      return null;
+    }
+  }
+
+  private static Path writeSnapshotFile(Path directory, String sgf) throws IOException {
+    Path snapshotFile = null;
+    try {
+      snapshotFile = Files.createTempFile(directory, "lizzie-snapshot-", ".sgf");
+      Files.writeString(snapshotFile, sgf, StandardCharsets.UTF_8);
+      if (!Files.isRegularFile(snapshotFile)
+          || !Files.isReadable(snapshotFile)
+          || Files.size(snapshotFile) == 0L) {
+        throw new IOException("Snapshot SGF was not written completely: " + snapshotFile);
+      }
+      return snapshotFile;
+    } catch (IOException | RuntimeException failure) {
+      deleteFailedSnapshotFile(snapshotFile, failure);
+      throw failure;
+    }
+  }
+
+  private static List<Path> sharedFallbackDirectories() {
+    LinkedHashSet<Path> directories = new LinkedHashSet<>();
+    if (Lizzie.config != null) {
+      try {
+        directories.add(
+            Lizzie.config.getRuntimeWorkDirectory().toPath().toAbsolutePath().normalize());
+      } catch (RuntimeException ignored) {
+      }
+    }
+    addWindowsFallback(
+        directories, System.getenv("PUBLIC"), "Documents", "LizzieYzyNext", "runtime");
+    addWindowsFallback(directories, System.getenv("PUBLIC"), "LizzieYzyNext", "runtime");
+    addWindowsFallback(directories, System.getenv("ProgramData"), "LizzieYzyNext", "runtime");
+    return List.copyOf(directories);
+  }
+
+  private static void addWindowsFallback(Set<Path> directories, String root, String... children) {
+    if (root == null || root.isBlank()) {
+      return;
+    }
+    try {
+      Path directory = Path.of(root);
+      for (String child : children) {
+        directory = directory.resolve(child);
+      }
+      directories.add(directory.toAbsolutePath().normalize());
+    } catch (RuntimeException ignored) {
+    }
+  }
+
+  private static boolean isSafeGtpFileName(String value) {
+    if (value == null || value.isEmpty()) {
+      return false;
+    }
+    for (int index = 0; index < value.length(); index++) {
+      char character = value.charAt(index);
+      if (character < 33 || character > 126 || character == '#') {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static void deleteFailedSnapshotFile(Path sgfFile, Throwable failure) {
@@ -735,15 +931,80 @@ public final class ExactSnapshotEngineRestore {
     }
   }
 
+  private static final class SnapshotTargetAccess {
+    private final Leelaz engine;
+    private final Leelaz.SnapshotFileAccess fileAccess;
+
+    private SnapshotTargetAccess(Leelaz engine, Leelaz.SnapshotFileAccess fileAccess) {
+      this.engine = engine;
+      this.fileAccess = fileAccess;
+    }
+  }
+
+  private static final class StagedTargetFile {
+    private final Leelaz engine;
+    private final Leelaz.SnapshotFileAccess fileAccess;
+    private final Path physicalPath;
+    private final String gtpFileName;
+
+    private StagedTargetFile(
+        Leelaz engine,
+        Leelaz.SnapshotFileAccess fileAccess,
+        Path physicalPath,
+        String gtpFileName) {
+      this.engine = engine;
+      this.fileAccess = fileAccess;
+      this.physicalPath = physicalPath;
+      this.gtpFileName = gtpFileName;
+    }
+  }
+
+  private static final class StagedSnapshot {
+    private final List<StagedTargetFile> targetFiles;
+    private final Set<Path> ownedFiles;
+
+    private StagedSnapshot(List<StagedTargetFile> targetFiles, Set<Path> ownedFiles) {
+      this.targetFiles = List.copyOf(targetFiles);
+      this.ownedFiles = Set.copyOf(ownedFiles);
+    }
+
+    private StagedTargetFile forEngine(Leelaz engine) {
+      for (StagedTargetFile targetFile : targetFiles) {
+        if (targetFile.engine == engine) {
+          return targetFile;
+        }
+      }
+      throw new IllegalArgumentException("Engine is not part of the staged snapshot");
+    }
+
+    private void requireCurrent(Leelaz.ExactSnapshotRestoreAdmission admission) {
+      for (StagedTargetFile targetFile : targetFiles) {
+        targetFile.engine.requireSnapshotFileAccessCurrent(targetFile.fileAccess, admission);
+      }
+    }
+
+    private void deleteImmediately(Throwable failure) {
+      for (Path ownedFile : ownedFiles) {
+        deleteFailedSnapshotFile(ownedFile, failure);
+      }
+    }
+
+    private void delete() {
+      for (Path ownedFile : ownedFiles) {
+        deleteSnapshotFile(ownedFile, 0);
+      }
+    }
+  }
+
   private static final class RestoreLifecycle {
-    private final Path sgfFile;
+    private final StagedSnapshot stagedSnapshot;
     private final AtomicBoolean loadSgfConsumed = new AtomicBoolean(false);
     private final AtomicBoolean loadDispatchStarted = new AtomicBoolean(false);
     private final AtomicBoolean tailReplayFinished = new AtomicBoolean(false);
     private final AtomicBoolean deleteStarted = new AtomicBoolean(false);
 
-    private RestoreLifecycle(Path sgfFile) {
-      this.sgfFile = sgfFile;
+    private RestoreLifecycle(StagedSnapshot stagedSnapshot) {
+      this.stagedSnapshot = stagedSnapshot;
     }
 
     private void onLoadSgfConsumed() {
@@ -774,7 +1035,7 @@ public final class ExactSnapshotEngineRestore {
       if (!deleteStarted.compareAndSet(false, true)) {
         return;
       }
-      deleteSnapshotFile(sgfFile, 0);
+      stagedSnapshot.delete();
     }
   }
 }

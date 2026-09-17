@@ -1188,6 +1188,12 @@ class ReadBoardGmaSessionContractTest {
         },
         new Object[] {
           new ExactSnapshotEngineRestore.Failure(
+              ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+              "Could not prepare an engine-readable snapshot SGF"),
+          ReadBoardGmaSession.FailureCategory.SNAPSHOT_PREPARATION
+        },
+        new Object[] {
+          new ExactSnapshotEngineRestore.Failure(
               ExactSnapshotEngineRestore.FailureCategory.SEND_FAILED,
               "Exact snapshot restore loadsgf command was rejected: loadsgf /tmp/lizzie-snapshot-1.sgf"),
           ReadBoardGmaSession.FailureCategory.SEND_FAILED

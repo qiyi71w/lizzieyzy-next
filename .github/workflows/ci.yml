@@ -14,38 +14,140 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows-script-validation:
-    runs-on: windows-latest
-    timeout-minutes: 30
-
+  repository-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Run repository checks
+        run: python3 scripts/run_local_ci.py --profile portable --group repository --require-clean --summary-dir target/local-ci/portable-repository
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-portable-repository
+          path: target/local-ci/portable-repository
+          if-no-files-found: warn
 
+  script-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Run portable script tests
+        run: python3 scripts/run_local_ci.py --profile portable --group scripts --require-clean --summary-dir target/local-ci/portable-scripts
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-portable-scripts
+          path: target/local-ci/portable-scripts
+          if-no-files-found: warn
+
+  windows-script-tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.x'
+      - name: Run Windows repository checks
+        shell: pwsh
+        run: python scripts/run_local_ci.py --profile windows --group repository --require-clean --summary-dir target/local-ci/windows-repository
+      - name: Run Windows script tests
+        shell: pwsh
+        run: python scripts/run_local_ci.py --profile windows --group scripts --require-clean --summary-dir target/local-ci/windows-scripts
+      - name: Upload repository summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-windows-repository
+          path: target/local-ci/windows-repository
+          if-no-files-found: warn
+      - name: Upload script summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-windows-scripts
+          path: target/local-ci/windows-scripts
+          if-no-files-found: warn
 
+  java-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
       - name: Set up Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-
-      - name: Run Windows CI preflight
-        shell: pwsh
-        run: python scripts/run_local_ci.py --profile windows --require-clean --summary-dir target/local-ci/windows
-
+      - name: Run Linux Java verification
+        run: python3 scripts/run_local_ci.py --profile portable --group java --require-clean --summary-dir target/local-ci/portable-java
       - name: Upload local CI summary
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: local-ci-summary-windows
-          path: target/local-ci/windows
+          name: local-ci-summary-portable-java
+          path: target/local-ci/portable-java
           if-no-files-found: warn
+      - name: Upload JaCoCo coverage report
+        uses: actions/upload-artifact@v6
+        with:
+          name: jacoco-coverage-report-linux
+          path: target/site/jacoco
+          if-no-files-found: error
 
+  java-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Set Windows diagnostic deadline
+        shell: pwsh
+        run: |
+          $deadline = [DateTimeOffset]::UtcNow.AddMinutes(27).ToUnixTimeSeconds()
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LIZZIE_CI_DEADLINE_UNIX_SECONDS=$deadline" -Encoding utf8
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run Windows Java verification
+        shell: pwsh
+        timeout-minutes: 25
+        run: ./scripts/run_windows_ci_diagnostics.ps1
+      - name: Upload Windows Java diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-java-diagnostics
+          retention-days: 14
+          path: |
+            target/ci-diagnostics
+            target/surefire-reports
+            target/failsafe-reports
+          if-no-files-found: warn
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-windows-java
+          path: target/local-ci/windows-java
+          if-no-files-found: warn
       - name: Upload JaCoCo coverage report
         uses: actions/upload-artifact@v6
         with:
@@ -53,35 +155,163 @@ jobs:
           path: target/site/jacoco
           if-no-files-found: error
 
-  build:
+  desktop-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-
-      - name: Run portable CI preflight
-        run: python3 scripts/run_local_ci.py --profile portable --require-clean --summary-dir target/local-ci/portable
-
+      - name: Install display and font dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth openbox x11-utils fonts-dejavu-core fonts-noto-cjk
+      - name: Run Linux desktop smoke verification
+        timeout-minutes: 10
+        env:
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+        run: |
+          xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' bash -euo pipefail -c '
+            mkdir -p target/desktop-smoke
+            openbox --sm-disable > target/desktop-smoke/window-manager.log 2>&1 &
+            wm_pid=$!
+            cleanup() {
+              kill "$wm_pid" 2>/dev/null || true
+              wait "$wm_pid" 2>/dev/null || true
+            }
+            trap cleanup EXIT
+            ready=false
+            for attempt in {1..100}; do
+              kill -0 "$wm_pid"
+              if xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"; then
+                ready=true
+                break
+              fi
+              sleep 0.1
+            done
+            if [[ "$ready" != true ]]; then
+              cat target/desktop-smoke/window-manager.log
+              exit 1
+            fi
+            for attempt in 1 2 3; do
+              python3 scripts/run_local_ci.py --profile portable --group desktop --require-clean \
+                --summary-dir "target/local-ci/portable-desktop/attempt-$attempt"
+            done
+          '
+      - name: Upload desktop smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: desktop-smoke
+          path: target/desktop-smoke
+          if-no-files-found: warn
       - name: Upload local CI summary
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: local-ci-summary-linux
-          path: target/local-ci/portable
+          name: local-ci-summary-portable-desktop
+          path: target/local-ci/portable-desktop
           if-no-files-found: warn
 
-      - name: Upload JaCoCo coverage report
+  engine-process:
+    name: Engine process (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-xvfb
+            os: ubuntu-latest
+            profile: portable
+            summary: portable-engine-process
+          - name: windows-native
+            os: windows-latest
+            profile: windows
+            summary: windows-engine-process
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Install Linux display dependencies
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth fonts-dejavu-core fonts-noto-cjk
+      - name: Run Linux engine process verification
+        if: ${{ runner.os == 'Linux' }}
+        timeout-minutes: 10
+        env:
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+        run: xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' python3 scripts/run_local_ci.py --profile ${{ matrix.profile }} --group engine-process --require-clean --summary-dir target/local-ci/${{ matrix.summary }}
+      - name: Run native Windows engine process verification
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        timeout-minutes: 10
+        run: python scripts/run_local_ci.py --profile ${{ matrix.profile }} --group engine-process --require-clean --summary-dir target/local-ci/${{ matrix.summary }}
+      - name: Upload engine process artifacts
+        if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: jacoco-coverage-report-linux
-          path: target/site/jacoco
-          if-no-files-found: error
+          name: engine-process-${{ matrix.name }}
+          path: target/engine-process-smoke
+          if-no-files-found: warn
+      - name: Upload local CI summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-ci-summary-${{ matrix.summary }}
+          path: target/local-ci/${{ matrix.summary }}
+          if-no-files-found: warn
+
+  ci-required:
+    if: ${{ always() }}
+    needs: [repository-checks, script-tests, windows-script-tests, java-linux, java-windows, desktop-smoke, engine-process]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Require all execution jobs
+        env:
+          REPOSITORY: ${{ needs.repository-checks.result }}
+          SCRIPTS: ${{ needs.script-tests.result }}
+          WINDOWS_SCRIPTS: ${{ needs.windows-script-tests.result }}
+          JAVA_LINUX: ${{ needs.java-linux.result }}
+          JAVA_WINDOWS: ${{ needs.java-windows.result }}
+          DESKTOP: ${{ needs.desktop-smoke.result }}
+          ENGINE_PROCESS: ${{ needs.engine-process.result }}
+        run: |
+          printf '%s\n' "repository-checks=$REPOSITORY" "script-tests=$SCRIPTS" "windows-script-tests=$WINDOWS_SCRIPTS" "java-linux=$JAVA_LINUX" "java-windows=$JAVA_WINDOWS" "desktop-smoke=$DESKTOP" "engine-process=$ENGINE_PROCESS"
+          python3 - <<'PY'
+          import os
+          from scripts.run_local_ci import require_successful_job_results
+
+          require_successful_job_results(
+              {
+                  "repository-checks": os.environ["REPOSITORY"],
+                  "script-tests": os.environ["SCRIPTS"],
+                  "windows-script-tests": os.environ["WINDOWS_SCRIPTS"],
+                  "java-linux": os.environ["JAVA_LINUX"],
+                  "java-windows": os.environ["JAVA_WINDOWS"],
+                  "desktop-smoke": os.environ["DESKTOP"],
+                  "engine-process": os.environ["ENGINE_PROCESS"],
+              }
+          )
+          PY

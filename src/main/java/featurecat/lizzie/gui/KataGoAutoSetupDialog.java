@@ -193,13 +193,13 @@ public class KataGoAutoSetupDialog extends JDialog {
   private final JLabel lblDiscoverySourceValue = new JFontLabel();
   private final JLabel lblPackageFlavorValue = new JFontLabel();
   private final JLabel lblEngineValidationValue = new JFontLabel();
-  private final JLabel lblNvidiaRuntimeValue = new JFontLabel();
-  private final JLabel lblNvidiaGpuValue = new JFontLabel();
-  private final JLabel lblTensorRtRuntimeValue = new JFontLabel();
-  private final JLabel lblTensorRtCompanionValue = new JFontLabel();
-  private final JLabel lblTensorRtEngineValue = new JFontLabel();
-  private final JLabel lblTensorRtActivationValue = new JFontLabel();
-  private final JLabel lblExperimentalBackendValue = new JFontLabel();
+  private final JTextArea lblNvidiaRuntimeValue = createAccelerationStatusChip();
+  private final JTextArea lblNvidiaGpuValue = createAccelerationStatusChip();
+  private final JTextArea lblTensorRtRuntimeValue = createAccelerationStatusChip();
+  private final JTextArea lblTensorRtCompanionValue = createAccelerationStatusChip();
+  private final JTextArea lblTensorRtEngineValue = createAccelerationStatusChip();
+  private final JTextArea lblTensorRtActivationValue = createAccelerationStatusChip();
+  private final JTextArea lblExperimentalBackendValue = createAccelerationStatusChip();
   private final JLabel lblBenchmarkNnValue = new JFontLabel();
   private final JLabel lblBenchmarkNnUnit = new JFontLabel();
   private final JLabel lblBenchmarkNnTechnical = new JFontLabel();
@@ -810,7 +810,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     styleButton(btnDownloadQuickAnalysisModel, false);
     styleButton(btnInstallNvidiaRuntime, false);
     styleButton(btnInstallTensorRt, false);
-    styleButton(btnEnableTensorRt, false);
+    styleButton(btnEnableTensorRt, true);
     styleButton(btnSwitchBackCuda, false);
     styleButton(btnCleanTensorRtCache, false);
     styleButton(btnInstallExperimentalBackend, false);
@@ -1471,32 +1471,27 @@ public class KataGoAutoSetupDialog extends JDialog {
   private JPanel createAccelerationSection() {
     JPanel rows = createRowsPanel();
     GridBagConstraints gbc = createRowConstraints();
-    addInfoRow(rows, gbc, text("AutoSetup.nvidiaRuntime"), lblNvidiaRuntimeValue);
-    addInfoRow(rows, gbc, text("AutoSetup.nvidiaGpu"), lblNvidiaGpuValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtRuntimeStatus"), lblTensorRtRuntimeValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtCompanionStatus"), lblTensorRtCompanionValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtEngineStatus"), lblTensorRtEngineValue);
-    addInfoRow(rows, gbc, text("AutoSetup.tensorRtActivationStatus"), lblTensorRtActivationValue);
+    addAccelerationStatusRow(rows, gbc, text("AutoSetup.nvidiaRuntime"), lblNvidiaRuntimeValue);
+    addAccelerationStatusRow(rows, gbc, text("AutoSetup.nvidiaGpu"), lblNvidiaGpuValue);
+    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtRuntimeStatus"), lblTensorRtRuntimeValue);
+    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtCompanionStatus"), lblTensorRtCompanionValue);
+    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtEngineStatus"), lblTensorRtEngineValue);
+    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtActivationStatus"), lblTensorRtActivationValue);
     makeTensorRtStatusRowsKeyboardReachable();
-    addInfoRow(rows, gbc, text("AutoSetup.experimentalBackendStatus"), lblExperimentalBackendValue);
+    addAccelerationStatusRow(rows, gbc, text("AutoSetup.experimentalBackendStatus"), lblExperimentalBackendValue);
 
-    JTextArea tensorRtHint = createHintText(text("AutoSetup.accelerationTensorRtHint"));
-    addComponentRow(rows, gbc, text("AutoSetup.installTensorRt"), tensorRtHint);
-
-    JTextArea experimentalHint = createHintText(text("AutoSetup.experimentalBackendHint"));
-    addComponentRow(rows, gbc, text("AutoSetup.experimentalBackends"), experimentalHint);
-    JPanel experimentalActions =
-        createResponsiveActionRow(cmbExperimentalBackend, btnInstallExperimentalBackend);
-    addComponentRow(rows, gbc, text("AutoSetup.experimentalBackendChoose"), experimentalActions);
-
-    JPanel actions =
-        createActionBar(
-            FlowLayout.RIGHT,
-            btnInstallNvidiaRuntime,
-            btnInstallTensorRt,
-            btnEnableTensorRt,
-            btnSwitchBackCuda,
-            btnCleanTensorRtCache);
+    addAccelerationActionBlock(
+        rows, gbc, text("AutoSetup.installTensorRt"),
+        text("AutoSetup.accelerationTensorRtHint"),
+        KataGoAccelerationLayout.primaryActions(btnInstallTensorRt, btnEnableTensorRt));
+    addAccelerationActionBlock(
+        rows, gbc, text("AutoSetup.experimentalBackends"),
+        text("AutoSetup.experimentalBackendHint"),
+        KataGoAccelerationLayout.experimentalActions(cmbExperimentalBackend, btnInstallExperimentalBackend));
+    addAccelerationActionBlock(
+        rows, gbc, text("AutoSetup.maintenanceActions"), null,
+        KataGoAccelerationLayout.maintenanceActions(
+            btnInstallNvidiaRuntime, btnSwitchBackCuda, btnCleanTensorRtCache));
     directedTensorRtBanner.setOpaque(true);
     directedTensorRtBanner.setBackground(new Color(255, 249, 235));
     directedTensorRtBanner.setBorder(
@@ -1513,7 +1508,48 @@ public class KataGoAutoSetupDialog extends JDialog {
         text("AutoSetup.accelerationTitle"),
         text("AutoSetup.accelerationSubtitle"),
         accelerationBody,
-        actions);
+        null);
+  }
+
+  private static JTextArea createAccelerationStatusChip() {
+    return KataGoAccelerationLayout.statusChip(new JFontLabel().getFont(), INFO_BG, INFO_BORDER);
+  }
+
+  private void addAccelerationStatusRow(
+      JPanel panel, GridBagConstraints gbc, String title, JTextArea status) {
+    JFontLabel titleLabel = new JFontLabel(title);
+    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setVerticalAlignment(SwingConstants.TOP);
+    int titleWidth = localizedRowLabelWidth(titleLabel);
+    titleLabel.setPreferredSize(new Dimension(titleWidth, 32));
+    titleLabel.setMinimumSize(new Dimension(titleWidth, 32));
+    GridBagConstraints constraints = (GridBagConstraints) gbc.clone();
+    constraints.gridx = 0;
+    constraints.gridwidth = 2;
+    constraints.weightx = 1;
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+    constraints.anchor = GridBagConstraints.NORTHWEST;
+    panel.add(KataGoAccelerationLayout.statusRow(titleLabel, status), constraints);
+    gbc.gridy++;
+  }
+
+  private void addAccelerationActionBlock(
+      JPanel panel, GridBagConstraints gbc, String title, String hint, JComponent actions) {
+    JFontLabel titleLabel = new JFontLabel(title);
+    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
+    JTextArea hintArea = hint == null ? null
+        : KataGoAccelerationLayout.hint(hint, new JFontLabel().getFont(), TEXT_SECONDARY);
+    JPanel block = KataGoAccelerationLayout.actionBlock(titleLabel, hintArea, actions);
+    GridBagConstraints constraints = (GridBagConstraints) gbc.clone();
+    constraints.gridx = 0;
+    constraints.gridwidth = 2;
+    constraints.weightx = 1;
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+    constraints.anchor = GridBagConstraints.NORTHWEST;
+    constraints.insets = new Insets(14, 0, 4, 0);
+    panel.add(block, constraints);
+    gbc.gridy++;
   }
 
   private JPanel createBenchmarkSection() {
@@ -2601,7 +2637,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     KataGoRuntimeHelper.NvidiaRuntimeStatus status =
         snapshot == null ? null : KataGoRuntimeHelper.inspectNvidiaRuntime(snapshot);
     if (status == null || !status.applicable) {
-      setWrappedInfoText(lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntimeNotApplicable"));
+      KataGoAccelerationLayout.setStatusText(lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntimeNotApplicable"));
       lblNvidiaRuntimeValue.setToolTipText(null);
       lblNvidiaRuntimeValue.setForeground(Color.DARK_GRAY);
       AccessibilitySupport.named(
@@ -2612,7 +2648,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       updateTensorRtInfo();
       return;
     }
-    setWrappedInfoText(lblNvidiaRuntimeValue, compactInfoText(status.detailText, 76));
+    KataGoAccelerationLayout.setStatusText(lblNvidiaRuntimeValue, status.detailText);
     lblNvidiaRuntimeValue.setToolTipText(status.detailText);
     lblNvidiaRuntimeValue.setForeground(status.ready ? OK_COLOR : WARN_COLOR);
     AccessibilitySupport.named(
@@ -2789,14 +2825,14 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void makeTensorRtStatusRowsKeyboardReachable() {
-    JLabel[] labels = {
+    JComponent[] labels = {
       lblNvidiaGpuValue,
       lblTensorRtRuntimeValue,
       lblTensorRtCompanionValue,
       lblTensorRtEngineValue,
       lblTensorRtActivationValue
     };
-    for (JLabel label : labels) {
+    for (JComponent label : labels) {
       label.setFocusable(true);
     }
   }
@@ -2814,7 +2850,8 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void updateExperimentalBackendInfo() {
     Backend backend = (Backend) cmbExperimentalBackend.getSelectedItem();
     if (backend == null || snapshot == null) {
-      setInfoValue(lblExperimentalBackendValue, false, text("AutoSetup.notFound"));
+      String missing = text("AutoSetup.notFound");
+      setTensorRtLabel(lblExperimentalBackendValue, missing, ERROR_COLOR, missing);
       btnInstallExperimentalBackend.setEnabled(false);
       return;
     }
@@ -2826,12 +2863,20 @@ public class KataGoAutoSetupDialog extends JDialog {
             : status.installed()
                 ? text("AutoSetup.experimentalBackendInstalled")
                 : text("AutoSetup.experimentalBackendNotInstalled");
-    setInfoValue(
-        lblExperimentalBackendValue, status.installed(), backend.displayName() + " · " + state);
+    String visible = backend.displayName() + " · " + state;
+    setTensorRtLabel(
+        lblExperimentalBackendValue, visible, status.installed() ? OK_COLOR : ERROR_COLOR, visible);
     btnInstallExperimentalBackend.setText(
         status.installed()
             ? text("AutoSetup.enableExperimentalBackend")
             : text("AutoSetup.installExperimentalBackend"));
+    Dimension preferred = localizedButtonSize(btnInstallExperimentalBackend, 90, 32);
+    btnInstallExperimentalBackend.setPreferredSize(preferred);
+    btnInstallExperimentalBackend.setMinimumSize(preferred);
+    if (btnInstallExperimentalBackend.getParent() != null) {
+      btnInstallExperimentalBackend.getParent().revalidate();
+      btnInstallExperimentalBackend.getParent().repaint();
+    }
     btnInstallExperimentalBackend.setEnabled(
         activeDownloadSession == null
             && activeWorkerThread == null
@@ -2840,8 +2885,8 @@ public class KataGoAutoSetupDialog extends JDialog {
             && !status.active());
   }
 
-  private void setTensorRtLabel(JLabel label, String value, Color color, String tooltip) {
-    setWrappedInfoText(label, value);
+  private void setTensorRtLabel(JTextArea label, String value, Color color, String tooltip) {
+    KataGoAccelerationLayout.setStatusText(label, value);
     label.setForeground(color);
     label.setToolTipText(tooltip);
   }

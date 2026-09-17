@@ -11,6 +11,10 @@ while [[ $# -gt 0 ]]; do
       profile="${2:?missing profile}"
       shift 2
       ;;
+    --group)
+      extra_args+=("$1" "${2:?missing group}")
+      shift 2
+      ;;
     --dry-run|--require-clean)
       extra_args+=("$1")
       shift
@@ -33,15 +37,6 @@ fi
 if [[ -z "$python_bin" ]]; then
   echo 'Python 3 was not found. Set LIZZIE_PYTHON or add python3 to PATH.' >&2
   exit 1
-fi
-
-if [[ -z "${LIZZIE_MAVEN:-}" ]]; then
-  if command -v mvn >/dev/null 2>&1; then
-    export LIZZIE_MAVEN="$(command -v mvn)"
-  else
-    candidate="$(find "$repo_root/.tools" -path '*/apache-maven-*/bin/mvn' -type f 2>/dev/null | sort | tail -n 1)"
-    [[ -n "$candidate" ]] && export LIZZIE_MAVEN="$candidate"
-  fi
 fi
 
 cd "$repo_root"

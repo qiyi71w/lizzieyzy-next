@@ -17,13 +17,89 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 import xml.etree.ElementTree as ET
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+JAVA_REQUIRED_TESTS = (
+    ("featurecat.lizzie.logging.LoggingProviderSmokeIT", "shadedArtifactWritesOneProviderEvent"),
+)
+DESKTOP_REQUIRED_TESTS = (
+    *tuple(
+        (
+            "featurecat.lizzie.gui.FunctionSearchNavigationTest",
+            f"navigationPreservesRealStateAcrossNativeAndCustomMenus()[{repetition}]",
+        )
+        for repetition in range(1, 6)
+    ),
+    (
+        "featurecat.lizzie.gui.ConfigDialog2NavigationTest",
+        "blackWinrateRemainsReachableAcrossRebuildsAndRecreation",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessSmokeTest",
+        "restoresSnapshotAnalyzesAndQuits",
+    ),
+    ("featurecat.lizzie.gui.FunctionSearchInputTest", "chineseInputChain"),
+    ("featurecat.lizzie.gui.FunctionSearchInputTest", "englishInputChain"),
+)
+ENGINE_PROCESS_REQUIRED_TESTS = (
+    (
+        "featurecat.lizzie.gui.EngineProcessSmokeTest",
+        "restoresSnapshotAnalyzesAndQuits",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "rejectsSnapshotErrorWithoutTailOrAnalysis",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "retiresSnapshotTimeoutAndRejectsLateResponse",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "recoversSnapshotAfterPeerCrash",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "isolatesLateOutputAfterEngineSwitch",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "drainsPeerPipeBurstAndRemainsResponsive",
+    ),
+    (
+        "featurecat.lizzie.gui.EngineProcessFailureTest",
+        "cleansUpPeerThatRefusesQuit",
+    ),
+)
+
 
 PY_COMPILE_FILES = (
+    "scripts/prepare_cpu_engine_acceptance.py",
+    "scripts/test_prepare_cpu_engine_acceptance.py",
+    "scripts/test_run_acceptance.py",
+    "scripts/build_katago_cuda_dependencies.py",
+    "scripts/test_build_katago_cuda.py",
+    "scripts/build_katago_directml_dependencies.py",
+    "scripts/build_katago_openvino_dependencies.py",
+    "scripts/test_build_katago_openvino.py",
+    "scripts/test_build_katago_directml.py",
+    "scripts/build_katago_source.py",
+    "scripts/build_katago_windows_dependencies.py",
+    "scripts/package_katago_source_windows.py",
+    "scripts/test_build_katago_windows.py",
+    "scripts/build_katago_linux_dependencies.py",
+    "scripts/package_katago_source_linux.py",
+    "scripts/test_build_katago_linux.py",
+    "scripts/build_katago_macos_dependencies.py",
+    "scripts/test_build_katago_macos_dependencies.py",
+    "scripts/package_katago_source_macos.py",
+    "scripts/test_package_katago_source_macos.py",
+    "scripts/probe_katago_focus.py",
+    "scripts/test_build_katago_source.py",
+    "scripts/test_probe_katago_focus.py",
     "scripts/audit_katago_binary_version.py",
     "scripts/audit_katago_package_metadata.py",
     "scripts/generate_release_notes.py",
@@ -54,12 +130,24 @@ PY_COMPILE_FILES = (
     "scripts/test_validate_windows_release_assets.py",
     "scripts/test_validate_release_workflow_identity.py",
     "scripts/test_windows_launcher_packaging.py",
+    "scripts/test_windows_ci_diagnostics.py",
     "scripts/validate_release_notes.py",
     "scripts/validate_windows_release_assets.py",
     "scripts/validate_release_workflow_identity.py",
 )
 
 DIRECT_PYTHON_TESTS = (
+    "scripts/test_prepare_cpu_engine_acceptance.py",
+    "scripts/test_run_acceptance.py",
+    "scripts/test_build_katago_cuda.py",
+    "scripts/test_build_katago_directml.py",
+    "scripts/test_build_katago_openvino.py",
+    "scripts/test_build_katago_windows.py",
+    "scripts/test_build_katago_linux.py",
+    "scripts/test_build_katago_source.py",
+    "scripts/test_build_katago_macos_dependencies.py",
+    "scripts/test_package_katago_source_macos.py",
+    "scripts/test_probe_katago_focus.py",
     "scripts/test_generate_release_notes.py",
     "scripts/test_audit_katago_binary_version.py",
     "scripts/test_audit_katago_package_metadata.py",
@@ -104,6 +192,7 @@ class Step:
     name: str
     command: tuple[str, ...]
     env: dict[str, str] | None = None
+    group: str = "scripts"
 
 
 @dataclass
@@ -131,6 +220,12 @@ class JunitSummary:
             errors=self.errors + other.errors,
             skipped=self.skipped + other.skipped,
         )
+
+
+class RequiredJunitExecutionError(RuntimeError):
+    def __init__(self, message: str, summary: JunitSummary):
+        super().__init__(message)
+        self.summary = summary
 
 
 def command_display(command: Sequence[str]) -> str:
@@ -241,8 +336,10 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
         "if($errors.Count -gt 0){$errors|Format-List|Out-String|Write-Error; exit 1}"
     )
     return [
-        Step("Verify repository line endings", (python, "scripts/check_line_endings.py")),
+        Step("Verify repository line endings", (python, "scripts/check_line_endings.py"), group="repository"),
         Step("Verify bundled JCEF logic", (python, "scripts/test_prepare_bundled_jcef.py")),
+        Step("Verify CPU acceptance provisioning", (python, "scripts/test_prepare_cpu_engine_acceptance.py")),
+        Step("Verify acceptance runner outcomes", (python, "scripts/test_run_acceptance.py")),
         Step(
             "Verify bundled NVIDIA runtime packaging",
             (python, "scripts/test_prepare_bundled_nvidia_runtime.py"),
@@ -250,6 +347,10 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
         Step(
             "Parse RTX 50 benchmark PowerShell",
             (powershell, "-NoProfile", "-Command", parser_script),
+        ),
+        Step(
+            "Verify Windows CI process supervision",
+            (python, "-m", "unittest", "scripts.test_windows_ci_diagnostics"),
         ),
         Step(
             "Verify Windows credential persistence",
@@ -261,6 +362,7 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
                 "-Dtest=PlatformCredentialStoreTest,RemoteComputeConfigTest,MigratingCredentialStoreTest",
                 "test",
             ),
+            group="java",
         ),
         Step(
             "Run full Windows verification gate",
@@ -272,10 +374,9 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
                 f"-Dlizzie.work.dir={temp / 'full-tests'}",
                 "-DskipTests=false",
                 "-DskipITs=false",
-                "-Dit.test=LoggingProviderSmokeIT",
-                "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
+            group="java",
         ),
     ]
 
@@ -283,9 +384,9 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
 def portable_steps(maven: str, bash: str) -> list[Step]:
     python = sys.executable
     steps = [
-        Step("Test line-ending checker", (python, "scripts/test_check_line_endings.py")),
-        Step("Verify repository line endings", (python, "scripts/check_line_endings.py")),
-        Step("Verify local Markdown links", (python, "scripts/check_markdown_links.py")),
+        Step("Test line-ending checker", (python, "scripts/test_check_line_endings.py"), group="repository"),
+        Step("Verify repository line endings", (python, "scripts/check_line_endings.py"), group="repository"),
+        Step("Verify local Markdown links", (python, "scripts/check_markdown_links.py"), group="repository"),
         Step("Compile release helper Python", (python, "-m", "py_compile", *PY_COMPILE_FILES)),
     ]
     steps.extend(
@@ -306,11 +407,12 @@ def portable_steps(maven: str, bash: str) -> list[Step]:
         )
         for module in UNITTEST_MODULES
     )
-    steps.append(
+    steps.extend(
         Step(
-            "Parse release shell scripts",
-            bash_login_command(bash, "bash", "-n", *BASH_SYNTAX_FILES),
+            f"Parse {script}",
+            bash_login_command(bash, "bash", "-n", script),
         )
+        for script in BASH_SYNTAX_FILES
     )
     steps.append(
         Step(
@@ -322,10 +424,9 @@ def portable_steps(maven: str, bash: str) -> list[Step]:
                 "-Djava.awt.headless=true",
                 "-DskipTests=false",
                 "-DskipITs=false",
-                "-Dit.test=LoggingProviderSmokeIT",
-                "-Dfailsafe.failIfNoSpecifiedTests=true",
                 "verify",
             ),
+            group="java",
         )
     )
     return steps
@@ -348,26 +449,72 @@ def deduplicate_steps(steps: Iterable[Step]) -> list[Step]:
     return result
 
 
-def build_steps(profile: str, maven: str, bash: str | None, powershell: str | None) -> list[Step]:
+def build_steps(
+    profile: str, maven: str, bash: str | None, powershell: str | None,
+    group: str = "all",
+) -> list[Step]:
+    if group == "desktop":
+        evidence_dir = REPO_ROOT / "target" / "desktop-smoke" / "probes"
+        reports_dir = REPO_ROOT / "target" / "desktop-smoke" / "surefire-reports"
+        return [
+            Step(
+                "Run desktop smoke tests",
+                (
+                    maven,
+                    "-B",
+                    "-Dfmt.skip=true",
+                    "-Djava.awt.headless=false",
+                    "-Dlizzie.desktop.required=true",
+                    f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
+                    f"-Dsurefire.reportsDirectory={reports_dir}",
+                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,EngineProcessSmokeTest,FunctionSearchInputTest",
+                    "test",
+                ),
+                group="desktop",
+            )
+        ]
+    if group == "engine-process":
+        evidence_dir = REPO_ROOT / "target" / "engine-process-smoke" / "probes"
+        reports_dir = REPO_ROOT / "target" / "engine-process-smoke" / "surefire-reports"
+        test_selection = (
+            "-Dtest=EngineProcessSmokeTest#restoresSnapshotAnalyzesAndQuits,"
+            "EngineProcessFailureTest#rejectsSnapshotErrorWithoutTailOrAnalysis+"
+            "retiresSnapshotTimeoutAndRejectsLateResponse+recoversSnapshotAfterPeerCrash+"
+            "isolatesLateOutputAfterEngineSwitch+drainsPeerPipeBurstAndRemainsResponsive+"
+            "cleansUpPeerThatRefusesQuit"
+        )
+        return [
+            Step(
+                "Run engine process tests",
+                (
+                    maven,
+                    "-B",
+                    "-Dfmt.skip=true",
+                    "-Djava.awt.headless=false",
+                    "-Dlizzie.desktop.required=true",
+                    f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
+                    f"-Dsurefire.reportsDirectory={reports_dir}",
+                    test_selection,
+                    "test",
+                ),
+                group="engine-process",
+            )
+        ]
+    if group in {"all", "scripts"}:
+        if profile in {"portable", "all"} and bash is None:
+            raise RuntimeError("The selected scripts require bash.")
+        if profile in {"windows", "all"} and powershell is None:
+            raise RuntimeError("The selected scripts require PowerShell.")
     if profile == "windows":
-        if powershell is None:
-            raise RuntimeError("The Windows profile requires PowerShell.")
-        return windows_steps(maven, powershell)
-    if profile == "portable":
-        if bash is None:
-            raise RuntimeError("The portable profile requires bash.")
-        return portable_steps(maven, bash)
-    if bash is None or powershell is None:
-        raise RuntimeError("The all profile requires both PowerShell and bash.")
-    combined = windows_steps(maven, powershell) + portable_steps(maven, bash)
-    # A local Windows run cannot become an Ubuntu run by invoking Maven twice.
-    # Keep the Windows verification gate and run every portable helper around it.
-    combined = [
-        step
-        for step in combined
-        if step.name != "Run full portable verification gate"
-    ]
-    return deduplicate_steps(combined)
+        steps = windows_steps(maven, powershell or "pwsh")
+    elif profile == "portable":
+        steps = portable_steps(maven, bash or "bash")
+    else:
+        steps = windows_steps(maven, powershell or "pwsh") + portable_steps(maven, bash or "bash")
+        # A local Windows run cannot become an Ubuntu run by invoking Maven twice.
+        steps = [step for step in steps if step.name != "Run full portable verification gate"]
+        steps = deduplicate_steps(steps)
+    return [step for step in steps if group == "all" or step.group == group]
 
 
 def git_output(*args: str) -> str:
@@ -406,17 +553,42 @@ def parse_suite(element: ET.Element) -> JunitSummary:
     )
 
 
-def collect_junit_summary(root: Path = REPO_ROOT / "target") -> JunitSummary:
+def collect_junit_summary(
+    root: Path = REPO_ROOT / "target",
+    required_tests: Sequence[tuple[str, str]] = (),
+) -> JunitSummary:
     summary = JunitSummary()
+    missing = set(required_tests)
+    required_classes = {classname for classname, _ in required_tests}
+    unsuccessful: list[str] = []
     files: list[Path] = []
     for directory in (root / "surefire-reports", root / "failsafe-reports"):
         if directory.is_dir():
             files.extend(sorted(directory.glob("TEST-*.xml")))
     for path in files:
         try:
-            summary = summary.plus(parse_suite(ET.parse(path).getroot()))
+            report = ET.parse(path).getroot()
+            summary = summary.plus(parse_suite(report))
+            for case in report.iter("testcase"):
+                classname = case.attrib.get("classname", "")
+                if classname not in required_classes:
+                    continue
+                name = case.attrib.get("name", "")
+                if any(case.find(status) is not None for status in ("skipped", "failure", "error")):
+                    unsuccessful.append(f"{classname}.{name}")
+                else:
+                    missing.discard((classname, name))
         except (ET.ParseError, OSError, ValueError) as error:
             raise RuntimeError(f"Unable to parse JUnit report {path}: {error}") from error
+    if missing or unsuccessful:
+        details = []
+        if missing:
+            details.append("missing successful cases: " + ", ".join(f"{c}.{n}" for c, n in sorted(missing)))
+        if unsuccessful:
+            details.append("unsuccessful required-class cases: " + ", ".join(unsuccessful))
+        raise RequiredJunitExecutionError(
+            "Required JUnit execution not satisfied: " + "; ".join(details), summary
+        )
     return summary
 
 
@@ -424,6 +596,14 @@ def reset_junit_reports(root: Path = REPO_ROOT / "target") -> None:
     for directory in (root / "surefire-reports", root / "failsafe-reports"):
         if directory.exists():
             shutil.rmtree(directory)
+
+
+
+
+def require_successful_job_results(results: Mapping[str, str]) -> None:
+    rejected = [f"{name}={result}" for name, result in results.items() if result != "success"]
+    if rejected:
+        raise RuntimeError("Required CI jobs did not succeed: " + ", ".join(rejected))
 
 
 def overall_result(success: bool, results: Sequence[StepResult]) -> str:
@@ -442,6 +622,8 @@ def write_summary(
     results: list[StepResult],
     junit: JunitSummary,
     success: bool,
+    group: str,
+    junit_executed: bool,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     status = overall_result(success, results)
@@ -449,6 +631,7 @@ def write_summary(
         "schema_version": 1,
         "result": status,
         "profile": profile,
+        "group": group,
         "dry_run": dry_run,
         "started_at": started_at,
         "duration_seconds": round(duration_seconds, 3),
@@ -457,6 +640,7 @@ def write_summary(
         "java": java_details,
         "git_sha": git_output("rev-parse", "HEAD"),
         "junit": asdict(junit),
+        "junit_status": "collected" if junit_executed else "not executed",
         "steps": [asdict(result) for result in results],
     }
     (output_dir / "local-ci-summary.json").write_text(
@@ -467,12 +651,15 @@ def write_summary(
         "",
         f"- Result: **{status}**",
         f"- Profile: `{profile}`",
+        f"- Group: `{group}`",
+        f"- Java: {java_details}",
         f"- Git SHA: `{payload['git_sha']}`",
         f"- Duration: `{duration_seconds:.1f}s`",
         (
             "- JUnit: "
             f"{junit.tests} tests, {junit.failures} failures, "
             f"{junit.errors} errors, {junit.skipped} skipped"
+            if junit_executed else "- JUnit: not executed"
         ),
         "",
         "| Step | Result | Seconds |",
@@ -490,30 +677,47 @@ def run(args: argparse.Namespace) -> int:
     started_at = datetime.now(timezone.utc).isoformat()
     output_dir = (REPO_ROOT / args.summary_dir).resolve()
     results: list[StepResult] = []
-    java_details = "not checked (dry run)"
+    java_selected = args.group in {"all", "java"}
+    desktop_selected = args.group == "desktop"
+    engine_process_selected = args.group == "engine-process"
+    display_selected = desktop_selected or engine_process_selected
+    scripts_selected = args.group in {"all", "scripts"}
+    needs_java = java_selected or display_selected
+    java_details = "not executed"
+    junit_executed = False
 
     try:
         if args.require_clean:
             require_clean_checkout()
-        if not args.dry_run:
+        if display_selected and not args.dry_run:
+            if sys.platform.startswith("linux") and not os.environ.get("DISPLAY", "").strip():
+                raise RuntimeError(
+                    "Display CI requires DISPLAY on Linux. Start Xvfb or set DISPLAY."
+                )
+        if java_selected and not args.dry_run:
             reset_junit_reports()
-        maven = args.maven or ("mvn" if args.dry_run else resolve_maven())
+            junit_executed = True
+        elif display_selected and not args.dry_run:
+            report_root = "desktop-smoke" if desktop_selected else "engine-process-smoke"
+            reset_junit_reports(REPO_ROOT / "target" / report_root)
+            junit_executed = True
+        maven = (args.maven or ("mvn" if args.dry_run else resolve_maven())) if needs_java else "mvn"
         bash = None
         powershell = None
-        if args.profile in {"portable", "all"}:
+        if scripts_selected and args.profile in {"portable", "all"}:
             bash = args.bash or ("bash" if args.dry_run else resolve_bash())
-        if args.profile in {"windows", "all"}:
+        if scripts_selected and args.profile in {"windows", "all"}:
             powershell = args.powershell or (
                 "pwsh" if args.dry_run else resolve_powershell()
             )
-        if not args.dry_run:
+        if needs_java and not args.dry_run:
             major, java_details = java_major_version(maven)
             if major != 21:
                 raise RuntimeError(
                     f"Local CI requires JDK 21, but Maven is using Java {major}. "
                     "Set JAVA_HOME to a JDK 21 installation."
                 )
-        steps = build_steps(args.profile, maven, bash, powershell)
+        steps = build_steps(args.profile, maven, bash, powershell, args.group)
         steps.append(Step("Verify working-tree diff", ("git", "diff", "--check")))
 
         for index, step in enumerate(steps, start=1):
@@ -558,8 +762,29 @@ def run(args: argparse.Namespace) -> int:
         print(f"Local CI failed: {error}", file=sys.stderr, flush=True)
         return_code = 1
 
+    junit = JunitSummary()
     try:
-        junit = JunitSummary() if args.dry_run else collect_junit_summary()
+        if junit_executed:
+            if desktop_selected:
+                required_tests = DESKTOP_REQUIRED_TESTS
+                report_root = REPO_ROOT / "target" / "desktop-smoke"
+            elif engine_process_selected:
+                required_tests = ENGINE_PROCESS_REQUIRED_TESTS
+                report_root = REPO_ROOT / "target" / "engine-process-smoke"
+            else:
+                required_tests = JAVA_REQUIRED_TESTS
+                report_root = None
+            if report_root is None:
+                junit = collect_junit_summary(required_tests=required_tests)
+            else:
+                junit = collect_junit_summary(report_root, required_tests=required_tests)
+    except (OSError, RuntimeError) as error:
+        if isinstance(error, RequiredJunitExecutionError):
+            junit = error.summary
+        print(f"Local CI failed: {error}", file=sys.stderr, flush=True)
+        return_code = 1
+
+    try:
         write_summary(
             output_dir,
             args.profile,
@@ -570,12 +795,14 @@ def run(args: argparse.Namespace) -> int:
             results,
             junit,
             return_code == 0,
+            args.group,
+            junit_executed,
         )
         print(f"Local CI report: {output_dir}", flush=True)
         print(
             "JUnit: "
             f"{junit.tests} tests, {junit.failures} failures, "
-            f"{junit.errors} errors, {junit.skipped} skipped",
+            f"{junit.errors} errors, {junit.skipped} skipped" if junit_executed else "JUnit: not executed",
             flush=True,
         )
     except (OSError, RuntimeError) as error:
@@ -588,6 +815,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile", choices=("windows", "portable", "all"), default="all"
+    )
+    parser.add_argument(
+        "--group",
+        choices=("all", "repository", "scripts", "java", "desktop", "engine-process"),
+        default="all",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--require-clean", action="store_true")

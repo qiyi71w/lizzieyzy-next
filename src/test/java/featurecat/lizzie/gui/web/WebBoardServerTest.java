@@ -13,23 +13,45 @@ import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 public class WebBoardServerTest {
   private WebBoardServer server;
-  private static final int PORT = 19876;
+  private final List<TestClient> ownedClients = new ArrayList<>();
 
   @BeforeEach
   void setUp() throws Exception {
-    server = new WebBoardServer(new InetSocketAddress("127.0.0.1", PORT), 2);
+    CountDownLatch ready = new CountDownLatch(1);
+    AtomicReference<Exception> startupError = new AtomicReference<>();
+    server = new WebBoardServer(new InetSocketAddress("127.0.0.1", 0), 2) {
+      @Override
+      public void onStart() {
+        ready.countDown();
+      }
+
+      @Override
+      public void onError(org.java_websocket.WebSocket connection, Exception error) {
+        startupError.compareAndSet(null, error);
+        ready.countDown();
+      }
+    };
     server.start();
-    Thread.sleep(300);
+    assertTrue(ready.await(3, TimeUnit.SECONDS), "server did not become ready");
+    assertNull(startupError.get(), "server startup failed");
+    assertTrue(server.getPort() > 0, "server did not bind an ephemeral port");
   }
 
   @AfterEach
   void tearDown() throws Exception {
-    server.stop(500);
-    Thread.sleep(200);
+    try {
+      ownedClients.forEach(TestClient::close);
+      for (TestClient client : ownedClients) {
+        assertTrue(client.closed.await(3, TimeUnit.SECONDS), "owned client did not close");
+      }
+    } finally {
+      if (server != null) server.stop(1000);
+    }
   }
 
   @Test
@@ -39,13 +61,14 @@ public class WebBoardServerTest {
 
     List<TestClient> clients = new ArrayList<>();
     for (int i = 0; i < 2; i++) {
-      TestClient c = new TestClient(PORT, openLatch, null);
-      c.connectBlocking(2, TimeUnit.SECONDS);
+      TestClient c = new TestClient(server.getPort(), openLatch, null);
+      assertTrue(c.connectBlocking(2, TimeUnit.SECONDS));
       clients.add(c);
     }
     assertTrue(openLatch.await(3, TimeUnit.SECONDS));
+    awaitServerConnections(2);
 
-    TestClient rejected = new TestClient(PORT, null, closeLatch);
+    TestClient rejected = new TestClient(server.getPort(), null, closeLatch);
     rejected.connectBlocking(2, TimeUnit.SECONDS);
     assertTrue(closeLatch.await(3, TimeUnit.SECONDS), "3rd connection should be closed");
 
@@ -60,20 +83,20 @@ public class WebBoardServerTest {
     CountDownLatch msgLatch = new CountDownLatch(1);
     AtomicReference<String> received = new AtomicReference<>();
     TestClient c =
-        new TestClient(PORT, null, null) {
+        new TestClient(server.getPort(), null, null) {
           @Override
           public void onMessage(String msg) {
             received.set(msg);
             msgLatch.countDown();
           }
         };
-    c.connectBlocking(2, TimeUnit.SECONDS);
+    assertTrue(c.connectBlocking(2, TimeUnit.SECONDS));
     assertTrue(msgLatch.await(3, TimeUnit.SECONDS));
     assertTrue(received.get().contains("full_state"));
     c.close();
   }
 
-  @Test
+  @RepeatedTest(10)
   void broadcastsToAllClients() throws Exception {
     CountDownLatch openLatch = new CountDownLatch(2);
     CountDownLatch msgLatch = new CountDownLatch(2);
@@ -84,17 +107,18 @@ public class WebBoardServerTest {
       AtomicReference<String> ref = new AtomicReference<>();
       received.add(ref);
       TestClient c =
-          new TestClient(PORT, openLatch, null) {
+          new TestClient(server.getPort(), openLatch, null) {
             @Override
             public void onMessage(String msg) {
               ref.set(msg);
               msgLatch.countDown();
             }
           };
-      c.connectBlocking(2, TimeUnit.SECONDS);
+      assertTrue(c.connectBlocking(2, TimeUnit.SECONDS));
       clients.add(c);
     }
     assertTrue(openLatch.await(3, TimeUnit.SECONDS));
+    awaitServerConnections(2);
 
     server.broadcastMessage("{\"type\":\"test\"}");
     assertTrue(msgLatch.await(3, TimeUnit.SECONDS));
@@ -135,14 +159,24 @@ public class WebBoardServerTest {
     s.onMessage(null, "{\"type\":\"x\"}");
   }
 
-  private static class TestClient extends WebSocketClient {
+  private void awaitServerConnections(int count) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+    while (server.getConnections().size() != count && System.nanoTime() < deadline) {
+      Thread.sleep(5);
+    }
+    assertEquals(count, server.getConnections().size(), "server must register clients before broadcast");
+  }
+
+  private class TestClient extends WebSocketClient {
     private final CountDownLatch openLatch;
     private final CountDownLatch closeLatch;
+    private final CountDownLatch closed = new CountDownLatch(1);
 
     TestClient(int port, CountDownLatch openLatch, CountDownLatch closeLatch) throws Exception {
       super(new URI("ws://127.0.0.1:" + port));
       this.openLatch = openLatch;
       this.closeLatch = closeLatch;
+      ownedClients.add(this);
     }
 
     @Override
@@ -152,6 +186,7 @@ public class WebBoardServerTest {
 
     @Override
     public void onClose(int code, String reason, boolean remote) {
+      closed.countDown();
       if (closeLatch != null) closeLatch.countDown();
     }
 

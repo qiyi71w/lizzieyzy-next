@@ -35,6 +35,29 @@ class MacosKataGoBuildScriptTest(unittest.TestCase):
 
 
 class MacosKataGoBundleUnitTest(unittest.TestCase):
+    def test_deployment_parser_covers_modern_legacy_and_universal_slices(self) -> None:
+        modern = "Load command 9\n cmd LC_BUILD_VERSION\n platform macos\n minos 15.0\n sdk 26.5\n"
+        legacy = "Load command 8\n cmd LC_VERSION_MIN_MACOSX\n version 10.15\n sdk 15.0\n"
+        self.assertEqual(["15.0", "10.15"], MODULE.macos_deployment_versions(modern + legacy))
+        self.assertEqual(["15.0"], MODULE.macos_deployment_versions(modern.replace("macos", "1")))
+
+    def test_deployment_parser_rejects_missing_and_non_macos_commands(self) -> None:
+        for value in (
+            "", "Load command 1\n cmd LC_RPATH\n path /lib\n",
+            "Load command 1\n cmd LC_BUILD_VERSION\n platform ios\n minos 15.0\n",
+            "Load command 1\n cmd LC_BUILD_VERSION\n platform macos\n sdk 26.5\n",
+            "Load command 1\n cmd LC_VERSION_MIN_IPHONEOS\n version 15.0\n",
+        ):
+            with self.subTest(value=value), self.assertRaises(MODULE.BundleError):
+                MODULE.macos_deployment_versions(value)
+
+    def test_newer_host_dylib_is_rejected_even_when_executable_supports_macos15(self) -> None:
+        for version in ("15.1", "26.0"):
+            output = f"Load command 1\n cmd LC_BUILD_VERSION\n platform macos\n minos {version}\n"
+            with mock.patch.object(MODULE, "run", return_value=subprocess.CompletedProcess([], 0, output)):
+                with self.assertRaisesRegex(MODULE.BundleError, "libprotobuf.*requires macOS"):
+                    MODULE.audit_macos_deployment(Path("/bundle/lib/libprotobuf.dylib"))
+
     def test_system_dependencies_are_allowed(self) -> None:
         self.assertTrue(MODULE.is_system_dependency("/usr/lib/libc++.1.dylib"))
         self.assertTrue(
@@ -154,6 +177,7 @@ class MacosKataGoBundleIntegrationTest(unittest.TestCase):
             subprocess.run(
                 [
                     "clang",
+                    "-mmacosx-version-min=15.0",
                     "-dynamiclib",
                     str(leaf_source),
                     "-install_name",
@@ -166,6 +190,7 @@ class MacosKataGoBundleIntegrationTest(unittest.TestCase):
             subprocess.run(
                 [
                     "clang",
+                    "-mmacosx-version-min=15.0",
                     "-dynamiclib",
                     str(middle_source),
                     str(leaf),
@@ -177,7 +202,7 @@ class MacosKataGoBundleIntegrationTest(unittest.TestCase):
                 check=True,
             )
             subprocess.run(
-                ["clang", str(main_source), str(middle), "-o", str(executable)],
+                ["clang", "-mmacosx-version-min=15.0", str(main_source), str(middle), "-o", str(executable)],
                 check=True,
             )
             for binary in (leaf, middle, executable):

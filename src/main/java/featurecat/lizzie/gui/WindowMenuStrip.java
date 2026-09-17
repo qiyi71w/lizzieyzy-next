@@ -143,6 +143,18 @@ public class WindowMenuStrip extends JPanel {
     return false;
   }
 
+  /** Opens the current source menu through its visible in-window proxy. */
+  boolean showMenu(JMenu menu) {
+    if (!isShowing()) return false;
+    for (MenuButton button : menuButtons) {
+      if (button.menu == menu && button.isShowing()) {
+        openMenu(button, false);
+        return true;
+      }
+    }
+    return false;
+  }
+
   private void openMenu(MenuButton button, boolean toggleIfVisible) {
     if (button == null || button.menu == null) {
       return;

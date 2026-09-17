@@ -2152,6 +2152,7 @@ class HumanSlGameControllerIntegrationTest {
     private final OnlineDialog previousOnlineDialog;
     private final java.io.File previousCurrentFile;
     private final String previousFileNameTitle;
+    private final boolean previousCanGoAfterload = LizzieFrame.canGoAfterload;
 
     private CoachEnvironment(
         int previousBoardWidth,
@@ -2277,6 +2278,7 @@ class HumanSlGameControllerIntegrationTest {
         LizzieFrame.onlineDialog = previousOnlineDialog;
         LizzieFrame.curFile = previousCurrentFile;
         LizzieFrame.fileNameTitle = previousFileNameTitle;
+        LizzieFrame.canGoAfterload = previousCanGoAfterload;
       }
     }
   }

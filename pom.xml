@@ -13,6 +13,7 @@
 			to copy filtered resources, i.e. build is platform dependent!" -->
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<skipTests>false</skipTests>
+		<surefire.reportsDirectory>${project.build.directory}/surefire-reports</surefire.reportsDirectory>
 	</properties>
 
 	<build>
@@ -64,6 +65,7 @@
 				<version>3.5.2</version>
 				<configuration>
 					<useFile>false</useFile>
+					<reportsDirectory>${surefire.reportsDirectory}</reportsDirectory>
 					<skipTests>${skipTests}</skipTests>
 				</configuration>
 			</plugin>
@@ -80,6 +82,7 @@
 					</execution>
 				</executions>
 				<configuration>
+					<failIfNoTests>true</failIfNoTests>
 					<systemPropertyVariables>
 						<lizzie.shaded.jar>${project.build.directory}/${project.build.finalName}-shaded.jar</lizzie.shaded.jar>
 					</systemPropertyVariables>
@@ -202,6 +205,13 @@
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter</artifactId>
 			<version>5.11.4</version>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.junit.platform</groupId>
+			<artifactId>junit-platform-launcher</artifactId>
+			<version>1.11.4</version>
 			<scope>test</scope>
 		</dependency>
 

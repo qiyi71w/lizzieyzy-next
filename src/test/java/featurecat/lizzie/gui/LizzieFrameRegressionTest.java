@@ -1668,6 +1668,73 @@ class LizzieFrameRegressionTest {
   }
 
   @Test
+  void confirmedKifuRestoreRemainsConfirmedThroughAutomaticQuickAnalysis() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
+      QuickAnalysisCompletionEngine engine = allocate(QuickAnalysisCompletionEngine.class);
+      engine.requestStarted = new CountDownLatch(1);
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+
+      assertTrue(invokeEnsureAnalysisResumedAfterLoad(frame, true));
+      assertTrue(engine.requestStarted.await(2, TimeUnit.SECONDS));
+      assertTrue(engine.completionCallback != null);
+      Lizzie.board
+          .getHistory()
+          .getStart()
+          .next()
+          .orElseThrow()
+          .getData()
+          .setPlayouts(10);
+      Lizzie.board
+          .getHistory()
+          .getStart()
+          .next()
+          .orElseThrow()
+          .getData()
+          .analysisHeaderSlots = 3;
+
+      SwingUtilities.invokeAndWait(engine.completionCallback);
+      waitForMovelistRefreshThreads();
+      drainEdt();
+
+      assertEquals(1, leelaz.ponderCount);
+      assertEquals(0, board.syncCount, "the coordinator already confirmed the imported position");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void confirmedKifuResumeDoesNotDuplicateFreshManualAnalysis() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
+      Lizzie.frame = frame;
+      leelaz.ponder();
+
+      assertTrue(invokeEnsureAnalysisResumedAfterLoad(frame, true));
+
+      assertEquals(1, leelaz.ponderCount);
+      assertEquals(0, board.syncCount, "the coordinator already confirmed the imported position");
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
   void silentQuickAnalyzeCompletionRestartsForegroundAnalysisForCurrentPosition()
       throws Exception {
     TestEnvironment env = TestEnvironment.open();
@@ -1721,6 +1788,35 @@ class LizzieFrameRegressionTest {
       assertEquals(1, frame.refreshCount);
       assertEquals(1, frame.problemSnapshotRefreshCount);
       assertEquals(1, frame.silentProgressRefreshCount);
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
+  void completedSharedQuickAnalysisStartsIdleForegroundWithoutReplayingPosition() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      TrackingLeelaz leelaz = allocate(TrackingLeelaz.class);
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      QuickAnalysisResumeFrame frame = allocate(QuickAnalysisResumeFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+
+      SwingUtilities.invokeAndWait(frame::resumeForegroundAnalysisAfterQuickAnalysisComplete);
+      assertTrue(leelaz.isPondering());
+      assertEquals(1, leelaz.ponderCount);
+      assertEquals(0, board.syncCount);
+
+      SwingUtilities.invokeAndWait(frame::resumeForegroundAnalysisAfterQuickAnalysisComplete);
+      assertEquals(1, leelaz.ponderCount);
     } finally {
       env.close();
     }
@@ -3211,6 +3307,14 @@ class LizzieFrameRegressionTest {
     invokeUnchecked(method, frame, needReaddText);
   }
 
+  private static boolean invokeEnsureAnalysisResumedAfterLoad(
+      LizzieFrame frame, boolean positionAlreadyConfirmed) throws Exception {
+    Method method =
+        LizzieFrame.class.getDeclaredMethod("ensureAnalysisResumedAfterLoad", boolean.class);
+    method.setAccessible(true);
+    return (boolean) method.invoke(frame, positionAlreadyConfirmed);
+  }
+
   private static void invokeUnchecked(Method method, Object target, Object... arguments) {
     try {
       method.invoke(target, arguments);
@@ -3917,6 +4021,7 @@ class LizzieFrameRegressionTest {
         continuation.run();
       }
     }
+
   }
 
   private static final class ManualPonderTrackingFrame extends LizzieFrame {
@@ -3924,6 +4029,7 @@ class LizzieFrameRegressionTest {
     public boolean stopAiPlayingAndPolicy() {
       return false;
     }
+
   }
 
   private static final class QuickAnalysisCompletionEngine extends AnalysisEngine {

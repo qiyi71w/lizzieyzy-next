@@ -1,0 +1,70 @@
+name: Pinned KataGo macOS Source
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/katago-source-macos.yml'
+      - 'scripts/*katago*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: katago-source-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-build:
+    name: Source Metal (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            target: macos-arm64
+          - runner: macos-15-intel
+            arch: x86_64
+            target: macos-amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: lightvector/KataGo
+          ref: 47aadc08518b3e121f22539796c911002f699584
+          path: upstream-katago
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install build tools only
+        run: brew install cmake ninja pkgconf
+      - name: Build locked native dependencies
+        run: >-
+          python3 scripts/build_katago_macos_dependencies.py
+          --output "$RUNNER_TEMP/katago-sdk" --arch "${{ matrix.arch }}" --jobs 3
+      - name: Compile pinned upstream source
+        run: >-
+          python3 scripts/build_katago_source.py --source upstream-katago
+          --output "$RUNNER_TEMP/katago-build" --target "${{ matrix.target }}"
+          --macos-sdk "$RUNNER_TEMP/katago-sdk/prefix" --jobs 3
+      - name: Audit portable engine and every dylib
+        run: >-
+          python3 scripts/package_katago_source_macos.py --build "$RUNNER_TEMP/katago-build"
+          --sdk "$RUNNER_TEMP/katago-sdk/prefix" --output "$RUNNER_TEMP/katago-package"
+      - name: Retain build evidence, not a release asset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/katago-sdk/build.log
+            ${{ runner.temp }}/katago-sdk/prefix/sdk-receipt.json
+            ${{ runner.temp }}/katago-build/build.log
+            ${{ runner.temp }}/katago-build/source-build.json
+            ${{ runner.temp }}/katago-package/
+          if-no-files-found: error
+          retention-days: 7

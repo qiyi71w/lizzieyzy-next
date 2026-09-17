@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 final class Deadline {
-  private static final long INTERRUPT_GRACE_NANOS = TimeUnit.MILLISECONDS.toNanos(25);
+  private static final long INTERRUPT_GRACE_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
 
   private Deadline() {}
 
@@ -35,7 +35,11 @@ final class Deadline {
     }
 
     boolean interrupted = Thread.interrupted();
-    long interruptAt = Math.max(System.nanoTime(), deadlineNanos - INTERRUPT_GRACE_NANOS);
+    long now = System.nanoTime();
+    // Closing native file handles after interruption needs part of the same budget, not
+    // another timeout per appender. Fast actions still return without using this reserve.
+    long grace = Math.min(INTERRUPT_GRACE_NANOS, Math.max(0L, (deadlineNanos - now) / 2));
+    long interruptAt = Math.max(now, deadlineNanos - grace);
     for (Thread thread : threads) {
       interrupted |= joinUntil(thread, interruptAt);
     }

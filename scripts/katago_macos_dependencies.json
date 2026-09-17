@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "minimumMacOSVersion": "15.0",
+  "dependencies": [
+    {
+      "name": "abseil",
+      "version": "20260817.0",
+      "url": "https://github.com/abseil/abseil-cpp/archive/refs/tags/20260817.0.tar.gz",
+      "sha256": "f7e05179df39c45434cad433f5783840bb3788ef322976f9138bc6b72b3a107d",
+      "cmake": ["-DABSL_PROPAGATE_CXX_STD=ON", "-DABSL_ENABLE_INSTALL=ON", "-DABSL_BUILD_TESTING=OFF"]
+    },
+    {
+      "name": "protobuf",
+      "version": "36.1",
+      "url": "https://github.com/protocolbuffers/protobuf/releases/download/v36.1/protobuf-36.1.tar.gz",
+      "sha256": "dc74fa582f559cbd31614ddfefb4868f43c919d7184bde514bb47f90c6025eb8",
+      "cmake": ["-Dprotobuf_BUILD_TESTS=OFF", "-Dprotobuf_BUILD_SHARED_LIBS=ON", "-Dprotobuf_BUILD_LIBPROTOC=ON", "-Dprotobuf_FORCE_FETCH_DEPENDENCIES=OFF", "-Dprotobuf_LOCAL_DEPENDENCIES_ONLY=ON"]
+    },
+    {
+      "name": "xz",
+      "version": "5.8.4",
+      "url": "https://github.com/tukaani-project/xz/releases/download/v5.8.4/xz-5.8.4.tar.gz",
+      "sha256": "0014c7886930454fe8bd4228665b51af55eeae560ea135c9c4cd33f55b2591d9",
+      "cmake": ["-DBUILD_TESTING=OFF", "-DXZ_TOOL_XZ=OFF", "-DXZ_TOOL_XZDEC=OFF", "-DXZ_TOOL_LZMADEC=OFF", "-DXZ_TOOL_LZMAINFO=OFF", "-DXZ_DOC=OFF"]
+    },
+    {
+      "name": "zstd",
+      "version": "1.5.7",
+      "url": "https://github.com/facebook/zstd/archive/refs/tags/v1.5.7.tar.gz",
+      "sha256": "37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3",
+      "cmakeSubdirectory": "build/cmake",
+      "cmake": ["-DZSTD_BUILD_PROGRAMS=OFF", "-DZSTD_BUILD_TESTS=OFF", "-DZSTD_BUILD_STATIC=OFF", "-DZSTD_BUILD_SHARED=ON"]
+    },
+    {
+      "name": "libzip",
+      "version": "1.11.4",
+      "url": "https://libzip.org/download/libzip-1.11.4.tar.xz",
+      "sha256": "8a247f57d1e3e6f6d11413b12a6f28a9d388de110adc0ec608d893180ed7097b",
+      "cmake": ["-DENABLE_GNUTLS=OFF", "-DENABLE_MBEDTLS=OFF", "-DENABLE_OPENSSL=OFF", "-DBUILD_REGRESS=OFF", "-DBUILD_EXAMPLES=OFF", "-DBUILD_TOOLS=OFF", "-DBUILD_DOC=OFF"]
+    }
+  ]
+}

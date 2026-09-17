@@ -1,0 +1,12 @@
+(;FF[4]GM[1]CA[UTF-8]SZ[9]KM[6.5]RU[Chinese]
+GN[D3 中文分支验收局]PB[黑方棋士]PW[白方棋士]
+AB[cc][gc]AW[ee]PL[W]
+C[Engine Rules:Chinese
+
+根注释第一行：中文、转义右括号 \] 与反斜杠 \\
+第二行：保留完整语义]XX[keep-root]
+;W[dd]C[白棋开局]
+(;B[cd]C[主分支黑棋]
+;W[]C[主分支白方真实停着])
+(;B[dc]LB[dc:甲]C[变化分支：甲]
+;W[de]C[变化终点]))

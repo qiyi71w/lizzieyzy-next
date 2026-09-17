@@ -1,0 +1,74 @@
+name: Acceptance integration
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/acceptance-integration.yml'
+      - 'scripts/run_acceptance.py'
+      - 'scripts/prepare_cpu_engine_acceptance.py'
+      - 'src/main/resources/katago-assets.json'
+      - 'src/test/java/featurecat/lizzie/gui/SgfUiAcceptanceIT.java'
+      - 'src/test/java/featurecat/lizzie/gui/RealCpuEngineAcceptanceIT.java'
+      - 'src/test/resources/featurecat/lizzie/gui/d3-*.sgf'
+      - 'src/test/resources/featurecat/lizzie/gui/d4-*.sgf'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-sgf-cpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Install isolated display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth fonts-dejavu-core fonts-noto-cjk
+      - name: Prepare verified Linux Eigen and default model
+        run: python3 scripts/prepare_cpu_engine_acceptance.py --root target/acceptance-assets
+      - name: Run SGF dialogs and real CPU process acceptance
+        env:
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          manifest = Path('target/acceptance-assets/manifest.json').resolve()
+          data = json.loads(manifest.read_text())
+          subprocess.run([
+              sys.executable, 'scripts/run_acceptance.py',
+              '--scenario', 'sgf-ui', '--scenario', 'real-cpu-engine',
+              '--engine', data['katago']['executable']['path'], '--model', data['model']['path'],
+              '--engine-config', data['config']['path'], '--engine-manifest', str(manifest),
+              '--output', 'target/acceptance-integration', '--timeout', '900',
+          ], check=True)
+          PY
+      - name: Verify clean checkout
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=normal)"
+      - name: Upload scoped execution evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: acceptance-linux-sgf-cpu-${{ github.sha }}
+          path: |
+            target/acceptance-integration
+            target/acceptance-assets/manifest.json
+          if-no-files-found: warn
+          retention-days: 14

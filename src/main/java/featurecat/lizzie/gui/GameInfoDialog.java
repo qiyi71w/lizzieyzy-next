@@ -7,6 +7,10 @@ package featurecat.lizzie.gui;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.GameInfo;
 import java.awt.*;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.ResourceBundle;
@@ -21,6 +25,12 @@ public class GameInfoDialog extends JDialog {
   // create formatters
   public static final DecimalFormat FORMAT_HANDICAP = new DecimalFormat("0");
   private final ResourceBundle resourceBundle = Lizzie.resourceBundle;
+  private static final Color TARGET_GOLD = new Color(185, 156, 93);
+  private Border komiOriginalBorder;
+  private Timer komiHighlightTimer;
+  private Timer komiNavigationTimer;
+  private boolean komiNavigationPending;
+  private boolean komiInitialFocus;
 
   static {
     FORMAT_HANDICAP.setMaximumIntegerDigits(1);
@@ -39,7 +49,29 @@ public class GameInfoDialog extends JDialog {
   private GameInfo gameInfo;
 
   public GameInfoDialog() {
+    super(Lizzie.frame);
     initComponents();
+    setFocusTraversalPolicy(
+        new LayoutFocusTraversalPolicy() {
+          @Override
+          public Component getDefaultComponent(Container focusCycleRoot) {
+            return komiInitialFocus ? textFieldKomi : super.getDefaultComponent(focusCycleRoot);
+          }
+        });
+    addWindowFocusListener(
+        new WindowAdapter() {
+          @Override
+          public void windowGainedFocus(WindowEvent event) {
+            SwingUtilities.invokeLater(GameInfoDialog.this::applyKomiNavigation);
+          }
+        });
+    textFieldKomi.addFocusListener(
+        new FocusAdapter() {
+          @Override
+          public void focusGained(FocusEvent event) {
+            finishKomiNavigation();
+          }
+        });
   }
 
   private void initComponents() {
@@ -145,6 +177,83 @@ public class GameInfoDialog extends JDialog {
     textFieldHandicap.setText(FORMAT_HANDICAP.format(gameInfo.getHandicap()));
     textFieldKomi.setText(String.valueOf(gameInfo.getKomi()));
     // textFieldKomi.setText(FORMAT_KOMI.format(gameInfo.getKomi()));
+  }
+
+  void locateKomi() {
+    komiInitialFocus = true;
+    komiNavigationPending = true;
+    SwingUtilities.invokeLater(this::applyKomiNavigation);
+  }
+
+  private void applyKomiNavigation() {
+    if (!komiNavigationPending || !isShowing()) return;
+    if (komiNavigationTimer == null) {
+      int[] attempts = {0};
+      komiNavigationTimer =
+          new Timer(
+              50,
+              event -> {
+                if (++attempts[0] > 40 || !komiNavigationPending || !isShowing()) {
+                  stopKomiNavigationTimer();
+                  return;
+                }
+                applyKomiNavigation();
+              });
+      komiNavigationTimer.start();
+    }
+    if (!isFocused()) return;
+    textFieldKomi.requestFocusInWindow();
+    if (textFieldKomi.isFocusOwner()) finishKomiNavigation();
+  }
+
+  private void stopKomiNavigationTimer() {
+    if (komiNavigationTimer != null) komiNavigationTimer.stop();
+    komiNavigationTimer = null;
+  }
+
+  private void finishKomiNavigation() {
+    if (!komiNavigationPending || !isShowing() || !textFieldKomi.isFocusOwner()) return;
+    komiNavigationPending = false;
+    stopKomiNavigationTimer();
+    clearKomiHighlight();
+    komiOriginalBorder = textFieldKomi.getBorder();
+    textFieldKomi.setBorder(
+        BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(TARGET_GOLD, 2), komiOriginalBorder));
+    komiHighlightTimer = new Timer(2400, event -> clearKomiHighlight());
+    komiHighlightTimer.setRepeats(false);
+    komiHighlightTimer.start();
+    textFieldKomi.selectAll();
+  }
+
+  private void clearKomiHighlight() {
+    if (komiHighlightTimer != null) komiHighlightTimer.stop();
+    komiHighlightTimer = null;
+    if (komiOriginalBorder != null && textFieldKomi != null) {
+      textFieldKomi.setBorder(komiOriginalBorder);
+      textFieldKomi.repaint();
+    }
+    komiOriginalBorder = null;
+  }
+
+  @Override
+  public void dispose() {
+    komiNavigationPending = false;
+    komiInitialFocus = false;
+    stopKomiNavigationTimer();
+    clearKomiHighlight();
+    super.dispose();
+  }
+
+  @Override
+  public void setVisible(boolean visible) {
+    if (!visible) {
+      komiNavigationPending = false;
+      komiInitialFocus = false;
+      stopKomiNavigationTimer();
+      clearKomiHighlight();
+    }
+    super.setVisible(visible);
   }
 
   public void apply() {

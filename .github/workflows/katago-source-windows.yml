@@ -1,0 +1,115 @@
+name: Pinned KataGo Windows Source
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/katago-source-windows.yml'
+      - 'scripts/*katago*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: katago-source-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-build:
+    name: Source Windows (${{ matrix.target }})
+    runs-on: windows-2022
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [windows-cpu, windows-opencl, windows-directml, windows-openvino, windows-nvidia]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: lightvector/KataGo
+          ref: 47aadc08518b3e121f22539796c911002f699584
+          path: upstream-katago
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Select MSVC 14.44 x64 toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'MSVC C++ toolchain not found' }
+          $command = '"' + $vs + '\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 -vcvars_ver=14.44 >nul && set'
+          $variables = & cmd.exe /d /s /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Locked MSVC environment unavailable' }
+          $allowed = @('PATH', 'INCLUDE', 'LIB', 'LIBPATH', 'VCToolsVersion', 'VSCMD_ARG_TGT_ARCH', 'WindowsSDKVersion', 'WindowsSdkDir', 'VCToolsInstallDir', 'VCINSTALLDIR')
+          foreach ($line in $variables) {
+            $parts = $line -split '=', 2
+            if ($parts.Count -eq 2 -and $parts[0] -in $allowed) {
+              $line | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+      - name: Build locked Windows SDK
+        if: matrix.target == 'windows-cpu' || matrix.target == 'windows-opencl'
+        shell: pwsh
+        run: python scripts/build_katago_windows_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+      - name: Build locked DirectML SDK without changing runtime versions
+        if: matrix.target == 'windows-directml'
+        shell: pwsh
+        run: python scripts/build_katago_directml_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+      - name: Build locked OpenVINO SDK without changing runtime versions
+        if: matrix.target == 'windows-openvino'
+        shell: pwsh
+        run: python scripts/build_katago_openvino_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+      - name: Compile exact upstream commit
+        # GPU inference is a separate hardware gate, not an executable-version check.
+        shell: pwsh
+        run: |
+          if ("${{ matrix.target }}" -eq 'windows-nvidia') {
+            python scripts/build_katago_cuda_dependencies.py --output "$env:RUNNER_TEMP/katago-sdk" --jobs 3
+            if ($LASTEXITCODE -ne 0) { throw 'Locked CUDA SDK build failed' }
+          }
+          python scripts/build_katago_source.py --source upstream-katago --output "$env:RUNNER_TEMP/katago-build" --target "${{ matrix.target }}" --windows-sdk "$env:RUNNER_TEMP/katago-sdk/prefix" --jobs 3
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned source build failed' }
+      - name: Audit relocated PE engine and dependencies
+        shell: pwsh
+        run: >-
+          python scripts/package_katago_source_windows.py --build "$env:RUNNER_TEMP/katago-build"
+          --sdk "$env:RUNNER_TEMP/katago-sdk/prefix" --output "$env:RUNNER_TEMP/katago-package"
+      - name: Execute CPU same-tree focus protocol
+        if: matrix.target == 'windows-cpu'
+        shell: pwsh
+        run: >-
+          python scripts/probe_katago_focus.py --engine "$env:RUNNER_TEMP/katago-package/katago.exe"
+          --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
+          --evidence "$env:RUNNER_TEMP/focus-probe" --timeout 120
+      - name: Execute ONNX unit tests and real CPU inference
+        if: matrix.target == 'windows-directml' || matrix.target == 'windows-openvino'
+        shell: pwsh
+        run: |
+          $engine = "$env:RUNNER_TEMP/katago-package/katago.exe"
+          Push-Location upstream-katago
+          try {
+            & $engine runtests
+            if ($LASTEXITCODE -ne 0) { throw 'KataGo unit tests failed' }
+            New-Item -ItemType Directory "$env:RUNNER_TEMP/onnx-tiny" | Out-Null
+            & $engine runtinynntests "$env:RUNNER_TEMP/onnx-tiny" 1.0
+            if ($LASTEXITCODE -ne 0) { throw 'ONNX CPU inference failed' }
+          } finally { Pop-Location }
+          python scripts/probe_katago_focus.py --engine $engine --model upstream-katago/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz --evidence "$env:RUNNER_TEMP/focus-probe" --timeout 120 --onnx-provider cpu
+          if ($LASTEXITCODE -ne 0) { throw 'ONNX CPU same-tree focus probe failed' }
+      - name: Retain evidence, never publish a release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/katago-sdk/build.log
+            ${{ runner.temp }}/katago-sdk/prefix/sdk-receipt.json
+            ${{ runner.temp }}/katago-build/build.log
+            ${{ runner.temp }}/katago-build/source-build.json
+            ${{ runner.temp }}/katago-package/
+            ${{ runner.temp }}/focus-probe/
+          if-no-files-found: error
+          retention-days: 7

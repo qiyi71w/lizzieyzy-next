@@ -1,7 +1,6 @@
 package featurecat.lizzie.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -15,10 +14,10 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.enginegame.EngineGamePlan;
-import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.analysis.remote.EngineTransport;
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
+import featurecat.lizzie.enginegame.EngineGamePlan;
+import featurecat.lizzie.enginegame.EngineGamePlans;
 import featurecat.lizzie.gui.BoardRenderer;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.EngineData;
@@ -935,7 +934,8 @@ class EngineManagerLifecycleReservationTest {
           java.util.Arrays.stream(failure.getSuppressed())
               .anyMatch(suppressed -> suppressed == state.schedulerManager.lifecycleCloseFailure),
           () ->
-              "lifecycle close failure should be suppressed onto the scheduling failure, suppressed="
+              "lifecycle close failure should be suppressed onto the scheduling failure,"
+                  + " suppressed="
                   + java.util.Arrays.toString(failure.getSuppressed()));
       assertEquals(1, state.schedulerManager.lifecycleCloseCount.get());
     } finally {
@@ -1734,6 +1734,8 @@ class EngineManagerLifecycleReservationTest {
     CountDownLatch releaseEndpoint = new CountDownLatch(1);
     CountDownLatch eventQueueBlocked = new CountDownLatch(1);
     CountDownLatch releaseEventQueue = new CountDownLatch(1);
+    CountDownLatch replacementStarted = new CountDownLatch(1);
+    CountDownLatch replacementCompleted = new CountDownLatch(1);
     AtomicReference<Throwable> reportFailure = new AtomicReference<>();
     Thread endpointBlocker =
         new Thread(
@@ -1759,11 +1761,13 @@ class EngineManagerLifecycleReservationTest {
     Thread primaryReplacement =
         new Thread(
             () -> {
+              replacementStarted.countDown();
               // Exercise an away/back transition: object identity alone is insufficient to fence
               // the old failure once this generation owns a new startup transaction.
               Lizzie.setPrimaryEngine(interveningPrimary);
               Lizzie.setPrimaryEngine(target);
               Lizzie.engineStartupStatus.checking("engine.starting", "replacement generation");
+              replacementCompleted.countDown();
             },
             "update-failure-primary-replacement");
     try {
@@ -1784,9 +1788,10 @@ class EngineManagerLifecycleReservationTest {
       reporter.start();
       assertTrue(awaitThreadState(reporter, Thread.State.BLOCKED, 2_000L));
       primaryReplacement.start();
-      assertTrue(
-          awaitThreadState(primaryReplacement, Thread.State.BLOCKED, 2_000L),
-          "the exact failure commit must retain the PRIMARY fence while awaiting the endpoint");
+      assertTrue(replacementStarted.await(2, TimeUnit.SECONDS));
+      assertFalse(
+          replacementCompleted.await(100, TimeUnit.MILLISECONDS),
+          "replacement cannot publish while the exact failure commit awaits the endpoint");
 
       releaseEndpoint.countDown();
       reporter.join(2_000L);
@@ -7398,6 +7403,11 @@ class EngineManagerLifecycleReservationTest {
       manager.switchEngine(2, false);
       target.isCheckingName = false;
       target.failResponseFreshening = true;
+      ExactSnapshotEngineRestore.Failure preparationFailure =
+          new ExactSnapshotEngineRestore.Failure(
+              ExactSnapshotEngineRestore.FailureCategory.SNAPSHOT_PREPARATION,
+              "controlled staging failure");
+      target.responseFresheningFailure = preparationFailure;
       manager.synchronizationWork.run();
       assertNotNull(manager.failurePresentation);
       manager.blockFailurePresentation = true;
@@ -7438,6 +7448,7 @@ class EngineManagerLifecycleReservationTest {
 
       assertNull(rebindFailure.get());
       assertEquals(1, manager.failureCount);
+      assertSame(preparationFailure, manager.presentedFailure);
       assertTrue(target.started);
       assertTrue(target.isLoaded);
       assertSame(secondary, Lizzie.leelaz2);
@@ -7773,7 +7784,8 @@ class EngineManagerLifecycleReservationTest {
 
   private static void invokeDispatchFailedEngineStop(Runnable stop, long token) throws Exception {
     Method method =
-        EngineManager.class.getDeclaredMethod("dispatchFailedEngineStop", Runnable.class, long.class);
+        EngineManager.class.getDeclaredMethod(
+            "dispatchFailedEngineStop", Runnable.class, long.class);
     method.setAccessible(true);
     method.invoke(null, stop, token);
   }
@@ -8396,6 +8408,7 @@ class EngineManagerLifecycleReservationTest {
     private Runnable synchronizationWork;
     private Runnable failurePresentation;
     private int failureCount;
+    private Throwable presentedFailure;
     private int uiPublicationCount;
     private EngineSwitchUiSnapshot lastPublishedSnapshot;
     private boolean blockFailurePresentation;
@@ -8421,6 +8434,12 @@ class EngineManagerLifecycleReservationTest {
     @Override
     protected void enqueueEngineSynchronizationFailurePresentation(Runnable presentation) {
       failurePresentation = presentation;
+    }
+
+    @Override
+    protected void showEngineSynchronizationFailure(Leelaz engine, Throwable failure) {
+      presentedFailure = failure;
+      showEngineSynchronizationFailure(engine);
     }
 
     @Override
@@ -9129,7 +9148,21 @@ class EngineManagerLifecycleReservationTest {
     }
   }
 
-  private static final class FailingOuterUpdateSchedulerEngineManager extends EngineManager {
+  private static class TrustedUpdateEngineManager extends EngineManager {
+    private TrustedUpdateEngineManager(List<Leelaz> engines) {
+      super(engines);
+    }
+
+    @Override
+    protected Leelaz createUnstartedEngine(EngineData engineData) throws IOException {
+      Leelaz engine = super.createUnstartedEngine(engineData);
+      engine.trustDirectLocalSnapshotFileAccessForTest();
+      return engine;
+    }
+  }
+
+  private static final class FailingOuterUpdateSchedulerEngineManager
+      extends TrustedUpdateEngineManager {
     private final AssertionError schedulingFailure =
         new AssertionError("controlled outer update synchronization scheduling failure");
     private final AssertionError lifecycleCloseFailure =
@@ -10193,7 +10226,8 @@ class EngineManagerLifecycleReservationTest {
       BoardHistoryList history = historyWithStone(3, 3, 6.5);
       history.add(moveNode(15, 15, Stone.WHITE, true, 1));
       board.setHistory(history);
-      manager = schedulerManager == null ? new EngineManager(List.of()) : schedulerManager;
+      manager =
+          schedulerManager == null ? new TrustedUpdateEngineManager(List.of()) : schedulerManager;
     }
 
     private void install() {
@@ -10870,6 +10904,7 @@ class EngineManagerLifecycleReservationTest {
         new AssertionError("controlled synchronization failure");
     boolean failSynchronization;
     private boolean failResponseFreshening;
+    private RuntimeException responseFresheningFailure;
     private int normalQuitCount;
     int notPonderingCount;
     private int responseFresheningCount;
@@ -10894,6 +10929,9 @@ class EngineManagerLifecycleReservationTest {
     public void setResponseUpToDate() {
       responseFresheningCount++;
       if (failResponseFreshening) {
+        if (responseFresheningFailure != null) {
+          throw responseFresheningFailure;
+        }
         throw synchronizationFailure;
       }
       super.setResponseUpToDate();

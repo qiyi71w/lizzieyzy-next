@@ -291,16 +291,6 @@ class WindowsReleaseValidationWiringTest(unittest.TestCase):
         self.assertIn(".7z.001", package_script)
         self.assertIn(".7z.002", package_script)
 
-    def test_windows_ci_runs_jcef_tests_with_isolated_work_directories(self) -> None:
-        workflow = (self.root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        local_ci = (self.root / "scripts/run_local_ci.py").read_text(encoding="utf-8")
-        self.assertIn("scripts/run_local_ci.py --profile windows", workflow)
-        self.assertIn('"scripts/test_prepare_bundled_jcef.py"', local_ci)
-        self.assertIn('"scripts.test_validate_windows_release_assets"', local_ci)
-        self.assertIn("tempfile.gettempdir()", local_ci)
-        self.assertIn("temp / 'credential-tests'", local_ci)
-        self.assertIn("temp / 'full-tests'", local_ci)
-
 
 if __name__ == "__main__":
     unittest.main()

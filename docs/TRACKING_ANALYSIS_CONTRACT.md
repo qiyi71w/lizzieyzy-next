@@ -17,6 +17,8 @@ setup、dummy PASS、exact restore 或 ReadBoard history 的更高权威语义�
   启动成功和 stop/final 完整响应边界均消费后才能标为 SUPPORTED。
 - 语法拒绝标为 UNSUPPORTED，普通分析仍可用。通信、发送和 fence 不确定按当前 binding 的
   既有失败路径处理，不把通信故障缓存成“不支持”。旧探针不改变替换 binding 的能力或分析意图。
+- 本次发布不保留旧 `allow` 选点评估回退。不支持的引擎只禁用选点评估，提示安装包含新引擎
+  的完整包；主程序小更新不携带引擎，也不自动覆盖用户的外部引擎或权重。
 - 探针不打断活跃普通流；正常分析交接完成后才开放用户准入，不能由迟到的启动覆盖新 focus。
 - 用户暂停时不启动探针；探针结束后的普通分析恢复与主线分析控制共用暂停锁，同时检查暂停
   代次和界面暂停状态。成功、语法拒绝及 lifecycle 延迟回调均不得绕过用户暂停。
@@ -95,5 +97,7 @@ T1 经过 production add/remove/clear、真实 Leelaz queue/writer/response/pars
 T2 经过真实 ReadBoard 帧和导航；T3 使用普通 payload、renderer 和生产 SGF parse/adopt/save。
 受控 transport 只替代外部进程，不能伪造准入、缓存或 owner 校验。
 
-真实 KataGo 保树证据、实际窗口绘制和自动化回归分别记录。固定实验候选证明不解除正式
-KataGo 能力发布门禁 G3；#445 final-fence 和完整 Windows 整合门禁 G4 仍归后续验收票。
+真实 KataGo 保树证据、实际窗口绘制和自动化回归分别记录。发布固定上游已合并提交
+`47aadc08518b3e121f22539796c911002f699584` 的自编译引擎，不凭版本字符串宣称支持。
+此前未合并实验候选的测试不替代最终引擎验收；#445 final-fence 和 Windows 整合门禁
+仍需在最终候选上验证。没有对应 GPU 的硬件项目标记为待验证，不能记为通过。

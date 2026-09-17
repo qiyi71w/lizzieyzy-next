@@ -76,6 +76,9 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
   手顺和 variation 全部删除，同时保留 `GameInfo`、root comment 与非 setup SGF 属性。
 - 转换后的 history 必须通过 `Board.setHistory(...)` 正式采用，使棋盘尺寸、Kata/PK 派生
   标志和 history-overwrite 通知与新 root 保持一致；不能直接替换 history 引用。
+- 同一棋局内的起始局面转换保留 immutable 会话规则目标，不重新解释 root `RU`，也不
+  继承旧 history 的失败规则继续许可。独立转换入口在有引擎时通过既有棋谱 owner 先确认
+  规则、再同步最终 root；双方盘面确认后仅恢复转换前正在进行且用户未暂停的普通分析。
 - 设置模式内的编辑只在本地生效，不向引擎发送普通 `play`。退出设置模式后，通过
   `EngineFollowController` 排队并使用既有 exact snapshot restore 同步最终 root setup；
   setup stones 不能进入普通引擎手顺重放。
@@ -131,6 +134,12 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - lifecycle exact/root 抛错时，owner 将 frozen target 标为 unavailable，并在既有 completion boundary 释放 reservation；不因本票据新建 `ENGINE_STATE_UNRESTORED` 或通用 retry。ReadBoard GMA 固定点既有 quarantine/retirement 行为保持独立。
 - ponder 只由 lifecycle owner 在全部目标恢复和自身 board fence 成功后按 capture 时的 disposition 决定；restore module 不擅自停止或启动 ponder。
 - tail replay 的 module 完成边界不等同于每条 GTP response 完成；后续 response/error、超时和 late-response isolation 继续由 `Leelaz` 管理。
+- exact module 在任何 `clear_board`、Remote Compute restore 或其他 engine mutation 之前，为全部本地 target 完成 SGF 落盘、可读性检查与 process-incarnation 复验；任一 target 无安全路径或落盘失败时，清理本轮已创建文件并以 snapshot-preparation failure 终止，不能留下半恢复状态。
+- `Leelaz` 在最终 `ProcessBuilder` 配置（含 bundled runtime cwd override）完成后，把本地文件系统类别与显式 cwd 绑定到实际 reader/process incarnation；pre-start 捕获的 restore route 在执行时只采用新 admitted incarnation 的证据。落盘后 process rebind、退休或 admission 失效时，旧文件不能生成替换实例的 `loadsgf` 命令。
+- GTP 文件参数必须是非空 printable ASCII（字符 33–126）且不含 `#`。候选顺序固定为：安全的默认临时目录绝对路径；有最终 cwd 证据时该 cwd 下的唯一 ASCII 相对文件名；既有应用 runtime / Windows 共享目录约定下的安全绝对路径。相对参数保持相对，不能在 dispatch 时重新绝对化。
+- direct local engine 即使没有可信 cwd，仍可使用安全共享绝对路径；已知 SSH、WSL、Wine、container 或其他隔离文件系统 transport 必须 fail-closed。Remote Compute 继续只用既有 in-band restore，不走 host `loadsgf`。
+- 双引擎 cwd 相同且安全绝对路径可用时共享同一物理文件；cwd 不同时可各自持有独立文件。所有本轮物理文件的删除边界覆盖全部 target 的 ACK/error/timeout/late-response retirement 以及真实 tail replay，首个 ACK 不能提前删除任一文件。
+- 安全路径选择只改变物理文件地址与 GTP 参数；SGF 语义仍由 frozen plan 唯一生成，必须保留 `SZ`、可用 `KM`、`PL`、`AB/AW` 与 rectangular / extended-coordinate 行为。
 - `exact snapshot restore` 的 `loadsgf` 生命周期按固定顺序执行：
   1. `loadsgf` 临时 SGF 准备完成后，命令先入队再发出。
   2. 命令发出前，当前次 `loadsgf` 的 pending response handler 与 dispatch 归属绑定完成，并持续到退休或完成。
@@ -196,6 +205,21 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 用户分析暂停立即失效 pending ReadBoard resume，并继续遵守普通队列及 selected-before-write 取消规则。暂停后用户再次继续分析，也不能使旧同步回调重新取得恢复资格。
 - 一致且无需恢复的重复快照不重新捕获恢复或重启合法分析流。普通首次同步直接采用最终视图，不以先回退再延迟前进触发额外分析。
 - 无引擎时仍完成本地 board/history 更新；GMA 和对局 continuation 保持独立的路由与 ownership exclusion。手动导航、手动分析恢复及普通棋谱加载策略保持原契约。
+
+## SGF 会话规则确认（Issue #448）
+
+- adopted `BoardHistoryList` 拥有独立于 root `RU` 元数据和引擎观测的 immutable 会话规则目标；外部采用和手动成功选择递增规则 revision，普通导航、SNAPSHOT 与试下还原不重新解释 root `RU`。
+- `SGFParser` 的 `syncPrimaryEngine=false` 与 detached/edit 解析只产出棋谱，不发布会话目标或发送规则命令；GUI owner 在成功采用后显式发布。公共同步入口发布目标后进入同一规则→盘面确认顺序。
+- 导入 owner 只捕获当前前台与当时活动的比较副引擎。每侧必须获得 fresh `CONFIRMED` actual 且与目标语义相同，才执行既有 frozen position restore/fence 并最多恢复一次分析；无 `RU` 继承现状，不发送规则操作。
+- 无效声明、能力失败、set/get 错误、超时、未确认或回读不匹配均为规则永久失败，不进入盘面临时 `RETRY`。棋谱保持可浏览；用户明确按现有规则继续后仍须完成盘面确认，许可只对捕获的 history/rules revision/primary generation/比较实例有效，且不改变规则失败状态。
+- GUI 采用本地解析结果后，Board 保留与该 history 绑定的待对齐状态；等待、规则失败及拒绝继续时，普通前后导航、分支和静态节点跳转只改变本地 history，不向旧引擎盘面发送增量或隐式重建。只有当前导入／生命周期 owner 完成双方位置响应与最终 fence 并复验捕获上下文后才解除；取消请求本身不表示对齐，解析回滚恢复原对齐状态。
+- 规则失败后的显式分析继续重新使用当前失败提示，不重试 set/get，也不先开启分析 UI；拒绝或关闭仍停止，同意仅授权当前上下文并完整同步当前显示节点。等待中的重复继续请求不创建第二份恢复。
+- 试下返回先在本地恢复保存的分支节点及会话规则，再提交一次最终位置恢复；不通过 live movelist 重放恢复历史，不越过 owner 追加 ponder，用户暂停继续生效。
+- 加载活动比较副引擎若重建了双方盘面，最终 owner 在双方 fence 后恢复主引擎分析并由既有镜像通道启动副引擎，双方各一次；已暂停或捕获实例过期时不恢复。
+- lifecycle 非 Engine Game owner 把会话规则目标纳入 `BoardFrame`，每轮在盘面恢复前、Board monitor 外确认 captured target 与 mirror；规则 revision 变化触发现有 release/recheck/catch-up。Engine Game 继续使用自身 match-rules 语义。
+- 手动规则 set→get 成功且 actual 与请求语义一致时，实际观测成为当前 history 的新会话目标；失败只保留协议终态，不恢复旧导入请求。
+- 普通分析入队与活动比较集合的发布共享 selection 临界区，锁顺序为 selection → primary → history → endpoint/queue。selection 内仅尝试取得 primary；竞争时先释放 selection，再等待并复验同一 primary generation 和比较集合，不能丢弃仍有效的分析请求或阻塞 primary owner 的物理写出。规则收敛或显式继续后的盘面恢复期间退出比较模式时，既有 coordinator 只在同一 history/规则 revision/primary generation/reader 仍有效时接续剩余主引擎；已知规则失败仍须为新引擎集合重新取得显式继续许可，不自动重试 set。
+- 棋谱 coordinator 的终态及上下文失效回调在 EDT 执行前复验最新请求 generation；worker 已完成但 UI 尚未消费的旧回调，不能越过换谱或比较模式变更的确认边界。
 
 ## 初始启动导航契约（Issue #223）
 

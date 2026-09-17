@@ -28,7 +28,8 @@ public final class EngineRulesResult {
     LIST_COMMANDS_TIMEOUT,
     LIST_COMMANDS_FAILED,
     OCCUPIED,
-    SEND_FAILED
+    SEND_FAILED,
+    REPLACED
   }
 
   private static final EngineRulesResult IDLE =
