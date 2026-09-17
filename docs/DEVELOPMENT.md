@@ -65,6 +65,8 @@ python3 scripts/run_acceptance.py --scenario real-cpu-engine \
 
 `sgf-ui` 用真实菜单、Swing 文件选择器和键盘操作完成打开、分支导航、受控 Java GTP 分析、另存为、取消覆盖、退出及新进程重开。它校验整棵 SGF 树的语义保留；重开定位遵循 `loadSgfLast` 的主分支语义，不要求保留保存前选中的旁支。
 
+[Acceptance integration](../.github/workflows/acceptance-integration.yml) 在验收代码或资源目录变更时运行上述两个专项，也支持手动执行。它在独立 Linux/Xvfb 环境下载并核验目录锁定的 Eigen 引擎及模型，再保存真实 UI、GTP 和清理证据；不代表 Windows 原生桌面或自编译 GPU 后端已经验收。两平台脚本 CI 另行验证准备器和结果判定器的失败路径。
+
 CPU 准备器按 `src/main/resources/katago-assets.json` 校验 Linux Eigen 引擎归档和模型，提取归档内的配置，并输出包含实际路径及哈希的 `manifest.json`。上例三个资源路径必须取自该 manifest；已有 manifest 的输出根目录会被拒绝。准备阶段可能联网，运行阶段不下载资源。`real-cpu-engine` 通过生产引擎管理器启动真实 KataGo，验证规则和快照盘面、当前节点正访问量、停止静默窗口以及进程／reader／临时 SGF 清理。
 
 每个资源下载的 socket 等待上限为 30 秒，传输预算为 600 秒；在每次读取前后检查预算，已开始的单次读取最多再等待一个 socket 时限。停滞或超预算会失败并移除 `.part`，不会发布该资源或 manifest；已有校验通过的缓存仍可复用。

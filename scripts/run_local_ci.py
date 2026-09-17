@@ -335,6 +335,8 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
     return [
         Step("Verify repository line endings", (python, "scripts/check_line_endings.py"), group="repository"),
         Step("Verify bundled JCEF logic", (python, "scripts/test_prepare_bundled_jcef.py")),
+        Step("Verify CPU acceptance provisioning", (python, "scripts/test_prepare_cpu_engine_acceptance.py")),
+        Step("Verify acceptance runner outcomes", (python, "scripts/test_run_acceptance.py")),
         Step(
             "Verify bundled NVIDIA runtime packaging",
             (python, "scripts/test_prepare_bundled_nvidia_runtime.py"),
