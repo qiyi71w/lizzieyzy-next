@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -144,6 +145,20 @@ class RocmSourceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unknown"):
                 rocm.build_sdk(Path("output"), "windows-rocm-future", 3)
             builder.assert_not_called()
+
+    def test_compiler_probe_keeps_diagnostics_and_never_ignores_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(rocm.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0, "clang version 23.0.0\n"),
+                    subprocess.CalledProcessError(1, ["clang++"])]) as run:
+                log = io.StringIO()
+                with self.assertRaises(subprocess.CalledProcessError):
+                    rocm.probe_compiler(root, root, log)
+                self.assertIn("clang version", log.getvalue())
+                self.assertEqual(subprocess.STDOUT, run.call_args.kwargs["stderr"])
+                self.assertTrue(run.call_args.kwargs["check"])
+                self.assertIn("--offload-arch=gfx900", run.call_args.args[0])
 
     def test_build_rejects_changed_msvc_or_architecture_range(self):
         with tempfile.TemporaryDirectory() as directory:

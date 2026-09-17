@@ -127,6 +127,22 @@ def download(item: dict, archive: Path, log) -> None:
     verify_archive(archive, item)
 
 
+def probe_compiler(prefix: Path, output: Path, log) -> str:
+    compiler = prefix / "rocm/lib/llvm/bin/clang++.exe"
+    env = environment(prefix)
+    version = subprocess.run([str(compiler), "--version"], env=env, check=True,
+                             capture_output=True, text=True, timeout=30).stdout
+    log.write(version)
+    log.flush()
+    source = output / "hip-cmath-probe.cpp"
+    source.write_text("#include <cmath>\nint main() { return 0; }\n", encoding="utf-8")
+    # Upstream suppresses this probe's stderr; retain the real reason before configure.
+    subprocess.run([str(compiler), "--offload-arch=gfx900", "-x", "hip", "-c", str(source),
+                    "-o", str(output / "hip-cmath-probe.o")], env=env, check=True,
+                   stdout=log, stderr=subprocess.STDOUT, timeout=120)
+    return version
+
+
 def build_sdk(output: Path, target: str, jobs: int) -> Path:
     if target not in TARGETS:
         raise ValueError("Unknown ROCm GPU family")
@@ -163,6 +179,7 @@ def build_sdk(output: Path, target: str, jobs: int) -> Path:
             runtime = output / "runtime-baseline.zip"
             download(lock["runtimes"][target], runtime, log)
             install_runtime(runtime, prefix, lock, target)
+            receipt["compilerVersionOutput"] = probe_compiler(prefix, output, log)
         for item in base["files"]:
             path = prefix / item["file"]
             if not path.is_file() or path.stat().st_size != item["sizeBytes"] or digest(path) != item["sha256"]:
