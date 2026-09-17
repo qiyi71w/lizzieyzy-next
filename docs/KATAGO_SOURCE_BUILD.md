@@ -18,8 +18,8 @@ headers and import libraries are constrained to that sealed prefix. Environment
 overrides cannot select a different CUDA toolkit. The upstream CUDA architecture
 selection remains unchanged, including the pre-RTX and RTX 50 targets.
 
-The portable evidence artifact contains the 22 declared runtime DLLs, including
-cuDNN graph/attention, NVRTC compiler/builtins, nvJitLink and the same MSVC DLLs as
+The portable evidence artifact contains the 24 declared runtime DLLs, including
+cuDNN graph/attention, NVRTC compiler/builtins and its alternate DLL, nvJitLink and the same MSVC DLLs as
 the existing official package. It never copies the old engine or its unrelated
 OpenSSL/zlib shared libraries. Every DLL is audited, and the relocated engine must
 report its version with the developer SDK removed from `PATH`. NVIDIA's display

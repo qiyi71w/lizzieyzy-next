@@ -31,10 +31,10 @@ class CudaSourceTest(unittest.TestCase):
 
     def test_runtime_includes_dynamic_attention_dependencies_not_old_engine(self):
         files = sdk.runtime_files()
-        self.assertEqual(22, len(files))
+        self.assertEqual(24, len(files))
         self.assertEqual(len(files), len(set(files)))
-        for name in ('nvrtc64_120_0.dll', 'nvrtc-builtins64_128.dll', 'cudnn_graph64_9.dll',
-                     'cudnn_engines_runtime_compiled64_9.dll', 'nvJitLink_120_0.dll'):
+        for name in ('nvrtc64_120_0.dll', 'nvrtc64_120_0.alt.dll', 'nvrtc-builtins64_128.dll', 'cudnn_graph64_9.dll',
+                     'cudnn_engines_runtime_compiled64_9.dll', 'nvJitLink_120_0.dll', 'nvblas64_12.dll'):
             self.assertIn(name, files)
         for name in ('katago.exe', 'nvcc.exe', 'nvcuda.dll', 'nvvm64_40_0.dll', 'libcrypto-3-x64.dll'):
             self.assertNotIn(name, files)
@@ -131,6 +131,16 @@ class CudaSourceTest(unittest.TestCase):
                 root = Path(directory)
                 with self.assertRaises(ValueError):
                     sdk.install_archive(self.archive(root, names), root / 'prefix', dict(name='bad', destination='cuda'))
+
+    def test_nvrtc_alternate_dll_is_preserved_without_replacing_default_compiler(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            names = ['nvrtc64_120_0.dll', 'nvrtc64_120_0.alt.dll', 'nvrtc-builtins64_128.dll']
+            archive = self.archive(root, ['sdk/LICENSE'] + ['sdk/bin/' + name for name in names])
+            sdk.install_archive(archive, root / 'prefix', dict(name='cuda_nvrtc', destination='cuda'))
+            self.assertEqual(set(names), {path.name for path in (root / 'prefix/runtime').iterdir()})
+            for name in names:
+                self.assertEqual(b'fixture', (root / 'prefix/cuda/bin' / name).read_bytes())
 
 
 if __name__ == '__main__':
