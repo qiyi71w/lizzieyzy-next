@@ -24,9 +24,10 @@ def inspect_elf(header: str, dynamic: str, versions: str, maximum_glibc: str,
     if not re.search(r"Class:\s+ELF64\b", header) or not re.search(r"Machine:\s+Advanced Micro Devices X86-64", header):
         raise ValueError("Expected native ELF64/x86_64")
     needed = re.findall(r"\(NEEDED\).*?\[([^\]]+)\]", dynamic)
-    if any("/" in name or name not in SYSTEM_LIBRARIES | {"libOpenCL.so.1"} | external_libraries
-           for name in needed):
-        raise ValueError("Unapproved or absolute dynamic library dependency")
+    unexpected = [name for name in needed
+                  if "/" in name or name not in SYSTEM_LIBRARIES | {"libOpenCL.so.1"} | external_libraries]
+    if unexpected:
+        raise ValueError(f"Unapproved or absolute dynamic library dependency: {unexpected}")
     rpaths = re.findall(r"\((?:RUNPATH|RPATH)\).*?\[([^\]]*)\]", dynamic)
     if any(path not in {"", "$ORIGIN"} for paths in rpaths for path in paths.split(":")):
         raise ValueError("Build-host path escaped into Linux runtime search path")

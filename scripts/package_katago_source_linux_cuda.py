@@ -30,7 +30,10 @@ def audit_binary(binary: Path) -> dict:
     texts = [subprocess.check_output(["readelf", flag, str(binary)], text=True)
              for flag in ("-h", "-d", "--version-info")]
     # The prior official AppImage payload needs at most these ABI versions.
-    audit = inspect_elf(*texts, "2.34", VENDOR_LIBRARIES | DRIVER_LIBRARIES)
+    try:
+        audit = inspect_elf(*texts, "2.34", VENDOR_LIBRARIES | DRIVER_LIBRARIES)
+    except ValueError as error:
+        raise ValueError(f"{binary.name}: {error}") from error
     for family, ceiling in (("GLIBCXX", (3, 4, 30)), ("CXXABI", (1, 3, 13))):
         versions = set(re.findall(r"\b" + family + r"_([0-9]+(?:\.[0-9]+)+)\b", texts[2]))
         if any(tuple(map(int, version.split("."))) > ceiling for version in versions):
