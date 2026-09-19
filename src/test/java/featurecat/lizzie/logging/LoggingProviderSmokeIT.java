@@ -8,8 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -24,37 +22,11 @@ class LoggingProviderSmokeIT {
     assertTrue(Files.isRegularFile(shaded), "shaded artifact missing: " + shaded.toAbsolutePath());
 
     Path work = Files.createTempDirectory(tempDir, "shaded-smoke");
-    String configuredJava = System.getProperty("lizzie.test.java.executable", "");
     Path java =
-        configuredJava.isBlank()
-            ? Path.of(
-                System.getProperty("java.home"),
-                "bin",
-                System.getProperty("os.name", "").startsWith("Windows") ? "java.exe" : "java")
-            : Path.of(configuredJava);
-    assertTrue(Files.isRegularFile(java), "child Java executable missing: " + java.toAbsolutePath());
-    assertTrue(Files.isExecutable(java), "child Java is not executable: " + java.toAbsolutePath());
-
-    Path versionLog = work.resolve("java-version.log");
-    Process versionProcess =
-        new ProcessBuilder(java.toString(), "-XshowSettings:properties", "-version")
-            .redirectErrorStream(true)
-            .redirectOutput(versionLog.toFile())
-            .start();
-    assertTrue(
-        waitForOrTerminate(versionProcess, 15),
-        "child Java -version timed out; process was terminated");
-    String versionOutput = Files.readString(versionLog, StandardCharsets.UTF_8);
-    assertEquals(0, versionProcess.exitValue(), versionOutput);
-    Matcher versionMatcher =
-        Pattern.compile("(?m)^\\s*java\\.version\\s*=\\s*(\\S+)\\s*$").matcher(versionOutput);
-    assertTrue(versionMatcher.find(), "child Java did not report java.version:\n" + versionOutput);
-    String childJavaVersion = versionMatcher.group(1);
-    if (!configuredJava.isBlank()) {
-      assertTrue(
-          childJavaVersion.equals("17") || childJavaVersion.startsWith("17."),
-          "explicit child Java must be version 17, found " + childJavaVersion);
-    }
+        Path.of(
+            System.getProperty("java.home"),
+            "bin",
+            System.getProperty("os.name", "").startsWith("Windows") ? "java.exe" : "java");
 
     Path childOutput = work.resolve("provider-smoke-child.log");
     Process process =
@@ -77,8 +49,6 @@ class LoggingProviderSmokeIT {
     assertEquals(1, count(appLog, "application log session started"));
     System.out.println("shaded-smoke-jar=" + shaded.toAbsolutePath());
     System.out.println("shaded-smoke-java=" + java.toRealPath());
-    System.out.println("shaded-smoke-java-version=" + childJavaVersion);
-    System.out.println("shaded-smoke-java-version-log=" + versionLog.toAbsolutePath());
   }
 
   private static boolean waitForOrTerminate(Process process, long timeoutSeconds)

@@ -92,7 +92,6 @@ PY_COMPILE_FILES = (
     "scripts/audit_katago_source_bundle.py",
     "scripts/test_audit_katago_source_bundle.py",
     "scripts/prepare_cpu_engine_acceptance.py",
-    "scripts/test_candidate_workflows.py",
     "scripts/test_prepare_cpu_engine_acceptance.py",
     "scripts/test_run_acceptance.py",
     "scripts/build_katago_cuda_dependencies.py",
@@ -204,7 +203,6 @@ DIRECT_PYTHON_TESTS = (
 )
 
 UNITTEST_MODULES = (
-    "scripts.test_candidate_workflows",
     "scripts.test_publish_release_request",
     "scripts.test_release_asset_provenance",
     "scripts.test_release_asset_topology",

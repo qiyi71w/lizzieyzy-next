@@ -20,7 +20,7 @@ If you already have a working Java + Maven environment, you can build directly:
 mvn -B -DskipTests package
 ```
 
-The source/API baseline and standalone shaded-JAR runtime target are Java 17. Maintained release workflows build on JDK 21, and final platform packages include a Java 21 runtime. Use JDK 21 for normal builds; use an explicit Temurin 17 installation only for the standalone-runtime acceptance described in [Specialized Acceptance](SPECIALIZED_ACCEPTANCE.md#非发布候选构建与交接).
+The source/API baseline and standalone shaded-JAR runtime target are Java 17. Maintained release workflows build on JDK 21, and final platform packages include a Java 21 runtime. Use JDK 21 for normal builds. Final-product acceptance consumes the supplied release artifacts and their build provenance as described in [Specialized Acceptance](SPECIALIZED_ACCEPTANCE.md#成品交接与验收).
 
 ### Option 2: Use the bundled tool cache in the repo
 
@@ -166,8 +166,6 @@ These changes usually also require updates to:
   - checks that `dist/release/` only contains the public-facing main assets
 - `scripts/check_markdown_links.py`
   - validates local markdown links
-- `.github/workflows/candidate-{windows,linux,macos,java17}.yml`
-  - build read-only, non-publishing candidate artifacts and implementation evidence; native hosts still verify transferred assets locally before launch
 
 ## Final Pre-PR Checklist
 

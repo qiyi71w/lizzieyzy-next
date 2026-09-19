@@ -88,24 +88,30 @@ GPU 记录每行包含：场景 ID、SHA/构建身份、硬件/驱动/KataGo/bac
 
 先检查目标平台工具和 workflow 声明的下载/签名/发布条件。平台 smoke 使用可丢弃的配置；执行前检查其配置清理选项。签名是否执行、为何跳过、验证结果按 [macOS 签名说明](MACOS_SIGNING.md)单独记录，不用打包成功推断签名成功。
 
-### 非发布候选构建与交接
+### 成品交接与验收
 
-四个候选 workflow 只构建和取证，不发布：
+平台产品验收直接消费由发布构建（如 [build-windows-release.yml](../.github/workflows/build-windows-release.yml)、[build-linux-release.yml](../.github/workflows/build-linux-release.yml)、macOS [arm64](../.github/workflows/build-macos-arm64-release.yml) / [amd64](../.github/workflows/build-macos-amd64-release.yml)）或授权打包负责人生成的最终成品与对应构建的 `release-asset-provenance.json`。
 
-| 范围 | Workflow | 触发与产物 |
-| --- | --- | --- |
-| Windows | [candidate-windows.yml](../.github/workflows/candidate-windows.yml) | Windows 打包或共享 provenance/topology 改动；最终资产、producer provenance、构建元数据 |
-| Linux | [candidate-linux.yml](../.github/workflows/candidate-linux.yml) | Linux 打包或共享 provenance/topology 改动；三个最终 ZIP、producer provenance、构建元数据 |
-| macOS | [candidate-macos.yml](../.github/workflows/candidate-macos.yml) | macOS 打包或共享 provenance/topology 改动；arm64/amd64 各自最终 DMG、producer provenance、构建元数据 |
-| standalone Java 17 | [candidate-java17.yml](../.github/workflows/candidate-java17.yml) | Java 17 gate、POM 或共享记录校验改动；JDK 21 构建的 exact shaded JAR、Temurin 17 static/application evidence |
+构建端在完成前台打包后，运行 `release_asset_provenance.py` 生成绑定运行身份与资产 SHA-256 的清单：
 
-这些 workflow 同时支持 path-filtered `pull_request` 和手工 dispatch，顶层权限固定为 `contents: read`，不声明 release environment，不读取签名/发布 secrets，不执行 `gh release upload`、R2 promotion 或其他发布动作。平台本地脚本改动只触发对应平台；共享 provenance/topology 改动可触发全部 build-only 平台任务。它们不属于通用 required matrix，是否设为分支必需检查须在稳定性和管理配置完成后另行决定。
+```bash
+python3 scripts/release_asset_provenance.py \
+  --release-dir <dist/release> \
+  --platform <windows|linux|mac-amd64|mac-arm64> \
+  --date-tag <YYYY-MM-DD> \
+  --release-tag <next-YYYY-MM-DD.N> \
+  --target-sha <40-lowercase-hex> \
+  --run-id <positive-int> \
+  --run-attempt <positive-int> \
+  --output <release-dir/release-asset-provenance.json>
+```
 
-候选交接顺序固定如下：
+该清单必须由构建端直接生成并随资产一并交付，run ID 与 attempt 必须来自实际构建记录；消费主机不得在跨机传输后补造构建来源。缺少成品或来源清单时，验收记为 `BLOCKED`；已提供的资产与清单不匹配时，身份校验失败并拒绝启动。
 
-1. build host 用现有前台打包脚本生成最终资产，再生成同一 workflow attempt 的 `release-asset-provenance.json`；Actions artifact 只承载资产、provenance 和实现证据。
-2. 把一个最终资产和整份 provenance 下载到目标 native host。不要传递 producer 上生成的 `candidate.json`，也不要把 staging/app-image 当候选。
-3. consumer host 本地重新打开资产并生成唯一可启动的 `candidate.json`，因此其中所有绝对路径均属于 consumer：
+成品交接顺序固定如下：
+
+1. 接收构建端提供的最终资产（ZIP、安装器、DMG 等）与同一 workflow attempt 的 `release-asset-provenance.json`。不要跨机传递构建端生成的 `candidate.json`，也不要把 staging 或 app-image 当作最终候选。
+2. consumer host 本地重新打开资产并生成唯一可启动的本机 `candidate.json`，其中所有绝对路径均属于 consumer 本机：
 
 ```bash
 python3 scripts/release_asset_provenance.py verify-candidate \
@@ -117,9 +123,9 @@ python3 scripts/release_asset_provenance.py verify-candidate \
   --output <local-candidate.json>
 ```
 
-4. native runner 只消费这份本机 `candidate.json`。Windows 使用下面的 `Prepare` / `Start` / `Status` / `Stop`；Linux/macOS 使用各自 runner。rebuild、资产漂移、producer 路径记录或 SHA 不一致均重新生成候选或失败，不能沿用旧记录。
+3. native runner 只消费这份本机 `candidate.json`。Windows 使用下面的 `Prepare` / `Start` / `Status` / `Stop`；Linux/macOS 使用各自 runner。重新构建、资产漂移、构建端路径残留或 SHA 不一致均重新生成候选或失败，不能沿用旧记录。
 
-多行 native 结果完成后，用同一校验器生成 phase-aware 汇总。row ID 固定为 `<platform>/<architecture>/<artifact-key>/<scenarioId>`；standalone Java 17 的 artifact key 为 `NOT_APPLICABLE`。命令拒绝错误目标 SHA、缺失、重复、意外行及任何不满足 PASS/FAIL/BLOCKED phase 规则的记录：
+多行 native 结果完成后，用同一校验器生成 phase-aware 汇总。row ID 固定为 `<platform>/<architecture>/<artifact-key>/<scenarioId>`。命令拒绝错误目标 SHA、缺失、重复、意外行及任何不满足 PASS/FAIL/BLOCKED phase 规则的记录：
 
 ```bash
 python3 scripts/release_asset_provenance.py validate-acceptance \
@@ -129,9 +135,9 @@ python3 scripts/release_asset_provenance.py validate-acceptance \
   --output <acceptance-report.json>
 ```
 
-每增加一条必需行，重复传 `--require-row` 与 `--record`。`BLOCKED` 只表示行为阶段开始前缺少外部前提；阶段开始后的断言、超时或配置问题是 `FAIL`。`PASS` 要求该场景所有必需观察、断言、证据与 cleanup 完整。workflow 构建成功或记录汇总成功都不自行声明 native product PASS。
+每增加一条必需行，重复传 `--require-row` 与 `--record`。`BLOCKED` 只表示行为阶段开始前缺少外部前提；阶段开始后的断言、超时或配置问题是 `FAIL`。`PASS` 要求该场景所有必需观察、断言、证据与 cleanup 完整。构建成功或记录汇总成功都不自行声明 native product PASS。
 
-源码编译/API baseline 和 standalone shaded JAR 支持目标为 Java 17；候选/Release 的正常构建 JDK 与 bundled runtime 仍为 Java 21。Java 17 workflow 先用 JDK 21 构建 exact shaded JAR，再让 `LoggingProviderSmokeIT` 的 child 和 verifier 显式使用 Temurin 17；static gate 失败时不继续把 application smoke 报成通过。
+源码编译与 API baseline 目标仍为 Java 17（由 `pom.xml` 中 compiler plugin 的 `<release>17</release>` 约束）；发布构建与平台成品内嵌的 bundled runtime 均为 Java 21。
 
 Windows 最终产品在原生主机按同一入口交接。`Prepare` 接收已经传到该主机的最终资产和 producer provenance，在本机运行 `release_asset_provenance.py verify-candidate`，然后安全解压或安装到新建的 Unicode/空格路径；它产出的本机绝对路径 `candidate.json` 和 `prepared.json` 才能用于后续命令。可复用会话的命令顺序为：
 
