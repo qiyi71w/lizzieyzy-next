@@ -79,25 +79,38 @@ printf '%s\n' 'fixture.jar -> java.base' '   fixture -> java.lang java.base'
         scenario: str = "static",
         *,
         environment: dict[str, str] | None = None,
+        expected_jar_size: int | None = None,
+        expected_jar_sha256: str | None = None,
+        expected_build_jdk_spec: str | None = None,
+        expected_created_by: str | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], Path]:
         evidence = self.root / f"验收 evidence {len(list(self.root.glob('验收 evidence *')))}"
         process_environment = os.environ.copy()
         process_environment.update(environment or {})
+        command = [
+            "python3",
+            str(SCRIPT),
+            "--jar",
+            str(jar),
+            "--source-sha",
+            SOURCE_SHA,
+            "--java-home",
+            str(self.java_home),
+            "--evidence-dir",
+            str(evidence),
+            "--scenario",
+            scenario,
+        ]
+        if expected_jar_size is not None:
+            command.extend(["--expected-jar-size", str(expected_jar_size)])
+        if expected_jar_sha256 is not None:
+            command.extend(["--expected-jar-sha256", expected_jar_sha256])
+        if expected_build_jdk_spec is not None:
+            command.extend(["--expected-build-jdk-spec", expected_build_jdk_spec])
+        if expected_created_by is not None:
+            command.extend(["--expected-created-by", expected_created_by])
         result = subprocess.run(
-            [
-                "python3",
-                str(SCRIPT),
-                "--jar",
-                str(jar),
-                "--source-sha",
-                SOURCE_SHA,
-                "--java-home",
-                str(self.java_home),
-                "--evidence-dir",
-                str(evidence),
-                "--scenario",
-                scenario,
-            ],
+            command,
             cwd=ROOT,
             env=process_environment,
             capture_output=True,
@@ -201,6 +214,97 @@ while :; do sleep 1; done
         self.assertEqual("static", record["blockedPhase"])
         self.assertIn("java is not executable", record["reason"])
         self.assertTrue(record["cleanup"]["complete"])
+
+    def test_missing_jar_records_schema_valid_identity_blocked_with_expected_inputs(self) -> None:
+        jar = self.root / "missing shaded.jar"
+        expected_size = 123456
+        expected_sha = "c" * 64
+        expected_build_jdk = "21"
+        expected_created_by = "Apache Maven 3.9.9"
+
+        result, evidence = self.run_verifier(
+            jar,
+            expected_jar_size=expected_size,
+            expected_jar_sha256=expected_sha,
+            expected_build_jdk_spec=expected_build_jdk,
+            expected_created_by=expected_created_by,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        record_path = evidence / "acceptance.json"
+        self.assertTrue(record_path.is_file())
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+
+        from scripts import release_asset_provenance as provenance
+        provenance.validate_acceptance_record(record)
+        self.assertFalse((evidence / "record-validation-failure.txt").exists())
+
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("identity", record["phase"])
+        self.assertEqual("identity", record["blockedPhase"])
+        self.assertIn("Shaded JAR is unavailable", record["reason"])
+        self.assertIn(str(jar.resolve()), record["reason"])
+        self.assertIsNone(record["failure"])
+
+        expected_artifact = record["expected"]["artifact"]
+        self.assertEqual(SOURCE_SHA, record["expected"]["targetSha"])
+        self.assertEqual("standalone-java17", record["expected"]["platform"])
+        self.assertEqual("NOT_APPLICABLE", expected_artifact["key"])
+        self.assertEqual("NOT_APPLICABLE", expected_artifact["name"])
+        self.assertEqual("NOT_APPLICABLE", expected_artifact["class"])
+        self.assertEqual(SOURCE_SHA, expected_artifact["sourceSha"])
+        self.assertEqual(str(jar.resolve()), expected_artifact["path"])
+        self.assertEqual(expected_size, expected_artifact["sizeBytes"])
+        self.assertEqual(expected_sha, expected_artifact["sha256"])
+        self.assertEqual(
+            {"buildJdkSpec": expected_build_jdk, "createdBy": expected_created_by},
+            expected_artifact["buildIdentity"],
+        )
+
+        for field in ("path", "sizeBytes", "sha256", "sourceSha", "manifestMainClass", "buildJdkSpec"):
+            self.assertIsNone(record["observed"]["artifact"][field])
+            self.assertIn(f"observed.artifact.{field}", record["notObserved"])
+            self.assertEqual(
+                "not observed before terminal phase identity",
+                record["notObserved"][f"observed.artifact.{field}"],
+            )
+
+        self.assertTrue(record["cleanup"]["complete"])
+        self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
+
+    def test_existing_jar_fails_closed_on_expected_input_mismatch(self) -> None:
+        jar = self.jar({"example/Root.class": self.classfile(61)})
+
+        result, evidence = self.run_verifier(
+            jar,
+            expected_jar_size=jar.stat().st_size + 100,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        record_path = evidence / "acceptance.json"
+        self.assertTrue(record_path.is_file())
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+
+        from scripts import release_asset_provenance as provenance
+        provenance.validate_acceptance_record(record)
+        self.assertFalse((evidence / "record-validation-failure.txt").exists())
+
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("identity", record["phase"])
+        self.assertFalse(record["assertions"]["identity"])
+        self.assertIn("size mismatch", record["failure"]["summary"])
+        self.assertEqual(jar.stat().st_size, record["observed"]["artifact"]["sizeBytes"])
+        self.assertEqual(jar.stat().st_size, record["expected"]["artifact"]["sizeBytes"])
+        self.assertTrue(record["cleanup"]["complete"])
+
+    def test_missing_jar_without_expected_inputs_fails_closed_without_evidence(self) -> None:
+        jar = self.root / "missing shaded.jar"
+
+        result, evidence = self.run_verifier(jar)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Shaded JAR is unavailable", result.stderr)
+        self.assertFalse(evidence.exists())
 
     def test_cleanup_finds_reparented_same_group_child_after_supervisor_exit(self) -> None:
         child_pid_file = self.root / "orphan.pid"

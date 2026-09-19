@@ -107,6 +107,10 @@ if [[ "{runtime_mode}" == "early-helper-exit" ]]; then
   sleep 0.2
   exit 64
 fi
+if [[ "{runtime_mode}" == "outside-write" ]]; then
+  mkdir -p "$HOME/.lizzieyzy-next"
+  printf 'unexpected-mutation\n' >"$HOME/.lizzieyzy-next/mutated.txt"
+fi
 mkdir -p "$work_root/logs"
 printf '{{}}\n' >"$work_root/config.txt"
 printf 'fixture-persist\n' >"$work_root/persist"
@@ -301,7 +305,7 @@ while :; do sleep 1; done
 
     def run_acceptance(
         self,
-        candidate: Path,
+        candidate: Path | None,
         *,
         host_architecture: str,
         physical_architecture: str | None = None,
@@ -312,6 +316,7 @@ while :; do sleep 1; done
         valid_peer: bool = True,
         extra_environment: dict[str, str] | None = None,
         evidence_name: str = "验收 evidence",
+        extra_args: list[str] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], Path, dict[str, object]]:
         evidence = self.root / evidence_name
         environment = os.environ.copy()
@@ -336,11 +341,17 @@ while :; do sleep 1; done
         if extra_environment:
             environment.update(extra_environment)
         producer = None
-        if produce_oracle:
+        if produce_oracle and candidate is not None:
             producer = threading.Thread(target=self.produce_oracle, args=(evidence, candidate, producer_errors, valid_peer), daemon=True)
             producer.start()
+        if candidate is not None:
+            command = [str(SCRIPT), "--candidate", str(candidate), "--scenario", "installed-offline-first-run", "--evidence-dir", str(evidence)]
+        else:
+            command = [str(SCRIPT), "--scenario", "installed-offline-first-run", "--evidence-dir", str(evidence)]
+        if extra_args:
+            command.extend(extra_args)
         result = subprocess.run(
-            [str(SCRIPT), "--candidate", str(candidate), "--scenario", "installed-offline-first-run", "--evidence-dir", str(evidence)],
+            command,
             cwd=ROOT,
             env=environment,
             capture_output=True,
@@ -388,7 +399,14 @@ while :; do sleep 1; done
         self.assertIn("应用 程序", observed["installed"]["appPath"])
         self.assertNotIn("/Volumes/", observed["launcher"]["command"])
         self.assertTrue(observed["dmg"]["ejected"])
-        self.assertEqual("SIGNED_NOTARIZED", observed["quarantine"]["signatureStatus"])
+        self.assertEqual("SIGNED_VALID", observed["quarantine"]["signatureStatus"])
+        self.assertEqual("STAPLED_VALID", observed["quarantine"]["notarizationStatus"])
+        self.assertEqual("ALLOWED", observed["quarantine"]["quarantineStatus"])
+        self.assertEqual([], observed["dataRoot"]["outsideWrites"])
+        self.assertEqual(2, len(observed["dataRoot"]["snapshotEvidence"]))
+        self.assertTrue((evidence / "gatekeeper-trust-launch.json").is_file())
+        self.assertTrue((evidence / "pf-boundary-probe.log").is_file())
+        self.assertTrue((evidence / "pf-cleanup.log").is_file())
         self.assertEqual("PASS", observed["analysis"]["status"])
         self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
         self.assertTrue((evidence / "layout-audit.log").is_file())
@@ -407,7 +425,9 @@ while :; do sleep 1; done
         self.assertEqual(0, result.returncode, result.stderr)
         provenance.validate_acceptance_record(record)
         self.assertEqual("UNSIGNED_INTENTIONAL", record["observed"]["quarantine"]["signatureStatus"])
-        self.assertEqual("BLOCKED_THEN_OPEN_ANYWAY", record["observed"]["quarantine"]["firstLaunch"])
+        self.assertEqual("NOT_PERFORMED", record["observed"]["quarantine"]["notarizationStatus"])
+        self.assertEqual("BLOCKED_THEN_OPEN_ANYWAY", record["observed"]["quarantine"]["quarantineStatus"])
+        self.assertTrue((self.root / "验收 evidence" / "gatekeeper-trust-launch.json").is_file())
         self.assertEqual("BOUND_CONFIRMATION", record["observed"]["quarantine"]["openAnyway"])
         request = json.loads((self.root / "验收 evidence" / "open-anyway-request.json").read_text(encoding="utf-8"))
         confirmation = json.loads((self.root / "Open Anyway confirmation.json").read_text(encoding="utf-8"))
@@ -683,17 +703,36 @@ while :; do sleep 1; done
         self.assertEqual("/Applications/LizzieYzy Next.app/Contents/MacOS/LizzieYzy Next --fixture value", rows[42]["commandLine"])
         self.assertEqual("Mon Jan 2 03:04:05 2026", rows[42]["incarnation"])
 
-    def test_missing_oracle_producer_is_blocked_after_launch(self) -> None:
+    def test_matching_process_snapshots_preserves_native_pid_identity(self) -> None:
+        native_row = {
+            "parentPid": 1,
+            "state": "S",
+            "incarnation": "Mon Jan 2 03:04:05 2026",
+            "image": "/Applications/LizzieYzy Next.app/Contents/MacOS/LizzieYzy Next",
+            "commandLine": "/Applications/LizzieYzy Next.app/Contents/MacOS/LizzieYzy Next",
+        }
+
+        with mock.patch.object(acceptance, "process_table", return_value={42: native_row}):
+            rows = acceptance.matching_process_snapshots(["LizzieYzy Next.app"])
+            owned = acceptance.owned_processes(rows, ["LizzieYzy Next.app"])
+
+        self.assertEqual(42, rows[0]["pid"])
+        self.assertEqual(42, owned[0]["pid"])
+
+    def test_missing_oracle_producer_is_fail_after_launch(self) -> None:
         candidate = self.candidate("mac-arm64", populated=True)
 
         result, _, record = self.run_acceptance(candidate, host_architecture="arm64", timeout=1)
 
         self.assertNotEqual(0, result.returncode)
         provenance.validate_acceptance_record(record)
-        self.assertEqual("BLOCKED", record["status"])
-        self.assertEqual("verify", record["blockedPhase"])
-        self.assertEqual("launch", record["phase"])
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("verify", record["phase"])
+        self.assertEqual("timeout", record["failure"]["kind"])
+        self.assertFalse(record["assertions"]["verified"])
         self.assertTrue(record["cleanup"]["complete"])
+        self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
+        self.assertIn("Timed out waiting for the bound engine oracle producer", record["failure"]["summary"])
 
     def test_unavailable_host_identity_probe_writes_blocked_record(self) -> None:
         candidate = self.candidate("mac-arm64")
@@ -757,6 +796,25 @@ while :; do sleep 1; done
         monitor_state = json.loads((evidence / "network-monitor-fixture-state.json").read_text(encoding="utf-8"))
         self.assertFalse(monitor_state["stopped"])
 
+    def test_network_monitor_startup_failure_is_gatekeeper_blocked(self) -> None:
+        candidate = self.candidate("mac-arm64", populated=True)
+
+        result, evidence, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            evidence_name="monitor-startup-failure-evidence",
+            extra_environment={"LIZZIE_MACOS_ACCEPTANCE_FIXTURE_NETWORK_MONITOR_MODE": "startup-failure"},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("gatekeeper", record["blockedPhase"])
+        self.assertEqual("install", record["phase"])
+        self.assertTrue(record["cleanup"]["complete"])
+        self.assertFalse((evidence / "pf-cleanup.log").exists())
+
+
     def test_process_cleanup_error_survives_monitor_evidence_failure(self) -> None:
         candidate = self.candidate("mac-arm64", populated=True)
 
@@ -803,6 +861,253 @@ while :; do sleep 1; done
         self.assertEqual("BLOCKED", record["status"])
         self.assertEqual("content", record["blockedPhase"])
         self.assertIn("Darwin host", record["reason"])
+
+    def test_missing_candidate_with_expected_identity_writes_blocked_record(self) -> None:
+        evidence = self.root / "missing-candidate-evidence"
+        missing_candidate = self.root / "does-not-exist-candidate.json"
+        artifact_name = provenance.expected_asset_names("mac-arm64", DATE_TAG)[0]
+
+        result, _, record = self.run_acceptance(
+            missing_candidate,
+            host_architecture="arm64",
+            evidence_name="missing-candidate-evidence",
+            extra_args=[
+                "--expected-target-sha", TARGET_SHA,
+                "--expected-artifact-key", "mac_arm64",
+                "--expected-artifact-name", artifact_name,
+                "--expected-artifact-class", "dmg-product",
+            ],
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("identity", record["blockedPhase"])
+        self.assertEqual("identity", record["phase"])
+        self.assertEqual(TARGET_SHA, record["expected"]["targetSha"])
+        self.assertEqual("mac-arm64", record["expected"]["platform"])
+        self.assertEqual("arm64", record["expected"]["architecture"])
+        self.assertEqual("mac_arm64", record["expected"]["artifact"]["key"])
+        self.assertEqual(artifact_name, record["expected"]["artifact"]["name"])
+        self.assertEqual("dmg-product", record["expected"]["artifact"]["class"])
+        self.assertTrue(record["cleanup"]["complete"])
+        self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
+        self.assertIn("unavailable", record["reason"])
+
+    def test_expected_identity_mismatch_fails_closed(self) -> None:
+        candidate = self.candidate("mac-arm64", populated=True)
+        artifact_name = provenance.expected_asset_names("mac-arm64", DATE_TAG)[0]
+
+        # Case 1: Existing candidate but supplied expected target SHA mismatches
+        result_mismatch_sha, _, _ = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            evidence_name="mismatch-sha-evidence",
+            extra_args=[
+                "--expected-target-sha", "0" * 40,
+                "--expected-artifact-key", "mac_arm64",
+                "--expected-artifact-name", artifact_name,
+                "--expected-artifact-class", "dmg-product",
+            ],
+        )
+        self.assertNotEqual(0, result_mismatch_sha.returncode)
+        self.assertIn("differs from candidate", result_mismatch_sha.stderr)
+
+        # Case 2: Missing candidate but invalid topology name
+        missing = self.root / "missing.json"
+        result_invalid_name, _, _ = self.run_acceptance(
+            missing,
+            host_architecture="arm64",
+            evidence_name="invalid-name-evidence",
+            extra_args=[
+                "--expected-target-sha", TARGET_SHA,
+                "--expected-artifact-key", "mac_arm64",
+                "--expected-artifact-name", "invalid-name.dmg",
+                "--expected-artifact-class", "dmg-product",
+            ],
+        )
+        self.assertNotEqual(0, result_invalid_name.returncode)
+
+        # Case 3: Missing candidate and missing one of the four flags
+        result_partial, _, _ = self.run_acceptance(
+            missing,
+            host_architecture="arm64",
+            evidence_name="partial-flags-evidence",
+            extra_args=[
+                "--expected-target-sha", TARGET_SHA,
+                "--expected-artifact-key", "mac_arm64",
+            ],
+        )
+        self.assertNotEqual(0, result_partial.returncode)
+        self.assertIn("A missing candidate requires", result_partial.stderr)
+
+    def test_runner_observed_trust_launch_cleanup(self) -> None:
+        candidate = self.candidate("mac-arm64", populated=True, signing="signed")
+
+        result, evidence, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            produce_oracle=True,
+            evidence_name="trust-launch-evidence",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        trust_log = evidence / "gatekeeper-trust-launch.json"
+        self.assertTrue(trust_log.is_file())
+        trust_payload = json.loads(trust_log.read_text(encoding="utf-8"))
+        self.assertTrue(len(trust_payload.get("processes", [])) >= 1)
+
+    def test_launchctl_and_pf_cleanup_on_failure(self) -> None:
+        # Failure during gatekeeper phase (missing open anyway confirmation)
+        candidate = self.candidate("mac-arm64", populated=True, signing="unsigned")
+
+        result, evidence, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            evidence_name="cleanup-failure-evidence",
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertTrue(record["cleanup"]["complete"])
+        launchctl_log = (evidence / "launchctl-env.log").read_text(encoding="utf-8")
+        self.assertIn("unset JAVA_TOOL_OPTIONS", launchctl_log)
+        pf_cleanup_log = (evidence / "pf-cleanup.log").read_text(encoding="utf-8")
+        self.assertIn("flushed com.apple/lizzieyzy_", pf_cleanup_log)
+
+        # PF cleanup error causes cleanup.complete to be False
+        result_pf_fail, _, record_pf_fail = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            evidence_name="pf-cleanup-error-evidence",
+            extra_environment={"LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PF_CLEANUP_ERROR": "1"},
+        )
+        self.assertNotEqual(0, result_pf_fail.returncode)
+        self.assertEqual("FAIL", record_pf_fail["status"])
+        self.assertFalse(record_pf_fail["cleanup"]["complete"])
+        self.assertTrue(any("pf-anchor:" in item for item in record_pf_fail["cleanup"]["remainingOwnedResources"]))
+
+    def test_pf_cleanup_failure_after_successful_verification_is_fail(self) -> None:
+        candidate = self.candidate("mac-arm64", populated=True, signing="signed")
+
+        result, _, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            produce_oracle=True,
+            evidence_name="verified-pf-cleanup-error-evidence",
+            extra_environment={"LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PF_CLEANUP_ERROR": "1"},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("cleanup", record["phase"])
+        self.assertFalse(record["assertions"]["cleaned"])
+        self.assertFalse(record["cleanup"]["complete"])
+        self.assertTrue(any("pf-anchor:" in item for item in record["cleanup"]["remainingOwnedResources"]))
+        self.assertIn("Acceptance cleanup did not complete", record["failure"]["summary"])
+
+    def test_launchctl_restore_failure_prevents_pass_and_releases_pf(self) -> None:
+        candidate = self.candidate("mac-arm64", populated=True, signing="signed")
+
+        result, evidence, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            evidence_name="launchctl-restore-failure-evidence",
+            extra_environment={"LIZZIE_MACOS_ACCEPTANCE_FIXTURE_LAUNCHCTL_RESTORE_FAIL": "1"},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("gatekeeper", record["phase"])
+        self.assertFalse(record["cleanup"]["complete"])
+        self.assertIn("launchctl-env:fixture-restore-failure", record["cleanup"]["remainingOwnedResources"])
+        self.assertTrue((evidence / "pf-cleanup.log").is_file())
+
+    def test_process_table_failure_does_not_skip_control_plane_cleanup(self) -> None:
+        candidate = self.candidate("mac-arm64", populated=True, signing="unsigned")
+
+        result, evidence, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            evidence_name="process-table-failure-evidence",
+            extra_environment={"LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PROCESS_TABLE_FAIL": "1"},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertFalse(record["cleanup"]["complete"])
+        self.assertTrue(any(item.startswith("process-cleanup:") for item in record["cleanup"]["remainingOwnedResources"]))
+        launchctl_log = (evidence / "launchctl-env.log").read_text(encoding="utf-8")
+        self.assertIn("unset JAVA_TOOL_OPTIONS", launchctl_log)
+        self.assertTrue((evidence / "pf-cleanup.log").is_file())
+
+    def test_pf_enable_without_cleanup_token_fails_closed(self) -> None:
+        evidence = self.root / "pf-token-evidence"
+        evidence.mkdir()
+        responses = [
+            subprocess.CompletedProcess(["pfctl", "-s", "info"], 0, "Status: Enabled\n", ""),
+            subprocess.CompletedProcess(["pfctl", "-E"], 0, "pf enabled without reference output\n", ""),
+        ]
+        previous_fixture_mode = acceptance.FIXTURE_MODE
+        acceptance.FIXTURE_MODE = False
+        try:
+            with (
+                mock.patch.object(acceptance.shutil, "which", return_value="/sbin/pfctl"),
+                mock.patch.object(acceptance.subprocess, "run", side_effect=responses),
+            ):
+                with self.assertRaises(acceptance.PfAcquisitionError) as raised:
+                    acceptance.setup_pf_boundary(evidence)
+        finally:
+            acceptance.FIXTURE_MODE = previous_fixture_mode
+
+        self.assertIn("reference token", str(raised.exception))
+        self.assertEqual(
+            ["pf-reference-token:missing"],
+            raised.exception.remaining_resources,
+        )
+
+    def test_launchctl_failure_is_blocked_before_trust_launch(self) -> None:
+        candidate = self.candidate("mac-arm64", populated=True, signing="signed")
+
+        result, evidence, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            evidence_name="launchctl-blocked-evidence",
+            extra_environment={"LIZZIE_MACOS_ACCEPTANCE_FIXTURE_LAUNCHCTL_FAIL": "1"},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("gatekeeper", record["blockedPhase"])
+        self.assertTrue(record["cleanup"]["complete"])
+        self.assertFalse((evidence / "gatekeeper-trust-launch.json").exists())
+        self.assertTrue((evidence / "pf-cleanup.log").is_file())
+
+
+    def test_outside_write_detection_prevents_pass(self) -> None:
+        fake_home = self.root / "fake-home"
+        fake_home.mkdir()
+        candidate = self.candidate("mac-arm64", populated=True, runtime_mode="outside-write")
+
+        result, evidence, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            produce_oracle=True,
+            evidence_name="outside-write-evidence",
+            extra_environment={"HOME": str(fake_home)},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertFalse(record["cleanup"]["complete"])
+        self.assertFalse(record["assertions"]["cleaned"])
+        self.assertIn("defaultUserRoot", record["observed"]["dataRoot"]["outsideWrites"])
+        self.assertIn("outside-data-write:defaultUserRoot", record["cleanup"]["remainingOwnedResources"])
+        self.assertEqual(2, len(record["observed"]["dataRoot"]["snapshotEvidence"]))
 
 
 if __name__ == "__main__":

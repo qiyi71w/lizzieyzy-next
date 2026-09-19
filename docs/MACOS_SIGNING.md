@@ -59,7 +59,7 @@ spctl --assess --type open --context context:primary-signature -vvv path/to/Lizz
 
 此流程只用于四项必需 Apple 凭据全部不可用、且 `codesign` 明确确认 app 完全未签名的本地验收。畸形、损坏或部分签名不能用 Open Anyway 绕过。
 
-1. 启动 `scripts/macos_product_acceptance.sh` 时，把 `LIZZIE_MACOS_OPEN_ANYWAY_MARKER` 指向一个尚不存在的 JSON 文件。runner 对隔离安装副本写入 quarantine，并先通过 LaunchServices 观察 Gatekeeper 拒绝。
+1. 启动 `scripts/macos_product_acceptance.sh` 时，把 `LIZZIE_MACOS_OPEN_ANYWAY_MARKER` 指向一个尚不存在的 JSON 文件。runner 在任何 Gatekeeper/LaunchServices 启动前已建立隔离数据目录、进程所有权标识、外部数据目录快照、主机级 PF 出站阻断（保留 loopback）与网络监控，并通过 `launchctl setenv JAVA_TOOL_OPTIONS` 注入隔离路径。随后对安装副本写入 quarantine，并先通过 LaunchServices 观察 Gatekeeper 拒绝。
 2. 等待同一 evidence 目录出现 `open-anyway-request.json`。不要预先创建 confirmation；request 含本次随机 `nonce`、DMG SHA-256、installed app 绝对路径、launcher SHA-256、quarantine attribute 和 `blockedAt`。
 3. 打开“系统设置 → 隐私与安全性”，确认页面显示刚被阻止的 `LizzieYzy Next`，点击“仍要打开”（Open Anyway），按系统提示确认。随后通过 Finder 或系统给出的“打开”动作重试该 request 中的 installed app；不要改为挂载卷中的副本或另一份 app。
 4. 在窗口实际出现后截取包含应用窗口及可辨认系统时间的截图。把截图保存到稳定绝对路径；不要在验收结束前删除。
@@ -80,7 +80,7 @@ spctl --assess --type open --context context:primary-signature -vvv path/to/Lizz
 }
 ```
 
-runner 要求字段集合完全一致、绑定值逐项相同、截图存在且时间顺序正确，然后才继续从同一 installed launcher 执行隔离工作目录、离线边界和引擎验收。fixture 生成的确认仅验证绑定与时序逻辑，不是 Gatekeeper UI 或 LaunchServices 原生证据。
+runner 要求字段集合完全一致、绑定值逐项相同、截图存在且时间顺序正确。在收到有效确认后，runner 在同一出站阻断边界内通过 LaunchServices 再次拉起该 installed app，由 runner 自身实际观察并捕获进程身份（PID、command 与 image），并在后续受控 sandbox-exec 运行前彻底终止该次启动的全部 owned 进程。仅凭确认文件中的 launchObserved 不作为进程存活证据。验收记录中将信任状态独立拆分为 signatureStatus (UNSIGNED_INTENTIONAL)、notarizationStatus (NOT_PERFORMED) 与 quarantineStatus (BLOCKED_THEN_OPEN_ANYWAY)。fixture 生成的确认仅验证绑定与时序逻辑，不是 Gatekeeper UI 或 LaunchServices 原生证据。
 
 ## 失败兜底
 

@@ -15,6 +15,9 @@ import unittest
 import time
 import zipfile
 
+from unittest import mock
+
+from scripts import linux_product_acceptance as acceptance
 from scripts import release_asset_provenance as provenance
 
 
@@ -691,6 +694,144 @@ JAVA_ARGS=(-Xshare:auto -Dlizzie.next.version=fixture)
         provenance.validate_acceptance_record(record)
         self.assertEqual("FAIL", record["status"])
         self.assertIn("production catalog/manager ownership", record["failure"]["summary"])
+
+    def test_missing_candidate_writes_schema_valid_identity_blocked_with_expected_inputs(self) -> None:
+        candidate = self.root / "missing-candidate.json"
+        evidence = self.root / "missing-candidate-evidence"
+        artifact_name = f"{DATE_TAG}-linux64.opencl.zip"
+
+        result = subprocess.run(
+            [
+                str(SCRIPT),
+                "--candidate",
+                str(candidate),
+                "--scenario",
+                "variant-launch",
+                "--evidence-dir",
+                str(evidence),
+                "--expected-target-sha",
+                TARGET_SHA,
+                "--expected-artifact-key",
+                "linux64_opencl",
+                "--expected-artifact-name",
+                artifact_name,
+                "--expected-artifact-class",
+                "linux-product",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        record = json.loads((evidence / "acceptance.json").read_text(encoding="utf-8"))
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("identity", record["phase"])
+        self.assertEqual("identity", record["blockedPhase"])
+        self.assertEqual(TARGET_SHA, record["expected"]["targetSha"])
+        self.assertEqual(
+            {
+                "key": "linux64_opencl",
+                "name": artifact_name,
+                "class": "linux-product",
+            },
+            record["expected"]["artifact"],
+        )
+        self.assertIsNone(record["observed"]["candidate"]["path"])
+        self.assertTrue(record["cleanup"]["complete"])
+        self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
+
+    def test_existing_candidate_fails_closed_on_requested_identity_mismatch(self) -> None:
+        candidate = self.candidate("opencl")
+        evidence = self.root / "identity-mismatch-evidence"
+
+        result = subprocess.run(
+            [
+                str(SCRIPT),
+                "--candidate",
+                str(candidate),
+                "--scenario",
+                "variant-launch",
+                "--evidence-dir",
+                str(evidence),
+                "--expected-target-sha",
+                "b" * 40,
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        record = json.loads((evidence / "acceptance.json").read_text(encoding="utf-8"))
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("identity", record["phase"])
+        self.assertIn("targetSha differs", record["failure"]["summary"])
+        self.assertTrue(record["cleanup"]["complete"])
+
+    def test_wrong_physical_host_architecture_is_blocked_before_probing_runtime(self) -> None:
+        candidate = self.candidate("opencl")
+        evidence = self.root / "验收 evidence"
+
+        with mock.patch.object(acceptance.platform, "machine", return_value="aarch64"):
+            result = acceptance.run(candidate, "variant-launch", evidence)
+
+        self.assertNotEqual(0, result)
+        record_path = evidence / "acceptance.json"
+        self.assertTrue(record_path.is_file())
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("extraction", record["blockedPhase"])
+        self.assertEqual("identity", record["phase"])
+        self.assertIn("requires an x86_64 host", record["reason"])
+        self.assertIn("aarch64", record["reason"])
+        self.assertTrue(record["cleanup"]["complete"])
+        self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
+        self.assertIsNone(record["observed"]["product"]["productRoot"])
+        self.assertIsNone(record["observed"]["runtime"]["version"])
+
+    def test_missing_or_unqueryable_prelaunch_display_is_blocked_before_launch(self) -> None:
+        candidate = self.candidate("opencl")
+        evidence = self.root / "验收 evidence"
+
+        original_run = acceptance.subprocess.run
+
+        def fake_subprocess_run(command, *args, **kwargs):
+            if isinstance(command, list) and command and command[0] == "xwininfo":
+                return subprocess.CompletedProcess(
+                    command,
+                    returncode=1,
+                    stdout="",
+                    stderr="xwininfo: unable to open display\n",
+                )
+            return original_run(command, *args, **kwargs)
+
+        with (
+            mock.patch.object(acceptance, "FIXTURE_MODE", False),
+            mock.patch.object(acceptance.shutil, "which", return_value="/bin/true"),
+            mock.patch.object(acceptance.subprocess, "run", side_effect=fake_subprocess_run),
+        ):
+            result = acceptance.run(candidate, "variant-launch", evidence)
+
+        self.assertNotEqual(0, result)
+        record_path = evidence / "acceptance.json"
+        self.assertTrue(record_path.is_file())
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("launch", record["blockedPhase"])
+        self.assertEqual("extraction", record["phase"])
+        self.assertIn("display", record["reason"].lower())
+        self.assertTrue(record["cleanup"]["complete"])
+        self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
+        self.assertIsNotNone(record["observed"]["product"]["productRoot"])
+        self.assertIsNotNone(record["observed"]["runtime"]["version"])
+        self.assertIsNone(record["observed"]["launcher"]["pid"])
 
 
 if __name__ == "__main__":

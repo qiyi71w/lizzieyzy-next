@@ -736,19 +736,58 @@ def failure_kind(message: str) -> str:
     return "error"
 
 
-def run(jar: Path, source_sha: str, java_home: Path, evidence: Path, scenario: str) -> int:
+def run(
+    jar: Path,
+    source_sha: str,
+    java_home: Path,
+    evidence: Path,
+    scenario: str,
+    *,
+    expected_jar_size: int | None = None,
+    expected_jar_sha256: str | None = None,
+    expected_build_jdk_spec: str | None = None,
+    expected_created_by: str | None = None,
+) -> int:
     require(re.fullmatch(r"[0-9a-f]{40}", source_sha) is not None, "--source-sha must be a full lowercase commit SHA")
-    require(jar.is_file(), f"Shaded JAR is unavailable: {jar}")
+    if expected_jar_size is not None:
+        require(type(expected_jar_size) is int and expected_jar_size > 0, "--expected-jar-size must be a positive integer")
+    if expected_jar_sha256 is not None:
+        require(
+            isinstance(expected_jar_sha256, str)
+            and re.fullmatch(r"[0-9a-f]{64}", expected_jar_sha256) is not None,
+            "--expected-jar-sha256 must be 64 lowercase hex characters",
+        )
+    if expected_build_jdk_spec is not None:
+        require(
+            isinstance(expected_build_jdk_spec, str) and bool(expected_build_jdk_spec.strip()),
+            "--expected-build-jdk-spec must not be empty",
+        )
+    if expected_created_by is not None:
+        require(
+            isinstance(expected_created_by, str) and bool(expected_created_by.strip()),
+            "--expected-created-by must not be empty",
+        )
+
+    has_expected_identity = (
+        expected_jar_size is not None
+        and expected_jar_sha256 is not None
+        and expected_build_jdk_spec is not None
+        and expected_created_by is not None
+    )
+    if not jar.is_file() and not has_expected_identity:
+        require(jar.is_file(), f"Shaded JAR is unavailable: {jar}")
+
     require(not evidence.exists(), f"Evidence directory must be new: {evidence}")
     evidence.mkdir(parents=True)
     jar = jar.resolve()
     java_home = java_home.resolve()
     started_at = now()
     record_path = evidence / "acceptance.json"
-    jar_size = jar.stat().st_size
-    jar_sha = sha256_file(jar)
+    jar_size = jar.stat().st_size if jar.is_file() else None
+    jar_sha = sha256_file(jar) if jar.is_file() else None
     observed = observed_model()
-    observed["artifact"].update(path=str(jar), sizeBytes=jar_size, sha256=jar_sha, sourceSha=source_sha)
+    if jar.is_file():
+        observed["artifact"].update(path=str(jar), sizeBytes=jar_size, sha256=jar_sha, sourceSha=source_sha)
     assertions: dict[str, bool | None] = {
         "identity": None,
         "static": None,
@@ -780,10 +819,35 @@ def run(jar: Path, source_sha: str, java_home: Path, evidence: Path, scenario: s
     final_counter = evidence / "network-counter-final.txt"
     outside_before: dict[str, dict[str, Any]] | None = None
     try:
+        if not jar.is_file():
+            raise BlockedError("identity", f"Shaded JAR is unavailable: {jar}")
+
+        if expected_jar_size is not None:
+            require(
+                jar_size == expected_jar_size,
+                f"Shaded JAR size mismatch: expected {expected_jar_size}, observed {jar_size}",
+            )
+        if expected_jar_sha256 is not None:
+            require(
+                jar_sha == expected_jar_sha256,
+                f"Shaded JAR SHA-256 mismatch: expected {expected_jar_sha256}, observed {jar_sha}",
+            )
+
         identity, inventory = inspect_jar(jar, evidence)
         observed["artifact"].update(
             manifestMainClass=identity["mainClass"], buildJdkSpec=identity["buildJdkSpec"]
         )
+
+        if expected_build_jdk_spec is not None:
+            require(
+                identity["buildIdentity"]["buildJdkSpec"] == expected_build_jdk_spec,
+                f"Shaded JAR build JDK spec mismatch: expected {expected_build_jdk_spec!r}, observed {identity['buildIdentity']['buildJdkSpec']!r}",
+            )
+        if expected_created_by is not None:
+            require(
+                identity["buildIdentity"]["createdBy"] == expected_created_by,
+                f"Shaded JAR Created-By mismatch: expected {expected_created_by!r}, observed {identity['buildIdentity']['createdBy']!r}",
+            )
         assertions["identity"] = True
         evidence_values["identity"] = identity["manifestEvidence"]
 
@@ -1056,8 +1120,19 @@ def run(jar: Path, source_sha: str, java_home: Path, evidence: Path, scenario: s
             if stream is not None and not stream.closed:
                 stream.close()
 
-    assert identity is not None or status == "FAIL"
-    build_identity = identity["buildIdentity"] if identity else {"inspection": "failed"}
+    if identity is not None:
+        build_identity = identity["buildIdentity"]
+    elif status == "BLOCKED" and has_expected_identity:
+        build_identity = {
+            "buildJdkSpec": expected_build_jdk_spec,
+            "createdBy": expected_created_by,
+        }
+    else:
+        build_identity = {"inspection": "failed"}
+
+    artifact_size = jar_size if jar_size is not None else expected_jar_size
+    artifact_sha = jar_sha if jar_sha is not None else expected_jar_sha256
+
     expected = {
         "targetSha": source_sha,
         "platform": "standalone-java17",
@@ -1069,8 +1144,8 @@ def run(jar: Path, source_sha: str, java_home: Path, evidence: Path, scenario: s
             "sourceSha": source_sha,
             "buildIdentity": build_identity,
             "path": str(jar),
-            "sizeBytes": jar_size,
-            "sha256": jar_sha,
+            "sizeBytes": artifact_size,
+            "sha256": artifact_sha,
         },
         "scenario": scenario,
         "requiredOutcomes": required_outcomes(scenario),
@@ -1118,6 +1193,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--java-home", required=True, type=Path)
     parser.add_argument("--evidence-dir", required=True, type=Path)
     parser.add_argument("--scenario", required=True, choices=SCENARIOS)
+    parser.add_argument("--expected-jar-size", type=int, default=None)
+    parser.add_argument("--expected-jar-sha256", default=None)
+    parser.add_argument("--expected-build-jdk-spec", default=None)
+    parser.add_argument("--expected-created-by", default=None)
     return parser.parse_args(argv)
 
 
@@ -1130,6 +1209,10 @@ def main(argv: list[str] | None = None) -> int:
             args.java_home,
             args.evidence_dir.resolve(),
             args.scenario,
+            expected_jar_size=args.expected_jar_size,
+            expected_jar_sha256=args.expected_jar_sha256,
+            expected_build_jdk_spec=args.expected_build_jdk_spec,
+            expected_created_by=args.expected_created_by,
         )
     except VerificationError as exc:
         print(f"Standalone Java 17 verification error: {exc}", file=sys.stderr)
