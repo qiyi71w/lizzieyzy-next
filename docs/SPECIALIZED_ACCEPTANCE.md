@@ -118,6 +118,24 @@ CPU 深验收还需把 `LIZZIE_LINUX_ACCEPTANCE_ENGINE_ORACLE` 设置为本次�
 
 `LIZZIE_LINUX_ACCEPTANCE_FIXTURE_MODE=1` 仅供 `test_linux_product_acceptance.py` 的受控脚本 fixture 使用；其记录带 `observed.host.fixtureMode=true`，不能替代最终 ZIP、真实窗口或真实引擎/GPU 验收。脚本不上传、不发布，也不访问签名或发布凭据。
 
+macOS 最终 DMG 只消费对应物理架构主机本地生成的 `candidate.json`。Apple Silicon 主机运行 `mac-arm64`，Intel 主机运行 `mac-amd64`；runner 同时记录进程架构、`sysctl hw.optional.arm64` 对应的物理架构和 `sysctl.proc_translated`，Rosetta 或其他模拟执行只作诊断，不能替代另一条 native 记录。每个候选使用新的证据目录，并把本次运行专用、尚不存在的 engine-sgf envelope 路径设为 `LIZZIE_MACOS_ACCEPTANCE_ENGINE_ORACLE`：
+
+```bash
+LIZZIE_MACOS_ACCEPTANCE_ENGINE_ORACLE=<new-evidence-dir>/engine-oracle.json \
+scripts/macos_product_acceptance.sh \
+  --candidate <candidate.json> \
+  --scenario installed-offline-first-run \
+  --evidence-dir <new-evidence-dir>
+```
+
+runner 先复验 final DMG/provenance，再调用既有 `validate_macos_dmg_layout.sh`（其中继续调用 `macos_katago_bundle.py audit`）保留 layout 与 dylib closure 内容证据。它以 read-only 方式挂载 DMG，把唯一的 `LizzieYzy Next.app` 复制到带空格和非 ASCII 字符的新 Applications-equivalent 路径，eject 后才解析并启动 installed copy；launcher、embedded Java、launcher cfg、唯一 shaded JAR、JCEF、KataGo/config/model 必须全部解析到该 `.app` 内且与候选架构一致，symlink 不能逃逸。进程命令或 image 仍指向 `/Volumes` 会失败。
+
+启动前对 installed app 写入实际 quarantine attribute。签名候选必须同时通过 `codesign`、DMG `stapler validate` 和 `spctl`；只有 `codesign` 明确报告完全未签名时才可进入 intentional-unsigned 分支，畸形或部分签名直接失败。unsigned 候选必须先观察 Gatekeeper 拒绝，然后由操作员按 [macOS 签名说明](MACOS_SIGNING.md#unsigned-候选的-open-anyway-取证)处理。runner 在拒绝后生成绑定当前 DMG、installed app、launcher 哈希、quarantine attribute、随机 nonce 与时间的 `open-anyway-request.json`；`LIZZIE_MACOS_OPEN_ANYWAY_MARKER` 必须指向随后创建且字段完全匹配的 JSON 确认，包含实际 LaunchServices 重试、晚于拒绝的时间和截图路径。预先存在的任意 marker 不能通过。四项 Apple 必需凭据全缺走 intentional-unsigned 分支，部分存在直接失败；记录只保存 availability/status，不保存 credential value。PR fixture 不读取 Apple secret。
+
+产品经 installed `jpackage` launcher 进入保留 loopback、拒绝外部网络的 macOS sandbox；`JAVA_TOOL_OPTIONS` 把 `-Dlizzie.work.dir` 注入 launcher 内嵌 JVM，不假设另有可见的子 `java` 进程。runner 先实测 loopback 与外部 deny，再在产品生命周期保留 macOS unified-log deny event 流，并只计入可归属 installed app/JCEF/KataGo 路径的事件；监控启动、读取或解析失败写严格 `BLOCKED`，不能当作零。`run.json` 绑定 candidate、installed launcher/runtime/JAR/JCEF/KataGo closure、PID/command、进程 incarnation、架构与隔离数据目录。外部 oracle producer 必须绑定该记录并满足 production ownership、frozen SNAPSHOT/MOVE/PASS、Chinese rules、confirmed position、positive visits、400 ms quiet stop 及 PID/reader/staged-SGF cleanup。最终 cleanup 重新扫描 app 路径，处理晚到或脱离原 process group 的 helper，并同时检查 app、JCEF helper、engine PID、network counter 和 mount 消失。
+
+`LIZZIE_MACOS_ACCEPTANCE_FIXTURE_MODE=1` 仅供 `test_macos_product_acceptance.py` 模拟 DMG/tool surface；记录带 `observed.host.fixtureMode=true`，内容审计日志明确标记 fixture。它不能替代 final DMG、Gatekeeper UI、真实签名/公证、native launcher/JVM/JCEF/KataGo、窗口或网络边界证据。缺少对应 native Mac、最终候选、GUI/quarantine/Accessibility/Screen Recording 权限或 oracle producer 时写精确 `BLOCKED`，不能用另一架构或 WSLg 补位。
+
 记录：源码 SHA、tag/版本/渠道、OS/架构、workflow run URL/event/job、构建工具、真实资源来源及版本、资产文件名及身份校验、内容审计日志、安装/portable/DMG 启动与升级场景、签名/公证状态、上传目标与结果、预期/实际、证据路径、逐项状态。组装、签名、上传和实机启动分别给结论，未执行步骤明确标注。
 
 脚本 fixture 单测通过不代表真实安装包、资源闭包、签名、发布身份或上传通过。源码 shaded JAR 验收也不证明 portable 启动器/安装器/升级路径。需要不发布的 packaging smoke 时先明确资产、平台与不写 Release 的范围；不能为文档或常规 CI 验收暗中触发具有发布写权限的 workflow。
