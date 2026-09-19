@@ -1,7 +1,7 @@
 # 07 — Reconcile distribution/runtime acceptance evidence
 
-Status: resolved — evidence reconciliation complete; retained FAIL/BLOCKED rows keep distribution/runtime not accepted.
-Blocked by: no issue 06 workflow dispatch/final native candidates and the standalone Java 17 static dependency failure
+Status: resolved — scope-cutover reconciliation complete; required Windows/Linux/macOS rows remain `BLOCKED`, so distribution/runtime is not accepted
+Blocked by: required native Windows, Linux, and macOS acceptance has not been completed against locally verified final assets and matching producer provenance
 Owner: distribution/runtime closeout owner
 
 ## Target
@@ -16,7 +16,6 @@ Evidence reconciliation only. This ticket owns no production, script, test, work
    - Windows CPU portable/installed deep runs, three actual installer-upgrade identities, core update, no-engine install, and every retained portable variant;
    - Linux CPU deep run plus OpenCL/NVIDIA distribution rows;
    - native macOS arm64 and x86_64 installed-DMG deep runs and separate signature/notarization/quarantine statuses;
-   - standalone Java 17 release-17 compile, effective class version/dependency evidence, provider child and full shaded application run;
    - offline/network-isolation, Unicode/space data, outside-write and cleanup results;
    - real GPU inference references as independent statuses, never inferred from launcher/package PASS.
 4. For every deep engine row, confirm the record contains the accepted engine-sgf §2 oracle fields from engine-sgf issue 03. Variant launcher-only rows remain labeled narrower.
@@ -35,7 +34,15 @@ Evidence reconciliation only. This ticket owns no production, script, test, work
 
 Return the reconciled table, commit/run/asset index, evidence links, blockers, follow-up list or zero-follow-up verdict, and the explicit group verdict. The ticket cannot declare full acceptance while any retained mandatory row is FAIL or BLOCKED.
 
-## Reconciliation record — 2026-09-19
+## Current scope cutover — 2026-09-19
+
+The user withdrew the standalone Java 17 acceptance line and the duplicate candidate-production workflows after the reconciliation below. J01–J05 and their terminal static-gate `FAIL` remain historical evidence; they are not current required rows, do not block the current distribution/runtime verdict, and must not be rewritten as PASS. The repository's general Java 17 support intent remains unchanged.
+
+Current native acceptance begins with an exact final asset plus `release-asset-provenance.json` from an existing authorized packaging owner/workflow. The native consumer transfers both and runs the retained `verify-candidate` operation locally before launch. Missing producer inputs are `BLOCKED`; this ticket does not dispatch, restore, or replace the withdrawn producer workflows.
+
+Hosted evidence subsequently existed for PR #522: the Windows candidate run [35469686762, attempt 2](https://github.com/wimi321/lizzieyzy-next/actions/runs/35469686762/attempts/2) completed packaging for PR merge SHA `55b2dc053bd4cc5a679f946dcf78ccf6d68d5afc`, and the Java 17 candidate check failed its static dependency gate. These observations supersede the pre-PR record's absence of hosted runs; neither establishes native product acceptance. They do not identify a validated final asset for the new, uncommitted scope-cutover tree. Retain the historical inventory below as the last native evidence inventory, not as a claim that no hosted package was ever produced.
+
+## Historical reconciliation record — before PR #522 hosted runs
 
 ### Scope and availability
 
@@ -63,7 +70,7 @@ The Java record identifies the full shaded JAR as 23,225,811 bytes with SHA-256 
 
 ### Common BLOCKED observation contract
 
-Every row carrying `NATIVE-IDENTITY-MISSING` or `TENSORRT-CANDIDATE-MISSING` inherits this contract, with any narrower prerequisite stated in its table cell. `NATIVE-IDENTITY-MISSING` means `status=BLOCKED`, `blockedPhase=identity/pre-transfer`, prerequisite “issue 06 trusted/manual producer run and exact final asset plus run-bound provenance, followed by native-host transfer and local candidate verification,” and reason “issue 06 was never pushed/dispatched and produced no run/asset/provenance.” `TENSORRT-CANDIDATE-MISSING` has the same blocked phase and null accounting, with the narrower prerequisite “TensorRT issue-02 Phase B local candidate plus distribution supervisor `run.json`,” and reason “Phase A passed, but Phase B and issue 04 did not run.”
+Every row carrying `NATIVE-IDENTITY-MISSING` or `TENSORRT-CANDIDATE-MISSING` inherits this contract, with any narrower prerequisite stated in its table cell. `NATIVE-IDENTITY-MISSING` means `status=BLOCKED`, `blockedPhase=identity/pre-transfer`, prerequisite “an existing authorized producer supplies the exact final asset plus run-bound `release-asset-provenance.json`, followed by native-host transfer and local `verify-candidate`,” and reason “no qualifying producer asset/provenance or consumer-local candidate record exists.” `TENSORRT-CANDIDATE-MISSING` has the same blocked phase and null accounting, with the narrower prerequisite “TensorRT issue-02 Phase B local candidate plus distribution supervisor `run.json`,” and reason “Phase A passed, but Phase B and issue 04 did not run.”
 
 For rows carrying either code, the following paths are `null` with the exact reason “not observed because execution was blocked at identity/pre-transfer before a final candidate existed”: `expected.workflowRunId`, `expected.workflowRunAttempt`, `expected.artifact.path`, `expected.artifact.sizeBytes`, `expected.artifact.sha256`, `observed.provenance`, `observed.candidate`, `observed.host`, `observed.extraction`, `observed.installation`, `observed.mount`, `observed.launcher`, `observed.runtime`, `observed.application`, `observed.dataRoot`, `observed.network`, `observed.outsideWrites`, `observed.backend`, `observed.analysis`, `observed.signatureStatus`, `observed.notarizationStatus`, and `observed.quarantineStatus`. No process, mount, firewall rule, installer state, or disposable scenario path was acquired, so reconciliation cleanup is `complete=true` with `remainingOwnedResources=[]`.
 
@@ -100,7 +107,7 @@ No producer-host path, staging audit, app-image, generated MSI, source classpath
 | L02 | `2026-09-19-linux64.opencl.zip` / `variant-launch` | `BLOCKED` | `BLOCKED` separately as G09 | `identity/pre-transfer`; `NATIVE-IDENTITY-MISSING` |
 | L03 | `2026-09-19-linux64.nvidia.zip` / `variant-launch` | `BLOCKED` | `BLOCKED` separately as G10 | `identity/pre-transfer`; `NATIVE-IDENTITY-MISSING` |
 
-The current reconciliation host could in principle host a Linux run, but no exact issue 06 asset/provenance/candidate exists. Host capability cannot replace candidate identity.
+The current reconciliation host could in principle host a Linux run, but no exact authorized-producer asset/provenance or consumer-local candidate exists. Host capability cannot replace candidate identity.
 
 ### macOS distribution and trust rows
 
@@ -117,7 +124,7 @@ The current reconciliation host could in principle host a Linux run, but no exac
 
 Optional signing credentials do not waive M03–M08. All-absent credentials could select the intentional-unsigned flow only during a real native execution; it cannot be inferred during reconciliation.
 
-### Standalone Java 17 rows
+### Historical standalone Java 17 rows — withdrawn from required inventory
 
 | Row | Proof layer | Status | Exact observation |
 | --- | --- | --- | --- |
@@ -131,7 +138,7 @@ Java BLOCKED accounting is narrower than the native contract. J01/J02 have prere
 
 The terminal Java record has `assertions.identity=true`, `assertions.static=false`, launch/verification/cleanup assertions null, diagnostic `static-failure.txt`, and terminal cleanup `complete=true` with no remaining owned resources. Its 20 unresolved packages are `android.net.ssl`, `android.os`, `android.util`, `com.beust.jcommander`, `com.github.luben.zstd`, `com.jogamp.nativewindow`, `com.jogamp.opengl`, `com.jogamp.opengl.awt`, `com.jogamp.opengl.util`, `jakarta.mail`, `jakarta.mail.internet`, `jakarta.servlet`, `jakarta.servlet.http`, `javax.annotation`, `javax.annotation.meta`, `org.brotli.dec`, `org.conscrypt`, `org.jline.jansi`, `org.objectweb.asm`, and `org.tukaani.xz`.
 
-J01, J02, and J04 retain their narrower observed facts but cannot be terminal `PASS` without exact accepted-source/run/host/cleanup identities. They do not aggregate away J03 or substitute for J05. The standalone Java 17 group verdict is `FAIL`, never `PASS`, `NOT RUN`, or an environmental skip.
+J01, J02, and J04 retain their narrower observed facts but were not terminal `PASS`; they do not aggregate away J03 or substitute for J05. The historical standalone Java 17 result remains `FAIL`. By later user decision, this line is withdrawn rather than repaired and is not part of the current required acceptance inventory.
 
 ### Deep engine-oracle accounting
 
@@ -174,21 +181,21 @@ The RTX 5070 Ti Phase A record proves hardware/input preparation only. `katago v
 | Windows distribution | `BLOCKED` | All W01–W16 mandatory behaviors lack exact candidates and native execution |
 | Linux distribution | `BLOCKED` | L01–L03 lack exact candidates and native execution |
 | macOS distribution/trust | `BLOCKED` | M01–M08 lack exact candidates, both native hosts, and executed trust flows |
-| Standalone Java 17 | `FAIL` | J03 failed with 20 unresolved dependencies; J05 did not run after the failing gate |
+| Standalone Java 17 (historical) | `WITHDRAWN` | J03's `FAIL` and unexecuted J05 remain preserved evidence, not a current gate or PASS claim |
 | GPU inference | `BLOCKED` | G01–G11 have no matching final-product inference record |
-| Overall distribution/runtime | **`NOT ACCEPTED`** | Mandatory `FAIL` and `BLOCKED` rows remain; no row is waived or rewritten |
+| Overall distribution/runtime | **`NOT ACCEPTED`** | Required Windows/Linux/macOS rows remain `BLOCKED`; the withdrawn Java line is not counted |
 
 ### Blocker and defect ledger
 
 | ID | Kind | Affected rows | Exact blocker / defect | Required follow-up outside this evidence-only ticket |
 | --- | --- | --- | --- | --- |
-| DR07-B01 | execution blocker | W01–W16, L01–L03, M01–M08, G01–G10 | Issue 06 was not pushed/dispatched; no run attempt, final assets, provenance, native candidates, or terminal native records exist | Produce and transfer exact candidates through the accepted issue-06 handoff, then execute each owning native scenario |
-| DR07-B02 | execution blocker | M01–M08 | Neither native Apple Silicon nor native Intel execution/trust-flow evidence exists | Run each exact DMG on its matching native architecture and record distribution/signature/notarization/quarantine separately |
-| DR07-F01 | product/runtime defect | J03; blocks J05 and Java-group acceptance | JDK 17 `jdeps` found the 20 unresolved packages listed above | A separately approved bounded dependency/support-policy repair is required; this ticket grants no repair authority |
-| DR07-B03 | inference blocker | G11 | TensorRT Phase B/final-product candidate supervision and issue-04 trusted inference never ran | Complete candidate handoff and supervisor `run.json`, then execute trusted real TensorRT acceptance |
-| DR07-B04 | evidence-identity blocker | J01, J02, J04 | Retained Java build/static/provider narratives are not immutably bound to accepted commit `0d351854…`; provider run/host/cleanup evidence location is absent | Capture terminal evidence against an exact accepted source identity in separately authorized execution; do not promote narrower observations to `PASS` here |
+| DR07-B01 | execution blocker | W01–W16, L01–L03, M01–M08, G01–G10 | No existing authorized producer supplied the exact final assets plus run-bound provenance; no consumer-local candidates or terminal native records exist | Obtain each exact final asset and `release-asset-provenance.json`, transfer both, run local `verify-candidate`, then execute each owning native scenario |
+| DR07-B02 | execution blocker | M01–M08 | Neither native Apple Silicon nor native Intel execution/trust-flow evidence exists | Run each verified DMG on its matching native architecture and record distribution/signature/notarization/quarantine separately |
+| DR07-B03 | inference blocker | G11 | TensorRT Phase B/final-product candidate supervision and issue-04 trusted inference never ran | Complete authorized producer handoff and consumer-local candidate verification plus supervisor `run.json`, then execute trusted real TensorRT acceptance |
 
-These are acceptance blockers/defects, not deferred code-review findings. No repair, workflow dispatch, publication, signing operation, credential access, or native rerun is authorized by this ticket.
+Historical non-gating Java disposition: J03 failed with the 20 unresolved packages listed above; J01/J02/J04 lacked final identity evidence; J05 did not run. The user withdrew this workstream, so no dependency/support-policy repair or recapture is required by the current plan.
+
+The table above lists current acceptance blockers, not deferred code-review findings. No repair, producer dispatch, publication, signing operation, credential access, or native rerun is authorized by this evidence-only ticket.
 
 ### Evidence links
 
@@ -197,8 +204,8 @@ These are acceptance blockers/defects, not deferred code-review findings. No rep
 - [Issue 02 Windows implementation and native prerequisites](02-windows-final-products.md)
 - [Issue 03 Linux implementation and native prerequisites](03-linux-final-archives.md)
 - [Issue 04 macOS implementation and native prerequisites](04-macos-native-dmgs.md)
-- [Issue 05 standalone Java 17 terminal failure](05-standalone-java17.md)
-- [Issue 06 integration completion and undispatched state](06-integration.md)
+- [Issue 05 historical standalone Java 17 terminal failure and withdrawal](05-standalone-java17.md)
+- [Issue 06 retained consumer verification/handoff and historical integration record](06-integration.md)
 - [Engine-SGF issue 03 accepted oracle interface](../../engine-sgf/issues/03-runner-integration-gate.md)
 - [TensorRT issue 02 Phase A/Phase B record](../../tensorrt-gpu/issues/02-trusted-gpu-preparation.md)
 - [TensorRT issue 04 trusted real-GPU acceptance](../../tensorrt-gpu/issues/04-trusted-real-gpu-acceptance.md)
@@ -210,4 +217,4 @@ These are acceptance blockers/defects, not deferred code-review findings. No rep
 - Repair and `VERIFICATION`: native/TensorRT BLOCKED rows gained exact phase/prerequisite/null/cleanup contracts; J01/J02/J04 became evidence-accurate `BLOCKED`; Standards returned `SUCCESS`; Spec resolved `SPEC-01` and reopened `SPEC-02` when the first repair over-applied native null/cleanup semantics to Java rows.
 - Convergence repair scoped the common contract only to native/TensorRT codes and added Java-specific prerequisites, known observations, null reasons, and cleanup states.
 - `FINAL_REVIEW`: Standards `PASS` with no findings; Spec `PASS`, with `SPEC-01` and `SPEC-02` resolved. Open in-scope findings: 0. Deferred findings: 0. **Review follow-up items: 0.**
-- Review success does not change acceptance: the group remains **`NOT ACCEPTED`** because the blocker/defect ledger above is external acceptance work, not a review ledger.
+- Review success does not change current acceptance: the group remains **`NOT ACCEPTED`** because required native Windows/Linux/macOS rows still lack exact producer assets/provenance, consumer-local verification, and execution. The withdrawn Java 17 failure remains historical and non-gating.
