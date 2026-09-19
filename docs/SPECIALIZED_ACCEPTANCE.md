@@ -103,6 +103,21 @@ Windows 最终产品在原生主机按同一入口交接。`Prepare` 接收已�
 
 CPU 深验收的 `-EngineOracleFile` 是本次运行专用的新输出路径，不是预先存在的输入文件。runner 先启动产品并原子写入当前 `run.json`，外部 oracle producer 读取该记录和 packaged engine closure，完成 frozen D4 SNAPSHOT/MOVE/PASS、Chinese rules、positive-visits 与 400ms quiet-stop 场景后，再原子写入 envelope；runner 在有界时间内等待它。envelope 必须绑定 candidate、当前 `run.json` 哈希、launcher/runtime/JVM/JAR/data root、捕获到的 engine PID/command 和 canonical oracle payload 哈希，且 result/stdout/stderr/app log/phases 证据与 staged SGF 清理均可复验；孤立、提前写入或重放结果会失败。安装、升级和 outbound-deny 需要提升权限。`windows_upgrade_smoke.ps1` 仍只标记为 `generated-msi-regression`，不能替代真实 prior-to-candidate installer upgrade。
 
+Linux 最终归档只消费 native host 本地生成的 `candidate.json`，并通过归档内 `start-linux64.sh` 启动，不直接调用 Java。先把最终 ZIP 与同一 workflow attempt 的 provenance 传到 Linux x86_64 主机，再运行 `release_asset_provenance.py verify-candidate`；随后为每个产品使用新的证据目录：
+
+```bash
+scripts/linux_product_acceptance.sh \
+  --candidate <candidate.json> \
+  --scenario <cpu-offline-first-run|variant-launch> \
+  --evidence-dir <new-directory>
+```
+
+执行主机需要可用桌面或 Xvfb、`unshare` 的非特权 user/network namespace、`ip`、`nft`、`xwininfo` 与 `xwd`。runner 安全解压到带空格和非 ASCII 字符的新目录，复验单一顶层根、bundled Java x86_64、shaded JAR、backend marker、engine/config/weight，并通过 launcher 的 `LIZZIE_WORK_DIR` 环境 seam 把所有应用状态放入隔离目录。运行进程树进入保留 loopback 的私有 network namespace；nft 阻断并计数所有非 loopback IPv4/IPv6 尝试。`acceptance.json`、`run.json`、runtime 输出、launcher 日志、窗口树、截图、network rule/counter 与清理结果保留在证据目录。
+
+CPU 深验收还需把 `LIZZIE_LINUX_ACCEPTANCE_ENGINE_ORACLE` 设置为本次运行专用、尚不存在的 envelope 输出路径。runner 发布 live `run.json` 后等待 engine-sgf producer 原子写入 envelope；结果必须绑定当前 candidate/archive、`run.json` 哈希、launcher/runtime/JAR/data root、packaged engine PID/command/config/model 及 canonical oracle hash，并满足 frozen SNAPSHOT/MOVE/PASS、Chinese rules、正 visits、400 ms quiet stop 和 PID/reader/staged-SGF 清理。OpenCL/NVIDIA 使用 `variant-launch`：distribution 可在 application-ready 或明确 driver/backend repair 状态下通过，但 `inferenceStatus` 独立保持 `BLOCKED`，直到匹配硬件上的真实推理另有证据。
+
+`LIZZIE_LINUX_ACCEPTANCE_FIXTURE_MODE=1` 仅供 `test_linux_product_acceptance.py` 的受控脚本 fixture 使用；其记录带 `observed.host.fixtureMode=true`，不能替代最终 ZIP、真实窗口或真实引擎/GPU 验收。脚本不上传、不发布，也不访问签名或发布凭据。
+
 记录：源码 SHA、tag/版本/渠道、OS/架构、workflow run URL/event/job、构建工具、真实资源来源及版本、资产文件名及身份校验、内容审计日志、安装/portable/DMG 启动与升级场景、签名/公证状态、上传目标与结果、预期/实际、证据路径、逐项状态。组装、签名、上传和实机启动分别给结论，未执行步骤明确标注。
 
 脚本 fixture 单测通过不代表真实安装包、资源闭包、签名、发布身份或上传通过。源码 shaded JAR 验收也不证明 portable 启动器/安装器/升级路径。需要不发布的 packaging smoke 时先明确资产、平台与不写 Release 的范围；不能为文档或常规 CI 验收暗中触发具有发布写权限的 workflow。
