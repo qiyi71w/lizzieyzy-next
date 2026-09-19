@@ -1127,10 +1127,24 @@ function Start-PreparedProduct {
     }
 }
 
+function Get-ProcessCreationIdentity {
+    param([object]$Value)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
+    try {
+        if ($Value -is [DateTimeOffset]) { return ([DateTimeOffset]$Value).UtcDateTime.Ticks }
+        if ($Value -is [DateTime]) { return ([DateTime]$Value).ToUniversalTime().Ticks }
+        $parsed = [DateTimeOffset]::Parse([string]$Value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        return $parsed.UtcDateTime.Ticks
+    }
+    catch { return $null }
+}
+
 function Test-ProcessSnapshotMatch {
     param([object]$Expected, [object]$Actual)
     if (-not $Expected -or -not $Actual) { return $false }
-    return ([int]$Expected.pid -eq [int]$Actual.pid -and [string]$Expected.creationDate -ceq [string]$Actual.creationDate -and [string]$Expected.image -and [string]$Actual.image -and [System.IO.Path]::GetFullPath([string]$Expected.image) -ieq [System.IO.Path]::GetFullPath([string]$Actual.image))
+    $expectedCreation = Get-ProcessCreationIdentity -Value $Expected.creationDate
+    $actualCreation = Get-ProcessCreationIdentity -Value $Actual.creationDate
+    return ($null -ne $expectedCreation -and $expectedCreation -eq $actualCreation -and [int]$Expected.pid -eq [int]$Actual.pid -and [string]$Expected.image -and [string]$Actual.image -and [System.IO.Path]::GetFullPath([string]$Expected.image) -ieq [System.IO.Path]::GetFullPath([string]$Actual.image))
 }
 
 function Assert-LiveRunIdentity {
@@ -1139,6 +1153,8 @@ function Assert-LiveRunIdentity {
     if ($RequireRunning) { Require-Value -Condition ($Run.state -eq "RUNNING") -Message "Run is not RUNNING." }
     $identity = Assert-CandidateIdentity -Path ([string]$Run.candidate.path) -AllowedClasses @("portable-product", "installer-product", "core-update")
     Require-Value -Condition ($identity.Hash -eq [string]$Run.candidate.sha256) -Message "Run candidate hash drift detected."
+    $packagedJvmPath = [System.IO.Path]::GetFullPath((Join-Path ([string]$Run.productRoot) "runtime\bin\server\jvm.dll"))
+    Require-Value -Condition ([string]$Run.runtime.jvmModule.modulePath -and [System.IO.Path]::GetFullPath([string]$Run.runtime.jvmModule.modulePath) -ieq $packagedJvmPath) -Message "Run JVM module path is not the packaged JVM path."
     foreach ($item in @(
         @{ path = $Run.launcher.path; hash = $Run.launcher.sha256; label = "launcher" }, @{ path = $Run.runtime.path; hash = $Run.runtime.sha256; label = "runtime" },
         @{ path = $Run.runtime.jvmModule.modulePath; hash = $Run.runtime.jvmModule.moduleSha256; label = "JVM module" }, @{ path = $Run.jar.path; hash = $Run.jar.sha256; label = "shaded JAR" },
@@ -1161,7 +1177,11 @@ function Assert-LiveRunIdentity {
         Require-Value -Condition ($unexpected.Count -eq 0) -Message "Run process tree gained unrecorded PIDs: $($unexpected -join ', ')."
         $launcherCurrent = @($current | Where-Object { $_.pid -eq [int]$Run.launcher.pid })[0]
         Require-Value -Condition ([string]$launcherCurrent.commandLine -ceq [string]$Run.launcher.process.commandLine) -Message "Recorded launcher command line drift detected."
-        $jvm = Get-PackagedJvmEvidence -ProcessIds @([int]$Run.launcher.pid) -JvmDll ([string]$Run.runtime.jvmModule.modulePath)
+        $jvmPid = [int]$Run.runtime.jvmModule.pid
+        $recordedJvm = @($expected | Where-Object { [int]$_.pid -eq $jvmPid })
+        Require-Value -Condition ($jvmPid -gt 0 -and $recordedJvm.Count -eq 1 -and @($Run.ownedPids) -contains $jvmPid) -Message "Recorded JVM host is not a unique Start-owned active process."
+        Require-Value -Condition ($ownedNow -contains $jvmPid) -Message "Recorded JVM host is no longer owned by the packaged launcher."
+        $jvm = Get-PackagedJvmEvidence -ProcessIds @($jvmPid) -JvmDll ([string]$Run.runtime.jvmModule.modulePath)
         Require-Value -Condition ([string]$jvm.moduleSha256 -eq [string]$Run.runtime.jvmModule.moduleSha256) -Message "Loaded packaged JVM identity drift detected."
         Require-Value -Condition (Test-Path -LiteralPath ([string]$Run.applicationLog) -PathType Leaf) -Message "Application readiness evidence is missing."
         $logText = Get-Content -LiteralPath ([string]$Run.applicationLog) -Raw -ErrorAction Stop

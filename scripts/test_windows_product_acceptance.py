@@ -55,6 +55,7 @@ class WindowsProductAcceptanceFixtureTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.class_root = Path(tempfile.mkdtemp(prefix="lizzie-product-acceptance-tools-", dir="/mnt/c/Temp"))
         cls.launcher = cls.class_root / "fixture-launcher.exe"
+        cls.jvm_host = cls.class_root / "fixture-jvm-host.exe"
         cls.sleepy_launcher = cls.class_root / "fixture-sleepy-launcher.exe"
         cls.java = cls.class_root / "fixture-java.exe"
         cls.malicious_java = cls.class_root / "fixture-malicious-java.exe"
@@ -65,11 +66,11 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-namespace FixtureLauncher {
+namespace FixtureJvmHost {
   public static class Program {
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr LoadLibrary(string path);
     [STAThread] public static void Main() {
-      string root = AppContext.BaseDirectory;
+      string root = Directory.GetParent(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;
       if (LoadLibrary(Path.Combine(root, "runtime", "bin", "server", "jvm.dll")) == IntPtr.Zero) throw new InvalidOperationException("fixture jvm load failed");
       string data = Path.Combine(root, "user-data");
       string cfg = Path.Combine(root, "app", "LizzieYzy Next.cfg");
@@ -84,6 +85,25 @@ namespace FixtureLauncher {
       File.WriteAllText(Path.Combine(data, "persist"), "fixture\n");
       File.WriteAllText(Path.Combine(data, "logs", "app.log"), "application ready\n");
       Application.Run(new Form { Text = "LizzieYzy Next acceptance fixture", Width = 320, Height = 180 });
+    }
+  }
+}'''
+        launcher_source = r'''
+using System;
+using System.Diagnostics;
+using System.IO;
+namespace FixtureLauncher {
+  public static class Program {
+    [STAThread] public static void Main() {
+      string root = AppContext.BaseDirectory;
+      using (Process child = Process.Start(new ProcessStartInfo {
+        FileName = Path.Combine(root, "app", "LizzieYzy Next JVM Host.exe"),
+        WorkingDirectory = root,
+        UseShellExecute = false
+      })) {
+        child.WaitForExit();
+        Environment.ExitCode = child.ExitCode;
+      }
     }
   }
 }'''
@@ -104,7 +124,8 @@ namespace FixtureLauncher {
             "public static void Main(string[] args) { File.WriteAllLines(Environment.GetEnvironmentVariable(\"LIZZIE_ACCEPTANCE_ARGV_OUT\"), args); } } }"
         )
         commands = (
-            f"Add-Type -TypeDefinition @'\n{ready_source}\n'@ -ReferencedAssemblies System.Windows.Forms -OutputAssembly '{windows_path(cls.launcher)}' -OutputType WindowsApplication; "
+            f"Add-Type -TypeDefinition @'\n{launcher_source}\n'@ -OutputAssembly '{windows_path(cls.launcher)}' -OutputType WindowsApplication; "
+            f"Add-Type -TypeDefinition @'\n{ready_source}\n'@ -ReferencedAssemblies System.Windows.Forms -OutputAssembly '{windows_path(cls.jvm_host)}' -OutputType WindowsApplication; "
             f"Add-Type -TypeDefinition @'\n{sleepy_source}\n'@ -OutputAssembly '{windows_path(cls.sleepy_launcher)}' -OutputType WindowsApplication; "
             f"Add-Type -TypeDefinition @'\n{java_source}\n'@ -OutputAssembly '{windows_path(cls.java)}' -OutputType ConsoleApplication; "
             f"Add-Type -TypeDefinition @'\n{malicious_source}\n'@ -OutputAssembly '{windows_path(cls.malicious_java)}' -OutputType ConsoleApplication; "
@@ -195,6 +216,7 @@ namespace FixtureLauncher {
         files: dict[str, bytes] = {
             f"{product}/.lizzie-portable": b"portable fixture\n",
             f"{product}/LizzieYzy Next.exe": (self.launcher if ready else self.sleepy_launcher).read_bytes(),
+            f"{product}/app/LizzieYzy Next JVM Host.exe": self.jvm_host.read_bytes(),
             f"{product}/runtime/bin/java.exe": self.java.read_bytes(),
             f"{product}/runtime/bin/server/jvm.dll": self.jvm.read_bytes(),
             f"{product}/app/LizzieYzy Next.cfg": b"[Application]\napp.mainjar=lizzie-yzy2.5.3-shaded.jar\n",
@@ -270,6 +292,83 @@ namespace FixtureLauncher {
             "-EvidenceDir", windows_path(evidence),
         )
         return evidence, result
+
+    def start_live_fixture(self, name: str) -> tuple[Path, dict[str, object]]:
+        asset, manifest = self.create_portable()
+        evidence, prepared = self.prepare(asset, manifest, name)
+        self.assertEqual(0, prepared.returncode, prepared.stderr or prepared.stdout)
+        started = self.run_script(
+            "-Command", "Start",
+            "-CandidateJson", windows_path(evidence / "candidate.json"),
+            "-Scenario", "live-session",
+            "-EvidenceDir", windows_path(evidence),
+            "-WaitSeconds", "10",
+        )
+        self.assertEqual(0, started.returncode, started.stderr or started.stdout)
+        self.addCleanup(self.stop_live_fixture, evidence)
+        return evidence, json.loads((evidence / "run.json").read_text(encoding="utf-8"))
+
+    def stop_live_fixture(self, evidence: Path) -> None:
+        run_path = evidence / "run.json"
+        if not run_path.exists():
+            return
+        run = json.loads(run_path.read_text(encoding="utf-8"))
+        if run["state"] == "RUNNING":
+            stopped = self.run_script("-Command", "Stop", "-RunJson", windows_path(run_path))
+            self.assertEqual(0, stopped.returncode, stopped.stderr or stopped.stdout)
+
+    def test_status_accepts_original_start_record_with_owned_child_jvm(self) -> None:
+        evidence, run = self.start_live_fixture("raw status evidence")
+        run_path = evidence / "run.json"
+        original = run_path.read_bytes()
+
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(run_path))
+
+        self.assertEqual(0, status.returncode, status.stderr or status.stdout)
+        self.assertIn("RUNNING launcherPid=", status.stdout)
+        self.assertEqual(original, run_path.read_bytes())
+        self.assertNotEqual(run["launcher"]["pid"], run["runtime"]["jvmModule"]["pid"])
+        self.assertIn(run["runtime"]["jvmModule"]["pid"], run["ownedPids"])
+
+    def test_status_rejects_creation_drift_and_invalid_jvm_hosts(self) -> None:
+        evidence, run = self.start_live_fixture("status identity evidence")
+
+        drifted = json.loads(json.dumps(run))
+        drifted["activeProcesses"][0]["creationDate"] = "2000-01-01T00:00:00.0000000Z"
+        drift_path = evidence / "creation-drift-run.json"
+        drift_path.write_text(json.dumps(drifted), encoding="utf-8")
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(drift_path))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("process incarnation drift", (status.stderr + status.stdout).lower())
+
+        unrelated = json.loads(json.dumps(run))
+        unrelated["runtime"]["jvmModule"]["pid"] = run["launcher"]["pid"]
+        unrelated_path = evidence / "unrelated-jvm-run.json"
+        unrelated_path.write_text(json.dumps(unrelated), encoding="utf-8")
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(unrelated_path))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("packaged jvm", (status.stderr + status.stdout).lower())
+
+        wrong_path = json.loads(json.dumps(run))
+        jvm_host = next(process for process in run["activeProcesses"] if process["pid"] == run["runtime"]["jvmModule"]["pid"])
+        loaded_wrong_path = jvm_host["image"]
+        wrong_path["runtime"]["jvmModule"]["modulePath"] = loaded_wrong_path
+        wrong_path["runtime"]["jvmModule"]["moduleSha256"] = sha256(Path("/mnt/c") / Path(loaded_wrong_path[3:].replace("\\", "/")))
+        wrong_path_file = evidence / "wrong-jvm-path-run.json"
+        wrong_path_file.write_text(json.dumps(wrong_path), encoding="utf-8")
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(wrong_path_file))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("packaged jvm", (status.stderr + status.stdout).lower())
+
+        subprocess.run(
+            ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", f"Stop-Process -Id {run['runtime']['jvmModule']['pid']} -Force"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(evidence / "run.json"))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("active process set lost a process", (status.stderr + status.stdout).lower())
 
     def test_prepares_verified_portable_with_unicode_local_identity(self) -> None:
         asset, manifest = self.create_portable()
