@@ -78,6 +78,7 @@ ENGINE_PROCESS_REQUIRED_TESTS = (
 
 PY_COMPILE_FILES = (
     "scripts/prepare_cpu_engine_acceptance.py",
+    "scripts/test_candidate_workflows.py",
     "scripts/test_prepare_cpu_engine_acceptance.py",
     "scripts/test_run_acceptance.py",
     "scripts/build_katago_cuda_dependencies.py",
@@ -160,6 +161,7 @@ DIRECT_PYTHON_TESTS = (
 )
 
 UNITTEST_MODULES = (
+    "scripts.test_candidate_workflows",
     "scripts.test_publish_release_request",
     "scripts.test_release_asset_provenance",
     "scripts.test_release_asset_topology",
