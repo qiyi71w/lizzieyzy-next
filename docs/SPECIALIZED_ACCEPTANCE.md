@@ -82,11 +82,26 @@ GPU 记录每行包含：场景 ID、SHA/构建身份、硬件/驱动/KataGo/bac
 
 | 平台 | Workflow | 组装与后续检查 |
 | --- | --- | --- |
-| Windows | [build-windows-release.yml](../.github/workflows/build-windows-release.yml) | [package_windows_exe.sh](../scripts/package_windows_exe.sh)、[validate_release_assets.sh](../scripts/validate_release_assets.sh)；目标安装/启动风险另用 [windows_smoke_test.ps1](../scripts/windows_smoke_test.ps1)、[windows_upgrade_smoke.ps1](../scripts/windows_upgrade_smoke.ps1) |
+| Windows | [build-windows-release.yml](../.github/workflows/build-windows-release.yml) | [package_windows_exe.sh](../scripts/package_windows_exe.sh)、[validate_release_assets.sh](../scripts/validate_release_assets.sh)；最终产品用 [windows_product_acceptance.ps1](../scripts/windows_product_acceptance.ps1)，低层 smoke 与生成 MSI 回归分别保留 [windows_smoke_test.ps1](../scripts/windows_smoke_test.ps1)、[windows_upgrade_smoke.ps1](../scripts/windows_upgrade_smoke.ps1) |
 | Linux | [build-linux-release.yml](../.github/workflows/build-linux-release.yml) | [package_release.sh](../scripts/package_release.sh)、资产内容审计与目标桌面启动 |
 | macOS | [arm64](../.github/workflows/build-macos-arm64-release.yml) / [amd64](../.github/workflows/build-macos-amd64-release.yml) | [package_macos_dmg.sh](../scripts/package_macos_dmg.sh)、[sign_macos_release_with_retry.sh](../scripts/sign_macos_release_with_retry.sh)、资产审计和原生安装/启动 |
 
 先检查目标平台工具和 workflow 声明的下载/签名/发布条件。平台 smoke 使用可丢弃的配置；执行前检查其配置清理选项。签名是否执行、为何跳过、验证结果按 [macOS 签名说明](MACOS_SIGNING.md)单独记录，不用打包成功推断签名成功。
+
+Windows 最终产品在原生主机按同一入口交接。`Prepare` 接收已经传到该主机的最终资产和 producer provenance，在本机运行 `release_asset_provenance.py verify-candidate`，然后安全解压或安装到新建的 Unicode/空格路径；它产出的本机绝对路径 `candidate.json` 和 `prepared.json` 才能用于后续命令。可复用会话的命令顺序为：
+
+```powershell
+./scripts/windows_product_acceptance.ps1 -Command Prepare -AssetFile <final> -ProvenanceFile <json> -Platform windows -DateTag <date> -ReleaseTag <tag> -TargetSha <sha> -RunId <id> -RunAttempt <n> -EvidenceDir <new-dir>
+./scripts/windows_product_acceptance.ps1 -Command Start -CandidateJson <candidate.json> -Scenario live-session -EvidenceDir <dir>
+./scripts/windows_product_acceptance.ps1 -Command Status -RunJson <run.json>
+./scripts/windows_product_acceptance.ps1 -Command Stop -RunJson <run.json>
+```
+
+`Start` 在任何进程变更前复验 candidate、provenance、资产、launcher、runtime、JVM module、shaded JAR、installed manifest、backend marker、engine/config/model、JCEF 与 ReadBoard 闭包哈希，并原子写入 `RUNNING` 的 `run.json`；该记录绑定 launcher PID/image/command line、进程 incarnation、同进程实际加载的 packaged `jvm.dll`、数据目录及完整产品身份。`Status` 只读复验这些身份、owned PID 树、readiness 证据和离线连接状态；`Stop` 即使 launcher 已退出或产品文件已漂移，也先按已记录的 image/creation time 清理匹配的 owned 进程、逐项移除本次 firewall rules、精确恢复 launcher cfg 与 Windows audit policy，再写入 `STOPPED`、identity errors、survivors 和清理错误。离线验收对除 loopback 外的 IPv4/IPv6 地址使用 Windows Firewall 阻断，并以 Windows Security 5157 deny events 与活动连接的双重零计数取证；不能查询 Security log、连接或 firewall state 时失败或写严格 `BLOCKED`，不把查询错误当作空结果。
+
+`Run` 执行 `portable-offline-first-run`、`installer-offline-first-run`、`installer-upgrade-preserve`、`core-update-preserve` 或 `variant-launch`，并写 phase-discriminated `acceptance.json`。缺少已传输 candidate 时，需同时传 `-TargetSha` 与 `-ExpectedArtifactKey/-ExpectedArtifactName/-ExpectedArtifactClass`，脚本才会写带精确请求身份的 `BLOCKED` 记录。MSI 使用 `/qn /norestart` 安装到 disposable Unicode/空格路径，拒绝未明确归属的既有 Lizzie 安装；升级必须证明 prior 与 candidate ProductCode 按预期 UpgradeUUID 注册且版本身份发生变化。core update 使用每次运行唯一且新建的目标，只修改 manifest-owned files、保持资源 sentinel，并真实启动更新后产品。
+
+CPU 深验收的 `-EngineOracleFile` 是本次运行专用的新输出路径，不是预先存在的输入文件。runner 先启动产品并原子写入当前 `run.json`，外部 oracle producer 读取该记录和 packaged engine closure，完成 frozen D4 SNAPSHOT/MOVE/PASS、Chinese rules、positive-visits 与 400ms quiet-stop 场景后，再原子写入 envelope；runner 在有界时间内等待它。envelope 必须绑定 candidate、当前 `run.json` 哈希、launcher/runtime/JVM/JAR/data root、捕获到的 engine PID/command 和 canonical oracle payload 哈希，且 result/stdout/stderr/app log/phases 证据与 staged SGF 清理均可复验；孤立、提前写入或重放结果会失败。安装、升级和 outbound-deny 需要提升权限。`windows_upgrade_smoke.ps1` 仍只标记为 `generated-msi-regression`，不能替代真实 prior-to-candidate installer upgrade。
 
 记录：源码 SHA、tag/版本/渠道、OS/架构、workflow run URL/event/job、构建工具、真实资源来源及版本、资产文件名及身份校验、内容审计日志、安装/portable/DMG 启动与升级场景、签名/公证状态、上传目标与结果、预期/实际、证据路径、逐项状态。组装、签名、上传和实机启动分别给结论，未执行步骤明确标注。
 
