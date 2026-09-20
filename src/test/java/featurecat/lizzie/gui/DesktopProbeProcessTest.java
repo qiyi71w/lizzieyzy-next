@@ -108,7 +108,6 @@ class DesktopProbeProcessTest {
     runner.start();
     awaitFile(parentPid);
     awaitFile(childPid);
-    Thread.sleep(250);
 
     long parent = Long.parseLong(Files.readString(parentPid));
     long child = Long.parseLong(Files.readString(childPid));
@@ -119,6 +118,9 @@ class DesktopProbeProcessTest {
     assertTrue(failure.get() instanceof InterruptedException, String.valueOf(failure.get()));
     assertFalse(ProcessHandle.of(parent).map(ProcessHandle::isAlive).orElse(false));
     assertFalse(ProcessHandle.of(child).map(ProcessHandle::isAlive).orElse(false));
+    try (var files = Files.list(temporary)) {
+      for (Path file : files.toList()) Files.delete(file);
+    }
   }
 
   @Test
@@ -202,11 +204,11 @@ class DesktopProbeProcessTest {
     public static void main(String[] args) throws Exception {
       System.setProperty("java.awt.headless", "true");
       if ("tree-child".equals(args[0])) {
-        Files.writeString(Path.of(args[1]), Long.toString(ProcessHandle.current().pid()));
+        publishPid(Path.of(args[1]));
         while (true) java.util.concurrent.locks.LockSupport.park();
       }
       if ("tree-parent".equals(args[0])) {
-        Files.writeString(Path.of(args[1]), Long.toString(ProcessHandle.current().pid()));
+        publishPid(Path.of(args[1]));
         new ProcessBuilder(
                 ProcessHandle.current().info().command().orElseThrow(),
                 "-cp",
@@ -246,6 +248,12 @@ class DesktopProbeProcessTest {
           () -> {
             while (true) java.util.concurrent.locks.LockSupport.park();
           });
+    }
+
+    private static void publishPid(Path path) throws Exception {
+      Path staged = path.resolveSibling(path.getFileName() + ".tmp");
+      Files.writeString(staged, Long.toString(ProcessHandle.current().pid()));
+      Files.move(staged, path, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
     }
   }
 }

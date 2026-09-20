@@ -5,6 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.jna.Platform;
+import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.WinBase;
+import com.sun.jna.platform.win32.WinNT;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import featurecat.lizzie.AppLocale;
@@ -1801,33 +1805,59 @@ public final class TensorRtRepairAcceptanceTest {
     List<ProcessHandle> handles = new ArrayList<>(owned.values());
     handles.remove(process.toHandle());
     handles.add(process.toHandle());
-    destroyAlive(handles, false);
-    boolean interrupted = false;
-    long gracefulDeadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-    while (handles.stream().anyMatch(ProcessHandle::isAlive)
-        && System.nanoTime() < gracefulDeadline) {
-      try {
-        TimeUnit.MILLISECONDS.sleep(25);
-      } catch (InterruptedException ignored) {
-        interrupted = true;
+    List<WinNT.HANDLE> nativeHandles = new ArrayList<>();
+    boolean interrupted = Thread.interrupted();
+    try {
+      if (Platform.isWindows()) {
+        // Pin the process objects before termination. Windows publishes an exit code before
+        // releasing inherited output handles; ProcessHandle.isAlive() alone is not a barrier.
+        for (ProcessHandle handle : handles) {
+          WinNT.HANDLE nativeHandle =
+              Kernel32.INSTANCE.OpenProcess(WinNT.SYNCHRONIZE, false, Math.toIntExact(handle.pid()));
+          if (nativeHandle != null) {
+            nativeHandles.add(nativeHandle);
+          } else if (handle.isAlive()) {
+            throw new AssertionError("Cannot observe owned process exit: " + handle.pid());
+          }
+        }
       }
-    }
-    destroyAlive(handles, true);
-    long forcedDeadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-    while (handles.stream().anyMatch(ProcessHandle::isAlive)
-        && System.nanoTime() < forcedDeadline) {
-      try {
-        TimeUnit.MILLISECONDS.sleep(25);
-      } catch (InterruptedException ignored) {
-        interrupted = true;
+      destroyAlive(handles, false);
+      long gracefulDeadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+      while (handles.stream().anyMatch(ProcessHandle::isAlive)
+          && System.nanoTime() < gracefulDeadline) {
+        try {
+          TimeUnit.MILLISECONDS.sleep(25);
+        } catch (InterruptedException ignored) {
+          interrupted = true;
+        }
       }
-    }
-    List<Long> survivors =
-        handles.stream().filter(ProcessHandle::isAlive).map(ProcessHandle::pid).toList();
-    if (interrupted) Thread.currentThread().interrupt();
-    if (!survivors.isEmpty()) {
-      throw new AssertionError(
-          "command process tree survived cleanup " + survivors + ": " + command);
+      destroyAlive(handles, true);
+      long forcedDeadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+      while (handles.stream().anyMatch(ProcessHandle::isAlive)
+          && System.nanoTime() < forcedDeadline) {
+        try {
+          TimeUnit.MILLISECONDS.sleep(25);
+        } catch (InterruptedException ignored) {
+          interrupted = true;
+        }
+      }
+      for (WinNT.HANDLE handle : nativeHandles) {
+        long remaining = Math.max(0, forcedDeadline - System.nanoTime());
+        int waitMillis = (int) TimeUnit.NANOSECONDS.toMillis(remaining);
+        if (Kernel32.INSTANCE.WaitForSingleObject(handle, waitMillis) != WinBase.WAIT_OBJECT_0) {
+          throw new AssertionError("Owned process termination did not complete: " + command);
+        }
+      }
+      List<Long> survivors =
+          handles.stream().filter(ProcessHandle::isAlive).map(ProcessHandle::pid).toList();
+      if (!survivors.isEmpty()) {
+        throw new AssertionError(
+            "command process tree survived cleanup " + survivors + ": " + command);
+      }
+    } finally {
+      destroyAlive(handles, true);
+      for (WinNT.HANDLE handle : nativeHandles) Kernel32.INSTANCE.CloseHandle(handle);
+      if (interrupted) Thread.currentThread().interrupt();
     }
   }
 
