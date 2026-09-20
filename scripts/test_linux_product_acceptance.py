@@ -392,6 +392,34 @@ JAVA_ARGS=(-Xshare:auto -Dlizzie.next.version=fixture)
             errors.append(exc)
 
 
+    def test_requested_identity_mismatch_fails_before_launch(self) -> None:
+        candidate = self.candidate("opencl")
+        requested_sha = "b" * 40
+        result, _, record = self.run_acceptance(
+            candidate,
+            extra_arguments=("--target-sha", requested_sha, "--expected-artifact-key", "linux64_opencl", "--expected-artifact-name", f"{DATE_TAG}-linux64.opencl.zip", "--expected-artifact-class", "linux-product"),
+        )
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("identity", record["phase"])
+        self.assertEqual(requested_sha, record["expected"]["targetSha"])
+        self.assertIsNone(record["observed"]["launcher"]["pid"])
+
+    def test_missing_transfer_writes_requested_identity_blocked_record(self) -> None:
+        result, _, record = self.run_acceptance(
+            self.root / "missing-candidate.json",
+            extra_arguments=("--target-sha", TARGET_SHA, "--expected-artifact-key", "linux64_opencl", "--expected-artifact-name", f"{DATE_TAG}-linux64.opencl.zip", "--expected-artifact-class", "linux-product"),
+        )
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("identity", record["blockedPhase"])
+        self.assertEqual(TARGET_SHA, record["expected"]["targetSha"])
+        self.assertEqual("linux64_opencl", record["expected"]["artifact"]["key"])
+        self.assertIsNone(record["observed"]["candidate"]["path"])
+        self.assertTrue(record["cleanup"]["complete"])
+
     def run_acceptance(
         self,
         candidate: Path,
@@ -400,6 +428,7 @@ JAVA_ARGS=(-Xshare:auto -Dlizzie.next.version=fixture)
         timeout: int = 20,
         produce_oracle: bool = False,
         valid_peer: bool = True,
+        extra_arguments: tuple[str, ...] = (),
     ) -> tuple[subprocess.CompletedProcess[str], Path, dict[str, object]]:
         evidence = self.root / "验收 evidence"
         environment = os.environ.copy()
@@ -431,6 +460,7 @@ JAVA_ARGS=(-Xshare:auto -Dlizzie.next.version=fixture)
                 scenario,
                 "--evidence-dir",
                 str(evidence),
+                *extra_arguments,
             ],
             cwd=ROOT,
             env=environment,

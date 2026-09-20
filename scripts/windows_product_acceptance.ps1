@@ -1400,9 +1400,7 @@ function Invoke-CoreUpdateScenario {
         $path = (Join-Path $dir "acceptance-sentinel.bin").Replace('\', '/')
         Require-Value -Condition ($before[$path].sha256 -eq $after[$path].sha256) -Message "Core update changed preserved sentinel: $path"
     }
-    $updatedCandidate = $PriorPrepared.Candidate.Value | ConvertTo-Json -Depth 100 | ConvertFrom-Json
-    $updatedCandidate.releaseTag = [string]$CandidatePrepared.Candidate.Value.releaseTag
-    $layout = Resolve-ProductLayout -ProductRoot $targetRoot -Candidate $updatedCandidate -Portable $true
+    $layout = Resolve-ProductLayout -ProductRoot $targetRoot -Candidate $PriorPrepared.Candidate.Value -Portable $true
     $launchPrepared = [pscustomobject]@{ Candidate = $CandidatePrepared.Candidate; Prepared = $CandidatePrepared.Prepared; PreparedPath = $CandidatePrepared.PreparedPath; Layout = $layout }
     return [pscustomobject]@{ TargetRoot = $targetRoot; Manifest = $manifestPath; Changed = $changed; Preserved = $sentinelDirs; Prepared = $launchPrepared }
     }

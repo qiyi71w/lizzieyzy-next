@@ -772,7 +772,7 @@ def failure_kind(message: str) -> str:
     return "error"
 
 
-def run(candidate_path: Path, scenario: str, evidence: Path) -> int:
+def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity: dict[str, Any] | None = None) -> int:
     started_at = now()
     require(not evidence.exists(), f"Evidence directory must be new: {evidence}")
     evidence.mkdir(parents=True)
@@ -786,7 +786,7 @@ def run(candidate_path: Path, scenario: str, evidence: Path) -> int:
     failure: dict[str, Any] | None = None
     reason: str | None = None
     blocked_phase: str | None = None
-    candidate: dict[str, Any] | None = None
+    candidate: dict[str, Any] | None = requested_identity
     backend = ""
     supervisor: subprocess.Popen[bytes] | None = None
     runtime_pid = 0
@@ -797,7 +797,10 @@ def run(candidate_path: Path, scenario: str, evidence: Path) -> int:
     try:
         if not candidate_path.is_file():
             raise BlockedError("identity", f"The requested candidate.json is unavailable: {candidate_path}")
-        candidate = canonical_candidate(candidate_path.resolve())
+        verified = canonical_candidate(candidate_path.resolve())
+        if requested_identity is not None:
+            require(verified["targetSha"] == requested_identity["targetSha"] and all(verified["artifact"][key] == value for key, value in requested_identity["artifact"].items()), "Candidate differs from requested source/artifact identity")
+        candidate = verified
         backend = expected_backend(candidate, scenario)
         observed["candidate"].update(
             path=str(candidate_path.resolve()),
@@ -1091,13 +1094,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--candidate", required=True, type=Path)
     parser.add_argument("--scenario", required=True, choices=SCENARIOS)
     parser.add_argument("--evidence-dir", required=True, type=Path)
-    return parser.parse_args(argv)
+    parser.add_argument("--target-sha")
+    parser.add_argument("--expected-artifact-key", choices=tuple(BACKENDS))
+    parser.add_argument("--expected-artifact-name")
+    parser.add_argument("--expected-artifact-class", choices=("linux-product",))
+    args = parser.parse_args(argv)
+    identity = (args.target_sha, args.expected_artifact_key, args.expected_artifact_name, args.expected_artifact_class)
+    if any(identity) and not all(identity):
+        parser.error("--target-sha and all three --expected-artifact-* arguments must be supplied together")
+    if args.target_sha and re.fullmatch(r"[0-9a-f]{40}", args.target_sha) is None:
+        parser.error("--target-sha must be a full lowercase commit SHA")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    requested = None
+    if args.target_sha:
+        requested = {"targetSha": args.target_sha, "artifact": {"key": args.expected_artifact_key, "name": args.expected_artifact_name, "class": args.expected_artifact_class}}
     try:
-        return run(args.candidate, args.scenario, args.evidence_dir.resolve())
+        return run(args.candidate, args.scenario, args.evidence_dir.resolve(), requested)
     except (OSError, AcceptanceError, ValueError) as exc:
         print(f"Linux product acceptance failed: {exc}", file=sys.stderr)
         return 1

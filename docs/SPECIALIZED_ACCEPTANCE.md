@@ -163,6 +163,8 @@ scripts/linux_product_acceptance.sh \
   --evidence-dir <new-directory>
 ```
 
+Linux 与 macOS runner 在 candidate 尚未传输时，需显式传入完整请求身份：`--target-sha <40位SHA> --expected-artifact-key <key> --expected-artifact-name <完整文件名> --expected-artifact-class <class>`。四项必须一起提供；Linux class 为 `linux-product`，macOS 为 `dmg-product`。runner 原子写入 schema-valid、identity-phase `BLOCKED` 的 `acceptance.json`，不把请求身份冒充已观察的成品。candidate 已存在时，这些参数可省略；显式提供时必须与复验后的 candidate 一致，否则记录 `FAIL`。
+
 执行主机需要可用桌面或 Xvfb、`unshare` 的非特权 user/network namespace、`ip`、`nft`、`xwininfo` 与 `xwd`。runner 安全解压到带空格和非 ASCII 字符的新目录，复验单一顶层根、bundled Java x86_64、shaded JAR、backend marker、engine/config/weight，并通过 launcher 的 `LIZZIE_WORK_DIR` 环境 seam 把所有应用状态放入隔离目录。运行进程树进入保留 loopback 的私有 network namespace；nft 阻断并计数所有非 loopback IPv4/IPv6 尝试。`acceptance.json`、`run.json`、runtime 输出、launcher 日志、窗口树、截图、network rule/counter 与清理结果保留在证据目录。
 
 CPU 深验收还需把 `LIZZIE_LINUX_ACCEPTANCE_ENGINE_ORACLE` 设置为本次运行专用、尚不存在的 envelope 输出路径。runner 发布 live `run.json` 后等待 engine-sgf producer 原子写入 envelope；结果必须绑定当前 candidate/archive、`run.json` 哈希、launcher/runtime/JAR/data root、packaged engine PID/command/config/model 及 canonical oracle hash，并满足 frozen SNAPSHOT/MOVE/PASS、Chinese rules、正 visits、400 ms quiet stop 和 PID/reader/staged-SGF 清理。OpenCL/NVIDIA 使用 `variant-launch`：distribution 可在 application-ready 或明确 driver/backend repair 状态下通过，但 `inferenceStatus` 独立保持 `BLOCKED`，直到匹配硬件上的真实推理另有证据。
@@ -182,6 +184,8 @@ scripts/macos_product_acceptance.sh \
 runner 先复验 final DMG/provenance，再调用既有 `validate_macos_dmg_layout.sh`（其中继续调用 `macos_katago_bundle.py audit`）保留 layout 与 dylib closure 内容证据。它以 read-only 方式挂载 DMG，把唯一的 `LizzieYzy Next.app` 复制到带空格和非 ASCII 字符的新 Applications-equivalent 路径，eject 后才解析并启动 installed copy；launcher、embedded Java、launcher cfg、唯一 shaded JAR、JCEF、KataGo/config/model 必须全部解析到该 `.app` 内且与候选架构一致，symlink 不能逃逸。进程命令或 image 仍指向 `/Volumes` 会失败。
 
 启动前对 installed app 写入实际 quarantine attribute。签名候选必须同时通过 `codesign`、DMG `stapler validate` 和 `spctl`；只有 `codesign` 明确报告完全未签名时才可进入 intentional-unsigned 分支，畸形或部分签名直接失败。unsigned 候选必须先观察 Gatekeeper 拒绝，然后由操作员按 [macOS 签名说明](MACOS_SIGNING.md#unsigned-候选的-open-anyway-取证)处理。runner 在拒绝后生成绑定当前 DMG、installed app、launcher 哈希、quarantine attribute、随机 nonce 与时间的 `open-anyway-request.json`；`LIZZIE_MACOS_OPEN_ANYWAY_MARKER` 必须指向随后创建且字段完全匹配的 JSON 确认，包含实际 LaunchServices 重试、晚于拒绝的时间和截图路径。预先存在的任意 marker 不能通过。四项 Apple 必需凭据全缺走 intentional-unsigned 分支，部分存在直接失败；记录只保存 availability/status，不保存 credential value。PR fixture 不读取 Apple secret。
+
+unsigned 原生首启必须在专用 macOS 账户或 VM 的受控环境完成；在人工点击 Open Anyway 前即须建立 OS 级离线边界、唯一显式工作目录、默认数据快照和进程归属/清理。当前 runner 的这些措施仅覆盖后续 supervised launch，尚未覆盖 Finder/Open Anyway 的首次成功启动，因此现有 confirmation 或后续 sandbox PASS 不能关闭 unsigned 首启验收。该路径保持 `BLOCKED`；在完成上述隔离接入和原生证明之前，不执行下面签名说明中的人工重试，不将脚本 fixture 的 PASS 作为 unsigned 产品验收证据。
 
 产品经 installed `jpackage` launcher 进入保留 loopback、拒绝外部网络的 macOS sandbox；`JAVA_TOOL_OPTIONS` 把 `-Dlizzie.work.dir` 注入 launcher 内嵌 JVM，不假设另有可见的子 `java` 进程。runner 先实测 loopback 与外部 deny，再在产品生命周期保留 macOS unified-log deny event 流，并只计入可归属 installed app/JCEF/KataGo 路径的事件；监控启动、读取或解析失败写严格 `BLOCKED`，不能当作零。`run.json` 绑定 candidate、installed launcher/runtime/JAR/JCEF/KataGo closure、PID/command、进程 incarnation、架构与隔离数据目录。外部 oracle producer 必须绑定该记录并满足 production ownership、frozen SNAPSHOT/MOVE/PASS、Chinese rules、confirmed position、positive visits、400 ms quiet stop 及 PID/reader/staged-SGF cleanup。最终 cleanup 重新扫描 app 路径，处理晚到或脱离原 process group 的 helper，并同时检查 app、JCEF helper、engine PID、network counter 和 mount 消失。
 

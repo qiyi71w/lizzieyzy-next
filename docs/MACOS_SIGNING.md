@@ -59,6 +59,8 @@ spctl --assess --type open --context context:primary-signature -vvv path/to/Lizz
 
 此流程只用于四项必需 Apple 凭据全部不可用、且 `codesign` 明确确认 app 完全未签名的本地验收。畸形、损坏或部分签名不能用 Open Anyway 绕过。
 
+**原生隔离前置条件尚未闭合，此路径保持 BLOCKED。** 当前 runner 的 sandbox/显式工作目录只覆盖后续受监督启动，不覆盖人工 Open Anyway 的首次成功启动。以下取证步骤须在专用 macOS 账户或 VM 中，先完成 OS 级离线、显式隔离工作目录、默认数据快照及 owned-process 清理接入并验证后才能执行；仅有截图和 confirmation 不能证明这些边界。保留完整原生流程要求，不以 WSL fixture 或后续启动替代。
+
 1. 启动 `scripts/macos_product_acceptance.sh` 时，把 `LIZZIE_MACOS_OPEN_ANYWAY_MARKER` 指向一个尚不存在的 JSON 文件。runner 对隔离安装副本写入 quarantine，并先通过 LaunchServices 观察 Gatekeeper 拒绝。
 2. 等待同一 evidence 目录出现 `open-anyway-request.json`。不要预先创建 confirmation；request 含本次随机 `nonce`、DMG SHA-256、installed app 绝对路径、launcher SHA-256、quarantine attribute 和 `blockedAt`。
 3. 打开“系统设置 → 隐私与安全性”，确认页面显示刚被阻止的 `LizzieYzy Next`，点击“仍要打开”（Open Anyway），按系统提示确认。随后通过 Finder 或系统给出的“打开”动作重试该 request 中的 installed app；不要改为挂载卷中的副本或另一份 app。

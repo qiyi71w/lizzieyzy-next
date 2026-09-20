@@ -299,6 +299,36 @@ while :; do sleep 1; done
         except BaseException as exc:
             errors.append(exc)
 
+    def test_requested_identity_mismatch_fails_before_mount(self) -> None:
+        candidate = self.candidate("mac-arm64")
+        requested_sha = "b" * 40
+        result, _, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            extra_arguments=("--target-sha", requested_sha, "--expected-artifact-key", "mac_arm64", "--expected-artifact-name", f"{DATE_TAG}-mac-apple-silicon.with-katago.dmg", "--expected-artifact-class", "dmg-product"),
+        )
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("identity", record["phase"])
+        self.assertEqual(requested_sha, record["expected"]["targetSha"])
+        self.assertIsNone(record["observed"]["dmg"]["mountPath"])
+
+    def test_missing_transfer_writes_requested_identity_blocked_record(self) -> None:
+        result, _, record = self.run_acceptance(
+            self.root / "missing-candidate.json",
+            host_architecture="arm64",
+            extra_arguments=("--target-sha", TARGET_SHA, "--expected-artifact-key", "mac_arm64", "--expected-artifact-name", f"{DATE_TAG}-mac-apple-silicon.with-katago.dmg", "--expected-artifact-class", "dmg-product"),
+        )
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("BLOCKED", record["status"])
+        self.assertEqual("identity", record["blockedPhase"])
+        self.assertEqual(TARGET_SHA, record["expected"]["targetSha"])
+        self.assertEqual("mac_arm64", record["expected"]["artifact"]["key"])
+        self.assertIsNone(record["observed"]["candidate"]["path"])
+        self.assertTrue(record["cleanup"]["complete"])
+
     def run_acceptance(
         self,
         candidate: Path,
@@ -312,6 +342,7 @@ while :; do sleep 1; done
         valid_peer: bool = True,
         extra_environment: dict[str, str] | None = None,
         evidence_name: str = "验收 evidence",
+        extra_arguments: tuple[str, ...] = (),
     ) -> tuple[subprocess.CompletedProcess[str], Path, dict[str, object]]:
         evidence = self.root / evidence_name
         environment = os.environ.copy()
@@ -340,7 +371,7 @@ while :; do sleep 1; done
             producer = threading.Thread(target=self.produce_oracle, args=(evidence, candidate, producer_errors, valid_peer), daemon=True)
             producer.start()
         result = subprocess.run(
-            [str(SCRIPT), "--candidate", str(candidate), "--scenario", "installed-offline-first-run", "--evidence-dir", str(evidence)],
+            [str(SCRIPT), "--candidate", str(candidate), "--scenario", "installed-offline-first-run", "--evidence-dir", str(evidence), *extra_arguments],
             cwd=ROOT,
             env=environment,
             capture_output=True,
