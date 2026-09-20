@@ -284,6 +284,7 @@ public final class TensorRtRepairAcceptanceTest {
       server = FixtureServer.start(layout, scenario);
       configureFixtureProperties(server, scenario);
       setCompanionDigestForTests(sha256(Files.readAllBytes(layout.directMlEngine())));
+      setKatagoExecutableDigestForTests(sha256(Files.readAllBytes(layout.tensorRtEngine())));
       DesktopProbeProcess.phase(result, "production-startup");
       Lizzie.main(new String[0]);
       var repairContext =
@@ -357,7 +358,14 @@ public final class TensorRtRepairAcceptanceTest {
     } finally {
       if (server != null) server.close();
       closeProduction();
-      setCompanionDigestForTests(null);
+      try {
+        setCompanionDigestForTests(null);
+      } catch (Exception ignored) {
+      }
+      try {
+        setKatagoExecutableDigestForTests(null);
+      } catch (Exception ignored) {
+      }
       System.exit(exit);
     }
   }
@@ -1097,6 +1105,8 @@ public final class TensorRtRepairAcceptanceTest {
             + partialFiles
             + "\nfixtureRoot=parent-owned\n",
         StandardCharsets.UTF_8);
+    setCompanionDigestForTests(null);
+    setKatagoExecutableDigestForTests(null);
   }
 
   private static void closeProduction() {
@@ -1125,11 +1135,25 @@ public final class TensorRtRepairAcceptanceTest {
     System.setProperty("lizzie.tensorrt.runtime.fixture.size", Long.toString(server.runtime.length));
   }
 
-  private static void setCompanionDigestForTests(String sha256) throws Exception {
+  static void setCompanionDigestForTests(String sha256) throws Exception {
     var method =
         KataGoRuntimeHelper.class.getDeclaredMethod("setHumanSlCompanionSha256ForTests", String.class);
     method.setAccessible(true);
     method.invoke(null, sha256);
+  }
+
+  static void setKatagoExecutableDigestForTests(String sha256) throws Exception {
+    var method =
+        KataGoRuntimeHelper.class.getDeclaredMethod("setKatagoExecutableSha256ForTests", String.class);
+    method.setAccessible(true);
+    method.invoke(null, sha256);
+  }
+
+  static String tensorRtEngineManifestText() throws Exception {
+    var method =
+        KataGoRuntimeHelper.class.getDeclaredMethod("tensorRtEngineManifestText");
+    method.setAccessible(true);
+    return (String) method.invoke(null);
   }
 
   private static void requireNativeWindowsJdk21() throws Exception {
@@ -1348,11 +1372,10 @@ public final class TensorRtRepairAcceptanceTest {
       Files.writeString(directDir.resolve("lizzieyzy-next-engine-backend.txt"), "directml\n");
       Files.writeString(
           tensorDir.resolve("lizzieyzy-next-engine-backend.txt"), "nvidia-tensorrt\n");
+      setKatagoExecutableDigestForTests(sha256(Files.readAllBytes(tensor)));
       Files.writeString(
           tensorDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
-          "KataGo release: v1.18.1\n"
-              + "Asset: katago-v1.18.1-trt10.9.0-cuda12.8-windows-x64.zip\n"
-              + "Asset SHA-256: 49b7229803b2ccee5205cc9d1f7b1a37790469405324de5e5acaafe7a8a9172a\n");
+          tensorRtEngineManifestText());
       Path configs = Files.createDirectories(runtimeRoot.resolve("engines/katago/configs"));
       Path gtp = Files.writeString(configs.resolve("gtp.cfg"), "# controlled\n");
       Path analysis = Files.writeString(configs.resolve("analysis.cfg"), "# controlled\n");

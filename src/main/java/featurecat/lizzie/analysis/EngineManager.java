@@ -7258,7 +7258,10 @@ public class EngineManager {
                   && !Lizzie.frame.isPlayingAgainstLeelaz
                   && !Lizzie.config.notStartPondering;
           Lizzie.initializeAfterVersionCheck(false, recovery.engine, recovery.resumePonder);
-          if (!completeFailedRollbackRecovery(recovery, requireFreshOwner)) {
+          // A deferred capability probe cannot write until this completion claim releases its
+          // endpoints. Keep output quarantined until that later physical analysis write.
+          if (!completeFailedRollbackRecovery(
+              recovery, requireFreshOwner && !recovery.engine.isInitializationAnalysisDeferred())) {
             throw new IllegalStateException(
                 "Rollback engine changed before analysis ownership commit");
           }

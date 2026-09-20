@@ -886,6 +886,13 @@ public class Leelaz {
     return startMoveFocusProbeIfAnalysisAllowed(false, false);
   }
 
+  boolean isInitializationAnalysisDeferred() {
+    LifecycleCompletionClaim completing = lifecycleCompletionCommandContext.get();
+    return completing != null
+        && completing == lifecycleCompletionClaim
+        && completing.deferredInitializationAnalysisBinding == currentReaderStreamBinding();
+  }
+
   private boolean startMoveFocusProbeIfAnalysisAllowed(boolean addPlayer, boolean blackToPlay) {
     long pauseGeneration = moveFocusPauseGeneration;
     if (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused()) return false;
@@ -899,6 +906,7 @@ public class Leelaz {
         && moveFocusCapability() == MoveFocusCapability.UNKNOWN && isKatago) {
       ReaderStreamBinding binding = currentReaderStreamBinding();
       AnalysisInfoTarget target = captureAnalysisInfoTarget();
+      completing.deferredInitializationAnalysisBinding = binding;
       completing.runAfterEndpointRelease(() -> {
         if (readerStreamBinding == binding && !binding.terminated
             && isCurrentAnalysisInfoTarget(target) && pauseGeneration == moveFocusPauseGeneration) {
@@ -17728,6 +17736,7 @@ public class Leelaz {
     private Consumer<String> deferredFailure;
     private final AtomicBoolean endpointsReleased = new AtomicBoolean(false);
     private final List<Runnable> afterEndpointRelease = new ArrayList<>();
+    private ReaderStreamBinding deferredInitializationAnalysisBinding;
 
     private LifecycleCompletionClaim(Leelaz authority, Object owner, Leelaz capturedMirror) {
       this.authority = authority;

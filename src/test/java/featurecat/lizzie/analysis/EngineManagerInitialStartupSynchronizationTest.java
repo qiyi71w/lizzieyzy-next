@@ -58,6 +58,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Focused tests for the initial engine startup restore barrier (Issue #223): frozen immutable
@@ -819,11 +820,14 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
   }
 
-  @Test
-  void ordinarySwitchRestartsPreviousEngineWhenTargetPublishesNoReader() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void ordinarySwitchRestartsPreviousEngineWhenTargetPublishesNoReader(boolean kataGo)
+      throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
       StartupSyncLeelaz previous = new StartupSyncLeelaz();
       EmptyOrdinarySwitchStartLeelaz target = new EmptyOrdinarySwitchStartLeelaz();
+      previous.isKatago = kataGo;
       previous.started = true;
       previous.isLoaded = true;
       previous.Pondering();
@@ -871,6 +875,7 @@ class EngineManagerInitialStartupSynchronizationTest {
           manager.engineSwitchUiSnapshot(true).phase());
       assertNull(managerAtomicReferenceValue(manager, "engineSwitchTransaction"));
       assertLifecycleReservationReleased(previous);
+      assertTrue(previous.analysisStarted.await(2, TimeUnit.SECONDS));
       assertFalse(target.hasExclusiveGtpWorkInProgress());
     }
   }
