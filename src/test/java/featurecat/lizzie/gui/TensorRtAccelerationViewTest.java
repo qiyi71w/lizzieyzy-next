@@ -136,18 +136,21 @@ class TensorRtAccelerationViewTest {
   }
 
   @Test
-  void gpuAdviceKeepsModernAndUnknownNvidiaRepairableButBlocksMissingOrOldHardware() {
+  void gpuAdviceSeparatesModernEligibleFromOldIneligibleHardware() {
     assertEquals(
         TensorRtAccelerationView.GPU_ALLOWED_KEY,
         gpuView(true, true, TensorRtRecommendation.ALLOWED).gpuAdviceKey);
+
+    TensorRtAccelerationView modern =
+        gpuView(true, true, TensorRtRecommendation.NOT_RECOMMENDED);
+    assertEquals("AutoSetup.gpuPreferCudaModern", modern.gpuAdviceKey);
+    assertTrue(modern.repairEnabled);
     assertEquals(
-        TensorRtAccelerationView.GPU_NOT_RECOMMENDED_KEY,
-        gpuView(true, true, TensorRtRecommendation.NOT_RECOMMENDED).gpuAdviceKey);
-    assertEquals(
-        TensorRtAccelerationView.GPU_UNKNOWN_KEY,
-        gpuView(true, true, TensorRtRecommendation.UNKNOWN).gpuAdviceKey);
-    assertTrue(gpuView(true, true, TensorRtRecommendation.NOT_RECOMMENDED).repairEnabled);
-    assertTrue(gpuView(true, true, TensorRtRecommendation.UNKNOWN).repairEnabled);
+        List.of("AutoSetup.tensorRtMissingRuntime"), modern.activationMissingKeys);
+
+    TensorRtAccelerationView unknown = gpuView(true, true, TensorRtRecommendation.UNKNOWN);
+    assertEquals(TensorRtAccelerationView.GPU_UNKNOWN_KEY, unknown.gpuAdviceKey);
+    assertTrue(unknown.repairEnabled);
 
     TensorRtAccelerationView noGpu =
         gpuView(false, false, TensorRtRecommendation.UNKNOWN);
@@ -158,9 +161,10 @@ class TensorRtAccelerationViewTest {
 
     TensorRtAccelerationView unsupported =
         gpuView(true, false, TensorRtRecommendation.NOT_RECOMMENDED);
-    assertEquals(
-        TensorRtAccelerationView.GPU_NOT_RECOMMENDED_KEY, unsupported.gpuAdviceKey);
+    assertEquals("AutoSetup.gpuNotRecommendTensorRt", unsupported.gpuAdviceKey);
     assertFalse(unsupported.repairEnabled);
+    assertEquals(
+        "AutoSetup.tensorRtMissingNvidiaGpu", unsupported.activationMissingKeys.get(0));
   }
 
   @Test

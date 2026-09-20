@@ -16,6 +16,7 @@ public final class KataGoAssetCatalog {
   private final String katagoVersion;
   private final String katagoReleaseTag;
   private final String katagoSourceCommit;
+  private final String origin;
   private final String engineReleaseBase;
   private final String modelReleaseTag;
   private final String defaultModelId;
@@ -24,18 +25,19 @@ public final class KataGoAssetCatalog {
 
   KataGoAssetCatalog(JSONObject root) {
     int schemaVersion = root.getInt("schemaVersion");
-    if (schemaVersion != 1) {
+    if (schemaVersion != 2) {
       throw new IllegalStateException("Unsupported KataGo asset catalog schema: " + schemaVersion);
     }
     katagoVersion = required(root, "katagoVersion");
     katagoReleaseTag = required(root, "katagoReleaseTag");
     katagoSourceCommit = required(root, "katagoSourceCommit");
+    origin = root.optString("origin", "official-release").trim();
     engineReleaseBase = engineReleaseBase(root);
     modelReleaseTag = required(root, "modelReleaseTag");
     defaultModelId = required(root, "defaultModelId");
     models = Collections.unmodifiableMap(parseModels(root.getJSONObject("models")));
     assets = Collections.unmodifiableMap(parseAssets(root.getJSONObject("assets")));
-    if (root.optString("origin", "official-release").equals("project-source-build")) {
+    if (origin.equals("project-source-build")) {
       for (Asset asset : assets.values()) {
         String expected =
             "katago-source-" + katagoSourceCommit.substring(0, 12) + "-" + asset.id() + ".zip";
@@ -52,8 +54,17 @@ public final class KataGoAssetCatalog {
       throw new IllegalStateException(
           "KataGo asset catalog requires windows-nvidia executableSha256");
     }
-    if (!assets.containsKey("windows-tensorrt")) {
+    Asset windowsTensorRt = assets.get("windows-tensorrt");
+    if (windowsTensorRt == null) {
       throw new IllegalStateException("KataGo asset catalog requires windows-tensorrt");
+    }
+    for (Asset asset : assets.values()) {
+      boolean staticZlibAsset =
+          origin.equals("project-source-build")
+              && (asset.id().equals("windows-nvidia") || asset.id().equals("windows-tensorrt"));
+      if (asset.zlibLinkage().equals("static") != staticZlibAsset) {
+        throw new IllegalStateException("Invalid KataGo asset zlib linkage: " + asset.id());
+      }
     }
   }
 
@@ -72,6 +83,10 @@ public final class KataGoAssetCatalog {
   public String katagoSourceCommit() {
     return katagoSourceCommit;
   }
+  public String origin() {
+    return origin;
+  }
+
 
   public String modelReleaseTag() {
     return modelReleaseTag;
@@ -194,10 +209,19 @@ public final class KataGoAssetCatalog {
               optionalSha256(value, "executableSha256"),
               value.optString("runtimeProfile", ""),
               value.optString("gpuFamily", ""),
-              required(value, "releaseTier")));
+              required(value, "releaseTier"),
+              zlibLinkage(value)));
     }
     return parsed;
   }
+  private static String zlibLinkage(JSONObject value) {
+    String linkage = value.optString("zlibLinkage", "dynamic").trim();
+    if (!linkage.equals("dynamic") && !linkage.equals("static")) {
+      throw new IllegalStateException("Unsupported KataGo asset zlib linkage: " + linkage);
+    }
+    return linkage;
+  }
+
 
   private static String required(JSONObject value, String key) {
     String result = value.optString(key, "").trim();
@@ -268,5 +292,6 @@ public final class KataGoAssetCatalog {
       String executableSha256,
       String runtimeProfile,
       String gpuFamily,
-      String releaseTier) {}
+      String releaseTier,
+      String zlibLinkage) {}
 }

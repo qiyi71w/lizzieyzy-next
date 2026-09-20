@@ -351,18 +351,21 @@ class LizzieFrameRegressionTest {
       render.setAccessible(true);
       var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
       try {
-        worker.submit(() -> {
-          for (int index = 0; index < 20; index++) {
-            try {
-              render.invoke(null, pane, CommentDisplayRenderer.render("Comment " + index));
-            } catch (ReflectiveOperationException failure) {
-              throw new RuntimeException(failure);
-            }
-          }
-        }).get(10, TimeUnit.SECONDS);
+        worker
+            .submit(
+                () -> {
+                  for (int index = 0; index < 20; index++) {
+                    try {
+                      render.invoke(null, pane, CommentDisplayRenderer.render("Comment " + index));
+                    } catch (ReflectiveOperationException failure) {
+                      throw new RuntimeException(failure);
+                    }
+                  }
+                })
+            .get(10, TimeUnit.SECONDS);
       } finally {
         worker.shutdownNow();
-        assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS), "Comment worker must stop");
+        assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS), "Worker must terminate");
       }
       SwingUtilities.invokeAndWait(() -> {});
       assertEquals(0, offEdtWrites.get(), "Engine callbacks must not mutate Swing HTML off the EDT");

@@ -13,6 +13,7 @@ final class TensorRtAccelerationView {
   static final String GPU_RECOMMENDED_KEY = "AutoSetup.gpuRecommendTensorRt";
   static final String GPU_ALLOWED_KEY = "AutoSetup.gpuAllowTensorRt";
   static final String GPU_NOT_RECOMMENDED_KEY = "AutoSetup.gpuNotRecommendTensorRt";
+  static final String GPU_PREFER_CUDA_MODERN_KEY = "AutoSetup.gpuPreferCudaModern";
   static final String GPU_UNKNOWN_KEY = "AutoSetup.gpuUnknownTensorRt";
   static final String RUNTIME_READY_KEY = "AutoSetup.tensorRtRuntimeReady";
   static final String RUNTIME_NOT_READY_KEY = "AutoSetup.tensorRtRuntimeNotReady";
@@ -170,6 +171,7 @@ final class TensorRtAccelerationView {
             gpuDetectionPending,
             gpuDetectionComplete,
             gpuDetected,
+            hardwareEligible,
             recommendation);
     boolean showComponents = platformSupported && managedTargetAvailable;
     String runtimeStatusKey =
@@ -224,6 +226,7 @@ final class TensorRtAccelerationView {
       boolean gpuDetectionPending,
       boolean gpuDetectionComplete,
       boolean gpuDetected,
+      boolean hardwareEligible,
       TensorRtRecommendation recommendation) {
     if (gpuDetectionPending || !gpuDetectionComplete) {
       return GPU_DETECTING_KEY;
@@ -238,7 +241,7 @@ final class TensorRtAccelerationView {
       return GPU_ALLOWED_KEY;
     }
     if (recommendation == TensorRtRecommendation.NOT_RECOMMENDED) {
-      return GPU_NOT_RECOMMENDED_KEY;
+      return hardwareEligible ? GPU_PREFER_CUDA_MODERN_KEY : GPU_NOT_RECOMMENDED_KEY;
     }
     return GPU_UNKNOWN_KEY;
   }

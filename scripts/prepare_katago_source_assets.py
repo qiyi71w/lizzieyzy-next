@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import zipfile
 
-from katago_asset_catalog import asset_download_url, load_catalog
+from katago_asset_catalog import asset_download_url, engine_manifest_text, load_catalog
 from stage_katago_source_release import digest, normalized_name, verify_archive
 
 DESTINATIONS = {
@@ -90,11 +90,7 @@ def prepare(catalog_path: Path, targets: list[str], cache: Path, engines: Path) 
             if catalog["assets"][target]["releaseTier"] == "experimental":
                 (output / "lizzieyzy-next-engine-backend.txt").write_text(backend + "\n", encoding="utf-8")
             (output / "lizzieyzy-next-katago-engine-manifest.txt").write_text(
-                f"KataGo release: {catalog['katagoReleaseTag']}\n"
-                f"Asset: {catalog['assets'][target]['assetName']}\n"
-                f"Asset SHA-256: {catalog['assets'][target]['sha256']}\n"
-                f"Backend: {backend}\nOrigin: project-source-build\nSource commit: {metadata['sourceCommit']}\n",
-                encoding="utf-8")
+                engine_manifest_text(catalog, target, metadata["sourceCommit"]), encoding="utf-8")
         config_source = staging / DESTINATIONS[targets[0]]
         configurations = {"gtp.cfg": config_source / "default_gtp.cfg",
                           "analysis.cfg": config_source / "analysis_example.cfg"}

@@ -44,12 +44,14 @@ public class TensorRtRepairabilityStateTest {
   @BeforeEach
   void acceptEmptyCompanionFixture() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(EMPTY_FILE_SHA256);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
     System.setProperty("lizzie.tensorrt.runtimeSearchPath", "");
   }
 
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
@@ -528,9 +530,7 @@ public class TensorRtRepairabilityStateTest {
       throws IOException {
     Files.writeString(
         directory.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
-        "KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag() + "\n"
-            + "Asset: " + KataGoAssetCatalog.get().asset("windows-tensorrt").assetName() + "\n"
-            + "Asset SHA-256: " + KataGoAssetCatalog.get().asset("windows-tensorrt").sha256() + "\n");
+        KataGoRuntimeHelper.tensorRtEngineManifestText());
   }
 
   private static void writeStaleTensorRtEngineManifest(Path directory) throws IOException {

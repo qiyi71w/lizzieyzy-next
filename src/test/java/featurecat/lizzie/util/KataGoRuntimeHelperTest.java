@@ -35,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -60,16 +61,20 @@ public class KataGoRuntimeHelperTest {
   private static final String WINDOWS_OS_NAME = "Windows 11";
   private static final String EMPTY_FILE_SHA256 =
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  private static final String TENSORRT_FIXTURE_EXECUTABLE_SHA256 =
+      "aebec349fba1dcd086e336d96538d0d010f15bfc9667d6096ea08f928c732bdb";
 
   @BeforeEach
   void acceptEmptyCompanionFixture() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(EMPTY_FILE_SHA256);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
     System.setProperty("lizzie.tensorrt.runtimeSearchPath", "");
   }
 
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
@@ -667,6 +672,143 @@ public class KataGoRuntimeHelperTest {
   }
 
   @Test
+  void pinnedProjectTensorRtBuildWithStaticZlibIsRuntimeReadyWithoutZlibDll() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("katago-helper-static-zlib-tensorrt");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          Path engineDir =
+              Files.createDirectories(
+                  runtimeWorkDirectory
+                      .resolve("engines")
+                      .resolve("katago")
+                      .resolve("windows-x64-nvidia-tensorrt"));
+          Path enginePath = touch(engineDir.resolve("katago.exe"));
+          Files.writeString(
+              engineDir.resolve("lizzieyzy-next-engine-backend.txt"), "nvidia-tensorrt\n");
+          writeCurrentTensorRtEngineManifestWithoutCompanion(engineDir);
+          Path runtimeDir = Files.createDirectories(runtimeWorkDirectory.resolve("nvidia-runtime"));
+          touchRequiredCuda12_8Dlls(runtimeDir);
+          Files.delete(runtimeDir.resolve("z.dll"));
+          touch(runtimeDir.resolve("nvinfer_10.dll"));
+          touch(runtimeDir.resolve("nvinfer_plugin_10.dll"));
+
+          withConfig(
+              runtimeWorkDirectory,
+              () -> {
+                KataGoRuntimeHelper.NvidiaRuntimeStatus status =
+                    KataGoRuntimeHelper.inspectNvidiaRuntime(enginePath, "");
+
+                assertTrue(
+                    status.ready,
+                    "Pinned project TensorRT builds statically link zlib and need no zlib DLL.");
+                assertTrue(status.missingDlls.isEmpty());
+              });
+        });
+  }
+
+  @Test
+  void pinnedProjectCudaBuildWithStaticZlibIsRuntimeReadyWithoutZlibDll() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("katago-helper-static-zlib-cuda");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          Path engineDir =
+              Files.createDirectories(
+                  runtimeWorkDirectory.resolve("engines/katago/windows-x64-nvidia"));
+          Path enginePath = touch(engineDir.resolve("katago.exe"));
+          Files.writeString(engineDir.resolve("lizzieyzy-next-engine-backend.txt"), "nvidia\n");
+          writeProjectEngineManifest(engineDir, "windows-nvidia");
+          Path runtimeDir = Files.createDirectories(runtimeWorkDirectory.resolve("nvidia-runtime"));
+          touchRequiredCuda12_8Dlls(runtimeDir);
+          Files.delete(runtimeDir.resolve("z.dll"));
+
+          withConfig(
+              runtimeWorkDirectory,
+              () ->
+                  assertTrue(
+                      KataGoRuntimeHelper.inspectNvidiaRuntime(enginePath, "").ready,
+                      "Pinned project CUDA builds statically link zlib and need no zlib DLL."));
+        });
+  }
+
+  @Test
+  void staticZlibExemptionFailsClosedWhenProvenanceOrRuntimeIsInvalid() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("katago-helper-static-zlib-fail-closed");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          Path engineDir =
+              Files.createDirectories(
+                  runtimeWorkDirectory.resolve("engines/katago/windows-x64-nvidia-tensorrt"));
+          Path enginePath = touch(engineDir.resolve("katago.exe"));
+          Files.writeString(
+              engineDir.resolve("lizzieyzy-next-engine-backend.txt"), "nvidia-tensorrt\n");
+          Path manifest = engineDir.resolve("lizzieyzy-next-katago-engine-manifest.txt");
+          Path runtimeDir = Files.createDirectories(runtimeWorkDirectory.resolve("nvidia-runtime"));
+          touchRequiredCuda12_8Dlls(runtimeDir);
+          Files.delete(runtimeDir.resolve("z.dll"));
+          touch(runtimeDir.resolve("nvinfer_10.dll"));
+          touch(runtimeDir.resolve("nvinfer_plugin_10.dll"));
+
+          withConfig(
+              runtimeWorkDirectory,
+              () -> {
+                writeCurrentTensorRtEngineManifestWithoutCompanion(engineDir);
+                assertTrue(KataGoRuntimeHelper.inspectNvidiaRuntime(enginePath, "").ready);
+
+                Files.delete(manifest);
+                assertMissingDynamicZlib(enginePath);
+
+                writeCurrentTensorRtEngineManifestWithoutCompanion(engineDir);
+                Files.writeString(manifest, "Origin: project-source-build\n", StandardOpenOption.APPEND);
+                assertMissingDynamicZlib(enginePath);
+
+                writeCurrentTensorRtEngineManifestWithoutCompanion(engineDir);
+                Files.writeString(enginePath, "tampered executable");
+                assertMissingDynamicZlib(enginePath);
+
+                Files.write(enginePath, new byte[0]);
+                writeCurrentTensorRtEngineManifestWithoutCompanion(engineDir);
+                Files.writeString(
+                    manifest,
+                    Files.readString(manifest).replace(
+                        "Origin: project-source-build", "Origin: official-release"));
+                assertMissingDynamicZlib(enginePath);
+
+                writeCurrentTensorRtEngineManifestWithoutCompanion(engineDir);
+                Files.delete(runtimeDir.resolve("cudnn64_9.dll"));
+                KataGoRuntimeHelper.NvidiaRuntimeStatus missingCudnn =
+                    KataGoRuntimeHelper.inspectNvidiaRuntime(enginePath, "");
+                assertFalse(missingCudnn.ready);
+                assertTrue(missingCudnn.missingDlls.contains("cudnn64_9.dll"));
+              });
+        });
+  }
+
+  @Test
+  void externalTensorRtEngineStillRequiresDynamicZlib() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("katago-helper-external-zlib");
+          Path engineDir = Files.createDirectories(tempRoot.resolve("external"));
+          Path enginePath = touch(engineDir.resolve("katago.exe"));
+          Files.writeString(
+              engineDir.resolve("lizzieyzy-next-engine-backend.txt"), "nvidia-tensorrt\n");
+          touchRequiredCuda12_8Dlls(engineDir);
+          Files.delete(engineDir.resolve("z.dll"));
+          touch(engineDir.resolve("nvinfer_10.dll"));
+          touch(engineDir.resolve("nvinfer_plugin_10.dll"));
+
+          assertMissingDynamicZlib(enginePath);
+        });
+  }
+
+  @Test
   void standardNvidia117RuntimeRequiresCudnn9() throws Exception {
     withOsName(
         WINDOWS_OS_NAME,
@@ -1124,6 +1266,84 @@ public class KataGoRuntimeHelperTest {
                                     .resolve("downloads")
                                     .resolve("katago-trt.zip")),
                             "Successful TensorRT installs should remove the completed installer archive.");
+                      }));
+        });
+  }
+
+  @Test
+  void tensorRtInstallRejectsArchiveWhoseExecutableDiffersFromCatalog() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("katago-helper-tensorrt-executable-digest");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          SetupSnapshot snapshot = createUnifiedNvidiaSnapshot(tempRoot);
+          Path fixtureZip =
+              createTensorRtFixtureZip(tempRoot.resolve("fixture").resolve("katago-trt.zip"));
+          String wrongExecutableSha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+          withTensorRtFixtureProperties(
+              fixtureZip.toUri().toString(),
+              sha256(fixtureZip),
+              Files.size(fixtureZip),
+              wrongExecutableSha256,
+              () ->
+                  withConfig(
+                      runtimeWorkDirectory,
+                      () -> {
+                        IOException failure =
+                            assertThrows(
+                                IOException.class,
+                                () ->
+                                    KataGoRuntimeHelper.downloadAndInstallTensorRt(
+                                        snapshot, null, new DownloadSession()));
+                        assertTrue(failure.getMessage().contains("executable SHA-256"));
+                        assertFalse(
+                            Files.exists(
+                                runtimeWorkDirectory.resolve(
+                                    "engines/katago/windows-x64-nvidia-tensorrt")));
+                      }));
+        });
+  }
+
+  @Test
+  void tensorRtInstallReusesExistingTargetPathProfile() throws Exception {
+    withOsName(
+        WINDOWS_OS_NAME,
+        () -> {
+          Path tempRoot = Files.createTempDirectory("katago-helper-tensorrt-profile-reuse");
+          Path runtimeWorkDirectory = Files.createDirectories(tempRoot.resolve("runtime-root"));
+          SetupSnapshot snapshot = createUnifiedNvidiaSnapshot(tempRoot);
+          Path fixtureZip =
+              createTensorRtFixtureZip(tempRoot.resolve("fixture").resolve("katago-trt.zip"));
+
+          withTensorRtFixtureProperties(
+              fixtureZip.toUri().toString(),
+              sha256(fixtureZip),
+              Files.size(fixtureZip),
+              () ->
+                  withConfig(
+                      runtimeWorkDirectory,
+                      () -> {
+                        KataGoRuntimeHelper.TensorRtInstallSpec spec =
+                            KataGoRuntimeHelper.buildTensorRtInstallSpec(snapshot);
+                        EngineData existing = new EngineData();
+                        existing.name = "TensorRT managed missing";
+                        existing.commands = spec.targetEnginePath + " gtp";
+                        existing.isDefault = true;
+                        Utils.saveEngineSettings(new ArrayList<>(List.of(existing)));
+                        Lizzie.config.uiConfig.put("default-engine", 0);
+
+                        SetupResult result =
+                            KataGoRuntimeHelper.downloadAndInstallTensorRt(
+                                snapshot, null, new DownloadSession());
+
+                        ArrayList<EngineData> engines = Utils.getEngineData();
+                        assertEquals(0, result.engineIndex);
+                        assertFalse(result.createdEngine);
+                        assertEquals(1, engines.size());
+                        assertEquals("KataGo TensorRT", engines.get(0).name);
+                        assertTrue(engines.get(0).commands.contains(spec.targetEnginePath.toString()));
                       }));
         });
   }
@@ -2850,11 +3070,38 @@ public class KataGoRuntimeHelperTest {
 
   private static void writeCurrentTensorRtEngineManifestWithoutCompanion(Path directory)
       throws IOException {
+    writeProjectEngineManifest(directory, "windows-tensorrt");
+  }
+
+  private static void writeProjectEngineManifest(Path directory, String assetId)
+      throws IOException {
+    KataGoAssetCatalog catalog = KataGoAssetCatalog.get();
+    KataGoAssetCatalog.Asset asset = catalog.asset(assetId);
     Files.writeString(
         directory.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
-        "KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag() + "\n"
-            + "Asset: " + KataGoAssetCatalog.get().asset("windows-tensorrt").assetName() + "\n"
-            + "Asset SHA-256: " + KataGoAssetCatalog.get().asset("windows-tensorrt").sha256() + "\n");
+        "Manifest schema: 2\n"
+            + "KataGo release: "
+            + catalog.katagoReleaseTag()
+            + "\nAsset ID: "
+            + assetId
+            + "\nAsset: "
+            + asset.assetName()
+            + "\nAsset SHA-256: "
+            + asset.sha256()
+            + "\nExecutable SHA-256: "
+            + EMPTY_FILE_SHA256
+            + "\nBackend: "
+            + asset.backend()
+            + "\nOrigin: project-source-build\nSource commit: "
+            + catalog.katagoSourceCommit()
+            + "\nZlib linkage: static\n");
+  }
+
+  private static void assertMissingDynamicZlib(Path enginePath) {
+    KataGoRuntimeHelper.NvidiaRuntimeStatus status =
+        KataGoRuntimeHelper.inspectNvidiaRuntime(enginePath, "");
+    assertFalse(status.ready);
+    assertTrue(status.missingDlls.stream().anyMatch(value -> value.contains("zlibwapi.dll")));
   }
 
   private static SetupSnapshot createUnifiedNvidiaSnapshot(Path tempRoot) throws Exception {
@@ -3027,17 +3274,30 @@ public class KataGoRuntimeHelperTest {
 
   private static void withTensorRtFixtureProperties(
       String url, String sha256, long size, ThrowingRunnable action) throws Exception {
+    withTensorRtFixtureProperties(
+        url, sha256, size, TENSORRT_FIXTURE_EXECUTABLE_SHA256, action);
+  }
+
+  private static void withTensorRtFixtureProperties(
+      String url,
+      String sha256,
+      long size,
+      String executableSha256,
+      ThrowingRunnable action)
+      throws Exception {
     String previousUrl = System.getProperty("lizzie.tensorrt.katago.url");
     String previousSha = System.getProperty("lizzie.tensorrt.katago.sha256");
     String previousSize = System.getProperty("lizzie.tensorrt.katago.size");
     String previousSkip = System.getProperty("lizzie.tensorrt.skipRuntimePackagesForTests");
     try {
+      KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(executableSha256);
       System.setProperty("lizzie.tensorrt.katago.url", url);
       System.setProperty("lizzie.tensorrt.katago.sha256", sha256);
       System.setProperty("lizzie.tensorrt.katago.size", Long.toString(size));
       System.setProperty("lizzie.tensorrt.skipRuntimePackagesForTests", "true");
       action.run();
     } finally {
+      KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
       restoreProperty("lizzie.tensorrt.katago.url", previousUrl);
       restoreProperty("lizzie.tensorrt.katago.sha256", previousSha);
       restoreProperty("lizzie.tensorrt.katago.size", previousSize);

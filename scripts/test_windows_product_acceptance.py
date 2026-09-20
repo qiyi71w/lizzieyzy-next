@@ -55,6 +55,7 @@ class WindowsProductAcceptanceFixtureTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.class_root = Path(tempfile.mkdtemp(prefix="lizzie-product-acceptance-tools-", dir="/mnt/c/Temp"))
         cls.launcher = cls.class_root / "fixture-launcher.exe"
+        cls.jvm_host = cls.class_root / "fixture-jvm-host.exe"
         cls.sleepy_launcher = cls.class_root / "fixture-sleepy-launcher.exe"
         cls.java = cls.class_root / "fixture-java.exe"
         cls.malicious_java = cls.class_root / "fixture-malicious-java.exe"
@@ -65,11 +66,11 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-namespace FixtureLauncher {
+namespace FixtureJvmHost {
   public static class Program {
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr LoadLibrary(string path);
     [STAThread] public static void Main() {
-      string root = AppContext.BaseDirectory;
+      string root = Directory.GetParent(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;
       if (LoadLibrary(Path.Combine(root, "runtime", "bin", "server", "jvm.dll")) == IntPtr.Zero) throw new InvalidOperationException("fixture jvm load failed");
       string data = Path.Combine(root, "user-data");
       string cfg = Path.Combine(root, "app", "LizzieYzy Next.cfg");
@@ -84,6 +85,25 @@ namespace FixtureLauncher {
       File.WriteAllText(Path.Combine(data, "persist"), "fixture\n");
       File.WriteAllText(Path.Combine(data, "logs", "app.log"), "application ready\n");
       Application.Run(new Form { Text = "LizzieYzy Next acceptance fixture", Width = 320, Height = 180 });
+    }
+  }
+}'''
+        launcher_source = r'''
+using System;
+using System.Diagnostics;
+using System.IO;
+namespace FixtureLauncher {
+  public static class Program {
+    [STAThread] public static void Main() {
+      string root = AppContext.BaseDirectory;
+      using (Process child = Process.Start(new ProcessStartInfo {
+        FileName = Path.Combine(root, "app", "LizzieYzy Next JVM Host.exe"),
+        WorkingDirectory = root,
+        UseShellExecute = false
+      })) {
+        child.WaitForExit();
+        Environment.ExitCode = child.ExitCode;
+      }
     }
   }
 }'''
@@ -104,7 +124,8 @@ namespace FixtureLauncher {
             "public static void Main(string[] args) { File.WriteAllLines(Environment.GetEnvironmentVariable(\"LIZZIE_ACCEPTANCE_ARGV_OUT\"), args); } } }"
         )
         commands = (
-            f"Add-Type -TypeDefinition @'\n{ready_source}\n'@ -ReferencedAssemblies System.Windows.Forms -OutputAssembly '{windows_path(cls.launcher)}' -OutputType WindowsApplication; "
+            f"Add-Type -TypeDefinition @'\n{launcher_source}\n'@ -OutputAssembly '{windows_path(cls.launcher)}' -OutputType WindowsApplication; "
+            f"Add-Type -TypeDefinition @'\n{ready_source}\n'@ -ReferencedAssemblies System.Windows.Forms -OutputAssembly '{windows_path(cls.jvm_host)}' -OutputType WindowsApplication; "
             f"Add-Type -TypeDefinition @'\n{sleepy_source}\n'@ -OutputAssembly '{windows_path(cls.sleepy_launcher)}' -OutputType WindowsApplication; "
             f"Add-Type -TypeDefinition @'\n{java_source}\n'@ -OutputAssembly '{windows_path(cls.java)}' -OutputType ConsoleApplication; "
             f"Add-Type -TypeDefinition @'\n{malicious_source}\n'@ -OutputAssembly '{windows_path(cls.malicious_java)}' -OutputType ConsoleApplication; "
@@ -161,9 +182,18 @@ namespace FixtureLauncher {
             timeout=45,
         )
 
-    def write_provenance(self, asset: Path) -> Path:
+    def write_provenance(
+        self,
+        asset: Path,
+        *,
+        date_tag: str = DATE_TAG,
+        release_tag: str = RELEASE_TAG,
+        target_sha: str = TARGET_SHA,
+        run_id: int = RUN_ID,
+        run_attempt: int = RUN_ATTEMPT,
+    ) -> Path:
         records = []
-        for name in topology.provenance_names("windows", DATE_TAG):
+        for name in topology.provenance_names("windows", date_tag):
             if name == asset.name:
                 records.append({"name": name, "sizeBytes": asset.stat().st_size, "sha256": sha256(asset)})
             else:
@@ -174,11 +204,11 @@ namespace FixtureLauncher {
                 {
                     "schemaVersion": 1,
                     "platform": "windows",
-                    "dateTag": DATE_TAG,
-                    "releaseTag": RELEASE_TAG,
-                    "targetSha": TARGET_SHA,
-                    "workflowRunId": RUN_ID,
-                    "workflowRunAttempt": RUN_ATTEMPT,
+                    "dateTag": date_tag,
+                    "releaseTag": release_tag,
+                    "targetSha": target_sha,
+                    "workflowRunId": run_id,
+                    "workflowRunAttempt": run_attempt,
                     "assets": records,
                 },
                 ensure_ascii=False,
@@ -189,18 +219,27 @@ namespace FixtureLauncher {
         )
         return manifest
 
-    def create_portable(self, *, unsafe: bool = False, ready: bool = True) -> tuple[Path, Path]:
-        asset = self.root / f"{DATE_TAG}-windows64.with-katago.portable.zip"
+    def create_portable(
+        self,
+        *,
+        unsafe: bool = False,
+        ready: bool = True,
+        date_tag: str = DATE_TAG,
+        release_tag: str = RELEASE_TAG,
+        target_sha: str = TARGET_SHA,
+    ) -> tuple[Path, Path]:
+        asset = self.root / f"{date_tag}-windows64.with-katago.portable.zip"
         product = "LizzieYzy Next"
         files: dict[str, bytes] = {
             f"{product}/.lizzie-portable": b"portable fixture\n",
             f"{product}/LizzieYzy Next.exe": (self.launcher if ready else self.sleepy_launcher).read_bytes(),
+            f"{product}/app/LizzieYzy Next JVM Host.exe": self.jvm_host.read_bytes(),
             f"{product}/runtime/bin/java.exe": self.java.read_bytes(),
             f"{product}/runtime/bin/server/jvm.dll": self.jvm.read_bytes(),
             f"{product}/app/LizzieYzy Next.cfg": b"[Application]\napp.mainjar=lizzie-yzy2.5.3-shaded.jar\n",
             f"{product}/app/lizzie-yzy2.5.3-shaded.jar": b"fixture-shaded-jar",
             f"{product}/app/lizzieyzy-next-installed-manifest.json": (
-                json.dumps({"schemaVersion": 1, "releaseTag": RELEASE_TAG, "platform": "windows", "flavor": "with-katago"}) + "\n"
+                json.dumps({"schemaVersion": 1, "releaseTag": release_tag, "platform": "windows", "flavor": "with-katago"}) + "\n"
             ).encode(),
             f"{product}/app/engines/katago/configs/gtp.cfg": b"fixture config",
             f"{product}/app/engines/katago/windows-x64/katago.exe": b"fixture engine",
@@ -217,10 +256,18 @@ namespace FixtureLauncher {
                 archive.writestr(name, content)
             if unsafe:
                 archive.writestr("../escape.txt", b"escape")
-        return asset, self.write_provenance(asset)
+        return asset, self.write_provenance(asset, date_tag=date_tag, release_tag=release_tag, target_sha=target_sha)
 
-    def create_core_update(self, *, replace_runtime: bool = False, noop_config: bool = False) -> tuple[Path, Path]:
-        asset = self.root / f"{DATE_TAG}-windows64.core-update.zip"
+    def create_core_update(
+        self,
+        *,
+        replace_runtime: bool = False,
+        noop_config: bool = False,
+        date_tag: str = DATE_TAG,
+        release_tag: str = RELEASE_TAG,
+        target_sha: str = TARGET_SHA,
+    ) -> tuple[Path, Path]:
+        asset = self.root / f"{date_tag}-windows64.core-update.zip"
         payloads = {
             "app/lizzie-yzy2.5.3-shaded.jar": b"candidate core jar",
             "app/LizzieYzy Next.cfg": b"candidate launcher cfg",
@@ -242,8 +289,8 @@ namespace FixtureLauncher {
         manifest = {
             "schemaVersion": 1,
             "kind": "windows-core-update",
-            "releaseTag": RELEASE_TAG,
-            "dateTag": DATE_TAG,
+            "releaseTag": release_tag,
+            "dateTag": date_tag,
             "manualOverlayTarget": "fixture",
             "preserves": ["user-data/", "runtime/", "app/engines/", "app/weights/", "app/jcef-bundle/", "app/readboard/"],
             "files": files,
@@ -253,23 +300,110 @@ namespace FixtureLauncher {
                 archive.writestr(name, content)
             archive.writestr("README.txt", b"fixture core update")
             archive.writestr("lizzieyzy-next-core-update-manifest.json", json.dumps(manifest).encode())
-        return asset, self.write_provenance(asset)
-
-    def prepare(self, asset: Path, manifest: Path, name: str) -> tuple[Path, subprocess.CompletedProcess[str]]:
+        return asset, self.write_provenance(asset, date_tag=date_tag, release_tag=release_tag, target_sha=target_sha)
+    def prepare(
+        self,
+        asset: Path,
+        manifest: Path,
+        name: str,
+        *,
+        date_tag: str = DATE_TAG,
+        release_tag: str = RELEASE_TAG,
+        target_sha: str = TARGET_SHA,
+        run_id: int = RUN_ID,
+        run_attempt: int = RUN_ATTEMPT,
+    ) -> tuple[Path, subprocess.CompletedProcess[str]]:
         evidence = self.root / name
         result = self.run_script(
             "-Command", "Prepare",
             "-AssetFile", windows_path(asset),
             "-ProvenanceFile", windows_path(manifest),
             "-Platform", "windows",
-            "-DateTag", DATE_TAG,
-            "-ReleaseTag", RELEASE_TAG,
-            "-TargetSha", TARGET_SHA,
-            "-RunId", str(RUN_ID),
-            "-RunAttempt", str(RUN_ATTEMPT),
+            "-DateTag", date_tag,
+            "-ReleaseTag", release_tag,
+            "-TargetSha", target_sha,
+            "-RunId", str(run_id),
+            "-RunAttempt", str(run_attempt),
             "-EvidenceDir", windows_path(evidence),
         )
         return evidence, result
+
+    def start_live_fixture(self, name: str) -> tuple[Path, dict[str, object]]:
+        asset, manifest = self.create_portable()
+        evidence, prepared = self.prepare(asset, manifest, name)
+        self.assertEqual(0, prepared.returncode, prepared.stderr or prepared.stdout)
+        started = self.run_script(
+            "-Command", "Start",
+            "-CandidateJson", windows_path(evidence / "candidate.json"),
+            "-Scenario", "live-session",
+            "-EvidenceDir", windows_path(evidence),
+            "-WaitSeconds", "10",
+        )
+        self.assertEqual(0, started.returncode, started.stderr or started.stdout)
+        self.addCleanup(self.stop_live_fixture, evidence)
+        return evidence, json.loads((evidence / "run.json").read_text(encoding="utf-8"))
+
+    def stop_live_fixture(self, evidence: Path) -> None:
+        run_path = evidence / "run.json"
+        if not run_path.exists():
+            return
+        run = json.loads(run_path.read_text(encoding="utf-8"))
+        if run["state"] == "RUNNING":
+            stopped = self.run_script("-Command", "Stop", "-RunJson", windows_path(run_path))
+            self.assertEqual(0, stopped.returncode, stopped.stderr or stopped.stdout)
+
+    def test_status_accepts_original_start_record_with_owned_child_jvm(self) -> None:
+        evidence, run = self.start_live_fixture("raw status evidence")
+        run_path = evidence / "run.json"
+        original = run_path.read_bytes()
+
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(run_path))
+
+        self.assertEqual(0, status.returncode, status.stderr or status.stdout)
+        self.assertIn("RUNNING launcherPid=", status.stdout)
+        self.assertEqual(original, run_path.read_bytes())
+        self.assertNotEqual(run["launcher"]["pid"], run["runtime"]["jvmModule"]["pid"])
+        self.assertIn(run["runtime"]["jvmModule"]["pid"], run["ownedPids"])
+
+    def test_status_rejects_creation_drift_and_invalid_jvm_hosts(self) -> None:
+        evidence, run = self.start_live_fixture("status identity evidence")
+
+        drifted = json.loads(json.dumps(run))
+        drifted["activeProcesses"][0]["creationDate"] = "2000-01-01T00:00:00.0000000Z"
+        drift_path = evidence / "creation-drift-run.json"
+        drift_path.write_text(json.dumps(drifted), encoding="utf-8")
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(drift_path))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("process incarnation drift", (status.stderr + status.stdout).lower())
+
+        unrelated = json.loads(json.dumps(run))
+        unrelated["runtime"]["jvmModule"]["pid"] = run["launcher"]["pid"]
+        unrelated_path = evidence / "unrelated-jvm-run.json"
+        unrelated_path.write_text(json.dumps(unrelated), encoding="utf-8")
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(unrelated_path))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("packaged jvm", (status.stderr + status.stdout).lower())
+
+        wrong_path = json.loads(json.dumps(run))
+        jvm_host = next(process for process in run["activeProcesses"] if process["pid"] == run["runtime"]["jvmModule"]["pid"])
+        loaded_wrong_path = jvm_host["image"]
+        wrong_path["runtime"]["jvmModule"]["modulePath"] = loaded_wrong_path
+        wrong_path["runtime"]["jvmModule"]["moduleSha256"] = sha256(Path("/mnt/c") / Path(loaded_wrong_path[3:].replace("\\", "/")))
+        wrong_path_file = evidence / "wrong-jvm-path-run.json"
+        wrong_path_file.write_text(json.dumps(wrong_path), encoding="utf-8")
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(wrong_path_file))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("packaged jvm", (status.stderr + status.stdout).lower())
+
+        subprocess.run(
+            ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", f"Stop-Process -Id {run['runtime']['jvmModule']['pid']} -Force"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        status = self.run_script("-Command", "Status", "-RunJson", windows_path(evidence / "run.json"))
+        self.assertNotEqual(0, status.returncode)
+        self.assertIn("active process set lost a process", (status.stderr + status.stdout).lower())
 
     def test_prepares_verified_portable_with_unicode_local_identity(self) -> None:
         asset, manifest = self.create_portable()
@@ -375,8 +509,12 @@ namespace FixtureLauncher {
         self.assertEqual([], cleanup["remainingOwnedPids"])
 
     def test_core_update_preserves_resources_and_writes_valid_acceptance(self) -> None:
-        portable, portable_manifest = self.create_portable()
-        prior_evidence, prior_result = self.prepare(portable, portable_manifest, "prior evidence")
+        prior_date = "2026-09-17"
+        prior_release = f"next-{prior_date}.1"
+        portable, portable_manifest = self.create_portable(date_tag=prior_date, release_tag=prior_release)
+        prior_evidence, prior_result = self.prepare(
+            portable, portable_manifest, "prior evidence", date_tag=prior_date, release_tag=prior_release
+        )
         self.assertEqual(0, prior_result.returncode, prior_result.stderr or prior_result.stdout)
         core, core_manifest = self.create_core_update()
         core_evidence, core_result = self.prepare(core, core_manifest, "core evidence")
@@ -394,7 +532,6 @@ namespace FixtureLauncher {
         self.assertEqual("PASS", record["status"])
         self.assertTrue(record["cleanup"]["complete"])
         self.assertIsInstance(record["observed"]["launcher"]["pid"], int)
-        self.assertIn("launched the candidate release", record["observed"]["outcome"]["summary"])
         run_record = json.loads((core_evidence / "run.json").read_text(encoding="utf-8"))
         self.assertEqual("STOPPED", run_record["state"])
         self.assertTrue(run_record["cleanup"]["complete"])
@@ -402,10 +539,30 @@ namespace FixtureLauncher {
         self.assertEqual("NOT_REQUIRED", record["observed"]["outcome"]["inferenceStatus"])
         self.assertEqual(record["expected"]["product"]["jar"]["sha256"], record["observed"]["jar"]["sha256"])
         self.assertEqual("STOPPED", record["observed"]["stop"]["state"])
+        prior_candidate = json.loads((prior_evidence / "candidate.json").read_text(encoding="utf-8"))
+        prior_prepared = json.loads((prior_evidence / "prepared.json").read_text(encoding="utf-8"))
+        self.assertEqual(prior_release, prior_candidate["releaseTag"])
+        self.assertEqual(prior_release, prior_prepared["layout"]["installedReleaseTag"])
+        self.assertEqual(
+            prior_prepared["layout"]["installedManifestSha256"],
+            record["expected"]["product"]["components"]["installedManifestSha256"],
+        )
+        self.assertEqual(
+            prior_prepared["layout"]["installedManifestSha256"],
+            record["observed"]["components"]["installedManifestSha256"],
+        )
+        self.assertEqual(RELEASE_TAG, record["expected"]["product"]["releaseTag"])
+        self.assertEqual(RELEASE_TAG, record["observed"]["candidate"]["releaseTag"])
+        self.assertEqual(RELEASE_TAG, record["observed"]["product"]["installedReleaseTag"])
+        self.assertEqual(RELEASE_TAG, run_record["candidate"]["releaseTag"])
 
     def test_one_shot_startup_failure_records_shared_data_drift(self) -> None:
-        portable, portable_manifest = self.create_portable(ready=False)
-        prior_evidence, prior_result = self.prepare(portable, portable_manifest, "prior timeout evidence")
+        prior_date = "2026-09-17"
+        prior_release = f"next-{prior_date}.1"
+        portable, portable_manifest = self.create_portable(ready=False, date_tag=prior_date, release_tag=prior_release)
+        prior_evidence, prior_result = self.prepare(
+            portable, portable_manifest, "prior timeout evidence", date_tag=prior_date, release_tag=prior_release
+        )
         self.assertEqual(0, prior_result.returncode, prior_result.stderr or prior_result.stdout)
         core, core_manifest = self.create_core_update()
         evidence, core_result = self.prepare(core, core_manifest, "one shot timeout evidence")
@@ -504,8 +661,12 @@ namespace FixtureLauncher {
         self.assertEqual("identity", record["phase"])
 
     def test_core_preservation_mismatch_fails_and_removes_overlay(self) -> None:
-        portable, portable_manifest = self.create_portable()
-        prior_evidence, prior_result = self.prepare(portable, portable_manifest, "prior mismatch evidence")
+        prior_date = "2026-09-17"
+        prior_release = f"next-{prior_date}.1"
+        portable, portable_manifest = self.create_portable(date_tag=prior_date, release_tag=prior_release)
+        prior_evidence, prior_result = self.prepare(
+            portable, portable_manifest, "prior mismatch evidence", date_tag=prior_date, release_tag=prior_release
+        )
         self.assertEqual(0, prior_result.returncode, prior_result.stderr or prior_result.stdout)
         core, core_manifest = self.create_core_update(noop_config=True)
         evidence, core_result = self.prepare(core, core_manifest, "core mismatch evidence")

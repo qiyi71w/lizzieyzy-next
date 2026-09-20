@@ -49,6 +49,8 @@ public class TensorRtComponentRepairTest {
   private static final String WINDOWS_OS_NAME = "Windows 11";
   private static final String EMPTY_FILE_SHA256 =
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  private static final String FIXTURE_ENGINE_SHA256 =
+      "aebec349fba1dcd086e336d96538d0d010f15bfc9667d6096ea08f928c732bdb";
   private static final String RTX_3060_ALLOWED_TEXT =
       "Optional: RTX 30 series and earlier may try TensorRT.";
   private static final String NOT_RECOMMENDED_TEXT =
@@ -59,12 +61,14 @@ public class TensorRtComponentRepairTest {
   @BeforeEach
   void acceptEmptyCompanionFixture() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(EMPTY_FILE_SHA256);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
     System.setProperty("lizzie.tensorrt.runtimeSearchPath", "");
   }
 
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(null);
     KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
     KataGoRuntimeHelper.setTensorRtDirectoryCopyForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
@@ -792,6 +796,7 @@ public class TensorRtComponentRepairTest {
           String previousCompanionSize = System.getProperty("lizzie.tensorrt.companion.size");
           String previousRuntimeUrl = System.getProperty("lizzie.tensorrt.runtime.fixture.url");
           try {
+            KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(FIXTURE_ENGINE_SHA256);
             System.setProperty("lizzie.tensorrt.katago.url", fixtures.engineZip.toUri().toString());
             System.setProperty("lizzie.tensorrt.katago.sha256", fixtures.engineSha256);
             System.setProperty("lizzie.tensorrt.katago.size", Long.toString(fixtures.engineSize));
@@ -835,6 +840,7 @@ public class TensorRtComponentRepairTest {
                       KataGoRuntimeHelper.inspectTensorRtInstall(snapshot).downloadBytes);
                 });
           } finally {
+            KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
             restoreProperty("lizzie.tensorrt.katago.url", previousKatagoUrl);
             restoreProperty("lizzie.tensorrt.katago.sha256", previousKatagoSha);
             restoreProperty("lizzie.tensorrt.katago.size", previousKatagoSize);
@@ -1016,6 +1022,7 @@ public class TensorRtComponentRepairTest {
     String previousRuntimeSha = System.getProperty("lizzie.tensorrt.runtime.fixture.sha256");
     String previousRuntimeSize = System.getProperty("lizzie.tensorrt.runtime.fixture.size");
     try {
+      KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(FIXTURE_ENGINE_SHA256);
       System.setProperty("lizzie.tensorrt.katago.url", fixtures.engineZip.toUri().toString());
       System.setProperty("lizzie.tensorrt.katago.sha256", fixtures.engineSha256);
       System.setProperty("lizzie.tensorrt.katago.size", Long.toString(fixtures.engineSize));
@@ -1036,6 +1043,7 @@ public class TensorRtComponentRepairTest {
       }
       action.run();
     } finally {
+      KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
       restoreProperty("lizzie.tensorrt.katago.url", previousKatagoUrl);
       restoreProperty("lizzie.tensorrt.katago.sha256", previousKatagoSha);
       restoreProperty("lizzie.tensorrt.katago.size", previousKatagoSize);

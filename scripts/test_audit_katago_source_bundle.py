@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 from audit_katago_source_bundle import audit, restore_after_jpackage
+from katago_asset_catalog import engine_manifest_text
 from prepare_katago_source_assets import unpack
 from test_stage_katago_source_release import SourceReleaseTest
 
@@ -19,6 +20,11 @@ class InstalledSourceTest(unittest.TestCase):
         self.engine = self.fixture.root / "installed"
         asset = self.catalog["assets"][self.target]
         unpack(self.fixture.root / "release" / asset["assetName"], self.engine, self.target, asset)
+        metadata = json.loads((self.engine / "source-release.json").read_text())
+        (self.engine / "lizzieyzy-next-katago-engine-manifest.txt").write_text(
+            engine_manifest_text(self.catalog, self.target, metadata["sourceCommit"]),
+            encoding="utf-8",
+        )
 
     def test_unchanged_installed_source_passes(self):
         audit(self.catalog, self.target, self.engine)
@@ -32,6 +38,36 @@ class InstalledSourceTest(unittest.TestCase):
         (self.engine / "licenses/LICENSE").unlink()
         with self.assertRaisesRegex(ValueError, "missing or modified"):
             audit(self.catalog, self.target, self.engine)
+
+    def test_tampered_engine_provenance_manifest_is_rejected(self):
+        manifest = self.engine / "lizzieyzy-next-katago-engine-manifest.txt"
+        manifest.write_text(manifest.read_text().replace("Origin: project-source-build",
+                                                         "Origin: official-release"))
+        with self.assertRaisesRegex(ValueError, "provenance manifest"):
+            audit(self.catalog, self.target, self.engine)
+
+    def tensor_rt_bundle(self):
+        target = "windows-tensorrt"
+        engine = self.fixture.root / "installed-tensorrt"
+        asset = self.catalog["assets"][target]
+        unpack(self.fixture.root / "release" / asset["assetName"], engine, target, asset)
+        metadata = json.loads((engine / "source-release.json").read_text())
+        manifest = engine / "lizzieyzy-next-katago-engine-manifest.txt"
+        manifest.write_text(
+            engine_manifest_text(self.catalog, target, metadata["sourceCommit"]),
+            encoding="utf-8",
+        )
+        return target, engine, manifest
+
+    def test_tensor_rt_without_companion_accepts_base_manifest(self):
+        target, engine, _ = self.tensor_rt_bundle()
+        audit(self.catalog, target, engine)
+
+    def test_tensor_rt_unbound_companion_is_rejected(self):
+        target, engine, _ = self.tensor_rt_bundle()
+        (engine / "katago-human-sl-cuda.exe").write_bytes(b"unbound companion")
+        with self.assertRaisesRegex(ValueError, "companion"):
+            audit(self.catalog, target, engine)
 
     def test_different_backend_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "identity differs"):
@@ -53,6 +89,11 @@ class InstalledSourceTest(unittest.TestCase):
         engine = self.fixture.root / "app" / target
         asset = self.catalog["assets"][target]
         unpack(self.fixture.root / "release" / asset["assetName"], source, target, asset)
+        metadata = json.loads((source / "source-release.json").read_text())
+        (source / "lizzieyzy-next-katago-engine-manifest.txt").write_text(
+            engine_manifest_text(self.catalog, target, metadata["sourceCommit"]),
+            encoding="utf-8",
+        )
         shutil.copytree(source, engine)
         (engine / "katago").write_bytes(b"jpackage ad-hoc signature")
         return source, engine

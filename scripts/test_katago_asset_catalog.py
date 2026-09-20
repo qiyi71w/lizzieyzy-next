@@ -71,6 +71,21 @@ class KataGoAssetCatalogTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "requires executableSha256"):
                 katago_asset_catalog.load_catalog(path)
 
+    def test_static_zlib_linkage_is_limited_to_pinned_project_windows_gpu_assets(self):
+        catalog = katago_asset_catalog.load_catalog(katago_asset_catalog.DEFAULT_CATALOG)
+        self.assertEqual("static", catalog["assets"]["windows-nvidia"]["zlibLinkage"])
+        self.assertEqual("static", catalog["assets"]["windows-tensorrt"]["zlibLinkage"])
+
+        for asset_id, linkage in (("windows-nvidia", None), ("windows-cpu", "static")):
+            with self.subTest(asset_id=asset_id, linkage=linkage):
+                candidate = json.loads(json.dumps(catalog))
+                if linkage is None:
+                    candidate["assets"][asset_id].pop("zlibLinkage")
+                else:
+                    candidate["assets"][asset_id]["zlibLinkage"] = linkage
+                with self.assertRaisesRegex(ValueError, "origin-aware zlibLinkage"):
+                    katago_asset_catalog.validate_catalog(candidate)
+
     def source_catalog(self):
         catalog = katago_asset_catalog.load_catalog(katago_asset_catalog.DEFAULT_CATALOG)
         catalog.update(origin="project-source-build", engineReleaseRepository="wimi321/lizzieyzy-next",

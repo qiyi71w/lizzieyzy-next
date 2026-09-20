@@ -3,6 +3,20 @@
 This tooling is a prerequisite for the move-focus pre-release, not permission to publish it.
 The production package builders and stable/R2 channels are unchanged until all release gates pass.
 
+## Manual source-build acceptance
+
+Run the three `katago-source-*.yml` workflows explicitly with `workflow_dispatch`
+when changing the pinned KataGo source, toolchain, dependency locks or engine build
+and packaging logic. Select the reviewed ref and the affected platform workflow;
+each workflow runs its existing full platform matrix and retains build evidence.
+Changes shared by all platforms require all three workflows.
+
+Ordinary application PRs use application CI and existing identity-verified engine
+artifacts for integration checks. The source-build workflows have no automatic PR
+trigger. Their results certify the selected source-build inputs, not GPU hardware
+inference or the final application package; those keep their separate acceptance
+requirements.
+
 ## Windows CUDA evidence build
 
 `windows-nvidia` builds the pinned source using the existing MSVC 14.44 toolset,
@@ -365,6 +379,12 @@ The shared catalog distinguishes official releases from `project-source-build`. 
 the reviewed `wimi321/lizzieyzy-next` immutable release URL is accepted for project
 engines. Model URLs remain official and unchanged. Runtime repair, CUDA companions,
 experimental installation and TensorRT packaging use the same source-aware URL resolver.
+Catalog schema 2 records `zlibLinkage: static` only for the pinned Windows CUDA and
+TensorRT project builds. Installed engine manifest schema 2 binds the catalog origin,
+asset ID/name/archive digest, executable digest, backend, source commit and zlib linkage
+to the final executable. Runtime readiness omits the dynamic zlib DLL group only when
+that manifest and the executable still match the catalog exactly; official, external,
+unknown or modified engines remain subject to their dynamic dependency contract.
 The checked-in production catalog is **not switched by staging**. Final archive upload,
 application package integration, signing and publication remain separate gates.
 
@@ -392,10 +412,12 @@ preserving runtime directories, licenses and the source receipt. The old officia
 download/source-builder path is not a fallback for a failed self-built archive.
 
 Windows TensorRT uses the same verified archives and adds the hash-locked CUDA HumanSL
-companion. Existing NVIDIA runtime preparation is unchanged. Before macOS signing or
-Windows/Linux publication, `audit_katago_source_bundle.py` checks the exact executable,
-source identity and every original file in the installed bundle against its receipt.
-Final platform signing may legitimately change macOS executable hashes afterwards;
+companion without replacing the engine provenance fields. Existing NVIDIA runtime
+preparation is unchanged. Before macOS signing or Windows/Linux publication,
+`audit_katago_source_bundle.py` checks the strict engine manifest, exact executable,
+source identity and every original file in the installed bundle against its receipt;
+when the optional TensorRT companion is present, the audit verifies its catalog digest
+as well. Final platform signing may legitimately change macOS executable hashes afterwards;
 the final signed assets are bound to their workflow by the existing release provenance.
 
 The reviewed source catalog must point to the exact forthcoming application release

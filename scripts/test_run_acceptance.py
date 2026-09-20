@@ -72,7 +72,7 @@ class AcceptanceRunnerTest(unittest.TestCase):
         config.write_bytes(b"rules = chinese\n")
         catalog = self.root / "katago-assets.json"
         catalog_record = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "katagoVersion": "1.18.1",
             "katagoReleaseTag": "v1.18.1",
             "katagoSourceCommit": "source-commit",

@@ -303,6 +303,27 @@ while :; do sleep 1; done
         except BaseException as exc:
             errors.append(exc)
 
+    def test_requested_identity_mismatch_fails_before_mount(self) -> None:
+        candidate = self.candidate("mac-arm64")
+        requested_sha = "b" * 40
+        artifact_name = provenance.expected_asset_names("mac-arm64", DATE_TAG)[0]
+        result, _, record = self.run_acceptance(
+            candidate,
+            host_architecture="arm64",
+            extra_args=[
+                "--expected-target-sha", requested_sha,
+                "--expected-artifact-key", "mac_arm64",
+                "--expected-artifact-name", artifact_name,
+                "--expected-artifact-class", "dmg-product",
+            ],
+        )
+        self.assertNotEqual(0, result.returncode)
+        provenance.validate_acceptance_record(record)
+        self.assertEqual("FAIL", record["status"])
+        self.assertEqual("identity", record["phase"])
+        self.assertIsNone(record["observed"]["dmg"]["mountPath"])
+        self.assertTrue(record["cleanup"]["complete"])
+
     def run_acceptance(
         self,
         candidate: Path | None,
@@ -891,6 +912,7 @@ while :; do sleep 1; done
         self.assertEqual(artifact_name, record["expected"]["artifact"]["name"])
         self.assertEqual("dmg-product", record["expected"]["artifact"]["class"])
         self.assertTrue(record["cleanup"]["complete"])
+        self.assertIsNone(record["observed"]["candidate"]["path"])
         self.assertEqual([], record["cleanup"]["remainingOwnedResources"])
         self.assertIn("unavailable", record["reason"])
 

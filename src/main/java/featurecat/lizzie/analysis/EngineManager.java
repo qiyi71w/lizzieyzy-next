@@ -6446,15 +6446,21 @@ public class EngineManager {
             settlement.set(new FailedTargetSettlement(runtimeStop));
           };
       if (failed.main) {
-        long primaryGeneration = Lizzie.capturePrimaryEngineGeneration(target);
-        if (primaryGeneration < 0L
-            || !Lizzie.runIfPrimaryEngine(
-                target,
-                primaryGeneration,
-                () ->
-                    target.runIfEngineIncarnationFenceUnchanged(
-                        expectedIncarnation, exactRollback))) {
-          return null;
+        if (expectedIncarnation == null) {
+          if (!target.runIfEngineIncarnationFenceUnchanged(null, exactRollback)) {
+            return null;
+          }
+        } else {
+          long primaryGeneration = Lizzie.capturePrimaryEngineGeneration(target);
+          if (primaryGeneration < 0L
+              || !Lizzie.runIfPrimaryEngine(
+                  target,
+                  primaryGeneration,
+                  () ->
+                      target.runIfEngineIncarnationFenceUnchanged(
+                          expectedIncarnation, exactRollback))) {
+            return null;
+          }
         }
       } else {
         target.runIfEngineIncarnationFenceUnchanged(
@@ -7252,7 +7258,10 @@ public class EngineManager {
                   && !Lizzie.frame.isPlayingAgainstLeelaz
                   && !Lizzie.config.notStartPondering;
           Lizzie.initializeAfterVersionCheck(false, recovery.engine, recovery.resumePonder);
-          if (!completeFailedRollbackRecovery(recovery, requireFreshOwner)) {
+          // A deferred capability probe cannot write until this completion claim releases its
+          // endpoints. Keep output quarantined until that later physical analysis write.
+          if (!completeFailedRollbackRecovery(
+              recovery, requireFreshOwner && !recovery.engine.isInitializationAnalysisDeferred())) {
             throw new IllegalStateException(
                 "Rollback engine changed before analysis ownership commit");
           }
@@ -12207,7 +12216,9 @@ public class EngineManager {
     UpdateEngineStartFailureCleanups failureCleanups =
         claimUpdateEngineStartFailureCleanups(startAttempt, null, primaryFailure);
     Runnable failurePresentation = null;
-    if (failureCleanups.claimedTarget()) {
+    // A pre-reader failure has no incarnation lease to claim. Keep the switch transaction current
+    // so failPendingEngineSwitchUi owns selection rollback and previous-engine recovery.
+    if (failureCleanups.claimedTarget() && startAttempt.publishedIncarnation() != null) {
       failurePresentation =
           reportEngineSynchronizationFailureIfCurrent(
               engine, startAttempt, null, null, primaryFailure);

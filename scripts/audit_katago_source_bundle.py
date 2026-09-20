@@ -10,7 +10,7 @@ import shutil
 import tempfile
 
 from build_katago_source import SOURCE_COMMIT, TARGETS
-from katago_asset_catalog import DEFAULT_CATALOG, load_catalog
+from katago_asset_catalog import DEFAULT_CATALOG, engine_manifest_text, load_catalog
 from stage_katago_source_release import digest, normalized_name
 
 
@@ -26,6 +26,29 @@ def audit(catalog: dict, target: str, engine: Path) -> None:
             or metadata.get("origin") != "project-source-build"
             or metadata.get("executable", {}).get("sha256") != asset["executableSha256"]):
         raise ValueError("installed source identity differs from trusted catalog")
+    manifest = engine / "lizzieyzy-next-katago-engine-manifest.txt"
+    expected_manifest = engine_manifest_text(catalog, target, metadata["sourceCommit"])
+    companion = engine / "katago-human-sl-cuda.exe"
+    companion_present = target == "windows-tensorrt" and (
+        companion.exists() or companion.is_symlink()
+    )
+    if companion_present:
+        expected_manifest += (
+            "HumanSL companion: katago-human-sl-cuda.exe\n"
+            "HumanSL companion SHA-256: "
+            + catalog["assets"]["windows-nvidia"]["executableSha256"]
+            + "\n"
+        )
+    if not manifest.is_file() or manifest.read_text(encoding="utf-8") != expected_manifest:
+        if companion_present:
+            raise ValueError("installed TensorRT companion is not bound by trusted provenance")
+        raise ValueError("installed engine provenance manifest differs from trusted catalog")
+    if companion_present and (
+        companion.is_symlink()
+        or not companion.is_file()
+        or digest(companion) != catalog["assets"]["windows-nvidia"]["executableSha256"]
+    ):
+        raise ValueError("installed TensorRT companion differs from trusted catalog")
     for key in ("buildStatus", "packagingStatus", "dependencyAuditStatus"):
         if metadata.get(key) != "PASS":
             raise ValueError("installed source build did not pass required gates")

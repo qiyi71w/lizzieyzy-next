@@ -49,7 +49,7 @@ def archive_bytes(*, config: bool = True, unsafe_name: str | None = None) -> byt
 
 def catalog_for(archive: bytes, model: bytes) -> dict[str, object]:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "katagoVersion": "1.18.1",
         "katagoReleaseTag": "v1.18.1",
         "katagoSourceCommit": "92ee95c0a4b25fec214da00951ab69e97e207729",

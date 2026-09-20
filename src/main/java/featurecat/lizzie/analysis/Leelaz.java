@@ -575,6 +575,10 @@ public class Leelaz {
     return engine.consumePendingTensorRtRepairContext(transferred);
   }
 
+  static boolean startupFailureDiagnosticIsModal(TensorRtRepairContext repairContext) {
+    return repairContext == null || !repairContext.repairable;
+  }
+
   public List<String> commandLists = new ArrayList<String>();
   private boolean startGetCommandList = false;
   private boolean endGetCommandList = false;
@@ -882,6 +886,13 @@ public class Leelaz {
     return startMoveFocusProbeIfAnalysisAllowed(false, false);
   }
 
+  boolean isInitializationAnalysisDeferred() {
+    LifecycleCompletionClaim completing = lifecycleCompletionCommandContext.get();
+    return completing != null
+        && completing == lifecycleCompletionClaim
+        && completing.deferredInitializationAnalysisBinding == currentReaderStreamBinding();
+  }
+
   private boolean startMoveFocusProbeIfAnalysisAllowed(boolean addPlayer, boolean blackToPlay) {
     long pauseGeneration = moveFocusPauseGeneration;
     if (Lizzie.frame != null && Lizzie.frame.isUserAnalysisPaused()) return false;
@@ -895,6 +906,7 @@ public class Leelaz {
         && moveFocusCapability() == MoveFocusCapability.UNKNOWN && isKatago) {
       ReaderStreamBinding binding = currentReaderStreamBinding();
       AnalysisInfoTarget target = captureAnalysisInfoTarget();
+      completing.deferredInitializationAnalysisBinding = binding;
       completing.runAfterEndpointRelease(() -> {
         if (readerStreamBinding == binding && !binding.terminated
             && isCurrentAnalysisInfoTarget(target) && pauseGeneration == moveFocusPauseGeneration) {
@@ -1387,12 +1399,14 @@ public class Leelaz {
               engineCommand,
               deferredEngineGameRecovery ? null : Lizzie.frame);
         } catch (IOException e) {
-          storePendingTensorRtRepairContext(
+          TensorRtRepairContext repairContext =
               e instanceof TensorRtRuntimeException
                   ? ((TensorRtRuntimeException) e).context
-                  : null);
+                  : null;
+          storePendingTensorRtRepairContext(repairContext);
           closeBundledStartupDialog();
           String err = e.getLocalizedMessage();
+          boolean modalDiagnostic = startupFailureDiagnosticIsModal(repairContext);
           try {
             tryToDignostic(
                 Lizzie.resourceBundle.getString("Leelaz.engineFailed")
@@ -1400,8 +1414,8 @@ public class Leelaz {
                     + ((err == null)
                         ? Lizzie.resourceBundle.getString("Leelaz.engineStartNoExceptionMessage")
                         : err),
-                true);
-            if (shouldOpenInteractiveDiagnostic()) {
+                modalDiagnostic);
+            if (modalDiagnostic && shouldOpenInteractiveDiagnostic()) {
               LizzieFrame.openMoreEngineDialog();
             }
           } catch (JSONException e1) {
@@ -17722,6 +17736,7 @@ public class Leelaz {
     private Consumer<String> deferredFailure;
     private final AtomicBoolean endpointsReleased = new AtomicBoolean(false);
     private final List<Runnable> afterEndpointRelease = new ArrayList<>();
+    private ReaderStreamBinding deferredInitializationAnalysisBinding;
 
     private LifecycleCompletionClaim(Leelaz authority, Object owner, Leelaz capturedMirror) {
       this.authority = authority;

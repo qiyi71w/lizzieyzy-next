@@ -249,8 +249,23 @@ public final class KataGoRuntimeHelper {
           Arrays.asList("nvinfer_10.dll", "nvinfer*.dll"),
           Arrays.asList("nvinfer_plugin_10.dll", "nvinfer_plugin*.dll"),
           Arrays.asList("zlibwapi.dll", "libz.dll", "z.dll"));
+  private static final List<List<String>>
+      REQUIRED_NVIDIA_CUDA12_1_CUDNN8_RUNTIME_DLL_GROUPS_STATIC_ZLIB =
+          REQUIRED_NVIDIA_CUDA12_1_CUDNN8_RUNTIME_DLL_GROUPS.subList(
+              0, REQUIRED_NVIDIA_CUDA12_1_CUDNN8_RUNTIME_DLL_GROUPS.size() - 1);
+  private static final List<List<String>>
+      REQUIRED_NVIDIA_CUDA12_1_CUDNN9_RUNTIME_DLL_GROUPS_STATIC_ZLIB =
+          REQUIRED_NVIDIA_CUDA12_1_CUDNN9_RUNTIME_DLL_GROUPS.subList(
+              0, REQUIRED_NVIDIA_CUDA12_1_CUDNN9_RUNTIME_DLL_GROUPS.size() - 1);
+  private static final List<List<String>> REQUIRED_NVIDIA_CUDA12_8_RUNTIME_DLL_GROUPS_STATIC_ZLIB =
+      REQUIRED_NVIDIA_CUDA12_8_RUNTIME_DLL_GROUPS.subList(
+          0, REQUIRED_NVIDIA_CUDA12_8_RUNTIME_DLL_GROUPS.size() - 1);
+  private static final List<List<String>> REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS_STATIC_ZLIB =
+      REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS.subList(
+          0, REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS.size() - 1);
   private static final Object NVIDIA_RUNTIME_LOCK = new Object();
   private static volatile String humanSlCompanionSha256OverrideForTests;
+  private static volatile String katagoExecutableSha256OverrideForTests;
   private static volatile TensorRtDirectoryMove tensorRtDirectoryMoveForTests;
   private static volatile TensorRtDirectoryCopy tensorRtDirectoryCopyForTests;
   private static volatile TensorRtBeforeTargetMutation tensorRtBeforeTargetMutationForTests;
@@ -310,6 +325,18 @@ public final class KataGoRuntimeHelper {
     }
     humanSlCompanionSha256OverrideForTests = normalized;
   }
+  static void setKatagoExecutableSha256ForTests(String sha256) {
+    if (sha256 == null || sha256.trim().isEmpty()) {
+      katagoExecutableSha256OverrideForTests = null;
+      return;
+    }
+    String normalized = sha256.trim().toLowerCase(Locale.ROOT);
+    if (!isValidSha256(normalized)) {
+      throw new IllegalArgumentException("KataGo executable SHA-256 must contain 64 hex digits.");
+    }
+    katagoExecutableSha256OverrideForTests = normalized;
+  }
+
 
   @FunctionalInterface
   interface TensorRtDirectoryMove {
@@ -342,6 +369,11 @@ public final class KataGoRuntimeHelper {
     String override = humanSlCompanionSha256OverrideForTests;
     return override == null ? HUMAN_SL_CUDA_COMPANION_SHA256 : override;
   }
+  private static String expectedKatagoExecutableSha256(KataGoAssetCatalog.Asset asset) {
+    String override = katagoExecutableSha256OverrideForTests;
+    return override == null ? asset.executableSha256() : override;
+  }
+
 
   private static boolean isWindowsPlatform() {
     String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
@@ -2754,7 +2786,8 @@ public final class KataGoRuntimeHelper {
   private static SetupResult applyTensorRtEngineProfile(
       SetupSnapshot snapshot, TensorRtInstallSpec spec) throws IOException {
     SetupSnapshot tensorRtSnapshot = snapshot.withEnginePath(spec.targetEnginePath);
-    return KataGoAutoSetupHelper.applyEngineProfile(tensorRtSnapshot, TENSORRT_ENGINE_NAME, true);
+    return KataGoAutoSetupHelper.applyEngineProfile(
+        tensorRtSnapshot, TENSORRT_ENGINE_NAME, true, spec.targetEnginePath);
   }
 
   private static void observeTensorRtStage(String stage, MaintenanceObservation.IoTask task)
@@ -6011,16 +6044,25 @@ public final class KataGoRuntimeHelper {
   }
 
   static List<List<String>> requiredRuntimeDllGroups(Path enginePath, String backend) {
+    boolean staticZlib = hasVerifiedStaticZlibProvenance(enginePath, backend);
     if (isTensorRtBackend(backend)) {
-      return REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS;
+      return staticZlib
+          ? REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS_STATIC_ZLIB
+          : REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS;
     }
     if (usesCuda12_8Runtime(enginePath, backend)) {
-      return REQUIRED_NVIDIA_CUDA12_8_RUNTIME_DLL_GROUPS;
+      return staticZlib
+          ? REQUIRED_NVIDIA_CUDA12_8_RUNTIME_DLL_GROUPS_STATIC_ZLIB
+          : REQUIRED_NVIDIA_CUDA12_8_RUNTIME_DLL_GROUPS;
     }
     if (usesLegacyCudnn8Runtime(enginePath)) {
-      return REQUIRED_NVIDIA_CUDA12_1_CUDNN8_RUNTIME_DLL_GROUPS;
+      return staticZlib
+          ? REQUIRED_NVIDIA_CUDA12_1_CUDNN8_RUNTIME_DLL_GROUPS_STATIC_ZLIB
+          : REQUIRED_NVIDIA_CUDA12_1_CUDNN8_RUNTIME_DLL_GROUPS;
     }
-    return REQUIRED_NVIDIA_CUDA12_1_CUDNN9_RUNTIME_DLL_GROUPS;
+    return staticZlib
+        ? REQUIRED_NVIDIA_CUDA12_1_CUDNN9_RUNTIME_DLL_GROUPS_STATIC_ZLIB
+        : REQUIRED_NVIDIA_CUDA12_1_CUDNN9_RUNTIME_DLL_GROUPS;
   }
 
   private static boolean usesCuda12_8Runtime(Path enginePath, String backend) {
@@ -6482,6 +6524,7 @@ public final class KataGoRuntimeHelper {
           MaintenanceObservation.STAGE_EXTRACT,
           () -> extractKatagoEnginePackage(archivePath, stagingDir));
       session.throwIfCancelled();
+      requirePinnedTensorRtEngineExecutable(stagingDir.resolve("katago.exe"));
       long installStarted = System.nanoTime();
       try {
         Files.write(
@@ -6648,6 +6691,7 @@ public final class KataGoRuntimeHelper {
           "HumanSL companion executable SHA-256 did not match the trusted catalog digest.");
     }
     Path engineDir = tensorRtEnginePath.toAbsolutePath().normalize().getParent();
+    requirePinnedTensorRtEngineExecutable(tensorRtEnginePath);
     revalidateDirectedTensorRtTargetAtMutationBoundary(context);
     Files.createDirectories(engineDir);
     Path stagedCompanion =
@@ -6726,6 +6770,7 @@ public final class KataGoRuntimeHelper {
     }
     requirePinnedTensorRtCompanionSource(humanSlCompanionSource);
     Path engineDir = tensorRtEnginePath.toAbsolutePath().normalize().getParent();
+    requirePinnedTensorRtEngineExecutable(tensorRtEnginePath);
     Files.createDirectories(engineDir);
     Path stagedCompanion =
         Files.createTempFile(engineDir, ".katago-human-sl-cuda-", ".exe.tmp");
@@ -6787,29 +6832,139 @@ public final class KataGoRuntimeHelper {
   }
 
   private static boolean isCurrentTensorRtEngineBinary(Path enginePath) {
-    if (enginePath == null || enginePath.getParent() == null || !Files.isRegularFile(enginePath)) {
+    return hasVerifiedEngineProvenance(enginePath, TENSORRT_KATAGO_ASSET_INFO);
+  }
+  private static void requirePinnedTensorRtEngineExecutable(Path enginePath) throws IOException {
+    if (enginePath == null
+        || !Files.isRegularFile(enginePath)
+        || !expectedKatagoExecutableSha256(TENSORRT_KATAGO_ASSET_INFO)
+            .equalsIgnoreCase(sha256(enginePath))) {
+      throw new IOException(
+          "KataGo TensorRT executable SHA-256 did not match the trusted catalog digest.");
+    }
+  }
+
+
+  private static boolean hasVerifiedStaticZlibProvenance(Path enginePath, String backend) {
+    KataGoAssetCatalog.Asset asset = assetForNvidiaBackend(backend);
+    return asset != null
+        && "project-source-build".equals(KATAGO_ASSETS.origin())
+        && "static".equals(asset.zlibLinkage())
+        && hasVerifiedEngineProvenance(enginePath, asset);
+  }
+
+  private static KataGoAssetCatalog.Asset assetForNvidiaBackend(String backend) {
+    if (NVIDIA_BACKEND.equalsIgnoreCase(backend)) {
+      return KATAGO_ASSETS.asset("windows-nvidia");
+    }
+    if (NVIDIA_TRT_BACKEND.equalsIgnoreCase(backend)) {
+      return TENSORRT_KATAGO_ASSET_INFO;
+    }
+    return null;
+  }
+
+  private static boolean hasVerifiedEngineProvenance(
+      Path enginePath, KataGoAssetCatalog.Asset asset) {
+    if (enginePath == null
+        || enginePath.getParent() == null
+        || !Files.isRegularFile(enginePath)) {
       return false;
     }
-    Path manifest = enginePath.getParent().resolve(TENSORRT_ENGINE_MANIFEST_NAME);
-    if (!Files.isRegularFile(manifest)) {
+    Path manifestPath = enginePath.getParent().resolve(TENSORRT_ENGINE_MANIFEST_NAME);
+    if (!Files.isRegularFile(manifestPath)) {
       return false;
     }
     try {
-      String text = Files.readString(manifest, StandardCharsets.UTF_8);
-      return text.contains("KataGo release: " + TENSORRT_KATAGO_VERSION)
-          && text.contains("Asset SHA-256: " + TENSORRT_KATAGO_SHA256);
+      Map<String, String> manifest = readStrictEngineManifest(manifestPath);
+      String expectedExecutableSha256 = expectedKatagoExecutableSha256(asset);
+      return manifest != null
+          && "2".equals(manifest.get("Manifest schema"))
+          && KATAGO_ASSETS.katagoReleaseTag().equals(manifest.get("KataGo release"))
+          && asset.id().equals(manifest.get("Asset ID"))
+          && asset.assetName().equals(manifest.get("Asset"))
+          && asset.sha256().equals(manifest.get("Asset SHA-256"))
+          && expectedExecutableSha256.equals(manifest.get("Executable SHA-256"))
+          && asset.backend().equals(manifest.get("Backend"))
+          && KATAGO_ASSETS.origin().equals(manifest.get("Origin"))
+          && KATAGO_ASSETS.katagoSourceCommit().equals(manifest.get("Source commit"))
+          && asset.zlibLinkage().equals(manifest.get("Zlib linkage"))
+          && hasValidOptionalCompanionManifest(manifest)
+          && expectedExecutableSha256.equalsIgnoreCase(sha256(enginePath));
     } catch (IOException e) {
       return false;
     }
   }
 
-  private static String tensorRtEngineManifestText() {
-    return "KataGo release: "
+  private static boolean hasValidOptionalCompanionManifest(Map<String, String> manifest) {
+    String companion = manifest.get("HumanSL companion");
+    return companion == null
+        || (HUMAN_SL_CUDA_COMPANION_NAME.equals(companion)
+            && expectedHumanSlCompanionSha256()
+                .equals(manifest.get("HumanSL companion SHA-256")));
+  }
+
+  private static Map<String, String> readStrictEngineManifest(Path manifestPath)
+      throws IOException {
+    Map<String, String> values = new LinkedHashMap<>();
+    String[] lines = Files.readString(manifestPath, StandardCharsets.UTF_8).replace("\r", "").split("\n", -1);
+    for (int index = 0; index < lines.length; index++) {
+      String line = lines[index];
+      if (line.isEmpty() && index == lines.length - 1) {
+        continue;
+      }
+      int separator = line.indexOf(": ");
+      if (separator <= 0 || separator == line.length() - 2) {
+        return null;
+      }
+      String key = line.substring(0, separator);
+      String value = line.substring(separator + 2);
+      if (!isAllowedEngineManifestKey(key) || values.putIfAbsent(key, value) != null) {
+        return null;
+      }
+    }
+    boolean hasCompanion = values.containsKey("HumanSL companion");
+    if (hasCompanion != values.containsKey("HumanSL companion SHA-256")) {
+      return null;
+    }
+    return values;
+  }
+
+  private static boolean isAllowedEngineManifestKey(String key) {
+    return switch (key) {
+      case "Manifest schema",
+          "KataGo release",
+          "Asset ID",
+          "Asset",
+          "Asset SHA-256",
+          "Executable SHA-256",
+          "Backend",
+          "Origin",
+          "Source commit",
+          "Zlib linkage",
+          "HumanSL companion",
+          "HumanSL companion SHA-256" -> true;
+      default -> false;
+    };
+  }
+
+  static String tensorRtEngineManifestText() {
+    return "Manifest schema: 2\n"
+        + "KataGo release: "
         + TENSORRT_KATAGO_VERSION
-        + "\nAsset: "
+        + "\nAsset ID: windows-tensorrt\nAsset: "
         + TENSORRT_KATAGO_ASSET
         + "\nAsset SHA-256: "
         + TENSORRT_KATAGO_SHA256
+        + "\nExecutable SHA-256: "
+        + expectedKatagoExecutableSha256(TENSORRT_KATAGO_ASSET_INFO)
+        + "\nBackend: "
+        + TENSORRT_KATAGO_ASSET_INFO.backend()
+        + "\nOrigin: "
+        + KATAGO_ASSETS.origin()
+        + "\nSource commit: "
+        + KATAGO_ASSETS.katagoSourceCommit()
+        + "\nZlib linkage: "
+        + TENSORRT_KATAGO_ASSET_INFO.zlibLinkage()
         + "\n";
   }
 

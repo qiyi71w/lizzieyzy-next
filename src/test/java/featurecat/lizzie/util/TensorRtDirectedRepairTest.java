@@ -53,12 +53,14 @@ public class TensorRtDirectedRepairTest {
   @BeforeEach
   void acceptEmptyCompanionFixture() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(EMPTY_FILE_SHA256);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
     System.setProperty("lizzie.tensorrt.runtimeSearchPath", "");
   }
 
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(null);
     KataGoRuntimeHelper.setTensorRtDirectoryMoveForTests(null);
     KataGoRuntimeHelper.setTensorRtBeforeTargetMutationForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
@@ -945,9 +947,7 @@ public class TensorRtDirectedRepairTest {
         engineDirName.contains("nvidia50") ? "nvidia50-trt\n" : "nvidia-tensorrt\n");
     Files.writeString(
         targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
-        "KataGo release: " + KataGoAssetCatalog.get().katagoReleaseTag() + "\n"
-            + "Asset: " + KataGoAssetCatalog.get().asset("windows-tensorrt").assetName() + "\n"
-            + "Asset SHA-256: " + KataGoAssetCatalog.get().asset("windows-tensorrt").sha256() + "\n");
+        KataGoRuntimeHelper.tensorRtEngineManifestText());
     if (companion) {
       touch(targetDir.resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME));
       Files.writeString(

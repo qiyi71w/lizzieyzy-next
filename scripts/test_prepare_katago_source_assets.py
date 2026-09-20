@@ -27,13 +27,17 @@ class PrepareSourceAssetsTest(unittest.TestCase):
             prepare(self.catalog_path, targets, self.root / "cache", self.engines)
 
     def test_prepares_exact_configurations_licenses_and_source_identity(self):
-        self.prepare(["windows-cpu", "macos-arm64"])
+        self.prepare(["windows-cpu", "windows-nvidia", "macos-arm64"])
         self.assertEqual("gtp test config", (self.engines / "configs/gtp.cfg").read_text())
         self.assertEqual("analysis test config", (self.engines / "configs/analysis.cfg").read_text())
         self.assertTrue((self.engines / "macos-arm64/licenses/LICENSE").is_file())
         manifest = (self.engines / "windows-x64/lizzieyzy-next-katago-engine-manifest.txt").read_text()
+        self.assertIn("Manifest schema: 2", manifest)
         self.assertIn("Origin: project-source-build", manifest)
         self.assertIn(self.catalog["katagoSourceCommit"], manifest)
+        nvidia_manifest = (self.engines / "windows-x64-nvidia/lizzieyzy-next-katago-engine-manifest.txt").read_text()
+        self.assertIn("Asset ID: windows-nvidia", nvidia_manifest)
+        self.assertIn("Zlib linkage: static", nvidia_manifest)
 
     def test_one_invalid_archive_leaves_existing_build_engines_untouched(self):
         (self.engines / "windows-x64").mkdir(parents=True)
@@ -63,6 +67,7 @@ class PrepareSourceAssetsTest(unittest.TestCase):
         official.pop("engineReleaseTag", None)
         for target, asset in official["assets"].items():
             asset["assetName"] = f"katago-{official['katagoReleaseTag']}-{target}.zip"
+            asset.pop("zlibLinkage", None)
         validate_catalog(official)
         official_path = self.root / "official.json"
         official_path.write_text(json.dumps(official))

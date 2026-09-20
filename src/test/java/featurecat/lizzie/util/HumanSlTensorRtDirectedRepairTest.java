@@ -45,12 +45,14 @@ public class HumanSlTensorRtDirectedRepairTest {
   @BeforeEach
   void acceptEmptyCompanionFixture() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(EMPTY_FILE_SHA256);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(EMPTY_FILE_SHA256);
     System.setProperty("lizzie.tensorrt.runtimeSearchPath", "");
   }
 
   @AfterEach
   void restoreProductionCompanionDigest() {
     KataGoRuntimeHelper.setHumanSlCompanionSha256ForTests(null);
+    KataGoRuntimeHelper.setKatagoExecutableSha256ForTests(null);
     System.clearProperty("lizzie.tensorrt.runtimeSearchPath");
   }
 
@@ -412,21 +414,18 @@ public class HumanSlTensorRtDirectedRepairTest {
     Path enginePath = touch(targetDir.resolve("katago.exe"));
     touch(targetDir.resolve("libz.dll"));
     Files.writeString(targetDir.resolve("lizzieyzy-next-engine-backend.txt"), "nvidia-tensorrt\n");
-    KataGoAssetCatalog catalog = KataGoAssetCatalog.get();
-    KataGoAssetCatalog.Asset asset = catalog.asset("windows-tensorrt");
-    String sha256 =
-        currentEngine
-            ? asset.sha256()
-            : "0000000000000000000000000000000000000000000000000000000000000000";
+    String manifestText;
+    if (currentEngine) {
+      manifestText = KataGoRuntimeHelper.tensorRtEngineManifestText();
+    } else {
+      manifestText =
+          "KataGo release: "
+              + KataGoAssetCatalog.get().katagoReleaseTag()
+              + "\nAsset SHA-256: "
+              + "0000000000000000000000000000000000000000000000000000000000000000\n";
+    }
     Files.writeString(
-        targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"),
-        "KataGo release: "
-            + catalog.katagoReleaseTag()
-            + "\nAsset: "
-            + asset.assetName()
-            + "\nAsset SHA-256: "
-            + sha256
-            + "\n");
+        targetDir.resolve("lizzieyzy-next-katago-engine-manifest.txt"), manifestText);
     if (companion) {
       touch(targetDir.resolve(KataGoRuntimeHelper.HUMAN_SL_CUDA_COMPANION_NAME));
       Files.writeString(

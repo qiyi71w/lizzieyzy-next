@@ -1077,6 +1077,7 @@ class ReleasePublisherTest(unittest.TestCase):
         catalog["assets"] = {target: {
             "assetName": f"katago-source-{PUBLISH.SOURCE_COMMIT[:12]}-{target}.zip",
             "sizeBytes": 100, "sha256": "b" * 64, "executableSha256": "c" * 64,
+            "zlibLinkage": "static" if target in ("windows-nvidia", "windows-tensorrt") else "dynamic",
         } for target in PUBLISH.TARGETS}
         return catalog
 
