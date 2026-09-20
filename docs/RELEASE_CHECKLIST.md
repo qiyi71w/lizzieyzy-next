@@ -127,6 +127,8 @@ GitHub Actions：
 - `.github/workflows/promote-stable-release.yml`
 - `.github/workflows/publish-test-channel-pointer.yml`
 
+平台成品验收直接消费由上述正式发布构建工作流或打包负责人产出的最终资产与构建端 `release-asset-provenance.json`，不另设独立的候选打包工作流。资产下载后必须在原生消费主机本地重新执行 `release_asset_provenance.py verify-candidate` 生成本机 `candidate.json`，不能把构建端生成的路径记录直接用于启动。完整交接说明、状态语义与批量记录校验见[专项验收契约](SPECIALIZED_ACCEPTANCE.md#成品交接与验收)。
+
 ## 四、构建前检查
 
 发版前至少确认：
