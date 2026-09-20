@@ -445,7 +445,7 @@ public final class NvidiaGpuDetector {
       if (gpu != null && gpu.computeRank() >= 89) {
         return resource(
             "AutoSetup.gpuPreferCudaModern",
-            "Use CUDA: RTX 40/50 series run the unified CUDA package by default; TensorRT is not recommended.");
+            "Supported, but CUDA recommended: TensorRT remains supported on RTX 40/50 series; CUDA is the recommended default.");
       }
       return resource(
           "AutoSetup.gpuNotRecommendTensorRt",
