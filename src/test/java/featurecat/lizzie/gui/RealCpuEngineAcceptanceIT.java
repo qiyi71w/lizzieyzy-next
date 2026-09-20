@@ -1611,8 +1611,8 @@ public final class RealCpuEngineAcceptanceIT {
 
       JSONObject catalog =
           new JSONObject(Files.readString(catalogPath, StandardCharsets.UTF_8));
-      if (catalog.getInt("schemaVersion") != 1) {
-        throw new IllegalArgumentException("catalog schemaVersion must be 1");
+      if (catalog.getInt("schemaVersion") != 2) {
+        throw new IllegalArgumentException("catalog schemaVersion must be 2");
       }
       JSONObject catalogAsset = catalog.getJSONObject("assets").getJSONObject("linux-cpu");
       String modelId = catalog.getString("defaultModelId");

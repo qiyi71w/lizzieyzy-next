@@ -191,8 +191,8 @@ def _validated_d4_inputs(args: argparse.Namespace) -> tuple[dict[str, object], l
     if _sha256_file(catalog_path) != _require_sha256(manifest_catalog, "manifest catalog"):
         raise RuntimeError("catalog SHA-256 does not match manifest")
     catalog = _load_json(catalog_path, "asset catalog")
-    if catalog.get("schemaVersion") != 1:
-        raise RuntimeError("asset catalog schemaVersion must be 1")
+    if catalog.get("schemaVersion") != 2:
+        raise RuntimeError("asset catalog schemaVersion must be 2")
     catalog_assets = _require_object(catalog.get("assets"), "asset catalog assets")
     catalog_asset = _require_object(catalog_assets.get("linux-cpu"), "asset catalog linux-cpu")
     catalog_models = _require_object(catalog.get("models"), "asset catalog models")

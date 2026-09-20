@@ -97,12 +97,29 @@ class KataGoAssetCatalogTest {
 
     assertEquals("cuda12.8-cudnn9", catalog.asset("windows-nvidia").runtimeProfile());
     assertEquals(64, catalog.asset("windows-nvidia").executableSha256().length());
+    assertEquals("project-source-build", catalog.origin());
+    assertEquals("static", catalog.asset("windows-nvidia").zlibLinkage());
+    assertEquals("static", catalog.asset("windows-tensorrt").zlibLinkage());
     assertEquals("cuda12.1-cudnn9", catalog.asset("linux-nvidia").runtimeProfile());
     assertEquals(
         "katago-source-47aadc08518b-windows-nvidia.zip",
         catalog.asset("windows-nvidia").assetName());
     assertEquals(
         "katago-source-47aadc08518b-linux-nvidia.zip", catalog.asset("linux-nvidia").assetName());
+  }
+
+  @Test
+  void staticZlibLinkageIsLimitedToPinnedProjectWindowsGpuAssets() throws IOException {
+    JSONObject missing = sourceCatalogJson();
+    missing.getJSONObject("assets").getJSONObject("windows-nvidia").remove("zlibLinkage");
+    assertThrows(IllegalStateException.class, () -> new KataGoAssetCatalog(missing));
+
+    JSONObject widened = sourceCatalogJson();
+    widened
+        .getJSONObject("assets")
+        .getJSONObject("windows-cpu")
+        .put("zlibLinkage", "static");
+    assertThrows(IllegalStateException.class, () -> new KataGoAssetCatalog(widened));
   }
 
   @Test

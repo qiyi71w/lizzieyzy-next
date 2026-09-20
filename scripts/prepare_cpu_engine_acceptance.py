@@ -81,8 +81,8 @@ def load_pins(path: Path) -> dict[str, Any]:
         catalog = require_object(json.loads(path.read_text(encoding="utf-8")), "catalog")
     except (OSError, json.JSONDecodeError) as failure:
         raise ProvisioningError(f"cannot read catalog {path}: {failure}") from failure
-    if catalog.get("schemaVersion") != 1:
-        raise ProvisioningError("KataGo asset catalog schemaVersion must be 1")
+    if catalog.get("schemaVersion") != 2:
+        raise ProvisioningError("KataGo asset catalog schemaVersion must be 2")
 
     version = require_text(catalog, "katagoVersion", "catalog")
     release_tag = require_text(catalog, "katagoReleaseTag", "catalog")

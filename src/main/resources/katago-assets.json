@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "katagoVersion": "1.18.2",
   "katagoReleaseTag": "v1.18.2",
   "katagoSourceCommit": "47aadc08518b3e121f22539796c911002f699584",
@@ -66,6 +66,7 @@
       "sha256": "740c51281b410c4cc4ec2f6399b92c91607d2caf6c80484df75d4c5400bde2ee",
       "executableSha256": "9a87f2e40233bb5694332546f9cad0a6248f4593341ccafb29225fbf025a6ef6",
       "runtimeProfile": "cuda12.8-cudnn9",
+      "zlibLinkage": "static",
       "releaseTier": "stable"
     },
     "windows-tensorrt": {
@@ -76,6 +77,7 @@
       "sha256": "3d6a763adff7467c4c5afcbf57b24ceda4a8096dfa540a255334e4e7a41131f3",
       "executableSha256": "6d1d1a0dce114ef3add7f859b7a19bc5bc23ec65b0357f5915a9d76cff2f3df0",
       "runtimeProfile": "cuda12.8-cudnn9-tensorrt",
+      "zlibLinkage": "static",
       "releaseTier": "optional"
     },
     "windows-directml": {

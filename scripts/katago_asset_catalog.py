@@ -24,8 +24,8 @@ def load_catalog(path: Path) -> dict[str, Any]:
 
 
 def validate_catalog(catalog: dict[str, Any]) -> None:
-    if catalog.get("schemaVersion") != 1:
-        raise ValueError("KataGo asset catalog schemaVersion must be 1")
+    if catalog.get("schemaVersion") != 2:
+        raise ValueError("KataGo asset catalog schemaVersion must be 2")
     version = require_text(catalog, "katagoVersion")
     release_tag = require_text(catalog, "katagoReleaseTag")
     if release_tag != f"v{version}":
@@ -66,6 +66,15 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
         executable_sha = asset.get("executableSha256", "")
         if executable_sha and not SHA256_RE.fullmatch(executable_sha):
             raise ValueError(f"asset {asset_id} has invalid executableSha256")
+        linkage = asset.get("zlibLinkage", "dynamic")
+        if linkage not in ("dynamic", "static"):
+            raise ValueError(f"asset {asset_id} has invalid zlibLinkage")
+        static_zlib_asset = (
+            catalog.get("origin", "official-release") == "project-source-build"
+            and asset_id in ("windows-nvidia", "windows-tensorrt")
+        )
+        if (linkage == "static") != static_zlib_asset:
+            raise ValueError(f"asset {asset_id} has invalid origin-aware zlibLinkage")
     windows_nvidia = assets.get("windows-nvidia", {})
     if not SHA256_RE.fullmatch(str(windows_nvidia.get("executableSha256", ""))):
         raise ValueError("asset windows-nvidia requires executableSha256")
@@ -126,6 +135,21 @@ def model_download_url(catalog: dict[str, Any], model_id: str) -> str:
     return model.get("downloadUrl") or (
         f"https://github.com/lightvector/KataGo/releases/download/{catalog['modelReleaseTag']}/"
         + model["fileName"]
+    )
+
+def engine_manifest_text(catalog: dict[str, Any], asset_id: str, source_commit: str) -> str:
+    asset = catalog["assets"][asset_id]
+    return (
+        "Manifest schema: 2\n"
+        f"KataGo release: {catalog['katagoReleaseTag']}\n"
+        f"Asset ID: {asset_id}\n"
+        f"Asset: {asset['assetName']}\n"
+        f"Asset SHA-256: {asset['sha256']}\n"
+        f"Executable SHA-256: {require_text(asset, 'executableSha256')}\n"
+        f"Backend: {require_text(asset, 'backend')}\n"
+        f"Origin: {require_text(catalog, 'origin')}\n"
+        f"Source commit: {source_commit}\n"
+        f"Zlib linkage: {asset.get('zlibLinkage', 'dynamic')}\n"
     )
 
 
