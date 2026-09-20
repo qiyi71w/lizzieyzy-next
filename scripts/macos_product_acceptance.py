@@ -29,6 +29,10 @@ try:
     from scripts import release_asset_provenance as provenance
 except ModuleNotFoundError:
     import release_asset_provenance as provenance  # type: ignore[no-redef]
+try:
+    from scripts import release_asset_topology as topology
+except ModuleNotFoundError:
+    import release_asset_topology as topology  # type: ignore[no-redef]
 
 
 SCENARIOS = ("installed-offline-first-run",)
@@ -68,6 +72,11 @@ class MountAcquisitionError(AcceptanceError):
         self.mount_path = mount_path
         self.device = device
 
+
+class PfAcquisitionError(AcceptanceError):
+    def __init__(self, message: str, remaining_resources: list[str]) -> None:
+        super().__init__(message)
+        self.remaining_resources = remaining_resources
 
 
 def now() -> str:
@@ -154,6 +163,327 @@ def canonical_candidate(path: Path) -> tuple[dict[str, Any], dict[str, str]]:
     require(supplied == verified, "candidate.json differs from the canonical verified candidate")
     require(artifact.get("class") == "dmg-product", "Candidate class must be dmg-product")
     return supplied, product
+
+
+def validate_canonical_macos_topology(key: str, name: str, artifact_class: str) -> None:
+    require(key in PRODUCTS, f"Expected artifact key {key} is not a macOS final DMG product in {sorted(PRODUCTS)}")
+    try:
+        asset_identity = topology.asset(key)
+    except topology.TopologyError as exc:
+        raise AcceptanceError(f"Expected artifact identity is unknown: {key}") from exc
+    require(
+        asset_identity.candidate_class.value == artifact_class,
+        f"Expected artifact class {artifact_class} does not match topology {asset_identity.candidate_class.value}",
+    )
+    product = PRODUCTS[key]
+    require(
+        asset_identity.platform == product["platform"] and asset_identity.architecture == product["architecture"],
+        "Expected artifact topology does not match product platform/architecture",
+    )
+    if asset_identity.filename.kind is topology.FilenameKind.LITERAL:
+        canonical_name = asset_identity.filename.value
+    else:
+        suffix = f"-{asset_identity.filename.value}"
+        require(name.endswith(suffix), f"Expected artifact name {name} does not match expected suffix {suffix}")
+        date_tag = name[:-len(suffix)]
+        try:
+            canonical_name = asset_identity.filename.render(date_tag)
+        except topology.TopologyError as exc:
+            raise AcceptanceError(f"Expected artifact name does not match canonical topology: {exc}") from exc
+    require(name == canonical_name, f"Expected artifact name {name} does not match canonical name {canonical_name}")
+
+
+def tree_metadata_identity(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"exists": False, "entries": 0, "sha256": None}
+    digest = hashlib.sha256()
+    entries = 0
+    for child in sorted(path.rglob("*")):
+        try:
+            metadata = child.lstat()
+        except FileNotFoundError:
+            continue
+        relative = child.relative_to(path).as_posix()
+        kind = "link" if child.is_symlink() else "dir" if child.is_dir() else "file"
+        digest.update(
+            f"{relative}|{kind}|{metadata.st_size}|{metadata.st_mtime_ns}\n".encode()
+        )
+        entries += 1
+    return {"exists": True, "entries": entries, "sha256": digest.hexdigest()}
+
+
+def outside_data_snapshots(product_root: Path) -> dict[str, dict[str, Any]]:
+    home = Path.home()
+    return {
+        "productRoot": tree_metadata_identity(product_root),
+        "defaultUserRoot": tree_metadata_identity(home / ".lizzieyzy-next"),
+        "legacyUserRoot": tree_metadata_identity(home / ".lizzieyzy-next-foxuid"),
+    }
+
+
+def setup_pf_boundary(evidence: Path) -> tuple[str, str]:
+    anchor = f"com.apple/lizzieyzy_{secrets.token_hex(8)}"
+    if FIXTURE_MODE:
+        fail_mode = os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PF_FAIL")
+        if fail_mode == "blocked":
+            raise BlockedError("gatekeeper", "macOS PF firewall control is unavailable: sudo -n pfctl requires password")
+        token = f"fixture_token_{secrets.token_hex(4)}"
+        pf_log = evidence / "pf-boundary-probe.log"
+        pf_log.write_text(f"FIXTURE anchor {anchor} token {token} loaded; loopback available; external network denied.\n", encoding="utf-8")
+        (evidence / "pf-rules.log").write_text(f"anchor={anchor}\ntoken={token}\npass quick on lo0 all\nblock drop out log inet all\nblock drop out log inet6 all\n", encoding="utf-8")
+        return anchor, token
+
+    if not shutil.which("pfctl"):
+        raise BlockedError("gatekeeper", "Required macOS PF command is unavailable: pfctl")
+    try:
+        test_sudo = subprocess.run(
+            ["sudo", "-n", "pfctl", "-s", "info"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BlockedError("gatekeeper", f"PF firewall control is unavailable: {exc}") from exc
+    if test_sudo.returncode != 0:
+        raise BlockedError("gatekeeper", f"PF firewall control is unavailable: sudo -n pfctl requires password or failed: {test_sudo.stderr.strip()}")
+
+    try:
+        enable_proc = subprocess.run(
+            ["sudo", "-n", "pfctl", "-E"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise PfAcquisitionError(
+            f"Unable to determine whether PF acquired an enable reference: {exc}",
+            ["pf-reference-token:unknown-after-enable"],
+        ) from exc
+    if enable_proc.returncode != 0:
+        raise BlockedError("gatekeeper", f"Unable to enable PF with sudo -n pfctl -E: {enable_proc.stderr.strip()}")
+    token_match = re.search(r"(?i)Token\s*:\s*([0-9a-zA-Z]+)", f"{enable_proc.stdout}\n{enable_proc.stderr}")
+    if token_match is None:
+        raise PfAcquisitionError(
+            "PF enabled without returning the reference token required for exact cleanup",
+            ["pf-reference-token:missing"],
+        )
+    token = token_match.group(1).strip()
+
+    try:
+        rules = "pass quick on lo0 all\nblock drop out log inet all\nblock drop out log inet6 all\n"
+        load_rules = subprocess.run(
+            ["sudo", "-n", "pfctl", "-a", anchor, "-f", "-"],
+            input=rules,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        if load_rules.returncode != 0:
+            raise BlockedError("gatekeeper", f"Unable to load PF anchor {anchor}: {load_rules.stderr.strip()}")
+
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(10)
+        port = listener.getsockname()[1]
+        accepted: list[bool] = []
+        errors: list[str] = []
+
+        def accept_once() -> None:
+            try:
+                conn, _ = listener.accept()
+                conn.close()
+                accepted.append(True)
+            except OSError as exc:
+                errors.append(str(exc))
+
+        worker = threading.Thread(target=accept_once, daemon=True)
+        worker.start()
+        loopback = subprocess.run(
+            [sys.executable, "-c", "import socket,sys;s=socket.create_connection(('127.0.0.1',int(sys.argv[1])),5);s.close()", str(port)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        worker.join(timeout=10)
+        listener.close()
+        external = subprocess.run(
+            [sys.executable, "-c", "import errno,socket,sys\ntry:\n socket.create_connection(('198.51.100.1',443),2);sys.exit(2)\nexcept OSError as e:\n print(e.errno);sys.exit(0 if e.errno in (errno.EPERM,errno.EACCES) else 3)"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        log = evidence / "pf-boundary-probe.log"
+        log.write_text(
+            f"loopbackExit={loopback.returncode}\n{loopback.stdout}{loopback.stderr}externalExit={external.returncode}\n{external.stdout}{external.stderr}acceptErrors={errors}\n",
+            encoding="utf-8",
+        )
+        require(loopback.returncode == 0 and accepted and not errors, "PF boundary does not preserve loopback")
+        require(external.returncode == 0, "PF boundary did not prove OS-level external network denial")
+        return anchor, token
+    except BaseException as exc:
+        cleanup_errors = cleanup_pf_anchor(anchor, token, evidence)
+        if cleanup_errors:
+            raise PfAcquisitionError(
+                f"{exc}; PF setup cleanup was incomplete",
+                cleanup_errors,
+            ) from exc
+        raise
+
+
+def cleanup_pf_anchor(anchor: str, token: str | None, evidence: Path) -> list[str]:
+    errors: list[str] = []
+    if FIXTURE_MODE:
+        if os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PF_CLEANUP_ERROR") == "1":
+            return [f"pf-anchor:{anchor}:fixture-cleanup-failure"]
+        pf_cleanup = evidence / "pf-cleanup.log"
+        with pf_cleanup.open("a", encoding="utf-8") as f:
+            if token:
+                f.write(f"released token {token}\n")
+            f.write(f"flushed {anchor}\n")
+        return []
+
+    try:
+        flush = subprocess.run(
+            ["sudo", "-n", "pfctl", "-a", anchor, "-F", "all"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if flush.returncode != 0:
+            errors.append(f"pf-anchor:{anchor}:{flush.stderr.strip()}")
+    except BaseException as exc:
+        errors.append(f"pf-anchor:{anchor}:{exc}")
+
+    if token:
+        try:
+            rel = subprocess.run(
+                ["sudo", "-n", "pfctl", "-X", token],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if rel.returncode != 0:
+                errors.append(f"pf-token:{token}:{rel.stderr.strip()}")
+        except BaseException as exc:
+            errors.append(f"pf-token:{token}:{exc}")
+
+    return errors
+
+
+class PfBoundary:
+    def __init__(self, evidence: Path) -> None:
+        self.evidence = evidence
+        self.anchor: str | None = None
+        self.token: str | None = None
+        self.cleaned = False
+        anchor, token = setup_pf_boundary(evidence)
+        self.anchor = anchor
+        self.token = token
+
+    def cleanup(self) -> list[str]:
+        if self.cleaned or self.anchor is None:
+            return []
+        self.cleaned = True
+        return cleanup_pf_anchor(self.anchor, self.token, self.evidence)
+
+
+def preserve_launchctl_env(evidence: Path) -> tuple[bool, str]:
+    if FIXTURE_MODE or platform.system() != "Darwin":
+        (evidence / "launchctl-env.log").write_text("initial JAVA_TOOL_OPTIONS=<unset>\n", encoding="utf-8")
+        return (False, "")
+    if not shutil.which("launchctl"):
+        raise BlockedError("gatekeeper", "Required macOS command is unavailable: launchctl")
+    try:
+        result = subprocess.run(
+            ["launchctl", "getenv", "JAVA_TOOL_OPTIONS"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BlockedError("gatekeeper", f"Unable to inspect launchctl JAVA_TOOL_OPTIONS: {exc}") from exc
+    if result.returncode == 0 and result.stdout:
+        value = result.stdout.rstrip("\r\n")
+        (evidence / "launchctl-env.log").write_text(f"initial JAVA_TOOL_OPTIONS={value}\n", encoding="utf-8")
+        return (True, value)
+    (evidence / "launchctl-env.log").write_text("initial JAVA_TOOL_OPTIONS=<unset>\n", encoding="utf-8")
+    return (False, "")
+
+
+def set_launchctl_work_dir(data_root: Path, evidence: Path, phase: str = "gatekeeper") -> None:
+    escaped_work_root = str(data_root.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+    value = f'-Dlizzie.work.dir="{escaped_work_root}"'
+    if FIXTURE_MODE:
+        if os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_LAUNCHCTL_FAIL") == "1":
+            raise BlockedError(phase, "Unable to set launchctl environment: fixture launchctl unavailable")
+        with (evidence / "launchctl-env.log").open("a", encoding="utf-8") as stream:
+            stream.write(f"set JAVA_TOOL_OPTIONS={value}\n")
+        return
+    if platform.system() != "Darwin":
+        return
+    if not shutil.which("launchctl"):
+        raise BlockedError(phase, "Required macOS command is unavailable: launchctl")
+    try:
+        result = subprocess.run(
+            ["launchctl", "setenv", "JAVA_TOOL_OPTIONS", value],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BlockedError(phase, f"Unable to set launchctl JAVA_TOOL_OPTIONS: {exc}") from exc
+    if result.returncode != 0:
+        raise BlockedError(phase, f"Unable to set launchctl environment JAVA_TOOL_OPTIONS: {result.stderr.strip()}")
+
+
+def restore_launchctl_env(saved: tuple[bool, str], evidence: Path) -> list[str]:
+    existed, value = saved
+    if FIXTURE_MODE:
+        with (evidence / "launchctl-env.log").open("a", encoding="utf-8") as stream:
+            if existed:
+                stream.write(f"restore JAVA_TOOL_OPTIONS={value}\n")
+            else:
+                stream.write("unset JAVA_TOOL_OPTIONS\n")
+        if os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_LAUNCHCTL_RESTORE_FAIL") == "1":
+            return ["launchctl-env:fixture-restore-failure"]
+        return []
+    if platform.system() != "Darwin":
+        return []
+    try:
+        command = (
+            ["launchctl", "setenv", "JAVA_TOOL_OPTIONS", value]
+            if existed
+            else ["launchctl", "unsetenv", "JAVA_TOOL_OPTIONS"]
+        )
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            return [f"launchctl-env:{result.stderr.strip()}"]
+    except BaseException as exc:
+        return [f"launchctl-env:{exc}"]
+    return []
+
+
+class LaunchctlPreservation:
+    def __init__(self, evidence: Path) -> None:
+        self.evidence = evidence
+        self.restored = False
+        self.restore_failures: list[str] = []
+        self.saved: tuple[bool, str] = preserve_launchctl_env(evidence)
+
+    def set_work_dir(self, data_root: Path, phase: str = "gatekeeper") -> None:
+        set_launchctl_work_dir(data_root, self.evidence, phase=phase)
+        self.restored = False
+
+    def restore(self) -> list[str]:
+        if self.restored:
+            return []
+        errors = restore_launchctl_env(self.saved, self.evidence)
+        if errors:
+            self.restore_failures.extend(error for error in errors if error not in self.restore_failures)
+            return errors
+        self.restored = True
+        return []
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -473,70 +803,158 @@ def confirm_open_anyway(app: Path, dmg: Path, evidence: Path, quarantine_value: 
     return str(marker)
 
 
-def quarantine_and_assess(app: Path, dmg: Path, evidence: Path) -> dict[str, str]:
+def quarantine_and_assess(
+    app: Path,
+    dmg: Path,
+    evidence: Path,
+    data_root: Path,
+    ready_file: Path,
+    final_counter: Path,
+    layout: dict[str, Any],
+    ownership_tokens: list[str],
+    launchctl_preservation: LaunchctlPreservation,
+) -> dict[str, str]:
     credentials = credential_state()
-    if FIXTURE_MODE:
-        metadata = read_json(app / "Contents" / ".fixture-signing.json", "fixture signing metadata")
-        quarantine_value = "0081;fixture;LizzieYzyAcceptance;"
-        (evidence / "quarantine.log").write_text(quarantine_value + "\n", encoding="utf-8")
-        signing_state = metadata.get("state")
-        require(signing_state in {"signed", "unsigned", "broken"}, "Fixture signing state is invalid")
-        if signing_state == "broken":
-            raise AcceptanceError("Installed app has a malformed or partial signature")
-        signed = signing_state == "signed"
-        notarized = metadata.get("notarized") is True
-        accepted = metadata.get("spctlAccepted") is True
-        if credentials == "COMPLETE":
-            require(signed and notarized and accepted, "Complete signing credentials require a signed/notarized accepted candidate")
-        if signed:
-            require(notarized and accepted, "Partially signed/notarized fixture candidate fails acceptance")
-            status, first_launch, open_anyway = "SIGNED_NOTARIZED", "ALLOWED", "NOT_APPLICABLE"
-        else:
-            require(not notarized and not accepted and metadata.get("firstLaunch") == "BLOCKED", "Unsigned fixture did not prove the expected Gatekeeper block")
-            status, first_launch = "UNSIGNED_INTENTIONAL", "BLOCKED_THEN_OPEN_ANYWAY"
-            confirm_open_anyway(app, dmg, evidence, quarantine_value)
-            open_anyway = "BOUND_CONFIRMATION"
-        (evidence / "codesign.log").write_text(f"fixture signingState={signing_state}\n", encoding="utf-8")
-        (evidence / "stapler.log").write_text(f"fixture notarized={notarized}\n", encoding="utf-8")
-        (evidence / "spctl.log").write_text(f"fixture accepted={accepted}\n", encoding="utf-8")
-        return {"attribute": quarantine_value, "signatureStatus": status, "codesign": str((evidence / "codesign.log").resolve()), "stapler": str((evidence / "stapler.log").resolve()), "spctl": str((evidence / "spctl.log").resolve()), "firstLaunch": first_launch, "openAnyway": open_anyway}
-    quarantine_value = f"0081;{int(time.time()):x};LizzieYzyAcceptance;"
-    quarantine_log = evidence / "quarantine.log"
-    result = command_log(["xattr", "-w", "com.apple.quarantine", quarantine_value, str(app)], quarantine_log)
-    if result.returncode != 0:
-        raise BlockedError("gatekeeper", "Unable to apply the quarantine attribute; the native host lacks required quarantine/file permissions")
-    verify = subprocess.run(["xattr", "-p", "com.apple.quarantine", str(app)], capture_output=True, text=True, timeout=20)
-    if verify.returncode != 0:
-        raise BlockedError("gatekeeper", "Unable to read the installed app quarantine attribute on this native host")
-    require(quarantine_value in verify.stdout, "Installed app quarantine attribute did not persist")
-    codesign = command_log(["codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app)], evidence / "codesign.log")
-    stapler = command_log(["xcrun", "stapler", "validate", str(dmg)], evidence / "stapler.log")
-    spctl = command_log(["spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "-vvv", str(dmg)], evidence / "spctl.log")
-    if codesign.returncode == 0:
-        require(stapler.returncode == 0 and spctl.returncode == 0, "Signed candidate lacks a valid stapled ticket or Gatekeeper acceptance")
-        return {"attribute": quarantine_value, "signatureStatus": "SIGNED_NOTARIZED", "codesign": str((evidence / "codesign.log").resolve()), "stapler": str((evidence / "stapler.log").resolve()), "spctl": str((evidence / "spctl.log").resolve()), "firstLaunch": "ALLOWED_BY_GATEKEEPER_ASSESSMENT", "openAnyway": "NOT_APPLICABLE"}
-    require(credentials == "ABSENT", "Signing credentials were available but the installed app signature is invalid")
-    outer_signature = command_log(["codesign", "--display", "--verbose=2", str(app)], evidence / "codesign-outer.log")
-    require(codesign_reports_fully_unsigned(outer_signature), "Installed app has a malformed or partial signature; only an explicitly unsigned outer app may use Open Anyway")
-    require(stapler.returncode != 0 and spctl.returncode != 0, "Unsigned candidate produced an unexpected notarization/Gatekeeper outcome")
-    gatekeeper_log = evidence / "gatekeeper-first-launch.log"
-    blocked = False
+    launchctl_preservation.set_work_dir(data_root, phase="gatekeeper")
     try:
-        first_launch = subprocess.run(["open", "-W", "-n", str(app)], capture_output=True, text=True, timeout=15)
-        gatekeeper_log.write_text(f"exit={first_launch.returncode}\n{first_launch.stdout}{first_launch.stderr}", encoding="utf-8")
-        blocked = first_launch.returncode != 0
-    except subprocess.TimeoutExpired as exc:
-        gatekeeper_log.write_text(f"timeout while waiting for Gatekeeper\n{exc.stdout or ''}{exc.stderr or ''}", encoding="utf-8")
-        blocked = True
-    launched = [pid for pid, row in process_table().items() if str(app.resolve()) in row["commandLine"]]
-    for pid in launched:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    require(blocked and not launched, "Unsigned quarantined app unexpectedly launched before Open Anyway")
-    confirm_open_anyway(app, dmg, evidence, quarantine_value)
-    return {"attribute": quarantine_value, "signatureStatus": "UNSIGNED_INTENTIONAL", "codesign": str((evidence / "codesign.log").resolve()), "stapler": "NOT_PERFORMED", "spctl": str((evidence / "spctl.log").resolve()), "firstLaunch": "BLOCKED_THEN_OPEN_ANYWAY", "openAnyway": "BOUND_CONFIRMATION"}
+        if FIXTURE_MODE:
+            metadata = read_json(app / "Contents" / ".fixture-signing.json", "fixture signing metadata")
+            quarantine_value = "0081;fixture;LizzieYzyAcceptance;"
+            (evidence / "quarantine.log").write_text(quarantine_value + "\n", encoding="utf-8")
+            signing_state = metadata.get("state")
+            require(signing_state in {"signed", "unsigned", "broken"}, "Fixture signing state is invalid")
+            if signing_state == "broken":
+                raise AcceptanceError("Installed app has a malformed or partial signature")
+            signed = signing_state == "signed"
+            notarized = metadata.get("notarized") is True
+            accepted = metadata.get("spctlAccepted") is True
+            if credentials == "COMPLETE":
+                require(signed and notarized and accepted, "Complete signing credentials require a signed/notarized accepted candidate")
+            if signed:
+                require(notarized and accepted, "Partially signed/notarized fixture candidate fails acceptance")
+                signature_status = "SIGNED_VALID"
+                notarization_status = "STAPLED_VALID"
+                quarantine_status = "ALLOWED"
+                open_anyway = "NOT_APPLICABLE"
+            else:
+                require(not notarized and not accepted and metadata.get("firstLaunch") == "BLOCKED", "Unsigned fixture did not prove the expected Gatekeeper block")
+                signature_status = "UNSIGNED_INTENTIONAL"
+                notarization_status = "NOT_PERFORMED"
+                quarantine_status = "BLOCKED_THEN_OPEN_ANYWAY"
+                open_anyway = "BOUND_CONFIRMATION"
+                confirm_open_anyway(app, dmg, evidence, quarantine_value)
+
+            trust_proc: subprocess.Popen[bytes] | None = None
+            try:
+                env = os.environ.copy()
+                escaped_work_root = str(data_root.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+                env.update({
+                    "JAVA_TOOL_OPTIONS": f'-Dlizzie.work.dir="{escaped_work_root}"',
+                    "LIZZIE_MACOS_ACCEPTANCE_APP_ROOT": str(app.resolve()),
+                    "LIZZIE_MACOS_ACCEPTANCE_EXPECTED_WORK_DIR": str(data_root.resolve()),
+                    "LIZZIE_MACOS_ACCEPTANCE_FIXTURE_READY": str(ready_file.resolve()),
+                    "LIZZIE_MACOS_ACCEPTANCE_NETWORK_COUNTER": str(final_counter.resolve()),
+                })
+                trust_proc = subprocess.Popen([layout["launcher"]["path"]], cwd=app.parent, env=env, start_new_session=True)
+                time.sleep(0.1)
+                trust_processes = process_snapshots(descendants(trust_proc.pid))
+                require(bool(trust_processes), "Fixture trust launch produced no running processes")
+                write_json_atomic(evidence / "gatekeeper-trust-launch.json", {"processes": trust_processes})
+                complete, remaining, errors = terminate_owned(trust_proc, trust_processes, ownership_tokens, 5, allow_fixture_error=False)
+                require(complete and not remaining, f"Trust launch processes failed to terminate: {remaining} {errors}")
+                trust_proc = None
+                if ready_file.exists():
+                    ready_file.unlink()
+            finally:
+                if trust_proc is not None:
+                    terminate_owned(trust_proc, [], ownership_tokens, 5, allow_fixture_error=False)
+
+            (evidence / "codesign.log").write_text(f"fixture signingState={signing_state}\n", encoding="utf-8")
+            (evidence / "stapler.log").write_text(f"fixture notarized={notarized}\n", encoding="utf-8")
+            (evidence / "spctl.log").write_text(f"fixture accepted={accepted}\n", encoding="utf-8")
+            return {
+                "attribute": quarantine_value,
+                "signatureStatus": signature_status,
+                "notarizationStatus": notarization_status,
+                "quarantineStatus": quarantine_status,
+                "codesign": str((evidence / "codesign.log").resolve()),
+                "stapler": str((evidence / "stapler.log").resolve()),
+                "spctl": str((evidence / "spctl.log").resolve()),
+                "openAnyway": open_anyway,
+            }
+
+        quarantine_value = f"0081;{int(time.time()):x};LizzieYzyAcceptance;"
+        quarantine_log = evidence / "quarantine.log"
+        result = command_log(["xattr", "-w", "com.apple.quarantine", quarantine_value, str(app)], quarantine_log)
+        if result.returncode != 0:
+            raise BlockedError("gatekeeper", "Unable to apply the quarantine attribute; the native host lacks required quarantine/file permissions")
+        verify = subprocess.run(["xattr", "-p", "com.apple.quarantine", str(app)], capture_output=True, text=True, timeout=20)
+        if verify.returncode != 0:
+            raise BlockedError("gatekeeper", "Unable to read the installed app quarantine attribute on this native host")
+        require(quarantine_value in verify.stdout, "Installed app quarantine attribute did not persist")
+        codesign = command_log(["codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app)], evidence / "codesign.log")
+        stapler = command_log(["xcrun", "stapler", "validate", str(dmg)], evidence / "stapler.log")
+        spctl = command_log(["spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "-vvv", str(dmg)], evidence / "spctl.log")
+        if codesign.returncode == 0:
+            require(stapler.returncode == 0 and spctl.returncode == 0, "Signed candidate lacks a valid stapled ticket or Gatekeeper acceptance")
+            signature_status = "SIGNED_VALID"
+            notarization_status = "STAPLED_VALID"
+            quarantine_status = "ALLOWED"
+            open_anyway = "NOT_APPLICABLE"
+        else:
+            require(credentials == "ABSENT", "Signing credentials were available but the installed app signature is invalid")
+            outer_signature = command_log(["codesign", "--display", "--verbose=2", str(app)], evidence / "codesign-outer.log")
+            require(codesign_reports_fully_unsigned(outer_signature), "Installed app has a malformed or partial signature; only an explicitly unsigned outer app may use Open Anyway")
+            require(stapler.returncode != 0 and spctl.returncode != 0, "Unsigned candidate produced an unexpected notarization/Gatekeeper outcome")
+            gatekeeper_log = evidence / "gatekeeper-first-launch.log"
+            blocked = False
+            try:
+                first_launch = subprocess.run(["open", "-W", "-n", str(app)], capture_output=True, text=True, timeout=15)
+                gatekeeper_log.write_text(f"exit={first_launch.returncode}\n{first_launch.stdout}{first_launch.stderr}", encoding="utf-8")
+                blocked = first_launch.returncode != 0
+            except subprocess.TimeoutExpired as exc:
+                gatekeeper_log.write_text(f"timeout while waiting for Gatekeeper\n{exc.stdout or ''}{exc.stderr or ''}", encoding="utf-8")
+                blocked = True
+            launched = [pid for pid, row in process_table().items() if str(app.resolve()) in row["commandLine"]]
+            for pid in launched:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            require(blocked and not launched, "Unsigned quarantined app unexpectedly launched before Open Anyway")
+            confirm_open_anyway(app, dmg, evidence, quarantine_value)
+            signature_status = "UNSIGNED_INTENTIONAL"
+            notarization_status = "NOT_PERFORMED"
+            quarantine_status = "BLOCKED_THEN_OPEN_ANYWAY"
+            open_anyway = "BOUND_CONFIRMATION"
+
+        launch = subprocess.run(["open", "-n", str(app)], capture_output=True, text=True, timeout=15)
+        require(launch.returncode == 0, f"LaunchServices failed to launch quarantined app: {launch.stderr}")
+        deadline = time.monotonic() + 15
+        trust_processes = []
+        while time.monotonic() < deadline:
+            rows = matching_process_snapshots(ownership_tokens)
+            if rows:
+                trust_processes = rows
+                break
+            time.sleep(0.2)
+        require(bool(trust_processes), "Quarantined app LaunchServices launch was not observed running")
+        write_json_atomic(evidence / "gatekeeper-trust-launch.json", {"processes": trust_processes})
+        complete, remaining, errors = terminate_owned(None, trust_processes, ownership_tokens, 10, allow_fixture_error=False)
+        require(complete and not remaining, f"Trust launch processes failed to terminate: {remaining} {errors}")
+
+        return {
+            "attribute": quarantine_value,
+            "signatureStatus": signature_status,
+            "notarizationStatus": notarization_status,
+            "quarantineStatus": quarantine_status,
+            "codesign": str((evidence / "codesign.log").resolve()),
+            "stapler": str((evidence / "stapler.log").resolve()),
+            "spctl": str((evidence / "spctl.log").resolve()),
+            "openAnyway": open_anyway,
+        }
+    finally:
+        launchctl_preservation.restore()
 
 
 def parse_process_tables(metadata_output: str, arguments_output: str) -> dict[int, dict[str, Any]]:
@@ -592,6 +1010,17 @@ def descendants(root_pid: int, table: dict[int, dict[str, Any]] | None = None) -
 def process_snapshots(pids: list[int], table: dict[int, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     rows = table if table is not None else process_table()
     return [{"pid": pid, **rows[pid]} for pid in pids if pid in rows]
+
+
+def matching_process_snapshots(ownership_tokens: list[str]) -> list[dict[str, Any]]:
+    return [
+        {"pid": pid, **row}
+        for pid, row in process_table().items()
+        if any(
+            token and (token in row.get("image", "") or token in row.get("commandLine", ""))
+            for token in ownership_tokens
+        )
+    ]
 
 
 
@@ -698,7 +1127,9 @@ def start_network_monitor(evidence: Path) -> tuple[subprocess.Popen[bytes] | Fix
         mode = os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_NETWORK_MONITOR_MODE")
         if not mode:
             return None, None, log_path
-        require(mode in {"dead", "unreadable", "malformed", "query-failure", "live-leak"}, f"Unknown fixture network monitor mode: {mode}")
+        require(mode in {"startup-failure", "dead", "unreadable", "malformed", "query-failure", "live-leak"}, f"Unknown fixture network monitor mode: {mode}")
+        if mode == "startup-failure":
+            raise BlockedError("gatekeeper", "Fixture network monitor could not start")
         stream = log_path.open("wb")
         if mode == "unreadable":
             stream.write(b"\xff\n")
@@ -719,7 +1150,7 @@ def start_network_monitor(evidence: Path) -> tuple[subprocess.Popen[bytes] | Fix
     except OSError as exc:
         if "stream" in locals() and not stream.closed:
             stream.close()
-        raise BlockedError("launch", f"macOS unified-log network monitor is unavailable: {exc}") from exc
+        raise BlockedError("gatekeeper", f"macOS unified-log network monitor is unavailable: {exc}") from exc
     time.sleep(0.5)
     try:
         return_code = monitor.poll()
@@ -731,10 +1162,10 @@ def start_network_monitor(evidence: Path) -> tuple[subprocess.Popen[bytes] | Fix
             stream.close()
             raise AcceptanceError(f"macOS unified-log network monitor remains live after startup failure: {cleanup_error}") from cleanup_error
         stream.close()
-        raise BlockedError("launch", f"macOS unified-log network monitor could not be queried after startup: {exc}") from exc
+        raise BlockedError("gatekeeper", f"macOS unified-log network monitor could not be queried after startup: {exc}") from exc
     if return_code is not None:
         stream.close()
-        raise BlockedError("launch", "macOS unified-log network monitor could not remain live")
+        raise BlockedError("gatekeeper", "macOS unified-log network monitor could not remain live")
     return monitor, stream, log_path
 
 
@@ -808,6 +1239,9 @@ def wait_for_ready(supervisor: subprocess.Popen[bytes], launcher: Path, data_roo
 
 
 def owned_processes(captured: list[dict[str, Any]], ownership_tokens: list[str]) -> list[dict[str, Any]]:
+    if FIXTURE_MODE and os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PROCESS_TABLE_FAIL") == "1":
+        raise OSError("fixture process table query failed")
+
     table = process_table()
     incarnations = {(int(row["pid"]), str(row["incarnation"])) for row in captured}
     owned: list[dict[str, Any]] = []
@@ -819,7 +1253,14 @@ def owned_processes(captured: list[dict[str, Any]], ownership_tokens: list[str])
     return owned
 
 
-def terminate_owned(supervisor: subprocess.Popen[bytes], captured: list[dict[str, Any]], ownership_tokens: list[str], timeout_seconds: int) -> tuple[bool, list[int], list[str]]:
+def terminate_owned(
+    supervisor: subprocess.Popen[bytes] | None,
+    captured: list[dict[str, Any]],
+    ownership_tokens: list[str],
+    timeout_seconds: int,
+    *,
+    allow_fixture_error: bool = False,
+) -> tuple[bool, list[int], list[str]]:
     errors: list[str] = []
     for row in owned_processes(captured, ownership_tokens):
         try:
@@ -840,12 +1281,13 @@ def terminate_owned(supervisor: subprocess.Popen[bytes], captured: list[dict[str
             pass
         except OSError as exc:
             errors.append(f"pid:{row['pid']}:{exc}")
-    try:
-        supervisor.wait(timeout=max(1, timeout_seconds))
-    except subprocess.TimeoutExpired:
-        errors.append(f"supervisor:{supervisor.pid}:did not exit")
+    if supervisor is not None:
+        try:
+            supervisor.wait(timeout=max(1, timeout_seconds))
+        except subprocess.TimeoutExpired:
+            errors.append(f"supervisor:{supervisor.pid}:did not exit")
     final = [int(row["pid"]) for row in owned_processes(captured, ownership_tokens)]
-    if FIXTURE_MODE and os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PROCESS_CLEANUP_ERROR") == "1":
+    if FIXTURE_MODE and allow_fixture_error and os.environ.get("LIZZIE_MACOS_ACCEPTANCE_FIXTURE_PROCESS_CLEANUP_ERROR") == "1":
         errors.append("fixture-owned-process-cleanup-error")
     return not final and not errors, final, errors
 
@@ -856,7 +1298,7 @@ def wait_engine_oracle(path: Path, timeout_seconds: int) -> Path:
         if path.is_file():
             return path
         time.sleep(0.2)
-    raise BlockedError("verify", f"Timed out waiting for the bound engine oracle producer to atomically write: {path}")
+    raise AcceptanceError(f"Timed out waiting for the bound engine oracle producer to atomically write: {path}")
 
 
 def require_keys(value: object, names: set[str], label: str) -> dict[str, Any]:
@@ -928,10 +1370,10 @@ def observed_model() -> dict[str, Any]:
         "host": {"os": platform.system(), "version": platform.mac_ver()[0], "architecture": normalized_architecture(platform.machine()), "physicalArchitecture": None, "translated": None, "fixtureMode": FIXTURE_MODE},
         "dmg": {"path": None, "layoutAudit": None, "dylibClosure": None, "mountPath": None, "device": None, "volumeName": None, "ejected": None},
         "installed": {"appPath": None, "bundleIdentifier": None, "launcher": None, "runtime": None, "launcherConfig": None, "jar": None, "jcef": None, "engine": None, "model": None},
-        "quarantine": {"attribute": None, "signatureStatus": None, "codesign": None, "stapler": None, "spctl": None, "firstLaunch": None, "openAnyway": None},
+        "quarantine": {"attribute": None, "signatureStatus": None, "notarizationStatus": None, "quarantineStatus": None, "codesign": None, "stapler": None, "spctl": None, "openAnyway": None},
         "launcher": {"pid": None, "command": None, "processArchitecture": None, "processes": None},
         "runtime": {"version": None, "architecture": None, "processImage": None},
-        "dataRoot": {"path": None, "selection": None, "config": None, "persist": None},
+        "dataRoot": {"path": None, "selection": None, "config": None, "persist": None, "outsideWrites": None, "snapshotEvidence": None},
         "network": {"boundary": None, "loopbackAvailable": None, "blockedAttemptCount": None, "counterEvidence": None},
         "readiness": {"state": None, "applicationLog": None, "screenshot": None, "runRecord": None},
         "analysis": {"status": None, "engineOracle": None},
@@ -949,11 +1391,14 @@ def required_outcomes() -> dict[str, Any]:
         ("observed.installed.appPath", "install"),
         ("observed.dmg.ejected", "install"),
         ("observed.quarantine.signatureStatus", "gatekeeper"),
-        ("observed.quarantine.firstLaunch", "gatekeeper"),
+        ("observed.quarantine.notarizationStatus", "gatekeeper"),
+        ("observed.quarantine.quarantineStatus", "gatekeeper"),
         ("observed.launcher.pid", "launch"),
         ("observed.launcher.processes", "launch"),
         ("observed.runtime.architecture", "install"),
         ("observed.dataRoot.path", "launch"),
+        ("observed.dataRoot.outsideWrites", "cleanup"),
+        ("observed.dataRoot.snapshotEvidence", "cleanup"),
         ("observed.readiness.state", "launch"),
         ("observed.analysis.status", "verify"),
         ("observed.network.blockedAttemptCount", "cleanup"),
@@ -995,7 +1440,24 @@ def failure_kind(message: str) -> str:
     return "error"
 
 
-def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity: dict[str, Any] | None = None) -> int:
+def run(
+    candidate_path: Path | None,
+    scenario: str,
+    evidence: Path,
+    *,
+    expected_target_sha: str | None = None,
+    expected_artifact_key: str | None = None,
+    expected_artifact_name: str | None = None,
+    expected_artifact_class: str | None = None,
+) -> int:
+    expected_flags = (expected_target_sha, expected_artifact_key, expected_artifact_name, expected_artifact_class)
+    candidate_is_missing = candidate_path is None or not candidate_path.is_file()
+    if candidate_is_missing and not all(expected_flags):
+        raise AcceptanceError(
+            "A missing candidate requires --expected-target-sha, --expected-artifact-key, "
+            "--expected-artifact-name, and --expected-artifact-class so BLOCKED evidence has exact requested identity."
+        )
+
     started_at = now()
     require(not evidence.exists(), f"Evidence directory must be new: {evidence}")
     evidence.mkdir(parents=True)
@@ -1009,10 +1471,14 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
     failure: dict[str, Any] | None = None
     reason: str | None = None
     blocked_phase: str | None = None
-    candidate: dict[str, Any] | None = requested_identity
-    product: dict[str, str] | None = PRODUCTS[requested_identity["artifact"]["key"]] if requested_identity is not None else None
+    candidate: dict[str, Any] | None = None
+    product: dict[str, str] | None = None
     mount_path: Path | None = None
     mount_device = ""
+    installed_app: Path | None = None
+    outside_before: dict[str, dict[str, Any]] | None = None
+    launchctl_preservation: LaunchctlPreservation | None = None
+    pf_boundary: PfBoundary | None = None
     supervisor: subprocess.Popen[bytes] | None = None
     captured_processes: list[dict[str, Any]] = []
     ownership_tokens: list[str] = []
@@ -1023,12 +1489,33 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
     network_log = evidence / "network-deny-events.ndjson"
     final_counter = evidence / "network-counter.txt"
     try:
-        if not candidate_path.is_file():
-            raise BlockedError("identity", f"The requested candidate.json is unavailable: {candidate_path}")
-        verified, verified_product = canonical_candidate(candidate_path.resolve())
-        if requested_identity is not None:
-            require(verified["targetSha"] == requested_identity["targetSha"] and all(verified["artifact"][key] == value for key, value in requested_identity["artifact"].items()), "Candidate differs from requested source/artifact identity")
-        candidate, product = verified, verified_product
+        if candidate_is_missing:
+            require(bool(re.fullmatch(r"[0-9a-f]{40}", expected_target_sha or "")), "expected-target-sha must be a 40-character lowercase hex commit SHA")
+            assert expected_artifact_key is not None and expected_artifact_name is not None and expected_artifact_class is not None
+            validate_canonical_macos_topology(expected_artifact_key, expected_artifact_name, expected_artifact_class)
+            candidate = {
+                "targetSha": expected_target_sha,
+                "artifact": {
+                    "key": expected_artifact_key,
+                    "name": expected_artifact_name,
+                    "class": expected_artifact_class,
+                },
+            }
+            product = PRODUCTS[expected_artifact_key]
+            missing_label = str(candidate_path) if candidate_path is not None else "<missing candidate.json>"
+            raise BlockedError("identity", f"The requested candidate.json is unavailable: {missing_label}")
+
+        candidate, product = canonical_candidate(candidate_path.resolve())
+        if any(flag is not None for flag in expected_flags):
+            if expected_target_sha is not None and expected_target_sha != candidate["targetSha"]:
+                raise AcceptanceError(f"Supplied expected target SHA {expected_target_sha} differs from candidate target SHA {candidate['targetSha']}")
+            if expected_artifact_key is not None and expected_artifact_key != candidate["artifact"]["key"]:
+                raise AcceptanceError(f"Supplied expected artifact key {expected_artifact_key} differs from candidate artifact key {candidate['artifact']['key']}")
+            if expected_artifact_name is not None and expected_artifact_name != candidate["artifact"]["name"]:
+                raise AcceptanceError(f"Supplied expected artifact name {expected_artifact_name} differs from candidate artifact name {candidate['artifact']['name']}")
+            if expected_artifact_class is not None and expected_artifact_class != candidate["artifact"]["class"]:
+                raise AcceptanceError(f"Supplied expected artifact class {expected_artifact_class} differs from candidate artifact class {candidate['artifact']['class']}")
+            validate_canonical_macos_topology(candidate["artifact"]["key"], candidate["artifact"]["name"], candidate["artifact"]["class"])
         observed["candidate"].update(path=str(candidate_path.resolve()), sha256=sha256_file(candidate_path), artifactSha256=candidate["artifact"]["sha256"], provenancePath=candidate["provenance"]["path"], provenanceSha256=candidate["provenance"]["sha256"], targetSha=candidate["targetSha"], releaseTag=candidate["releaseTag"])
         observed["dmg"]["path"] = candidate["artifact"]["sourcePath"]
         assertions["identity"] = True
@@ -1090,21 +1577,52 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
         assertions["installed"] = True
         evidence_values["install"] = str((evidence / "eject.log").resolve())
 
+        # Establish isolated data-root, ownership tokens, outside-data before snapshot,
+        # run-level network monitoring, exact launchctl environment preservation,
+        # and temporary host-level PF outbound-deny boundary before any Gatekeeper/LaunchServices launch
+        data_root = evidence / "隔离 工作 数据"
+        data_root.mkdir()
+        ready_file = evidence / "fixture-application-ready.txt"
+        ownership_tokens = [
+            str(installed_app.resolve()),
+            str(data_root.resolve()),
+            str(layout["launcher"]["path"]),
+            str(layout["engine"]["path"]),
+            str(layout["jcef"]["path"]),
+        ]
+        outside_before = outside_data_snapshots(installed_app)
+        outside_before_path = evidence / "outside-data-before.json"
+        write_json_atomic(outside_before_path, outside_before)
+
         phase = "gatekeeper"
-        quarantine = quarantine_and_assess(installed_app, dmg, evidence)
+        network_monitor, network_stream, network_log = start_network_monitor(evidence)
+        launchctl_preservation = LaunchctlPreservation(evidence)
+        pf_boundary = PfBoundary(evidence)
+
+        quarantine = quarantine_and_assess(
+            installed_app,
+            dmg,
+            evidence,
+            data_root,
+            ready_file,
+            final_counter,
+            layout,
+            ownership_tokens,
+            launchctl_preservation,
+        )
+        if launchctl_preservation.restore_failures:
+            raise AcceptanceError(
+                "Launchctl environment restoration failed: "
+                + ", ".join(launchctl_preservation.restore_failures)
+            )
         observed["quarantine"].update(quarantine)
         assertions["gatekeeper"] = True
         evidence_values["gatekeeper"] = quarantine["spctl"]
 
         phase = "launch"
-        data_root = evidence / "隔离 工作 数据"
-        data_root.mkdir()
-        ready_file = evidence / "fixture-application-ready.txt"
         sandbox_profile = evidence / "offline.sb"
         sandbox_profile.write_text("(version 1)\n(allow default)\n(deny network*)\n(allow network* (remote ip \"localhost:*\"))\n(allow network* (local ip \"localhost:*\"))\n", encoding="utf-8")
         loopback_available = probe_network_boundary(sandbox_profile, evidence)
-        ownership_tokens = [str(installed_app.resolve()), str(data_root.resolve()), str(layout["launcher"]["path"]), str(layout["engine"]["path"]), str(layout["jcef"]["path"])]
-        network_monitor, network_stream, network_log = start_network_monitor(evidence)
         environment = os.environ.copy()
         escaped_work_root = str(data_root.resolve()).replace("\\", "\\\\").replace('"', '\\"')
         environment.update({
@@ -1138,8 +1656,6 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
             if shot.returncode != 0:
                 raise BlockedError("launch", "Unable to capture the application window; Screen Recording permission is unavailable")
             require(screenshot.is_file(), "Application screenshot command did not create its evidence file")
-            if observed["quarantine"]["signatureStatus"] == "SIGNED_NOTARIZED":
-                observed["quarantine"]["firstLaunch"] = "ALLOWED"
         observed["launcher"].update(pid=runtime_pid, command=" ".join(launcher_command), processArchitecture=product["architecture"], processes=process_rows)
         observed["runtime"]["processImage"] = runtime_rows[0]["image"]
         observed["dataRoot"].update(path=str(data_root.resolve()), selection="JAVA_TOOL_OPTIONS injected into installed jpackage launcher JVM", config=str((data_root / "config.txt").resolve()), persist=str((data_root / "persist").resolve()))
@@ -1169,7 +1685,7 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
 
         phase = "cleanup"
         cleanup_rows = owned_processes(captured_processes, ownership_tokens)
-        complete, remaining, errors = terminate_owned(supervisor, captured_processes, ownership_tokens, int(os.environ.get("LIZZIE_MACOS_ACCEPTANCE_STOP_SECONDS", "15")))
+        complete, remaining, errors = terminate_owned(supervisor, captured_processes, ownership_tokens, int(os.environ.get("LIZZIE_MACOS_ACCEPTANCE_STOP_SECONDS", "15")), allow_fixture_error=True)
         cleanup["remainingOwnedResources"] = [f"process:{pid}" for pid in remaining] + errors
         cleanup["complete"] = not cleanup["remainingOwnedResources"]
         supervisor = None
@@ -1194,9 +1710,39 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
             attempts = int(final_counter.read_text(encoding="utf-8").strip())
         except ValueError as exc:
             raise AcceptanceError("Network counter evidence is invalid") from exc
+
+        if launchctl_preservation is not None:
+            launchctl_errors = launchctl_preservation.restore()
+            cleanup["remainingOwnedResources"].extend(
+                error
+                for error in [*launchctl_preservation.restore_failures, *launchctl_errors]
+                if error not in cleanup["remainingOwnedResources"]
+            )
+        if pf_boundary is not None:
+            pf_errors = pf_boundary.cleanup()
+            cleanup["remainingOwnedResources"].extend(pf_errors)
+
+        outside_after = outside_data_snapshots(installed_app)
+        outside_after_path = evidence / "outside-data-after.json"
+        write_json_atomic(outside_after_path, outside_after)
+        outside_writes = [label for label in outside_before if outside_before[label] != outside_after[label]]
+        observed["dataRoot"].update(
+            outsideWrites=outside_writes,
+            snapshotEvidence=[str(outside_before_path.resolve()), str(outside_after_path.resolve())],
+        )
+        if outside_writes:
+            cleanup["remainingOwnedResources"].extend(f"outside-data-write:{label}" for label in outside_writes)
+
         helper_pids = sorted({int(row["pid"]) for row in [*process_rows, *cleanup_rows] if "jcef Helper" in row["commandLine"]})
         observed["network"]["blockedAttemptCount"] = attempts
-        observed["cleanup"].update(remainingPids=remaining, helperPids=helper_pids, mountGone=not Path(observed["dmg"]["mountPath"]).exists(), readerCleanup=oracle["oracle"]["cleanup"]["readers"], stagedFilesCleanup=oracle["oracle"]["cleanup"]["stagedSgf"], errors=errors)
+        observed["cleanup"].update(
+            remainingPids=remaining,
+            helperPids=helper_pids,
+            mountGone=not Path(observed["dmg"]["mountPath"]).exists(),
+            readerCleanup=oracle["oracle"]["cleanup"]["readers"],
+            stagedFilesCleanup=oracle["oracle"]["cleanup"]["stagedSgf"],
+            errors=errors,
+        )
         if attempts:
             cleanup["remainingOwnedResources"].append(f"network-attempts:{attempts}")
         if not observed["cleanup"]["mountGone"]:
@@ -1204,20 +1750,54 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
         cleanup["complete"] = not cleanup["remainingOwnedResources"]
         assertions["cleaned"] = bool(cleanup["complete"])
         cleanup_summary = evidence / "cleanup-summary.json"
-        write_json_atomic(cleanup_summary, {"remainingPids": remaining, "helperPids": helper_pids, "mountGone": observed["cleanup"]["mountGone"], "networkBlockedAttemptCount": attempts, "readerCleanup": observed["cleanup"]["readerCleanup"], "stagedFilesCleanup": observed["cleanup"]["stagedFilesCleanup"], "errors": errors})
+        write_json_atomic(cleanup_summary, {
+            "remainingPids": remaining,
+            "helperPids": helper_pids,
+            "mountGone": observed["cleanup"]["mountGone"],
+            "networkBlockedAttemptCount": attempts,
+            "readerCleanup": observed["cleanup"]["readerCleanup"],
+            "stagedFilesCleanup": observed["cleanup"]["stagedFilesCleanup"],
+            "errors": errors,
+            "outsideWrites": outside_writes,
+        })
         evidence_values["cleanup"] = str(cleanup_summary.resolve())
+        require(not outside_writes, f"Application wrote outside the isolated data root: {outside_writes}")
         require(attempts == 0, f"Owned product attempted {attempts} external network connection(s)")
         require(complete, "Owned app/JCEF helper/engine process cleanup did not complete")
         require(observed["cleanup"]["mountGone"], "DMG mount remained after acceptance")
+        require(cleanup["complete"], f"Acceptance cleanup did not complete: {cleanup['remainingOwnedResources']}")
         status = "PASS"
     except BaseException as exc:
         message = str(exc) or exc.__class__.__name__
-        if supervisor is not None:
-            if not captured_processes:
-                captured_processes = process_snapshots(descendants(supervisor.pid))
-            _, remaining, cleanup_errors = terminate_owned(supervisor, captured_processes, ownership_tokens, int(os.environ.get("LIZZIE_MACOS_ACCEPTANCE_STOP_SECONDS", "15")))
-            cleanup["remainingOwnedResources"].extend([f"process:{pid}" for pid in remaining] + cleanup_errors)
-            supervisor = None
+        if isinstance(exc, PfAcquisitionError):
+            cleanup["remainingOwnedResources"].extend(exc.remaining_resources)
+        trust_behavior_started = False
+        if supervisor is not None or ownership_tokens:
+            try:
+                owned_before_cleanup = owned_processes(captured_processes, ownership_tokens)
+                trust_behavior_started = phase == "gatekeeper" and bool(owned_before_cleanup)
+                if supervisor is not None and not captured_processes:
+                    captured_processes = process_snapshots(descendants(supervisor.pid))
+                _, remaining, cleanup_errors = terminate_owned(
+                    supervisor,
+                    captured_processes,
+                    ownership_tokens,
+                    int(os.environ.get("LIZZIE_MACOS_ACCEPTANCE_STOP_SECONDS", "15")),
+                    allow_fixture_error=True,
+                )
+                cleanup["remainingOwnedResources"].extend(
+                    [f"process:{pid}" for pid in remaining] + cleanup_errors
+                )
+            except BaseException as process_cleanup_error:
+                cleanup["remainingOwnedResources"].append(
+                    f"process-cleanup:{process_cleanup_error}"
+                )
+                if supervisor is not None:
+                    cleanup["remainingOwnedResources"].append(
+                        f"process:{supervisor.pid}:cleanup-unverified"
+                    )
+            finally:
+                supervisor = None
         if network_monitor is not None:
             try:
                 stop_network_monitor(network_monitor, network_stream, network_log, ownership_tokens)
@@ -1232,9 +1812,46 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
                 detach_dmg(mount_path, mount_device, evidence)
             except BaseException as detach_error:
                 cleanup["remainingOwnedResources"].append(f"mount:{mount_path}:{detach_error}")
+        if launchctl_preservation is not None:
+            launchctl_errors = launchctl_preservation.restore()
+            cleanup["remainingOwnedResources"].extend(
+                error
+                for error in [*launchctl_preservation.restore_failures, *launchctl_errors]
+                if error not in cleanup["remainingOwnedResources"]
+            )
+        if pf_boundary is not None:
+            pf_errors = pf_boundary.cleanup()
+            cleanup["remainingOwnedResources"].extend(pf_errors)
+        exception_outside_writes: list[str] | None = None
+        exception_snapshot_evidence: list[str] | None = None
+        if phase == "cleanup" and outside_before is not None and installed_app is not None:
+            try:
+                outside_after = outside_data_snapshots(installed_app)
+                outside_after_path = evidence / "outside-data-after.json"
+                write_json_atomic(outside_after_path, outside_after)
+                exception_outside_writes = [label for label in outside_before if outside_before[label] != outside_after[label]]
+                exception_snapshot_evidence = [str((evidence / "outside-data-before.json").resolve()), str(outside_after_path.resolve())]
+                if exception_outside_writes:
+                    cleanup["remainingOwnedResources"].extend(
+                        f"outside-data-write:{label}" for label in exception_outside_writes
+                    )
+            except BaseException as snapshot_error:
+                cleanup["remainingOwnedResources"].append(
+                    f"outside-data-snapshot:{snapshot_error}"
+                )
+
         cleanup["complete"] = not cleanup["remainingOwnedResources"]
         cleanup_failed = not cleanup["complete"]
-        if isinstance(exc, BlockedError) and not cleanup_failed:
+        if (
+            phase == "cleanup"
+            and exception_outside_writes is not None
+            and (not isinstance(exc, BlockedError) or cleanup_failed)
+        ):
+            observed["dataRoot"].update(
+                outsideWrites=exception_outside_writes,
+                snapshotEvidence=exception_snapshot_evidence,
+            )
+        if isinstance(exc, BlockedError) and not cleanup_failed and not trust_behavior_started:
             status = "BLOCKED"
             blocked_phase = exc.phase
             reason = message
@@ -1244,10 +1861,16 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
             status = "FAIL"
             failure_message = message
             if isinstance(exc, BlockedError):
-                resources = ", ".join(cleanup["remainingOwnedResources"])
-                failure_message = f"{message}; cleanup incomplete: {resources}"
-                if phase == "cleanup":
-                    assertions["cleaned"] = False
+                details: list[str] = []
+                if trust_behavior_started:
+                    details.append("product behavior started during the gatekeeper phase")
+                if cleanup_failed:
+                    details.append(
+                        "cleanup incomplete: " + ", ".join(cleanup["remainingOwnedResources"])
+                    )
+                failure_message = f"{message}; {'; '.join(details)}"
+                assertion_for_phase = {"identity": "identity", "content": "content", "install": "installed", "gatekeeper": "gatekeeper", "launch": "launched", "verify": "verified", "cleanup": "cleaned"}[phase]
+                assertions[assertion_for_phase] = False
             else:
                 assertion_for_phase = {"identity": "identity", "content": "content", "install": "installed", "gatekeeper": "gatekeeper", "launch": "launched", "verify": "verified", "cleanup": "cleaned"}[phase]
                 assertions[assertion_for_phase] = False
@@ -1260,12 +1883,16 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
                 stream.close()
 
     if candidate is None or product is None:
-        try:
-            supplied = read_json(candidate_path, "candidate.json")
-            artifact = supplied["artifact"]
-            product = PRODUCTS[str(artifact["key"])]
-            candidate = supplied
-        except (AcceptanceError, KeyError, TypeError):
+        if candidate_path is not None:
+            try:
+                supplied = read_json(candidate_path, "candidate.json")
+                artifact = supplied["artifact"]
+                product = PRODUCTS[str(artifact["key"])]
+                candidate = supplied
+            except (AcceptanceError, KeyError, TypeError):
+                print("macOS product acceptance cannot write a schema-valid record without candidate identity", file=sys.stderr)
+                return 1
+        else:
             print("macOS product acceptance cannot write a schema-valid record without candidate identity", file=sys.stderr)
             return 1
     not_observed: dict[str, str] = {}
@@ -1294,29 +1921,28 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--candidate", required=True, type=Path)
+    parser.add_argument("--candidate", type=Path, default=None)
     parser.add_argument("--scenario", required=True, choices=SCENARIOS)
     parser.add_argument("--evidence-dir", required=True, type=Path)
-    parser.add_argument("--target-sha")
-    parser.add_argument("--expected-artifact-key", choices=tuple(PRODUCTS))
-    parser.add_argument("--expected-artifact-name")
-    parser.add_argument("--expected-artifact-class", choices=("dmg-product",))
-    args = parser.parse_args(argv)
-    identity = (args.target_sha, args.expected_artifact_key, args.expected_artifact_name, args.expected_artifact_class)
-    if any(identity) and not all(identity):
-        parser.error("--target-sha and all three --expected-artifact-* arguments must be supplied together")
-    if args.target_sha and re.fullmatch(r"[0-9a-f]{40}", args.target_sha) is None:
-        parser.error("--target-sha must be a full lowercase commit SHA")
-    return args
+    parser.add_argument("--expected-target-sha", default=None)
+    parser.add_argument("--expected-artifact-key", default=None)
+    parser.add_argument("--expected-artifact-name", default=None)
+    parser.add_argument("--expected-artifact-class", default=None)
+    return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    requested = None
-    if args.target_sha:
-        requested = {"targetSha": args.target_sha, "artifact": {"key": args.expected_artifact_key, "name": args.expected_artifact_name, "class": args.expected_artifact_class}}
     try:
-        return run(args.candidate, args.scenario, args.evidence_dir.resolve(), requested)
+        return run(
+            args.candidate,
+            args.scenario,
+            args.evidence_dir.resolve(),
+            expected_target_sha=args.expected_target_sha,
+            expected_artifact_key=args.expected_artifact_key,
+            expected_artifact_name=args.expected_artifact_name,
+            expected_artifact_class=args.expected_artifact_class,
+        )
     except (OSError, AcceptanceError, ValueError) as exc:
         print(f"macOS product acceptance failed: {exc}", file=sys.stderr)
         return 1

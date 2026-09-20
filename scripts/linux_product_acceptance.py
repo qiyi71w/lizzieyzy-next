@@ -33,6 +33,11 @@ BACKENDS = {
     "linux64_opencl": "opencl",
     "linux64_nvidia": "nvidia",
 }
+ARTIFACT_SUFFIXES = {
+    "linux64": "linux64.with-katago.zip",
+    "linux64_opencl": "linux64.opencl.zip",
+    "linux64_nvidia": "linux64.nvidia.zip",
+}
 PHASES = ("identity", "extraction", "launch", "verify", "cleanup")
 FIXTURE_MODE = os.environ.get("LIZZIE_LINUX_ACCEPTANCE_FIXTURE_MODE") == "1"
 
@@ -96,6 +101,43 @@ def read_json(path: Path, label: str) -> dict[str, Any]:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AcceptanceError(message)
+
+
+def requested_candidate_identity(
+    target_sha: str | None,
+    artifact_key: str | None,
+    artifact_name: str | None,
+    artifact_class: str | None,
+) -> dict[str, Any] | None:
+    supplied = (target_sha, artifact_key, artifact_name, artifact_class)
+    if not any(value is not None for value in supplied):
+        return None
+    if target_sha is not None:
+        require(re.fullmatch(r"[0-9a-f]{40}", target_sha) is not None, "--expected-target-sha must be a full lowercase commit SHA")
+    if artifact_key is not None:
+        require(artifact_key in BACKENDS, "--expected-artifact-key is not a Linux final product")
+    if artifact_class is not None:
+        require(artifact_class == "linux-product", "--expected-artifact-class must be linux-product")
+    if artifact_name is not None:
+        suffixes = (
+            (ARTIFACT_SUFFIXES[artifact_key],)
+            if artifact_key in ARTIFACT_SUFFIXES
+            else tuple(ARTIFACT_SUFFIXES.values())
+        )
+        require(
+            any(re.fullmatch(rf"\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(suffix)}", artifact_name) for suffix in suffixes),
+            "--expected-artifact-name does not match the canonical Linux product topology",
+        )
+    if not all(value is not None for value in supplied):
+        return None
+    return {
+        "targetSha": target_sha,
+        "artifact": {
+            "key": artifact_key,
+            "name": artifact_name,
+            "class": artifact_class,
+        },
+    }
 
 
 def canonical_candidate(path: Path) -> dict[str, Any]:
@@ -220,7 +262,8 @@ def resolve_layout(product_root: Path, backend: str) -> dict[str, Any]:
 
 def probe_runtime(runtime: Path, log_path: Path) -> tuple[str, str]:
     host_architecture = platform.machine().lower()
-    require(host_architecture in {"amd64", "x86_64"}, f"Linux product acceptance requires an x86_64 host, found {host_architecture!r}")
+    if host_architecture not in {"amd64", "x86_64"}:
+        raise BlockedError("extraction", f"Linux product acceptance requires an x86_64 host, found {host_architecture!r}")
     result = subprocess.run(
         [str(runtime), "-XshowSettings:properties", "-version"],
         capture_output=True,
@@ -772,7 +815,27 @@ def failure_kind(message: str) -> str:
     return "error"
 
 
-def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity: dict[str, Any] | None = None) -> int:
+def run(
+    candidate_path: Path,
+    scenario: str,
+    evidence: Path,
+    *,
+    expected_target_sha: str | None = None,
+    expected_artifact_key: str | None = None,
+    expected_artifact_name: str | None = None,
+    expected_artifact_class: str | None = None,
+) -> int:
+    requested_identity = requested_candidate_identity(
+        expected_target_sha,
+        expected_artifact_key,
+        expected_artifact_name,
+        expected_artifact_class,
+    )
+    if not candidate_path.is_file():
+        require(
+            requested_identity is not None,
+            "Missing candidate.json requires --expected-target-sha, --expected-artifact-key, --expected-artifact-name, and --expected-artifact-class",
+        )
     started_at = now()
     require(not evidence.exists(), f"Evidence directory must be new: {evidence}")
     evidence.mkdir(parents=True)
@@ -786,8 +849,8 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
     failure: dict[str, Any] | None = None
     reason: str | None = None
     blocked_phase: str | None = None
-    candidate: dict[str, Any] | None = requested_identity
-    backend = ""
+    candidate: dict[str, Any] | None = requested_identity if not candidate_path.is_file() else None
+    backend = expected_backend(candidate, scenario) if candidate is not None else ""
     supervisor: subprocess.Popen[bytes] | None = None
     runtime_pid = 0
     layout: dict[str, Any] | None = None
@@ -797,10 +860,22 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
     try:
         if not candidate_path.is_file():
             raise BlockedError("identity", f"The requested candidate.json is unavailable: {candidate_path}")
-        verified = canonical_candidate(candidate_path.resolve())
-        if requested_identity is not None:
-            require(verified["targetSha"] == requested_identity["targetSha"] and all(verified["artifact"][key] == value for key, value in requested_identity["artifact"].items()), "Candidate differs from requested source/artifact identity")
-        candidate = verified
+        candidate = canonical_candidate(candidate_path.resolve())
+        expected_values = {
+            "targetSha": expected_target_sha,
+            "artifact.key": expected_artifact_key,
+            "artifact.name": expected_artifact_name,
+            "artifact.class": expected_artifact_class,
+        }
+        actual_values = {
+            "targetSha": candidate["targetSha"],
+            "artifact.key": candidate["artifact"]["key"],
+            "artifact.name": candidate["artifact"]["name"],
+            "artifact.class": candidate["artifact"]["class"],
+        }
+        for label, expected_value in expected_values.items():
+            if expected_value is not None:
+                require(actual_values[label] == expected_value, f"Candidate {label} differs from requested identity")
         backend = expected_backend(candidate, scenario)
         observed["candidate"].update(
             path=str(candidate_path.resolve()),
@@ -864,7 +939,10 @@ def run(candidate_path: Path, scenario: str, evidence: Path, requested_identity:
         fixture_window = evidence / "fixture-window-ready.txt"
         baseline_windows: set[str] = set()
         if not FIXTURE_MODE:
-            baseline_tree, baseline = display_windows()
+            try:
+                baseline_tree, baseline = display_windows()
+            except (AcceptanceError, subprocess.SubprocessError, OSError) as exc:
+                raise BlockedError("launch", f"Linux display is unavailable or unqueryable before launch: {exc}") from exc
             baseline_windows = set(baseline)
             (evidence / "window-tree-before.txt").write_text(baseline_tree, encoding="utf-8")
         helper = build_network_helper(evidence)
@@ -1094,26 +1172,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--candidate", required=True, type=Path)
     parser.add_argument("--scenario", required=True, choices=SCENARIOS)
     parser.add_argument("--evidence-dir", required=True, type=Path)
-    parser.add_argument("--target-sha")
-    parser.add_argument("--expected-artifact-key", choices=tuple(BACKENDS))
-    parser.add_argument("--expected-artifact-name")
-    parser.add_argument("--expected-artifact-class", choices=("linux-product",))
-    args = parser.parse_args(argv)
-    identity = (args.target_sha, args.expected_artifact_key, args.expected_artifact_name, args.expected_artifact_class)
-    if any(identity) and not all(identity):
-        parser.error("--target-sha and all three --expected-artifact-* arguments must be supplied together")
-    if args.target_sha and re.fullmatch(r"[0-9a-f]{40}", args.target_sha) is None:
-        parser.error("--target-sha must be a full lowercase commit SHA")
-    return args
+    parser.add_argument("--expected-target-sha", default=None)
+    parser.add_argument("--expected-artifact-key", default=None)
+    parser.add_argument("--expected-artifact-name", default=None)
+    parser.add_argument("--expected-artifact-class", default=None)
+    return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    requested = None
-    if args.target_sha:
-        requested = {"targetSha": args.target_sha, "artifact": {"key": args.expected_artifact_key, "name": args.expected_artifact_name, "class": args.expected_artifact_class}}
     try:
-        return run(args.candidate, args.scenario, args.evidence_dir.resolve(), requested)
+        return run(
+            args.candidate,
+            args.scenario,
+            args.evidence_dir.resolve(),
+            expected_target_sha=args.expected_target_sha,
+            expected_artifact_key=args.expected_artifact_key,
+            expected_artifact_name=args.expected_artifact_name,
+            expected_artifact_class=args.expected_artifact_class,
+        )
     except (OSError, AcceptanceError, ValueError) as exc:
         print(f"Linux product acceptance failed: {exc}", file=sys.stderr)
         return 1
