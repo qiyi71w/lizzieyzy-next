@@ -5,7 +5,24 @@ on:
   pull_request:
     paths:
       - '.github/workflows/katago-source-windows.yml'
-      - 'scripts/*katago*'
+      - 'scripts/build_katago_source.py'
+      - 'scripts/katago_source_targets.py'
+      # Shared download, digest, extraction and inventory helpers.
+      - 'scripts/build_katago_macos_dependencies.py'
+      - 'scripts/build_katago_windows_dependencies.py'
+      - 'scripts/katago_windows_dependencies.json'
+      - 'scripts/build_katago_directml_dependencies.py'
+      - 'scripts/katago_directml_dependencies.json'
+      - 'scripts/build_katago_openvino_dependencies.py'
+      - 'scripts/katago_openvino_dependencies.json'
+      - 'scripts/build_katago_cuda_dependencies.py'
+      - 'scripts/katago_cuda_dependencies.json'
+      - 'scripts/build_katago_tensorrt_dependencies.py'
+      - 'scripts/katago_tensorrt_dependencies.json'
+      - 'scripts/build_katago_rocm_dependencies.py'
+      - 'scripts/katago_rocm_dependencies.json'
+      - 'scripts/package_katago_source_windows.py'
+      - 'scripts/probe_katago_focus.py'
 
 permissions:
   contents: read

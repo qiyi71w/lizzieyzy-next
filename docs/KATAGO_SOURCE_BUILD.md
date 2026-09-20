@@ -3,6 +3,23 @@
 This tooling is a prerequisite for the move-focus pre-release, not permission to publish it.
 The production package builders and stable/R2 channels are unchanged until all release gates pass.
 
+## CI trigger scope
+
+The three `katago-source-*.yml` workflows use explicit PR path lists for their
+platform's build scripts, dependency locks, packaging and executable audits.
+Shared source-builder and target-definition changes trigger all three platforms.
+`build_katago_macos_dependencies.py` also triggers all three because Windows and
+Linux reuse its download, digest, extraction and inventory helpers. The Linux
+compatibility audit additionally consumes `stage_katago_source_release.py`.
+
+Catalog validation, final-application bundle audits, test fixtures and documentation
+changes use their normal CI checks without rebuilding the source-engine matrices.
+Changes to a workflow itself run its existing matrix. Each workflow retains
+`workflow_dispatch` for an explicit full platform build; shared builder changes
+still run all 15 targets. Update the platform path list when adding a build input.
+PR filters use the cumulative PR diff, so further pushes to a PR that changes a
+listed input continue to trigger that platform until the PR is merged.
+
 ## Windows CUDA evidence build
 
 `windows-nvidia` builds the pinned source using the existing MSVC 14.44 toolset,
