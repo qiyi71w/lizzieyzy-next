@@ -24,10 +24,21 @@ RELEASE_TAG = f"next-{DATE_TAG}.1"
 TARGET_SHA = "a" * 40
 RUN_ID = 90210
 RUN_ATTEMPT = 1
+WINDOWS_FIXTURES_AVAILABLE = bool(
+    shutil.which("pwsh.exe") and shutil.which("powershell.exe")
+    and (os.name == "nt" or Path("/mnt/c/Temp").is_dir())
+)
+
+
+def setUpModule() -> None:
+    if os.environ.get("LIZZIE_WINDOWS_PRODUCT_TESTS_REQUIRED") == "1" and not WINDOWS_FIXTURES_AVAILABLE:
+        raise RuntimeError("Required Windows product fixtures need native Windows/WSL, PowerShell 7 and Windows PowerShell")
 
 
 def windows_path(path: Path) -> str:
     resolved = path.resolve()
+    if os.name == "nt":
+        return str(resolved)
     text = resolved.as_posix()
     if text.startswith("/mnt/") and len(text) > 7:
         drive = text[5].upper()
@@ -41,6 +52,12 @@ def windows_path(path: Path) -> str:
     return result.stdout.strip()
 
 
+def host_path(path: str) -> Path:
+    if os.name == "nt":
+        return Path(path)
+    return Path("/mnt") / path[0].lower() / path[3:].replace("\\", "/")
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -49,29 +66,32 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-@unittest.skipUnless(shutil.which("pwsh.exe") and shutil.which("powershell.exe") and Path("/mnt/c/Temp").is_dir(), "requires WSL with Windows PowerShell")
+@unittest.skipUnless(WINDOWS_FIXTURES_AVAILABLE, "requires native Windows or WSL with Windows PowerShell")
 class WindowsProductAcceptanceFixtureTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.class_root = Path(tempfile.mkdtemp(prefix="lizzie-product-acceptance-tools-", dir="/mnt/c/Temp"))
+        cls.class_root = Path(tempfile.mkdtemp(prefix="lizzie-product-acceptance-tools-", dir=None if os.name == "nt" else "/mnt/c/Temp"))
         cls.launcher = cls.class_root / "fixture-launcher.exe"
         cls.jvm_host = cls.class_root / "fixture-jvm-host.exe"
         cls.sleepy_launcher = cls.class_root / "fixture-sleepy-launcher.exe"
         cls.java = cls.class_root / "fixture-java.exe"
         cls.malicious_java = cls.class_root / "fixture-malicious-java.exe"
         cls.argv_recorder = cls.class_root / "fixture-argv-recorder.exe"
-        cls.jvm = Path("/mnt/c/Windows/System32/version.dll")
+        cls.jvm = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/version.dll" if os.name == "nt" else Path("/mnt/c/Windows/System32/version.dll")
         ready_source = r'''
 using System;
 using System.IO;
+using System.Diagnostics;
+using System.Threading;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 namespace FixtureJvmHost {
   public static class Program {
-    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr LoadLibrary(string path);
+    [DllImport("kernel32.dll", EntryPoint = "LoadLibraryW", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr LoadLibrary(string path);
     [STAThread] public static void Main() {
       string root = Directory.GetParent(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;
-      if (LoadLibrary(Path.Combine(root, "runtime", "bin", "server", "jvm.dll")) == IntPtr.Zero) throw new InvalidOperationException("fixture jvm load failed");
+      AppDomain.CurrentDomain.UnhandledException += (sender, args) => File.WriteAllText(Path.Combine(root, "fixture-failure.txt"), args.ExceptionObject.ToString());
+      if (LoadLibrary(Path.Combine(root, "runtime", "bin", "server", "jvm.dll")) == IntPtr.Zero) throw new InvalidOperationException("fixture jvm load failed: " + Marshal.GetLastWin32Error());
       string data = Path.Combine(root, "user-data");
       string cfg = Path.Combine(root, "app", "LizzieYzy Next.cfg");
       if (File.Exists(cfg)) {
@@ -84,6 +104,17 @@ namespace FixtureJvmHost {
       File.WriteAllText(Path.Combine(data, "config.txt"), "{\"ui\":{},\"leelaz\":{\"engine-settings-list\":[]}}\n");
       File.WriteAllText(Path.Combine(data, "persist"), "fixture\n");
       File.WriteAllText(Path.Combine(data, "logs", "app.log"), "application ready\n");
+      // Reproduce the production window-before-engine startup ordering.
+      var engineStarter = new Thread(() => {
+        Thread.Sleep(3000);
+        Process.Start(new ProcessStartInfo {
+          FileName = Path.Combine(root, "app", "engines", "katago", "windows-x64", "katago.exe"),
+          WorkingDirectory = root,
+          UseShellExecute = false
+        });
+      });
+      engineStarter.IsBackground = true;
+      engineStarter.Start();
       Application.Run(new Form { Text = "LizzieYzy Next acceptance fixture", Width = 320, Height = 180 });
     }
   }
@@ -96,12 +127,14 @@ namespace FixtureLauncher {
   public static class Program {
     [STAThread] public static void Main() {
       string root = AppContext.BaseDirectory;
+      AppDomain.CurrentDomain.UnhandledException += (sender, args) => File.WriteAllText(Path.Combine(root, "fixture-launcher-failure.txt"), args.ExceptionObject.ToString());
       using (Process child = Process.Start(new ProcessStartInfo {
         FileName = Path.Combine(root, "app", "LizzieYzy Next JVM Host.exe"),
         WorkingDirectory = root,
         UseShellExecute = false
       })) {
         child.WaitForExit();
+        File.WriteAllText(Path.Combine(root, "fixture-child-exit.txt"), child.ExitCode.ToString());
         Environment.ExitCode = child.ExitCode;
       }
     }
@@ -147,11 +180,11 @@ namespace FixtureLauncher {
         shutil.rmtree(cls.class_root, ignore_errors=True)
 
     def setUp(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="lizzie-product-acceptance-", dir="/mnt/c/Temp"))
+        self.root = Path(tempfile.mkdtemp(prefix="lizzie-product-acceptance-", dir=None if os.name == "nt" else "/mnt/c/Temp"))
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def run_script(self, *arguments: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        result = subprocess.run(
             [
                 "pwsh.exe",
                 "-NoLogo",
@@ -170,6 +203,12 @@ namespace FixtureLauncher {
             errors="replace",
             timeout=45,
         )
+        if result.returncode:
+            diagnostics = []
+            for path in sorted(self.root.rglob("fixture-*.txt")):
+                diagnostics.append(f"{path}: {path.read_text(encoding='utf-8', errors='replace')}")
+            result.stderr += "\n" + "\n".join(diagnostics)
+        return result
 
     def run_driver(self, driver: Path) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -224,6 +263,7 @@ namespace FixtureLauncher {
         *,
         unsafe: bool = False,
         ready: bool = True,
+        launcher_override: Path | None = None,
         date_tag: str = DATE_TAG,
         release_tag: str = RELEASE_TAG,
         target_sha: str = TARGET_SHA,
@@ -232,7 +272,7 @@ namespace FixtureLauncher {
         product = "LizzieYzy Next"
         files: dict[str, bytes] = {
             f"{product}/.lizzie-portable": b"portable fixture\n",
-            f"{product}/LizzieYzy Next.exe": (self.launcher if ready else self.sleepy_launcher).read_bytes(),
+            f"{product}/LizzieYzy Next.exe": (launcher_override or (self.launcher if ready else self.sleepy_launcher)).read_bytes(),
             f"{product}/app/LizzieYzy Next JVM Host.exe": self.jvm_host.read_bytes(),
             f"{product}/runtime/bin/java.exe": self.java.read_bytes(),
             f"{product}/runtime/bin/server/jvm.dll": self.jvm.read_bytes(),
@@ -242,7 +282,7 @@ namespace FixtureLauncher {
                 json.dumps({"schemaVersion": 1, "releaseTag": release_tag, "platform": "windows", "flavor": "with-katago"}) + "\n"
             ).encode(),
             f"{product}/app/engines/katago/configs/gtp.cfg": b"fixture config",
-            f"{product}/app/engines/katago/windows-x64/katago.exe": b"fixture engine",
+            f"{product}/app/engines/katago/windows-x64/katago.exe": self.sleepy_launcher.read_bytes(),
             f"{product}/app/engines/katago/windows-x64/lizzieyzy-next-engine-backend.txt": b"cpu\n",
             f"{product}/app/weights/default.bin.gz": b"fixture weight",
             f"{product}/app/jcef-bundle/libcef.dll": b"fixture jcef",
@@ -353,7 +393,9 @@ namespace FixtureLauncher {
             self.assertEqual(0, stopped.returncode, stopped.stderr or stopped.stdout)
 
     def test_status_accepts_original_start_record_with_owned_child_jvm(self) -> None:
-        evidence, run = self.start_live_fixture("raw status evidence")
+        # Supplementary-plane characters cannot round-trip through legacy ANSI
+        # code pages, even on a Chinese Windows host.
+        evidence, run = self.start_live_fixture("raw status \U0001f9ea evidence")
         run_path = evidence / "run.json"
         original = run_path.read_bytes()
 
@@ -364,6 +406,10 @@ namespace FixtureLauncher {
         self.assertEqual(original, run_path.read_bytes())
         self.assertNotEqual(run["launcher"]["pid"], run["runtime"]["jvmModule"]["pid"])
         self.assertIn(run["runtime"]["jvmModule"]["pid"], run["ownedPids"])
+        engines = [process for process in run["activeProcesses"]
+                   if process["image"].lower() == run["engine"]["path"].lower()]
+        self.assertEqual(1, len(engines), "Start must capture the delayed packaged engine")
+        self.assertIn(engines[0]["pid"], run["ownedPids"])
 
     def test_status_rejects_creation_drift_and_invalid_jvm_hosts(self) -> None:
         evidence, run = self.start_live_fixture("status identity evidence")
@@ -388,7 +434,7 @@ namespace FixtureLauncher {
         jvm_host = next(process for process in run["activeProcesses"] if process["pid"] == run["runtime"]["jvmModule"]["pid"])
         loaded_wrong_path = jvm_host["image"]
         wrong_path["runtime"]["jvmModule"]["modulePath"] = loaded_wrong_path
-        wrong_path["runtime"]["jvmModule"]["moduleSha256"] = sha256(Path("/mnt/c") / Path(loaded_wrong_path[3:].replace("\\", "/")))
+        wrong_path["runtime"]["jvmModule"]["moduleSha256"] = sha256(host_path(loaded_wrong_path))
         wrong_path_file = evidence / "wrong-jvm-path-run.json"
         wrong_path_file.write_text(json.dumps(wrong_path), encoding="utf-8")
         status = self.run_script("-Command", "Status", "-RunJson", windows_path(wrong_path_file))
@@ -416,7 +462,7 @@ namespace FixtureLauncher {
         self.assertIn("验收", prepared["productRoot"])
         self.assertEqual("portable-product", prepared["artifactClass"])
         self.assertEqual("cpu", prepared["layout"]["backend"])
-        self.assertTrue((Path("/mnt/c") / Path(prepared["productRoot"][3:].replace("\\", "/"))).exists())
+        self.assertTrue(host_path(prepared["productRoot"]).exists())
 
     def test_rejects_traversal_before_extracting_product(self) -> None:
         asset, manifest = self.create_portable(unsafe=True)
@@ -448,7 +494,7 @@ namespace FixtureLauncher {
         evidence, prepared = self.prepare(asset, manifest, "runtime drift evidence")
         self.assertEqual(0, prepared.returncode, prepared.stderr or prepared.stdout)
         identity = json.loads((evidence / "prepared.json").read_text(encoding="utf-8"))
-        runtime = Path("/mnt/c") / Path(identity["layout"]["runtime"][3:].replace("\\", "/"))
+        runtime = host_path(identity["layout"]["runtime"])
         shutil.copy2(self.malicious_java, runtime)
         result = self.run_script(
             "-Command", "Start",
@@ -465,7 +511,7 @@ namespace FixtureLauncher {
         evidence, prepared = self.prepare(asset, manifest, "component drift evidence")
         self.assertEqual(0, prepared.returncode, prepared.stderr or prepared.stdout)
         identity = json.loads((evidence / "prepared.json").read_text(encoding="utf-8"))
-        product_root = Path("/mnt/c") / Path(identity["productRoot"][3:].replace("\\", "/"))
+        product_root = host_path(identity["productRoot"])
         (product_root / "app" / "jcef-bundle" / "injected.dll").write_bytes(b"drift")
         result = self.run_script(
             "-Command", "Start",
@@ -475,6 +521,25 @@ namespace FixtureLauncher {
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("jcef closure drift", (result.stderr + result.stdout).lower())
+        self.assertFalse((evidence / "run.json").exists())
+
+    def test_exited_launcher_preserves_original_failure_and_cleanup_record(self) -> None:
+        asset, manifest = self.create_portable(launcher_override=self.java)
+        evidence, prepared = self.prepare(asset, manifest, "exited launcher evidence")
+        self.assertEqual(0, prepared.returncode, prepared.stderr or prepared.stdout)
+        result = self.run_script(
+            "-Command", "Start",
+            "-CandidateJson", windows_path(evidence / "candidate.json"),
+            "-Scenario", "live-session", "-EvidenceDir", windows_path(evidence),
+            "-WaitSeconds", "5",
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertRegex(result.stderr + result.stdout,
+                         r"Packaged launcher (exited|process tree disappeared) before readiness")
+        self.assertNotIn("empty array", result.stderr + result.stdout)
+        cleanup = json.loads((evidence / "startup-cleanup.json").read_text(encoding="utf-8"))
+        self.assertTrue(cleanup["complete"])
+        self.assertEqual([], cleanup["remainingOwnedPids"])
         self.assertFalse((evidence / "run.json").exists())
 
     def test_missing_readiness_times_out_and_cleans_owned_process(self) -> None:
@@ -646,7 +711,7 @@ namespace FixtureLauncher {
         evidence, prepared = self.prepare(asset, manifest, "missing config evidence")
         self.assertEqual(0, prepared.returncode, prepared.stderr or prepared.stdout)
         identity = json.loads((evidence / "prepared.json").read_text(encoding="utf-8"))
-        config = Path("/mnt/c") / Path(identity["layout"]["config"][3:].replace("\\", "/"))
+        config = host_path(identity["layout"]["config"])
         config.unlink()
         result = self.run_script(
             "-Command", "Run",
@@ -727,7 +792,7 @@ namespace FixtureLauncher {
         )
         self.assertEqual(0, started.returncode, started.stderr or started.stdout)
         identity = json.loads((evidence / "prepared.json").read_text(encoding="utf-8"))
-        product_root = Path("/mnt/c") / Path(identity["productRoot"][3:].replace("\\", "/"))
+        product_root = host_path(identity["productRoot"])
         (product_root / "app" / "jcef-bundle" / "drift.txt").write_text("drift", encoding="utf-8")
         stopped = self.run_script("-Command", "Stop", "-RunJson", windows_path(evidence / "run.json"))
         self.assertNotEqual(0, stopped.returncode)
@@ -1010,6 +1075,35 @@ if (-not $script:rolledBack -or $script:fixtureEntry) {{ throw 'owned installer 
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("candidate binding differs", result.stderr + result.stdout)
+
+
+@unittest.skipUnless(shutil.which("pwsh.exe") or shutil.which("pwsh"), "requires PowerShell 7")
+class StartupEngineIdentityTest(unittest.TestCase):
+    def test_startup_requires_exact_unique_owned_engine(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="lizzie-startup-identity-") as directory:
+            driver = Path(directory) / "startup.ps1"
+            script_path = str(SCRIPT.resolve()).replace("'", "''")
+            driver.write_text(
+                f". '{script_path}' -Command Prepare\n"
+                "$enginePath = Join-Path ([System.IO.Path]::GetTempPath()) 'owned-katago.exe'\n"
+                "$layout = [pscustomobject]@{Backend='cpu'; Engine=$enginePath}\n"
+                "$ownedEngine = [pscustomobject]@{image=$enginePath}\n"
+                "if (Test-OwnedStartupEngine -Layout $layout -Processes @()) { throw 'window-only startup accepted' }\n"
+                "if (Test-OwnedStartupEngine -Layout $layout -Processes @([pscustomobject]@{image=$null})) { throw 'missing image accepted' }\n"
+                "if (Test-OwnedStartupEngine -Layout $layout -Processes @([pscustomobject]@{image=($enginePath + '.other')})) { throw 'other engine accepted' }\n"
+                "if (-not (Test-OwnedStartupEngine -Layout $layout -Processes @($ownedEngine))) { throw 'delayed owned engine rejected' }\n"
+                "if (Test-OwnedStartupEngine -Layout $layout -Processes @($ownedEngine,$ownedEngine)) { throw 'ambiguous engine accepted' }\n"
+                "$layout.Engine = $null\n"
+                "if (Test-OwnedStartupEngine -Layout $layout -Processes @()) { throw 'missing engine layout accepted' }\n"
+                "$layout.Backend = 'none'\n"
+                "if (-not (Test-OwnedStartupEngine -Layout $layout -Processes @())) { throw 'no-engine layout requires an engine' }\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [shutil.which("pwsh.exe") or shutil.which("pwsh"), "-NoProfile", "-File", str(driver)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+            )
+            self.assertEqual(0, result.returncode, result.stderr or result.stdout)
 
 
 if __name__ == "__main__":

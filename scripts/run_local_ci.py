@@ -400,6 +400,11 @@ def windows_steps(maven: str, powershell: str) -> list[Step]:
             (python, "-m", "unittest", "scripts.test_windows_ci_diagnostics"),
         ),
         Step(
+            "Verify Windows product acceptance fixtures",
+            (python, "-m", "unittest", "scripts.test_windows_product_acceptance"),
+            env={"LIZZIE_WINDOWS_PRODUCT_TESTS_REQUIRED": "1"},
+        ),
+        Step(
             "Verify Windows credential persistence",
             (
                 maven,
