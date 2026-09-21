@@ -149,9 +149,9 @@ public class Board {
   /**
    * Exact board-owned state replaced by {@link #clear(boolean)}.
    *
-   * <p>This token is intentionally opaque. Callers that prepare a mode switch can restore the
-   * same history object (and therefore the same current node and variation tree) if a later UI or
-   * engine handoff fails.
+   * <p>This token is intentionally opaque. Callers that prepare a mode switch can restore the same
+   * history object (and therefore the same current node and variation tree) if a later UI or engine
+   * handoff fails.
    */
   public static final class ClearStateSnapshot {
     private final Board owner;
@@ -248,7 +248,7 @@ public class Board {
     if (Lizzie.frame != null) Lizzie.frame.clearTryPlay();
     if (boardWidth < 4) isExtremlySmallBoard = true;
     else isExtremlySmallBoard = false;
-    Lizzie.leelaz.clearPonderLimit();
+    if (Lizzie.leelaz != null) Lizzie.leelaz.clearPonderLimit();
   }
 
   /**
@@ -1495,8 +1495,8 @@ public class Board {
   }
 
   /**
-   * Rolls back a just-committed PK move when its paired PRIMARY publication loses ownership.
-   * The rollback is intentionally exact: it never rewinds a board that another actor advanced.
+   * Rolls back a just-committed PK move when its paired PRIMARY publication loses ownership. The
+   * rollback is intentionally exact: it never rewinds a board that another actor advanced.
    */
   public synchronized boolean rollbackEngineGameMove(
       BoardHistoryList expectedHistory,
@@ -1874,10 +1874,10 @@ public class Board {
   /**
    * Restores one immutable snapshot of the current position and waits for strict GTP completion.
    *
-   * <p>This is intended for resource handoffs where merely enqueueing ordinary clear/play
-   * commands is insufficient. The admission is bound to the captured primary-engine generation;
-   * replacement, GTP rejection, or timeout is reported as a failure instead of resuming analysis
-   * on a stale position.
+   * <p>This is intended for resource handoffs where merely enqueueing ordinary clear/play commands
+   * is insufficient. The admission is bound to the captured primary-engine generation; replacement,
+   * GTP rejection, or timeout is reported as a failure instead of resuming analysis on a stale
+   * position.
    */
   public boolean restoreCurrentPositionToPrimaryEngineExact() {
     Optional<FrozenPrimaryPosition> frozen = freezeCurrentPositionForPrimaryEngineExactRestore();
@@ -2414,7 +2414,8 @@ public class Board {
     if (listHead.variations.isEmpty()) return;
     ArrayList<BoardHistoryNode> tempHistoryNode = new ArrayList<BoardHistoryNode>();
     tempMovelistForSpin = new ArrayList<Movelist>();
-    playMovelistAfter(listHead.variations.get(0), tempHistoryNode, true, startMoveNumber);
+    // getAllMovelist omits the non-move board root; only listHead is a sentinel.
+    playMovelistAfter(listHead, tempHistoryNode, true, startMoveNumber);
     if (tempMovelistForSpin.size() <= 0 && this.hasStartStone && this.startStonelist.size() > 0) {
       tempMovelistForSpin = getmovelist(history.getCurrentHistoryNode().now());
     }
@@ -2602,7 +2603,8 @@ public class Board {
         if (Lizzie.config.playSound) Utils.playVoiceFile();
         if (!engineGamePlaying()) feedEngineForMainlineMove(color, "pass");
 
-        if (Lizzie.frame.isPlayingAgainstLeelaz
+        if (Lizzie.leelaz != null
+            && Lizzie.frame.isPlayingAgainstLeelaz
             && Lizzie.frame.playerIsBlack != getData().blackToPlay)
           Lizzie.leelaz.genmove((history.isBlacksTurn() ? "b" : "w"));
         clearAfterMove();
@@ -2634,10 +2636,11 @@ public class Board {
       newState.dummy = dummy;
       history.addOrGoto(newState, newBranch);
       // update leelaz with pass
-      if (!Lizzie.leelaz.isInputCommand && !engineGamePlaying())
+      if (Lizzie.leelaz != null && !Lizzie.leelaz.isInputCommand && !engineGamePlaying())
         feedEngineForMainlineMove(color, "pass");
 
-      if (Lizzie.frame.isPlayingAgainstLeelaz
+      if (Lizzie.leelaz != null
+          && Lizzie.frame.isPlayingAgainstLeelaz
           && Lizzie.frame.playerIsBlack != getData().blackToPlay)
         Lizzie.leelaz.genmove((history.isBlacksTurn() ? "b" : "w"));
 
@@ -2693,12 +2696,12 @@ public class Board {
   }
 
   private void modifyStart() {
-    Lizzie.leelaz.modifyStart();
+    if (Lizzie.leelaz != null) Lizzie.leelaz.modifyStart();
     if (Lizzie.config.isDoubleEngineMode() && Lizzie.leelaz2 != null) Lizzie.leelaz2.modifyStart();
   }
 
   private void modifyEnd() {
-    Lizzie.leelaz.setModifyEnd();
+    if (Lizzie.leelaz != null) Lizzie.leelaz.setModifyEnd();
     if (Lizzie.config.isDoubleEngineMode() && Lizzie.leelaz2 != null) Lizzie.leelaz2.setModifyEnd();
   }
 
@@ -2822,7 +2825,7 @@ public class Board {
           Lizzie.board.getHistory().place(x, y, color, true);
           noCheckSuiKo = true;
           EngineManager.isEmpty = isEmpty;
-          Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y));
+          if (Lizzie.leelaz != null) Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y));
           // modifyEnd(false);
           clearAfterMove();
           if (shouldLogLocalMovePlace) {
@@ -2862,13 +2865,15 @@ public class Board {
         updateIsBest();
         if (Lizzie.config.playSound) Utils.playVoiceFile();
         // should be opposite from the bottom case
-        if (Lizzie.frame.isPlayingAgainstLeelaz
+        if (Lizzie.leelaz != null
+            && Lizzie.frame.isPlayingAgainstLeelaz
             && Lizzie.frame.playerIsBlack != getData().blackToPlay) {
           if (!Lizzie.leelaz.isInputCommand) {
             Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y));
             Lizzie.leelaz.genmove((Lizzie.board.getData().blackToPlay ? "b" : "w"));
           }
-        } else if (!isCollectingReadBoardSync()
+        } else if (Lizzie.leelaz != null
+            && !isCollectingReadBoardSync()
             && !Lizzie.frame.isPlayingAgainstLeelaz
             && !Lizzie.leelaz.isInputCommand
             && !engineGamePlaying()) {
@@ -3025,16 +3030,21 @@ public class Board {
         clearAfterMove();
       }
       boolean needGenmove = false;
-      if (forManual && !Lizzie.frame.isPlayingAgainstLeelaz && !Lizzie.leelaz.isInputCommand) {
+      if (Lizzie.leelaz != null
+          && forManual
+          && !Lizzie.frame.isPlayingAgainstLeelaz
+          && !Lizzie.leelaz.isInputCommand) {
         String move = convertCoordinatesToName(x, y);
         Lizzie.engineManager.playEngineGameManualMove(
             previousBlackToPlay, color, move, color.isWhite());
-      } else if (Lizzie.frame.isPlayingAgainstLeelaz
+      } else if (Lizzie.leelaz != null
+          && Lizzie.frame.isPlayingAgainstLeelaz
           && Lizzie.frame.playerIsBlack == previousBlackToPlay
           && !isEngineFollowTrialActive()) {
         Lizzie.leelaz.playMove(color, convertCoordinatesToName(x, y), true, color.isWhite());
         needGenmove = true;
-      } else if (!isCollectingReadBoardSync()
+      } else if (Lizzie.leelaz != null
+          && !isCollectingReadBoardSync()
           && !Lizzie.frame.isPlayingAgainstLeelaz
           && !Lizzie.leelaz.isInputCommand
           && !engineGamePlaying()
@@ -3660,8 +3670,8 @@ public class Board {
   private Thread ShowCandidateSchedule;
 
   public void clearAfterMove() {
-    Lizzie.leelaz.clearPonderLimit();
-    if (!Lizzie.leelaz.isPondering()) Lizzie.frame.clearKataEstimate();
+    if (Lizzie.leelaz != null) Lizzie.leelaz.clearPonderLimit();
+    if (Lizzie.leelaz == null || !Lizzie.leelaz.isPondering()) Lizzie.frame.clearKataEstimate();
     if (Lizzie.frame.priorityMoveCoords.size() > 0) Lizzie.frame.priorityMoveCoords.clear();
     if (isLoadingFile) return;
     Lizzie.frame.clickbadmove = LizzieFrame.outOfBoundCoordinate;
@@ -5435,8 +5445,8 @@ public class Board {
 
   /**
    * Clears board-owned state for an SGF load while allowing the caller to defer primary-engine
-   * synchronization. Downloaded and local SGF loaders use the deferred form so parsing never
-   * queues a partial clear before the immutable post-load snapshot is ready.
+   * synchronization. Downloaded and local SGF loaders use the deferred form so parsing never queues
+   * a partial clear before the immutable post-load snapshot is ready.
    */
   void clearForSgfLoadWithoutPrimaryEngineForwarding() {
     EngineForwardingPlan forwarding;
@@ -5487,9 +5497,10 @@ public class Board {
           && Lizzie.frame.readBoard.process.isAlive()) {
         Lizzie.board.getHistory().getGameInfo().resetAllNoKomi();
       } else {
-        komi = Lizzie.leelaz.orikomi;
+        if (Lizzie.leelaz != null) komi = Lizzie.leelaz.orikomi;
         Lizzie.board.getHistory().getGameInfo().resetAllNoKomi();
       }
+      if (Lizzie.leelaz == null) history.getGameInfo().setKomi(komi);
       return EngineForwardingPlan.clearEngine(komi)
           .defer(this::notifyReadBoardHistoryOverwritten)
           .defer(() -> Lizzie.frame.clearKataEstimate())
@@ -5513,10 +5524,10 @@ public class Board {
   }
 
   /**
-   * Engine/external forwarding work deferred until after the board monitor is released, so no
-   * board -> engine (Leelaz monitor) / ReadBoard lock nesting is introduced by
-   * history-overwrite entries. The plan records startup occupancy at mutation time: if the owner
-   * already occupied the engine then, this forwarding stays suppressed even after handoff.
+   * Engine/external forwarding work deferred until after the board monitor is released, so no board
+   * -> engine (Leelaz monitor) / ReadBoard lock nesting is introduced by history-overwrite entries.
+   * The plan records startup occupancy at mutation time: if the owner already occupied the engine
+   * then, this forwarding stays suppressed even after handoff.
    */
   private static final class EngineForwardingPlan {
     private final List<Runnable> deferredActions = new ArrayList<>();
@@ -5656,6 +5667,7 @@ public class Board {
   public void clearForOnline() {
     EngineForwardingPlan forwarding;
     synchronized (this) {
+      double komi = Lizzie.leelaz == null ? history.getGameInfo().getKomi() : Lizzie.leelaz.orikomi;
       if (Lizzie.frame.readBoard != null && Lizzie.frame.syncBoard) {
         Lizzie.frame.readBoard.firstSync = true;
       }
@@ -5670,11 +5682,11 @@ public class Board {
       isPkBoardKataB = false;
       isPkBoardKataW = false;
       isKataBoard = false;
-      LizzieFrame.menu.txtKomi.setText(String.valueOf(Lizzie.leelaz.orikomi));
+      LizzieFrame.menu.txtKomi.setText(String.valueOf(komi));
       Lizzie.board.getHistory().getGameInfo().resetAllNoKomi();
-      Lizzie.board.getHistory().getGameInfo().setKomi(Lizzie.leelaz.orikomi);
+      Lizzie.board.getHistory().getGameInfo().setKomi(komi);
       forwarding =
-          EngineForwardingPlan.clearEngineWithPlainKomi(Lizzie.leelaz.orikomi)
+          EngineForwardingPlan.clearEngineWithPlainKomi((float) komi)
               .defer(() -> Lizzie.frame.clearKataEstimate())
               .defer(this::notifyReadBoardHistoryOverwritten);
     }
@@ -6464,7 +6476,8 @@ public class Board {
 
   public void updateWinrate() {
     updateMovelist(history.getCurrentHistoryNode());
-    if ((Lizzie.leelaz.isPondering() && !isLoadingFile) || engineGamePlaying()) {
+    if ((Lizzie.leelaz != null && Lizzie.leelaz.isPondering() && !isLoadingFile)
+        || engineGamePlaying()) {
       updateComment();
     }
   }
@@ -6477,7 +6490,7 @@ public class Board {
 
   public void setKomi(double komi) {
     getHistory().getGameInfo().setKomi(komi);
-    Lizzie.leelaz.komi(komi);
+    if (Lizzie.leelaz != null) Lizzie.leelaz.komi(komi);
   }
 
   public boolean iscoordsempty(int x, int y) {
@@ -6526,7 +6539,7 @@ public class Board {
     }
     Lizzie.board.clear(false);
     Lizzie.board.playAllMovelist(listHead, startMoveNumber);
-    Lizzie.leelaz.komi(komi);
+    setKomi(komi);
     if (tempfile != null) {
       LizzieFrame.curFile = tempfile;
       LizzieFrame.fileNameTitle = LizzieFrame.curFile.getName();
@@ -6556,7 +6569,7 @@ public class Board {
     }
     Lizzie.board.clear(false);
     Lizzie.board.playAllMovelist(listHead, startMoveNumber);
-    Lizzie.leelaz.komi(komi);
+    setKomi(komi);
     if (tempfile != null) {
       LizzieFrame.curFile = tempfile;
       LizzieFrame.fileNameTitle = LizzieFrame.curFile.getName();
@@ -7194,7 +7207,7 @@ public class Board {
 
   public void changeNextTurn() {
     // TODO Auto-generated method stub
-    if (Lizzie.leelaz.canAddPlayer) {
+    if (Lizzie.leelaz != null && Lizzie.leelaz.canAddPlayer) {
       getHistory().getCurrentHistoryNode().getData().blackToPlay =
           !getHistory().getCurrentHistoryNode().getData().blackToPlay;
       clearbestmoves();

@@ -508,7 +508,16 @@ class AcceptanceRecordTest(unittest.TestCase):
             "sha256": "d" * 64,
         }
 
-        provenance.validate_acceptance_record(record)
+        for path in ("/tmp/LizzieYzy.jar", "C:/QA/LizzieYzy.jar", r"C:\QA\LizzieYzy.jar"):
+            with self.subTest(path=path):
+                expected["artifact"]["path"] = path
+                provenance.validate_acceptance_record(record)
+        for path in ("relative/LizzieYzy.jar", r"C:LizzieYzy.jar", r"\QA\LizzieYzy.jar"):
+            with self.subTest(path=path):
+                expected["artifact"]["path"] = path
+                with self.assertRaisesRegex(provenance.ProvenanceError, "path must be absolute"):
+                    provenance.validate_acceptance_record(record)
+        expected["artifact"]["path"] = "/tmp/LizzieYzy.jar"
 
         del expected["artifact"]["buildIdentity"]
         with self.assertRaisesRegex(provenance.ProvenanceError, "standalone artifact identity"):
