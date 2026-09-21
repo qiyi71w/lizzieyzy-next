@@ -7,6 +7,7 @@ import featurecat.lizzie.gui.EngineData;
 import featurecat.lizzie.logging.MaintenanceObservation;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import java.util.zip.GZIPInputStream;
 import org.jdesktop.swingx.util.OS;
 import org.json.JSONObject;
 
@@ -81,8 +83,10 @@ public final class KataGoAutoSetupHelper {
       Pattern.compile(
           "^kata1-(?:([a-z][a-z0-9]*(?:-[a-z0-9]+)*)-)?(b\\d+)c\\d+[^-]*(?:-(.+))?$",
           Pattern.CASE_INSENSITIVE);
-  private static final Pattern VERSION_MODEL_SOURCE_PATTERN =
-      Pattern.compile("^Model source:\\s*(.+)$", Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
+  private static final Pattern MODEL_HEADER_PATTERN =
+      Pattern.compile(
+          "\\A[\\t\\r\\n ]*([!-~]{1,256})[\\t\\r\\n ]+[1-9][0-9]{0,2}"
+              + "[\\t\\r\\n ]+[1-9][0-9]{0,5}[\\t\\r\\n ]+[1-9][0-9]{0,5}[\\t\\r\\n ]");
   private static final int MAX_OFFICIAL_WEIGHTS = 16;
   private static final int MAX_OFFICIAL_WEIGHT_FAMILIES = 8;
   private static final int MAX_OFFICIAL_WEIGHTS_PER_FAMILY = 2;
@@ -1831,37 +1835,24 @@ public final class KataGoAutoSetupHelper {
   }
 
   public static String resolveActiveWeightModelName(SetupSnapshot snapshot) {
-    if (snapshot == null || snapshot.activeWeightPath == null) {
-      return "";
-    }
-    String fileName = snapshot.activeWeightPath.getFileName().toString();
-    if (!DEFAULT_WEIGHT_FILE_NAME.equalsIgnoreCase(fileName)) {
-      return fileName;
-    }
-    String bundledModel = readBundledModelSource(snapshot.workingDir, snapshot.appRoot);
-    if (!bundledModel.isEmpty()) {
-      return bundledModel;
-    }
-    if (Lizzie.config != null && Lizzie.config.uiConfig != null) {
-      String remembered =
-          Lizzie.config.uiConfig.optString("katago-auto-setup-weight-name", "").trim();
-      if (!remembered.isEmpty() && !DEFAULT_WEIGHT_FILE_NAME.equalsIgnoreCase(remembered)) {
-        return remembered;
-      }
-    }
-    return fileName;
+    return snapshot == null ? "" : readWeightModelName(snapshot.activeWeightPath);
   }
 
   public static String resolveActiveWeightDisplayName(SetupSnapshot snapshot) {
     if (snapshot == null || snapshot.activeWeightPath == null) {
       return "";
     }
-    return resolveWeightDisplayName(
-        snapshot.activeWeightPath, snapshot.workingDir, snapshot.appRoot);
+    return resolveWeightDisplayName(snapshot.activeWeightPath);
   }
 
   public static String resolveWeightDisplayName(Path weightPath) {
-    return resolveWeightDisplayName(weightPath, null, null);
+    if (weightPath == null || weightPath.getFileName() == null) {
+      return "";
+    }
+    String modelName = readWeightModelName(weightPath);
+    return modelName.isEmpty()
+        ? weightPath.getFileName().toString()
+        : toWeightDisplayName(modelName);
   }
 
   public static String resolveWeightDisplayName(String modelName) {
@@ -1869,15 +1860,7 @@ public final class KataGoAutoSetupHelper {
   }
 
   public static boolean isTransformerWeight(Path weightPath) {
-    if (weightPath == null || weightPath.getFileName() == null) {
-      return false;
-    }
-    String fileName = weightPath.getFileName().toString();
-    if (isTransformerWeight(fileName)) {
-      return true;
-    }
-    return DEFAULT_WEIGHT_FILE_NAME.equalsIgnoreCase(fileName)
-        && isTransformerWeight(readBundledModelSource(weightPath, null, null));
+    return isTransformerWeight(readWeightModelName(weightPath));
   }
 
   public static boolean isTransformerWeight(String modelName) {
@@ -1889,34 +1872,6 @@ public final class KataGoAutoSetupHelper {
         || normalized.contains("tflrs");
   }
 
-  private static String resolveWeightDisplayName(Path weightPath, Path workingDir, Path appRoot) {
-    if (weightPath == null) {
-      return "";
-    }
-    Path normalizedWeightPath = weightPath.toAbsolutePath().normalize();
-    String fileName = normalizedWeightPath.getFileName().toString();
-    String resolvedModelName = fileName;
-    if (DEFAULT_WEIGHT_FILE_NAME.equalsIgnoreCase(fileName)
-        && isBundledDefaultWeight(normalizedWeightPath)) {
-      String bundledModel = readBundledModelSource(normalizedWeightPath, workingDir, appRoot);
-      if (!bundledModel.isEmpty()) {
-        resolvedModelName = bundledModel;
-      }
-    }
-    return toWeightDisplayName(resolvedModelName);
-  }
-
-  private static boolean isBundledDefaultWeight(Path weightPath) {
-    if (weightPath == null || weightPath.getParent() == null) {
-      return false;
-    }
-    Path weightsDir = weightPath.getParent();
-    Path root = weightsDir.getParent();
-    return root != null
-        && weightsDir.getFileName() != null
-        && "weights".equalsIgnoreCase(weightsDir.getFileName().toString())
-        && Files.isRegularFile(root.resolve("engines").resolve("katago").resolve("VERSION.txt"));
-  }
 
   public static SetupResult applyAutoSetup(SetupSnapshot snapshot) throws IOException {
     return applyAutoSetup(snapshot, true);
@@ -1944,11 +1899,7 @@ public final class KataGoAutoSetupHelper {
         && engines.get(existingIndex).name.startsWith(WEIGHT_ENGINE_NAME_PREFIX)) {
       profileName = engines.get(existingIndex).name;
     } else {
-      String displayName =
-          resolveWeightDisplayName(
-              resolvedSnapshot.activeWeightPath,
-              resolvedSnapshot.workingDir,
-              resolvedSnapshot.appRoot);
+      String displayName = resolveWeightDisplayName(resolvedSnapshot.activeWeightPath);
       if (Utils.isBlank(displayName) && resolvedSnapshot.activeWeightPath != null) {
         displayName = resolvedSnapshot.activeWeightPath.getFileName().toString();
       }
@@ -2085,8 +2036,6 @@ public final class KataGoAutoSetupHelper {
     if (!Lizzie.config.analysisEngineCommandCustomized) {
       candidateUi.put("analysis-engine-command", analysisCommand);
     }
-    candidateUi.put(
-        "katago-auto-setup-weight-name", snapshot.activeWeightPath.getFileName().toString());
     candidateUi.put(
         "katago-auto-setup-weight-path",
         snapshot.activeWeightPath.toAbsolutePath().normalize().toString());
@@ -2542,6 +2491,10 @@ public final class KataGoAutoSetupHelper {
     if (BUNDLED_2026_06_28B_MODEL.equalsIgnoreCase(baseName)) {
       return BUNDLED_2026_06_28B_DISPLAY_NAME;
     }
+    if (isTransformerWeight(baseName)) {
+      // Keep training identifiers for versions not represented by a named catalog entry.
+      return baseName;
+    }
     Matcher displayMatcher = WEIGHT_MODEL_DISPLAY_PATTERN.matcher(baseName);
     if (displayMatcher.matches()) {
       String alias = displayMatcher.group(1);
@@ -2561,10 +2514,6 @@ public final class KataGoAutoSetupHelper {
       if (!parts.isEmpty()) {
         return String.join(" ", parts);
       }
-    }
-    String family = buildWeightFamilyDisplay(baseName);
-    if (!family.isEmpty()) {
-      return family;
     }
     return baseName;
   }
@@ -2678,47 +2627,36 @@ public final class KataGoAutoSetupHelper {
     return decBuffer.toString();
   }
 
-  private static String readBundledModelSource(Path workingDir, Path appRoot) {
-    return readBundledModelSource(null, workingDir, appRoot);
-  }
-
-  private static String readBundledModelSource(Path weightPath, Path workingDir, Path appRoot) {
-    List<Path> candidates = new ArrayList<>();
-    if (workingDir != null) {
-      candidates.add(workingDir.resolve("engines").resolve("katago").resolve("VERSION.txt"));
+  /**
+   * Reads the internal name from a bounded native KataGo header, or returns an empty string. This
+   * is metadata, not an integrity or architecture check; the engine validates the model. No
+   * identity cache is kept, so even same-size replacements preserving mtime are observed.
+   */
+  public static String readWeightModelName(Path weightPath) {
+    if (weightPath == null
+        || weightPath.getFileName() == null
+        || !Files.isRegularFile(weightPath)) {
+      return "";
     }
-    if (appRoot != null && !appRoot.equals(workingDir)) {
-      candidates.add(appRoot.resolve("engines").resolve("katago").resolve("VERSION.txt"));
-      candidates.add(
-          appRoot.resolve("app").resolve("engines").resolve("katago").resolve("VERSION.txt"));
+    String fileName = weightPath.getFileName().toString().toLowerCase(Locale.ROOT);
+    if (fileName.endsWith(".onnx.gz")
+        || !(fileName.endsWith(".bin") || fileName.endsWith(".txt") || fileName.endsWith(".gz"))) {
+      return "";
     }
-    if (weightPath != null) {
-      Path current = weightPath.toAbsolutePath().normalize().getParent();
-      int depth = 0;
-      while (current != null && depth < 8) {
-        candidates.add(current.resolve("engines").resolve("katago").resolve("VERSION.txt"));
-        current = current.getParent();
-        depth += 1;
+    try (InputStream input = Files.newInputStream(weightPath)) {
+      // Bound both disk input (including gzip optional headers) and decompressed output.
+      byte[] prefix = input.readNBytes(4096);
+      try (InputStream header =
+          fileName.endsWith(".gz")
+              ? new GZIPInputStream(new ByteArrayInputStream(prefix))
+              : new ByteArrayInputStream(prefix)) {
+        String text = new String(header.readNBytes(1024), StandardCharsets.US_ASCII);
+        Matcher matcher = MODEL_HEADER_PATTERN.matcher(text);
+        return matcher.find() ? matcher.group(1) : "";
       }
+    } catch (IOException e) {
+      return "";
     }
-    LinkedHashSet<Path> uniqueCandidates = new LinkedHashSet<Path>(candidates);
-    for (Path candidate : uniqueCandidates) {
-      if (!Files.isRegularFile(candidate)) {
-        continue;
-      }
-      try {
-        String text = new String(Files.readAllBytes(candidate), StandardCharsets.UTF_8);
-        Matcher matcher = VERSION_MODEL_SOURCE_PATTERN.matcher(text);
-        if (matcher.find()) {
-          String modelName = matcher.group(1).trim();
-          if (!modelName.isEmpty()) {
-            return modelName;
-          }
-        }
-      } catch (IOException e) {
-      }
-    }
-    return "";
   }
 
   private static List<SavedEngineCandidate> savedEngineCandidates() {

@@ -6,12 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import featurecat.lizzie.analysis.remote.RemoteComputeConfig;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
+import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.zip.GZIPOutputStream;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
@@ -1376,7 +1378,15 @@ public class ConfigBundledKataGoDefaultsTest {
           "KataGo release: v1.17.0\nModel source: " + modelSource + "\n");
     }
     Files.createDirectories(root.resolve("weights"));
-    Files.write(root.resolve("weights").resolve("default.bin.gz"), new byte[] {1});
+    String model =
+        modelSource == null || modelSource.isEmpty()
+            ? "test-network"
+            : modelSource.replaceAll("\\.(bin|txt)(\\.gz)?$", "");
+    try (OutputStream output =
+        new GZIPOutputStream(
+            Files.newOutputStream(root.resolve("weights").resolve("default.bin.gz")))) {
+      output.write((model + "\n15\n22\n19\n").getBytes(StandardCharsets.US_ASCII));
+    }
   }
 
   private static Path bundledExecutable(Path root) {
