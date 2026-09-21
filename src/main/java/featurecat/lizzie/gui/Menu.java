@@ -92,6 +92,19 @@ public class Menu extends JMenuBar {
         ? state.target() : Double.parseDouble(txtKomi.getText().trim());
   }
 
+  private static void applyOrdinaryKomi(double value, boolean updateMenu) {
+    Leelaz engine = Lizzie.leelaz;
+    if (engine != null) {
+      if (updateMenu) engine.komi(value);
+      else engine.komiNoMenu(value);
+    } else {
+      GameInfo info = Lizzie.board.getHistory().getGameInfo();
+      if (updateMenu) info.setKomi(value);
+      else info.setKomiNoMenu(value);
+      Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
+    }
+  }
+
   public void refreshEngineGameKomi() {
     if (txtKomi == null || Lizzie.board == null) return;
     EngineGameKomiState state = Lizzie.engineGame.komiState();
@@ -5877,7 +5890,7 @@ public class Menu extends JMenuBar {
               double newKomi = Double.parseDouble(txtKomi.getText());
               if (submitEngineGameKomi(newKomi)) return;
               if (newKomi == oriKomi) return;
-              Lizzie.leelaz.komiNoMenu(newKomi);
+              applyOrdinaryKomi(newKomi, false);
               Lizzie.board.getHistory().getGameInfo().changeKomi();
               Lizzie.frame.refresh();
             } catch (Exception es) {
@@ -5912,7 +5925,7 @@ public class Menu extends JMenuBar {
               double newKomi = Double.parseDouble(txtKomi.getText());
               if (submitEngineGameKomi(newKomi)) return;
               if (newKomi == oriKomi) return;
-              Lizzie.leelaz.komiNoMenu(newKomi);
+              applyOrdinaryKomi(newKomi, false);
               Lizzie.board.getHistory().getGameInfo().changeKomi();
               Lizzie.frame.refresh();
             } catch (Exception es) {
@@ -5976,7 +5989,7 @@ public class Menu extends JMenuBar {
             double newKomi = komiIncrementBase() + 0.5;
             txtKomi.setText(String.valueOf(newKomi));
             if (submitEngineGameKomi(newKomi)) return;
-            Lizzie.leelaz.komi(newKomi);
+            applyOrdinaryKomi(newKomi, true);
             Lizzie.board.getHistory().getGameInfo().changeKomi();
             Lizzie.frame.refresh();
           }
@@ -5995,7 +6008,7 @@ public class Menu extends JMenuBar {
             double newKomi = komiIncrementBase() - 0.5;
             txtKomi.setText(String.valueOf(newKomi));
             if (submitEngineGameKomi(newKomi)) return;
-            Lizzie.leelaz.komi(newKomi);
+            applyOrdinaryKomi(newKomi, true);
             Lizzie.board.getHistory().getGameInfo().changeKomi();
             Lizzie.frame.refresh();
           }

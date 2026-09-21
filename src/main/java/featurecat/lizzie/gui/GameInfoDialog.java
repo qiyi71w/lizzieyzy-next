@@ -272,7 +272,7 @@ public class GameInfoDialog extends JDialog {
     boolean engineGameKomi = Menu.submitEngineGameKomi(requestedKomi);
     if (!engineGameKomi) {
       gameInfo.setKomi(requestedKomi);
-      Lizzie.leelaz.sendCommand("komi " + requestedKomi);
+      if (Lizzie.leelaz != null) Lizzie.leelaz.sendCommand("komi " + requestedKomi);
     }
     //    if (!Lizzie.frame.komi.equals(textFieldKomi.getText())) {
     //      Lizzie.leelaz.sendCommand("komi " + textFieldKomi.getText());
@@ -297,7 +297,7 @@ public class GameInfoDialog extends JDialog {
     //              + Lizzie.board.getHistory().getGameInfo().getPlayerWhite()
     //              + "]"
     //              + resourceBundle.getString("Movelistframe.titleLast"));
-    if (!engineGameKomi && Lizzie.leelaz.isPondering()) {
+    if (!engineGameKomi && Lizzie.leelaz != null && Lizzie.leelaz.isPondering()) {
       Lizzie.leelaz.ponder();
     }
     // close window
