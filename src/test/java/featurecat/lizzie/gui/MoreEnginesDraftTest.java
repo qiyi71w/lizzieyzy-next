@@ -10,6 +10,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.util.BundledKataGoProfile;
 import featurecat.lizzie.util.Utils;
 import java.awt.event.MouseEvent;
 import java.nio.file.Files;
@@ -111,6 +112,37 @@ class MoreEnginesDraftTest {
   }
 
   @Test
+  void renamingManagedEntryPreservesOwnershipButEditingCommandRevokesIt() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          clickRow(0);
+          editor.txtName.setText("KataGo Bundled");
+          editor.command.setText(
+              "engines/katago/linux-x64/katago gtp -model weights/default.bin.gz -config"
+                  + " engines/katago/configs/gtp.cfg");
+          editor.save.doClick();
+          ArrayList<EngineData> entries = Utils.getEngineData();
+          String id = entries.get(0).id;
+          BundledKataGoProfile.claim(entries.get(0));
+          Utils.saveEngineSettings(entries);
+          editor.cancel.doClick();
+          clickRow(0);
+          editor.txtName.setText("Notebook KataGo");
+          editor.save.doClick();
+          EngineData renamed = Utils.getEngineData().get(0);
+          assertEquals(id, renamed.id);
+          assertEquals("Notebook KataGo", renamed.name);
+          assertTrue(BundledKataGoProfile.isManaged(renamed));
+          editor.command.setText("/custom/katago gtp");
+          editor.save.doClick();
+          EngineData repurposed = Utils.getEngineData().get(0);
+          assertEquals(id, repurposed.id);
+          assertEquals("/custom/katago gtp", repurposed.commands);
+          assertFalse(BundledKataGoProfile.isManaged(repurposed));
+        });
+  }
+
+  @Test
   void emptyRowsAndEmptySavedEntriesDoNotShowBenchmarkWarnings() throws Exception {
     SwingUtilities.invokeAndWait(
         () -> {
@@ -156,7 +188,11 @@ class MoreEnginesDraftTest {
           editor.command.setText("katago gtp");
           editor.save.doClick();
           ArrayList<EngineData> entries = Utils.getEngineData();
-          entries.get(0).threadPolicy.put("katago-benchmark-threads", 16).put("source", "BENCHMARK");
+          entries
+              .get(0)
+              .threadPolicy
+              .put("katago-benchmark-threads", 16)
+              .put("source", "BENCHMARK");
           Utils.saveEngineSettings(entries);
           editor.cancel.doClick();
           clickRow(0);

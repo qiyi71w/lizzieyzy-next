@@ -89,6 +89,10 @@ Recommended path:
 
 If you only want to replace the weight, you can usually keep the bundled KataGo.
 
+You can rename bundled KataGo in engine settings. Restarts, Auto Setup, and path updates after moving a portable package preserve its name and entry settings. Replacing `default.bin.gz` at the same path changes model information, not entry ownership. After you edit the engine command or enable Java SSH, bundled-profile repair leaves that command intact; a complete package still recreates its bundled default entry when needed.
+
+Legacy entries are migrated when their bundled ownership can be established. Already-renamed legacy entries pointing to another complete package are left alone, and historical duplicates are not merged by guesswork.
+
 ## 6. What should I include in a bug report
 
 The most useful items are:
