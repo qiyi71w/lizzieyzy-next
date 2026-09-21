@@ -76,6 +76,8 @@ chmod +x start-linux64.sh
 - Windows / Linux：`Lizzieyzy/weights/default.bin.gz`
 - macOS：`LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
 
+主界面和一键设置从当前权重文件头读取模型内部名称，支持 KataGo 原生 `.bin`、`.bin.gz`、`.txt` 和 `.txt.gz`。保留 `default.bin.gz` 文件名不会影响识别；未收录的 Transformer 版本保留完整内部名称，读取失败时显示文件名。内部名称用于显示和已知命名规则的兼容性提示，不代表模型完整性验证；最终能否加载仍由 KataGo 判断。下载时的 SHA-256 完整性校验保持不变。
+
 替换后如果启动异常，请先恢复原版权重确认是不是新权重本身的问题。
 
 ## 5. 想用自己熟悉的引擎，不用内置 KataGo

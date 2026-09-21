@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
@@ -733,21 +734,6 @@ public class KataGoAutoSetupHelperTest {
     assertEquals("", KataGoAutoSetupHelper.parseKataGoVersion("unknown engine"));
   }
 
-  @Test
-  void bundledDefaultUsesManifestToIdentifyTransformerArchitecture() throws Exception {
-    Path root = Files.createTempDirectory("katago-transformer-default");
-    Path weight = touch(root.resolve("weights").resolve("default.bin.gz"));
-    Path manifest = root.resolve("engines").resolve("katago").resolve("VERSION.txt");
-    Files.createDirectories(manifest.getParent());
-    Files.writeString(
-        manifest, "Model source: " + KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_FILE_NAME + "\n");
-
-    assertTrue(KataGoAutoSetupHelper.isTransformerWeight(weight));
-    String displayName = KataGoAutoSetupHelper.resolveWeightDisplayName(weight);
-    assertTrue(displayName.contains("Transformer"));
-    assertEquals("Transformer B11 · 2026-09-07", displayName);
-    assertFalse(displayName.equals("default"));
-  }
 
   @Test
   void recognizesTrainedTransformersWithoutRelabelingOldModels() {
@@ -1241,6 +1227,10 @@ public class KataGoAutoSetupHelperTest {
     Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
     Path bundledWeight = touch(appRoot.resolve("weights").resolve("default.bin.gz"));
+    try (OutputStream output = new GZIPOutputStream(Files.newOutputStream(bundledWeight))) {
+      output.write(
+          "kata1-zhizi-b28c512nbt-muonfd2\n15\n22\n19\n".getBytes(StandardCharsets.US_ASCII));
+    }
     Path source = touch(tempRoot.resolve("incoming").resolve("default.bin.gz"));
 
     withProcessDirAndConfig(
@@ -1263,7 +1253,7 @@ public class KataGoAutoSetupHelperTest {
           assertTrue(refreshed.weightCandidates.contains(imported));
           assertEquals(bundledWeight, refreshed.activeWeightPath);
           assertFalse(imported.equals(refreshed.activeWeightPath));
-          assertEquals("default", KataGoAutoSetupHelper.resolveWeightDisplayName(imported));
+          assertEquals("default.bin.gz", KataGoAutoSetupHelper.resolveWeightDisplayName(imported));
         });
   }
 

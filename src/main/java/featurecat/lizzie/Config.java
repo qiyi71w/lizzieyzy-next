@@ -622,21 +622,8 @@ public class Config {
   }
 
   private static boolean isBundledTransformerDefault(Path appRoot) {
-    Path versionFile =
-        appRoot.resolve(BUNDLED_ENGINE_ROOT).resolve("katago").resolve("VERSION.txt");
-    if (!Files.isRegularFile(versionFile)) {
-      return false;
-    }
-    try {
-      for (String line : Files.readAllLines(versionFile)) {
-        if (line.regionMatches(true, 0, "Model source:", 0, "Model source:".length())) {
-          String model = line.substring("Model source:".length()).trim();
-          return KataGoAutoSetupHelper.isTransformerWeight(model);
-        }
-      }
-    } catch (IOException e) {
-    }
-    return false;
+    return KataGoAutoSetupHelper.isTransformerWeight(
+        appRoot.resolve(BUNDLED_WEIGHT_ROOT).resolve(BUNDLED_WEIGHT_NAME));
   }
 
   private boolean applyBundledKataGoDefaults() {
