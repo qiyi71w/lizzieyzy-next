@@ -1035,6 +1035,7 @@ function Start-PreparedProduct {
             $process.Refresh()
             if ($process.HasExited) { throw "Packaged launcher exited before readiness with code $($process.ExitCode)." }
             $currentOwned = @(Get-OwnedProcessTree -RootPid $process.Id -ProductRoot $layout.Root)
+            Require-Value -Condition ($currentOwned.Count -gt 0) -Message "Packaged launcher process tree disappeared before readiness."
             foreach ($processId in $currentOwned) { [void]$ownedHistory.Add([int]$processId) }
             $startupSnapshots = @(Get-ProcessSnapshot -ProcessIds $currentOwned)
             foreach ($snapshot in $startupSnapshots) {
@@ -1124,7 +1125,10 @@ function Start-PreparedProduct {
                 try { Stop-Process -Id $processId -Force -ErrorAction Stop } catch { $cleanupErrors.Add("process $processId`: $($_.Exception.Message)") }
             }
         }
-        $survivors = @(Get-Process -Id $cleanupPids -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.Id })
+        $survivors = @()
+        if ($cleanupPids.Count -gt 0) {
+            $survivors = @(Get-Process -Id $cleanupPids -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.Id })
+        }
         try { Remove-FirewallBoundary -Rules $firewallRuleList.ToArray() } catch { $cleanupErrors.Add("firewall cleanup: $($_.Exception.Message)") }
         $firewallRemaining = @()
         try { $firewallRemaining = @(Get-RemainingFirewallRules -Rules $firewallRuleList.ToArray()) } catch { $cleanupErrors.Add("firewall verification: $($_.Exception.Message)") }

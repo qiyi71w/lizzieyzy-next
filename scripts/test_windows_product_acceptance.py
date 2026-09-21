@@ -90,7 +90,8 @@ namespace FixtureJvmHost {
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr LoadLibrary(string path);
     [STAThread] public static void Main() {
       string root = Directory.GetParent(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;
-      if (LoadLibrary(Path.Combine(root, "runtime", "bin", "server", "jvm.dll")) == IntPtr.Zero) throw new InvalidOperationException("fixture jvm load failed");
+      AppDomain.CurrentDomain.UnhandledException += (sender, args) => File.WriteAllText(Path.Combine(root, "fixture-failure.txt"), args.ExceptionObject.ToString());
+      if (LoadLibrary(Path.Combine(root, "runtime", "bin", "server", "jvm.dll")) == IntPtr.Zero) throw new InvalidOperationException("fixture jvm load failed: " + Marshal.GetLastWin32Error());
       string data = Path.Combine(root, "user-data");
       string cfg = Path.Combine(root, "app", "LizzieYzy Next.cfg");
       if (File.Exists(cfg)) {
@@ -126,12 +127,14 @@ namespace FixtureLauncher {
   public static class Program {
     [STAThread] public static void Main() {
       string root = AppContext.BaseDirectory;
+      AppDomain.CurrentDomain.UnhandledException += (sender, args) => File.WriteAllText(Path.Combine(root, "fixture-launcher-failure.txt"), args.ExceptionObject.ToString());
       using (Process child = Process.Start(new ProcessStartInfo {
         FileName = Path.Combine(root, "app", "LizzieYzy Next JVM Host.exe"),
         WorkingDirectory = root,
         UseShellExecute = false
       })) {
         child.WaitForExit();
+        File.WriteAllText(Path.Combine(root, "fixture-child-exit.txt"), child.ExitCode.ToString());
         Environment.ExitCode = child.ExitCode;
       }
     }
@@ -181,7 +184,7 @@ namespace FixtureLauncher {
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def run_script(self, *arguments: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        result = subprocess.run(
             [
                 "pwsh.exe",
                 "-NoLogo",
@@ -200,6 +203,12 @@ namespace FixtureLauncher {
             errors="replace",
             timeout=45,
         )
+        if result.returncode:
+            diagnostics = []
+            for path in sorted(self.root.rglob("fixture-*.txt")):
+                diagnostics.append(f"{path}: {path.read_text(encoding='utf-8', errors='replace')}")
+            result.stderr += "\n" + "\n".join(diagnostics)
+        return result
 
     def run_driver(self, driver: Path) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -254,6 +263,7 @@ namespace FixtureLauncher {
         *,
         unsafe: bool = False,
         ready: bool = True,
+        launcher_override: Path | None = None,
         date_tag: str = DATE_TAG,
         release_tag: str = RELEASE_TAG,
         target_sha: str = TARGET_SHA,
@@ -262,7 +272,7 @@ namespace FixtureLauncher {
         product = "LizzieYzy Next"
         files: dict[str, bytes] = {
             f"{product}/.lizzie-portable": b"portable fixture\n",
-            f"{product}/LizzieYzy Next.exe": (self.launcher if ready else self.sleepy_launcher).read_bytes(),
+            f"{product}/LizzieYzy Next.exe": (launcher_override or (self.launcher if ready else self.sleepy_launcher)).read_bytes(),
             f"{product}/app/LizzieYzy Next JVM Host.exe": self.jvm_host.read_bytes(),
             f"{product}/runtime/bin/java.exe": self.java.read_bytes(),
             f"{product}/runtime/bin/server/jvm.dll": self.jvm.read_bytes(),
@@ -509,6 +519,24 @@ namespace FixtureLauncher {
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("jcef closure drift", (result.stderr + result.stdout).lower())
+        self.assertFalse((evidence / "run.json").exists())
+
+    def test_exited_launcher_preserves_original_failure_and_cleanup_record(self) -> None:
+        asset, manifest = self.create_portable(launcher_override=self.java)
+        evidence, prepared = self.prepare(asset, manifest, "exited launcher evidence")
+        self.assertEqual(0, prepared.returncode, prepared.stderr or prepared.stdout)
+        result = self.run_script(
+            "-Command", "Start",
+            "-CandidateJson", windows_path(evidence / "candidate.json"),
+            "-Scenario", "live-session", "-EvidenceDir", windows_path(evidence),
+            "-WaitSeconds", "5",
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Packaged launcher exited before readiness", result.stderr + result.stdout)
+        self.assertNotIn("empty array", result.stderr + result.stdout)
+        cleanup = json.loads((evidence / "startup-cleanup.json").read_text(encoding="utf-8"))
+        self.assertTrue(cleanup["complete"])
+        self.assertEqual([], cleanup["remainingOwnedPids"])
         self.assertFalse((evidence / "run.json").exists())
 
     def test_missing_readiness_times_out_and_cleans_owned_process(self) -> None:
