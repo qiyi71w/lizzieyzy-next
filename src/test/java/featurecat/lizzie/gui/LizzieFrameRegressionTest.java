@@ -3,6 +3,7 @@ package featurecat.lizzie.gui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -650,6 +651,270 @@ class LizzieFrameRegressionTest {
     assertSame(engine, frame.analysisEngine);
     assertEquals(0, engine.normalQuitCount);
     assertEquals(1, continuations.get());
+  }
+
+  @Test
+  void ordinaryBatchCannotBorrowAnotherBatchsAdmission() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      LizzieFrame frame = prepareOrdinaryBatchFrame();
+      var batch = frame.beginBatchAutoAnalysis(List.of(new File("first.sgf")));
+      var files = frame.Batchfiles;
+      AtomicInteger starts = new AtomicInteger();
+      AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() ->
+          frame.requestManualAutoAnalysisStart(starts::incrementAndGet, failure::set));
+      assertEquals(LizzieFrame.ManualAutoAnalysisStartFailure.ANALYSIS_CONFLICT, failure.get());
+      assertEquals(0, starts.get());
+      assertSame(files, frame.Batchfiles);
+      assertTrue(frame.ownsBatchAutoAnalysis(batch));
+      assertNull(frame.beginBatchAutoAnalysis(List.of(new File("other.sgf"))));
+      frame.endBatchAutoAnalysis(batch);
+    }
+  }
+
+  @Test
+  void ordinaryBatchCancellationDiscardsLateReleaseAndPreservesReplacement() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      LizzieFrame frame = prepareOrdinaryBatchFrame();
+      ResourceTrackingAnalysisEngine automatic = allocate(ResourceTrackingAnalysisEngine.class);
+      automatic.automatic = true;
+      automatic.shared = true;
+      automatic.requestLifecycleInProgress = true;
+      frame.analysisEngine = automatic;
+      var old = frame.beginBatchAutoAnalysis(List.of(new File("old.sgf")));
+      AtomicInteger oldStarts = new AtomicInteger();
+      AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() ->
+          frame.requestManualAutoAnalysisStart(old, oldStarts::incrementAndGet, failure::set));
+      assertTrue(frame.isManualAutoAnalysisStarting());
+      SwingUtilities.invokeAndWait(frame::cancelPendingManualAutoAnalysisStart);
+      assertEquals(LizzieFrame.ManualAutoAnalysisStartFailure.CANCELLED, failure.get());
+      assertFalse(frame.isBatchAna);
+      assertTrue(frame.Batchfiles.isEmpty());
+      assertEquals(0, frame.BatchAnaNum);
+      var replacement = frame.beginBatchAutoAnalysis(List.of(new File("replacement.sgf")));
+      automatic.completeExit();
+      drainEdt();
+      frame.endBatchAutoAnalysis(old);
+      assertEquals(0, oldStarts.get());
+      assertTrue(frame.ownsBatchAutoAnalysis(replacement));
+      assertEquals(List.of(new File("replacement.sgf")), frame.Batchfiles);
+      frame.endBatchAutoAnalysis(replacement);
+    }
+  }
+
+  @Test
+  void ordinaryBatchReleaseFailureAllowsRetry() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      LizzieFrame frame = prepareOrdinaryBatchFrame();
+      ResourceTrackingAnalysisEngine automatic = allocate(ResourceTrackingAnalysisEngine.class);
+      automatic.automatic = true;
+      automatic.requestLifecycleInProgress = true;
+      frame.analysisEngine = automatic;
+      var batch = frame.beginBatchAutoAnalysis(List.of(new File("first.sgf")));
+      AtomicInteger starts = new AtomicInteger();
+      AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() ->
+          frame.requestManualAutoAnalysisStart(batch, starts::incrementAndGet, failure::set));
+      automatic.failExit();
+      drainEdt();
+      assertEquals(LizzieFrame.ManualAutoAnalysisStartFailure.RELEASE_FAILED, failure.get());
+      assertFalse(frame.isBatchAna);
+      assertTrue(frame.Batchfiles.isEmpty());
+      assertFalse(frame.isManualAutoAnalysisStarting());
+      var retry = frame.beginBatchAutoAnalysis(List.of(new File("retry.sgf")));
+      failure.set(null);
+      SwingUtilities.invokeAndWait(() ->
+          frame.requestManualAutoAnalysisStart(retry, starts::incrementAndGet, failure::set));
+      drainEdt();
+      assertEquals(1, starts.get());
+      assertNull(failure.get());
+      frame.endBatchAutoAnalysis(retry);
+    }
+  }
+
+  @Test
+  void ordinaryBatchRechecksForeignTaskAfterEngineRelease() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      LizzieFrame frame = prepareOrdinaryBatchFrame();
+      ResourceTrackingAnalysisEngine automatic = allocate(ResourceTrackingAnalysisEngine.class);
+      automatic.automatic = true;
+      automatic.requestLifecycleInProgress = true;
+      frame.analysisEngine = automatic;
+      var batch = frame.beginBatchAutoAnalysis(List.of(new File("first.sgf")));
+      AtomicInteger starts = new AtomicInteger();
+      AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() ->
+          frame.requestManualAutoAnalysisStart(batch, starts::incrementAndGet, failure::set));
+      ResourceTrackingAnalysisEngine other = allocate(ResourceTrackingAnalysisEngine.class);
+      other.requestLifecycleInProgress = true;
+      frame.analysisEngine = other;
+      automatic.completeExit();
+      drainEdt();
+      assertEquals(LizzieFrame.ManualAutoAnalysisStartFailure.ANALYSIS_CONFLICT, failure.get());
+      assertEquals(0, starts.get());
+      assertFalse(frame.isBatchAna);
+      assertSame(other, frame.analysisEngine);
+      assertEquals(0, other.normalQuitCount);
+    }
+  }
+
+  @Test
+  void ordinaryBatchGameChangeEndsOnlyItsPendingRequest() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      LizzieFrame frame = prepareOrdinaryBatchFrame();
+      LoadingLeelaz engine = allocate(LoadingLeelaz.class);
+      Lizzie.leelaz = engine;
+      var batch = frame.beginBatchAutoAnalysis(List.of(new File("first.sgf")));
+      AtomicInteger starts = new AtomicInteger();
+      AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() ->
+          frame.requestManualAutoAnalysisStart(batch, starts::incrementAndGet, failure::set));
+      drainEdt();
+      assertTrue(frame.isManualAutoAnalysisStarting());
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      SwingUtilities.invokeAndWait(frame::startNewKifuAnalysisContextAfterSuccessfulLoad);
+      engine.loaded = true;
+      drainEdt();
+      assertEquals(LizzieFrame.ManualAutoAnalysisStartFailure.GAME_CHANGED, failure.get());
+      assertEquals(0, starts.get());
+      assertFalse(frame.isBatchAna);
+      assertTrue(frame.Batchfiles.isEmpty());
+      assertFalse(frame.isManualAutoAnalysisStarting());
+    }
+  }
+
+  private static LizzieFrame prepareOrdinaryBatchFrame() throws Exception {
+    Lizzie.config = configWithAutoQuickAnalyze();
+    Lizzie.board = boardWith(historyWithUnanalyzedMove());
+    Lizzie.leelaz = allocate(TrackingLeelaz.class);
+    LizzieFrame frame = allocate(LizzieFrame.class);
+    Lizzie.frame = frame;
+    setField(frame, "quickAnalysisEngineGeneration", new AtomicLong());
+    return frame;
+  }
+
+  @Test
+  void ordinaryBatchLaterLoadFailureDoesNotAnalyzeThePreviousGame() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      prepareOrdinaryBatchFrame();
+      BatchLoadingFrame frame = allocate(BatchLoadingFrame.class);
+      Lizzie.frame = frame;
+      setField(frame, "quickAnalysisEngineGeneration", new AtomicLong());
+      BatchFailureToolbar toolbar = allocate(BatchFailureToolbar.class);
+      toolbar.chkAnaAutoSave = new javax.swing.JCheckBox();
+      LizzieFrame.toolbar = toolbar;
+      var batch = frame.beginBatchAutoAnalysis(List.of(new File("first.sgf"), new File("bad.sgf")));
+      BoardHistoryNode oldRoot = Lizzie.board.getHistory().getStart();
+      AtomicInteger starts = new AtomicInteger();
+      SwingUtilities.invokeAndWait(() -> frame.loadNextBatchAutoAnalysis(batch, starts::incrementAndGet));
+      drainEdt();
+      assertEquals(new File("bad.sgf"), frame.attempted);
+      assertEquals(0, starts.get());
+      assertSame(oldRoot, Lizzie.board.getHistory().getStart());
+      assertFalse(frame.isBatchAna);
+      assertTrue(frame.Batchfiles.isEmpty());
+      assertEquals(0, frame.BatchAnaNum);
+      assertFalse(frame.isManualAutoAnalysisStarting());
+    }
+  }
+
+  @Test
+  void ordinaryBatchContinuationWaitsForNewGameSynchronization() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      prepareOrdinaryBatchFrame();
+      BatchLoadingFrame frame = allocate(BatchLoadingFrame.class);
+      frame.loadSucceeds = true;
+      Lizzie.frame = frame;
+      setField(frame, "quickAnalysisEngineGeneration", new AtomicLong());
+      BatchFailureToolbar toolbar = allocate(BatchFailureToolbar.class);
+      toolbar.chkAnaAutoSave = new javax.swing.JCheckBox();
+      LizzieFrame.toolbar = toolbar;
+      var batch = frame.beginBatchAutoAnalysis(List.of(new File("first.sgf"), new File("second.sgf")));
+      AtomicInteger starts = new AtomicInteger();
+      AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(() -> frame.loadNextBatchAutoAnalysis(batch,
+          () -> frame.requestManualAutoAnalysisStart(batch, starts::incrementAndGet, failure::set)));
+      // Loading, analysis-context adoption and admission each enqueue another EDT turn.
+      // Two barriers do not guarantee that the nested admission has installed its timer.
+      AtomicReference<javax.swing.Timer> waiting = new AtomicReference<>();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (waiting.get() == null && System.nanoTime() < deadline) {
+        SwingUtilities.invokeAndWait(() -> {
+          try {
+            waiting.set((javax.swing.Timer) getField(frame, "manualAutoAnalysisEngineReadyTimer"));
+          } catch (Exception e) {
+            throw new AssertionError(e);
+          }
+        });
+        if (waiting.get() == null) Thread.sleep(10);
+      }
+      assertNotNull(waiting.get(), "Batch continuation must wait for new-game synchronization");
+      assertEquals(new File("second.sgf"), frame.attempted);
+      assertEquals(1, frame.BatchAnaNum);
+      assertEquals(0, starts.get());
+      assertNull(failure.get());
+      assertTrue(frame.isManualAutoAnalysisStarting());
+      javax.swing.Timer timer = waiting.get();
+      SwingUtilities.invokeAndWait(() -> {
+        try {
+          setField(frame, "pendingKifuEngineSyncRoot", null);
+        } catch (Exception e) {
+          throw new AssertionError(e);
+        }
+        timer.getActionListeners()[0].actionPerformed(null);
+        timer.getActionListeners()[0].actionPerformed(null);
+      });
+      assertEquals(1, starts.get());
+      assertNull(failure.get());
+      frame.endBatchAutoAnalysis(batch);
+    }
+  }
+
+  private static final class BatchFailureToolbar extends BottomToolbar {
+    @Override
+    void showAutoAnalysisStartFailure(LizzieFrame.ManualAutoAnalysisStartFailure failure) {}
+  }
+
+  private static final class BatchLoadingFrame extends LizzieFrame {
+    private boolean loadSucceeds;
+    private File attempted;
+
+    @Override
+    public boolean loadFile(File file, boolean fromTemp, boolean showHint) {
+      attempted = file;
+      if (!loadSucceeds) return false;
+      try {
+        Lizzie.board = boardWith(historyWithUnanalyzedMove());
+        setField(this, "pendingKifuEngineSyncRoot", Lizzie.board.getHistory().getStart());
+      } catch (Exception e) {
+        throw new AssertionError(e);
+      }
+      SwingUtilities.invokeLater(this::startNewKifuAnalysisContextAfterSuccessfulLoad);
+      return true;
+    }
+  }
+
+  @Test
+  void ordinaryBatchStartsWithoutConflictingWithItself() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      Lizzie.leelaz = allocate(TrackingLeelaz.class);
+      LizzieFrame frame = allocate(LizzieFrame.class);
+      Lizzie.frame = frame;
+      setField(frame, "quickAnalysisEngineGeneration", new AtomicLong());
+      LizzieFrame.BatchAutoAnalysis batch =
+          frame.beginBatchAutoAnalysis(List.of(new File("first.sgf")));
+      AtomicInteger starts = new AtomicInteger();
+      AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure =
+          new AtomicReference<>();
+      SwingUtilities.invokeAndWait(
+          () -> frame.requestManualAutoAnalysisStart(batch, starts::incrementAndGet, failure::set));
+      drainEdt();
+      assertEquals(1, starts.get(), "Current batch must pass both admission checks: " + failure.get());
+      assertNull(failure.get());
+    }
   }
 
   @Test
@@ -3897,6 +4162,8 @@ class LizzieFrameRegressionTest {
   }
 
   private static final class TestEnvironment implements AutoCloseable {
+    private final BottomToolbar previousToolbar = LizzieFrame.toolbar;
+    private final File previousFile = LizzieFrame.curFile;
     private final int previousBoardWidth;
     private final int previousBoardHeight;
     private final Config previousConfig;
@@ -3946,6 +4213,8 @@ class LizzieFrameRegressionTest {
       Lizzie.config = previousConfig;
       Lizzie.board = previousBoard;
       Lizzie.frame = previousFrame;
+      LizzieFrame.toolbar = previousToolbar;
+      LizzieFrame.curFile = previousFile;
       Lizzie.leelaz = previousLeelaz;
       EngineManager.isEmpty = previousEngineEmpty;
     }

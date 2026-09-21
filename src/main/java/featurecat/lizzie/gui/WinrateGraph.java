@@ -1413,7 +1413,8 @@ public class WinrateGraph {
             drawPlacedString(g, scoreString, x, mScoreHeight, graphTextBoxes);
           }
         }
-      } else if (Lizzie.leelaz.isSai || Lizzie.leelaz.isKatago || Lizzie.board.isKataBoard) {
+      } else if (Lizzie.board.isKataBoard
+          || (Lizzie.leelaz != null && (Lizzie.leelaz.isSai || Lizzie.leelaz.isKatago))) {
         setMaxScoreLead(node);
         double lastscoreMean = -500;
         lastNodeOk = false;

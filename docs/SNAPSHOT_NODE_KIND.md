@@ -129,6 +129,9 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - `Leelaz` 继续唯一拥有 ordinary command queue、response handler、timeout、late-response retirement、output-stream invalidation 与 engine arbitration；exact module 只通过窄 admission-aware seam 使用这些能力。
 - 手动终止 genmove 对局后，空 numbered ACK 仍是非终态；迟到的合法 analyze `play` 只结清原 reader binding 的 pending handler，不追加应用的真实 `MOVE/PASS` 或比赛结果。缺失终态继续按既有五秒物理请求 watchdog 回收。
 - 已停止对局的前台引擎在物理请求退役后，由 `EngineManager` 异步冻结并执行当前应用盘面的 root/exact 恢复；退役屏障保留到既有稳定 board synchronization fence 完成。恢复命令仅获该 lifecycle owner 对原 binding 的写入授权，失败将原目标标为 unavailable，替换实例不受旧归还影响；手动停止不自动恢复 ponder。
+- 对局中所有贴目入口统一提交给当前 engine-game owner；界面区分已确认贴目与待应用目标，连续输入只保留最新目标，不修改 frozen opening plan 或后续批次默认值。GENMOVE 已发出的当前合法手须先完成并由对手接受，再开始贴目切换。
+- runtime komi 使用 captured owner 与 reader incarnation 授权，双方 `komi` ACK 及最终 `name` fence 均成功后，才原子提交当前 GameInfo 与分析缓存；连续目标间不恢复搜索，最终恢复遵循最新暂停意图。旧 komi revision 的分析与落子回调不得提交。
+- 任一贴目确认拒绝、发送失败、超时或实例丢失均 fail-closed 结束当前批次，保留最后确认贴目，不制造结果或 successor。部分写入后失败或取消须退役可能持有未确认贴目的原实例；旧实例确认不得影响替换实例或新对局。
 - `PreparedRestore` 可在首次 `execute()` 前由捕获它的 owner 调用 one-shot `discard()` 释放 captured admission；`discard()` 不写临时 SGF、不发任何命令。首次 `execute()` 或 `discard()` 后，另一操作必须以既有 `Exact snapshot restore has already been executed` 失败；一旦 execute 开始，所有失败仍按 owner 的既有 fail-closed 语义处理。
 - 没有可用静态锚点时，调用方保留既有 root replay；默认空 root 不是 exact 锚点。exact 一旦开始，`loadsgf`、tail 或 arbitration 失败都原样失败，禁止猜测性 root fallback。
 - lifecycle exact/root 抛错时，owner 将 frozen target 标为 unavailable，并在既有 completion boundary 释放 reservation；不因本票据新建 `ENGINE_STATE_UNRESTORED` 或通用 retry。ReadBoard GMA 固定点既有 quarantine/retirement 行为保持独立。

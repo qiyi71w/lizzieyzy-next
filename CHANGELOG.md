@@ -5,6 +5,9 @@ All notable maintenance updates to this fork are documented here.
 ## Unreleased
 
 - Simplify engine-game rule selection to Chinese, Japanese/Korean, AGA/BGA, New Zealand, Tromp-Taylor, and custom rules; use matching rule-family names during games and preserve saved preset parameters until explicitly changed (#516).
+- Keep komi controls, game-info editing, and score-graph rendering usable after engine startup failure; cover the no-engine desktop paths in required regression tests.
+- Apply current-game komi changes through both engine participants, wait for acknowledgements before committing, preserve pause intent, and end the batch safely if synchronization fails (#518).
+- Fix ordinary batch analysis rejecting its own startup; preserve batch ownership through engine handoff and file continuation, and clear failed or cancelled batches so analysis can be retried (#523).
 - Preserve renamed bundled KataGo profiles across restarts, Auto Setup, and portable package moves using persistent ownership independent of display names; protect user-edited commands (#521).
 - Read KataGo model names from bounded native weight headers so replacing `default.bin.gz` updates engine labels, Auto Setup catalog matching, and compatibility hints; retain distinct names for unlisted Transformer versions (#520).
 - Replace isolated point evaluation with equal-weight, multi-point focus in the current supported local KataGo search tree; adopt and save ordinary analysis, retain attention outlines after targets complete, and preserve focus across identical ReadBoard frames (#414).

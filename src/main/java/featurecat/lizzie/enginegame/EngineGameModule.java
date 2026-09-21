@@ -33,6 +33,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   private EngineGameCompletionFacts lastCompletion;
   private EngineGameChrome chrome = SwingEngineGameChrome.INSTANCE;
   private MatchRulesSnapshot matchRulesSnapshot;
+  private EngineGameKomiState komiState;
   private MatchRulesAdmission.ConsentKey grantedMatchRulesConsent;
   private MatchRulesConsent matchRulesConsent = featurecat.lizzie.gui.SwingMatchRulesConsent.INSTANCE;
 
@@ -74,6 +75,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       this.observerCompleted = false;
       this.pendingSuccessor = false;
       this.lastCompletion = null;
+      this.komiState = null;
       matchRulesSnapshot =
           MatchRulesSnapshot.preparing(
               acceptedPlan.matchRules(), acceptedPlan.black(), acceptedPlan.white());
@@ -119,6 +121,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
         observer = null;
       }
       pendingSuccessor = false;
+      komiState = null;
       if (batch != null && batch.completedGames() > 0) {
         plan = null;
         transaction = null;
@@ -175,7 +178,8 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
           && playing.runState() == RunState.PAUSED) {
         if (transaction != null
             && transaction.plan().playMode() == EngineGamePlayMode.GENMOVE
-            && !transaction.genmovePauseSettled()) {
+            && !transaction.genmovePauseSettled()
+            && (komiState == null || !komiState.pending())) {
           return;
         }
         if (transaction != null) {
@@ -191,6 +195,39 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
       publishChrome(EngineGameChromeTransition.Kind.RESUMED);
       EngineManager.resumeEngineGame(ownerOf(resumedTransaction));
     }
+  }
+
+  @Override
+  public boolean reviseKomi(double value) {
+    EngineGameTransaction captured;
+    synchronized (lock) {
+      if (!snapshot.playing() || transaction == null) return false;
+      captured = transaction;
+    }
+    return EngineManager.reviseEngineGameKomi(
+        ownerOf(captured), value, () -> onKomiChanged(captured));
+  }
+
+  public EngineGameKomiState komiState() {
+    synchronized (lock) {
+      return komiState;
+    }
+  }
+
+  private void onKomiChanged(EngineGameTransaction captured) {
+    boolean failed;
+    synchronized (lock) {
+      if (transaction != captured) return;
+      komiState = EngineManager.engineGameKomiState(ownerOf(captured));
+      failed = komiState != null && komiState.failure() != null;
+      if (failed) {
+        pendingSuccessor = false;
+        plan = null;
+        transaction = null;
+        publishLocked(new EngineGameSnapshot.Idle());
+      }
+    }
+    publishChrome(EngineGameChromeTransition.Kind.KOMI_CHANGED);
   }
 
   @Override
@@ -311,6 +348,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
           return false;
         }
         recordCompletionLocked(outcome, product);
+        komiState = null;
         if (batch != null && batch.shouldCreateSuccessor()) {
           pendingSuccessor = true;
           publishLocked(
@@ -527,6 +565,7 @@ public final class EngineGameModule implements EngineGameControl, EngineGameStat
   }
 
   private void clearAcceptedLocked() {
+    komiState = null;
     pendingSuccessor = false;
     batch = null;
     plan = null;

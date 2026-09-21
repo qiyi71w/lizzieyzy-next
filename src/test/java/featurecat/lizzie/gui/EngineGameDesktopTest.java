@@ -49,6 +49,11 @@ class EngineGameDesktopTest {
     public void resume() {}
 
     @Override
+    public boolean reviseKomi(double value) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void reviseBatchLimit(int gameCount) {
       reviseCalls++;
       lastLimit = gameCount;

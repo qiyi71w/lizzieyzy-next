@@ -12,9 +12,11 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
+import java.util.List;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -45,9 +47,17 @@ public class StartAnaDialog extends JDialog {
   private JCheckBox chkUseDiff;
   private JCheckBox chkExitByPause;
   private boolean isAnalysisMode = false;
+  private final LizzieFrame.BatchAutoAnalysis batch;
+  private final List<File> flashBatchFiles;
 
   public StartAnaDialog(boolean isAnalysisMode, Window owner) {
+    this(isAnalysisMode, owner, null);
+  }
+
+  StartAnaDialog(boolean isAnalysisMode, Window owner, LizzieFrame.BatchAutoAnalysis batch) {
     super(owner);
+    this.batch = batch;
+    this.flashBatchFiles = isAnalysisMode ? Lizzie.frame.Batchfiles : null;
     this.isAnalysisMode = isAnalysisMode;
     initComponents();
 
@@ -55,7 +65,8 @@ public class StartAnaDialog extends JDialog {
         new WindowAdapter() {
           public void windowClosing(WindowEvent e) {
             setTxtFontSize(true);
-            Lizzie.frame.isBatchAna = false;
+            LizzieFrame.toolbar.resetAutoAna();
+            cancelBatchSettings();
           }
         });
   }
@@ -289,10 +300,26 @@ public class StartAnaDialog extends JDialog {
     }
   }
 
+  private void cancelBatchSettings() {
+    if (batch != null) {
+      Lizzie.frame.endBatchAutoAnalysis(batch);
+    } else if (flashBatchFiles != null
+        && Lizzie.frame.Batchfiles == flashBatchFiles
+        && !Lizzie.frame.isBatchAnalysisMode
+        && !Lizzie.config.isAutoAna
+        && !Lizzie.frame.isManualAutoAnalysisStarting()) {
+      Lizzie.frame.isBatchAna = false;
+    }
+  }
+
   public void stop() {
     this.setVisible(false);
     setTxtFontSize(true);
     LizzieFrame.toolbar.resetAutoAna();
+    if (batch != null || (isAnalysisMode && !Lizzie.frame.isBatchAnalysisMode)) {
+      cancelBatchSettings();
+      return;
+    }
     LizzieFrame.toolbar.stopAutoAna(true, true);
   }
 
@@ -364,7 +391,7 @@ public class StartAnaDialog extends JDialog {
     } else {
       Lizzie.config.autoAnaDiffEnable = chkUseDiff.isSelected();
       Lizzie.config.uiConfig.put("auto-ana-diff-enable", Lizzie.config.autoAnaDiffEnable);
-      LizzieFrame.toolbar.startAutoAna();
+      LizzieFrame.toolbar.startAutoAna(batch);
     }
     LizzieFrame.toolbar.resetAutoAna();
   }

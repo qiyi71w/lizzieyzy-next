@@ -240,6 +240,7 @@ public class BottomToolbar extends JPanel {
   private Thread threadAnalyzeAllNode;
   private Thread threadAnalyzeDiffNode;
   private boolean autoAnalysisStartPending;
+  private LizzieFrame.BatchAutoAnalysis autoAnalysisBatch;
 
   private BoardHistoryNode autoAnaStartNode;
   // public int enginePKGenmoveBestMovesSize;
@@ -2788,13 +2789,20 @@ public class BottomToolbar extends JPanel {
   }
 
   public void stopAutoAna(boolean needCheckDiff, boolean isForceStop) {
-    if (autoAnalysisStartPending) {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> stopAutoAna(needCheckDiff, isForceStop));
+      return;
+    }
+    if (!isForceStop && !Lizzie.config.isAutoAna) return;
+    if (autoAnalysisStartPending || Lizzie.frame.isManualAutoAnalysisStarting()) {
       if (Lizzie.frame != null) {
         Lizzie.frame.cancelPendingManualAutoAnalysisStart();
       }
       finishPendingAutoAnalysisStart(false);
+      autoAnalysisBatch = null;
       return;
     }
+    if (!Lizzie.config.isAutoAna) return;
     if (needCheckDiff) {
       if (checkDiffAnalyze(isForceStop)) return;
     } else {
@@ -2843,6 +2851,12 @@ public class BottomToolbar extends JPanel {
   }
 
   private void autoAnaSaveAndLoad(boolean completed) {
+    if (autoAnalysisBatch != null
+        && !Lizzie.frame.isCurrentBatchAutoAnalysisGame(autoAnalysisBatch)) {
+      Lizzie.frame.endBatchAutoAnalysis(autoAnalysisBatch);
+      autoAnalysisBatch = null;
+      return;
+    }
     if (Lizzie.leelaz.autoAnalysed) SGFParser.appendAiScoreBlunder();
     if (!Lizzie.frame.isBatchAna) {
       if (!Lizzie.leelaz.autoAnalysed) {
@@ -2894,12 +2908,10 @@ public class BottomToolbar extends JPanel {
       }
       if (shouldContinueBatchAutoAnalysis(
           completed, Lizzie.frame.Batchfiles.size(), Lizzie.frame.BatchAnaNum)) {
-        // double komi = Lizzie.board.getHistory().getGameInfo().getKomi();
-        loadAutoBatchFile();
-        // Lizzie.leelaz.komi(komi);
+        LizzieFrame.BatchAutoAnalysis batch = autoAnalysisBatch;
         if (Lizzie.config.analyzeAllBranch)
           if (threadAnalyzeAllNode != null) threadAnalyzeAllNode.interrupt();
-        startAutoAna();
+        Lizzie.frame.loadNextBatchAutoAnalysis(batch, () -> startAutoAna(batch));
       } else {
         finishBatchAutoAnalysis(completed);
         return;
@@ -2960,10 +2972,9 @@ public class BottomToolbar extends JPanel {
   }
 
   private void finishBatchAutoAnalysis(boolean completed) {
-    Lizzie.frame.isBatchAna = false;
-    LizzieFrame.toolbar.chkAnaAutoSave.setEnabled(true);
-    Lizzie.frame.Batchfiles = new ArrayList<File>();
-    Lizzie.frame.BatchAnaNum = 0;
+    if (!Lizzie.frame.ownsBatchAutoAnalysis(autoAnalysisBatch)) return;
+    Lizzie.frame.endBatchAutoAnalysis(autoAnalysisBatch);
+    autoAnalysisBatch = null;
     Lizzie.frame.addInput(true);
     if (Lizzie.frame.analysisTable != null && Lizzie.frame.analysisTable.frame.isVisible()) {
       Lizzie.frame.analysisTable.refreshTable();
@@ -3871,14 +3882,19 @@ public class BottomToolbar extends JPanel {
   }
 
   public void startAutoAna() {
+    startAutoAna(null);
+  }
+
+  void startAutoAna(LizzieFrame.BatchAutoAnalysis batch) {
     if (!SwingUtilities.isEventDispatchThread()) {
-      SwingUtilities.invokeLater(this::startAutoAna);
+      SwingUtilities.invokeLater(() -> startAutoAna(batch));
       return;
     }
     if (autoAnalysisStartPending || Lizzie.config.isAutoAna) {
       return;
     }
     autoAnalysisStartPending = true;
+    autoAnalysisBatch = batch;
     chkAutoAnalyse.setSelected(true);
     chkAutoAnalyse.setEnabled(false);
     start.setEnabled(false);
@@ -3886,7 +3902,7 @@ public class BottomToolbar extends JPanel {
     Utils.showMsgNoModalForTime(
         text("AutoAnalyze.preparingStatus", "Switching to step-by-step analysis..."), 3);
     Lizzie.frame.requestManualAutoAnalysisStart(
-        this::startAutoAnaAfterQuickAnalysisReleased, this::failPendingAutoAnalysisStart);
+        batch, this::startAutoAnaAfterQuickAnalysisReleased, this::failPendingAutoAnalysisStart);
   }
 
   private void startAutoAnaAfterQuickAnalysisReleased() {
@@ -3905,7 +3921,13 @@ public class BottomToolbar extends JPanel {
 
   private void failPendingAutoAnalysisStart(
       LizzieFrame.ManualAutoAnalysisStartFailure failure) {
+    Lizzie.frame.endBatchAutoAnalysis(autoAnalysisBatch);
+    autoAnalysisBatch = null;
     finishPendingAutoAnalysisStart(false);
+    showAutoAnalysisStartFailure(failure);
+  }
+
+  void showAutoAnalysisStartFailure(LizzieFrame.ManualAutoAnalysisStartFailure failure) {
     if (failure == null || failure == LizzieFrame.ManualAutoAnalysisStartFailure.CANCELLED) {
       return;
     }
