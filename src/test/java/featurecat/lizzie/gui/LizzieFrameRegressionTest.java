@@ -3,6 +3,7 @@ package featurecat.lizzie.gui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -834,14 +835,27 @@ class LizzieFrameRegressionTest {
       AtomicReference<LizzieFrame.ManualAutoAnalysisStartFailure> failure = new AtomicReference<>();
       SwingUtilities.invokeAndWait(() -> frame.loadNextBatchAutoAnalysis(batch,
           () -> frame.requestManualAutoAnalysisStart(batch, starts::incrementAndGet, failure::set)));
-      drainEdt();
-      drainEdt();
+      // Loading, analysis-context adoption and admission each enqueue another EDT turn.
+      // Two barriers do not guarantee that the nested admission has installed its timer.
+      AtomicReference<javax.swing.Timer> waiting = new AtomicReference<>();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (waiting.get() == null && System.nanoTime() < deadline) {
+        SwingUtilities.invokeAndWait(() -> {
+          try {
+            waiting.set((javax.swing.Timer) getField(frame, "manualAutoAnalysisEngineReadyTimer"));
+          } catch (Exception e) {
+            throw new AssertionError(e);
+          }
+        });
+        if (waiting.get() == null) Thread.sleep(10);
+      }
+      assertNotNull(waiting.get(), "Batch continuation must wait for new-game synchronization");
       assertEquals(new File("second.sgf"), frame.attempted);
       assertEquals(1, frame.BatchAnaNum);
       assertEquals(0, starts.get());
       assertNull(failure.get());
       assertTrue(frame.isManualAutoAnalysisStarting());
-      javax.swing.Timer timer = (javax.swing.Timer) getField(frame, "manualAutoAnalysisEngineReadyTimer");
+      javax.swing.Timer timer = waiting.get();
       SwingUtilities.invokeAndWait(() -> {
         try {
           setField(frame, "pendingKifuEngineSyncRoot", null);
