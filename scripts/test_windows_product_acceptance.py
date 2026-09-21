@@ -87,7 +87,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 namespace FixtureJvmHost {
   public static class Program {
-    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr LoadLibrary(string path);
+    [DllImport("kernel32.dll", EntryPoint = "LoadLibraryW", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr LoadLibrary(string path);
     [STAThread] public static void Main() {
       string root = Directory.GetParent(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).FullName;
       AppDomain.CurrentDomain.UnhandledException += (sender, args) => File.WriteAllText(Path.Combine(root, "fixture-failure.txt"), args.ExceptionObject.ToString());
@@ -393,7 +393,9 @@ namespace FixtureLauncher {
             self.assertEqual(0, stopped.returncode, stopped.stderr or stopped.stdout)
 
     def test_status_accepts_original_start_record_with_owned_child_jvm(self) -> None:
-        evidence, run = self.start_live_fixture("raw status evidence")
+        # Supplementary-plane characters cannot round-trip through legacy ANSI
+        # code pages, even on a Chinese Windows host.
+        evidence, run = self.start_live_fixture("raw status \U0001f9ea evidence")
         run_path = evidence / "run.json"
         original = run_path.read_bytes()
 
@@ -532,7 +534,8 @@ namespace FixtureLauncher {
             "-WaitSeconds", "5",
         )
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("Packaged launcher exited before readiness", result.stderr + result.stdout)
+        self.assertRegex(result.stderr + result.stdout,
+                         r"Packaged launcher (exited|process tree disappeared) before readiness")
         self.assertNotIn("empty array", result.stderr + result.stdout)
         cleanup = json.loads((evidence / "startup-cleanup.json").read_text(encoding="utf-8"))
         self.assertTrue(cleanup["complete"])

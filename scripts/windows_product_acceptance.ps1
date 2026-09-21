@@ -152,12 +152,12 @@ function Assert-Administrator {
 function Get-PythonInvocation {
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($py) {
-        return [pscustomobject]@{ File = $py.Source; Prefix = @("-3") }
+        return [pscustomobject]@{ File = $py.Source; Prefix = @("-3", "-X", "utf8") }
     }
     foreach ($name in @("python.exe", "python3.exe")) {
         $python = Get-Command $name -ErrorAction SilentlyContinue
         if ($python) {
-            return [pscustomobject]@{ File = $python.Source; Prefix = @() }
+            return [pscustomobject]@{ File = $python.Source; Prefix = @("-X", "utf8") }
         }
     }
     throw "Windows Python 3 is required to verify release provenance."
