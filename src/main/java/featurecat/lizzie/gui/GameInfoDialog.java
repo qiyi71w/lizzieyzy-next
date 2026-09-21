@@ -257,6 +257,10 @@ public class GameInfoDialog extends JDialog {
   }
 
   public void apply() {
+    if (gameInfo != Lizzie.board.getHistory().getGameInfo()) {
+      setVisible(false);
+      return;
+    }
     // validate data
     String playerBlack = textFieldBlack.getText();
     String playerWhite = textFieldWhite.getText();
@@ -264,8 +268,12 @@ public class GameInfoDialog extends JDialog {
     // apply new values
     gameInfo.setPlayerBlack(playerBlack);
     gameInfo.setPlayerWhite(playerWhite);
-    gameInfo.setKomi(Double.parseDouble(textFieldKomi.getText()));
-    Lizzie.leelaz.sendCommand("komi " + Double.parseDouble(textFieldKomi.getText()));
+    double requestedKomi = Double.parseDouble(textFieldKomi.getText());
+    boolean engineGameKomi = Menu.submitEngineGameKomi(requestedKomi);
+    if (!engineGameKomi) {
+      gameInfo.setKomi(requestedKomi);
+      Lizzie.leelaz.sendCommand("komi " + requestedKomi);
+    }
     //    if (!Lizzie.frame.komi.equals(textFieldKomi.getText())) {
     //      Lizzie.leelaz.sendCommand("komi " + textFieldKomi.getText());
     //      Lizzie.board.clearbestmovesafter(Lizzie.board.getHistory().getStart());
@@ -289,7 +297,7 @@ public class GameInfoDialog extends JDialog {
     //              + Lizzie.board.getHistory().getGameInfo().getPlayerWhite()
     //              + "]"
     //              + resourceBundle.getString("Movelistframe.titleLast"));
-    if (Lizzie.leelaz.isPondering()) {
+    if (!engineGameKomi && Lizzie.leelaz.isPondering()) {
       Lizzie.leelaz.ponder();
     }
     // close window

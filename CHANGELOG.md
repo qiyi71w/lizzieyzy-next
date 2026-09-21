@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Apply current-game komi changes through both engine participants, wait for acknowledgements before committing, preserve pause intent, and end the batch safely if synchronization fails (#518).
 - Replace isolated point evaluation with equal-weight, multi-point focus in the current supported local KataGo search tree; adopt and save ordinary analysis, retain attention outlines after targets complete, and preserve focus across identical ReadBoard frames (#414).
 - Use KataGo root visits for ordinary analysis totals and budgets, preserve same-stream evaluation updates and cache depth protection, and retain exact root counts, candidate order, and edge allocation in SGF (#414).
 - Allow fresh point evaluation after returning to an accepted ReadBoard position without another helper frame; validate position semantics and engine synchronization, and reject malformed or stale frame publication (#444).

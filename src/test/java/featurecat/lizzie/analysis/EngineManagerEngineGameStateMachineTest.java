@@ -46,6 +46,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class EngineManagerEngineGameStateMachineTest {
@@ -137,6 +138,255 @@ class EngineManagerEngineGameStateMachineTest {
     Lizzie.board = previousBoard;
     Lizzie.gtpConsole = previousGtpConsole;
     SwingUtilities.invokeAndWait(() -> {});
+  }
+
+  @ParameterizedTest
+  @org.junit.jupiter.params.provider.EnumSource(
+      value = featurecat.lizzie.enginegame.EngineGameChromeTransition.Kind.class,
+      names = {"USER_STOPPED", "BETWEEN_GAMES", "BATCH_ENDED"})
+  void terminalGameChromeClearsCancelledKomiTarget(
+      featurecat.lizzie.enginegame.EngineGameChromeTransition.Kind transition) throws Exception {
+    Lizzie.frame = null;
+    LizzieFrame.toolbar = null;
+    Menu.engineMenu = null;
+    LizzieFrame.menu.txtKomi = new javax.swing.JTextField("8.5");
+    LizzieFrame.menu.txtKomi.setToolTipText("pending 8.5");
+    featurecat.lizzie.gui.JFontLabel label = new featurecat.lizzie.gui.JFontLabel("Wait");
+    Field labelField = Menu.class.getDeclaredField("lblKomiSpinner");
+    labelField.setAccessible(true);
+    labelField.set(LizzieFrame.menu, label);
+    double applied = Lizzie.board.getHistory().getGameInfo().getKomi();
+    SwingUtilities.invokeAndWait(() ->
+        featurecat.lizzie.enginegame.SwingEngineGameChrome.INSTANCE.publish(
+            new featurecat.lizzie.enginegame.EngineGameChromeTransition(
+                transition, new featurecat.lizzie.enginegame.EngineGameSnapshot.Idle())));
+    assertEquals(String.valueOf(applied), LizzieFrame.menu.txtKomi.getText());
+    assertNull(LizzieFrame.menu.txtKomi.getToolTipText());
+    assertEquals(Lizzie.resourceBundle.getString("Menu.komi"), label.getText());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void runtimeKomiReachesBothParticipantsBeforeLocalCommit(boolean whiteFirst) throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameOwnerTransaction owner =
+        activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.pauseEngineGame(owner);
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    double previousKomi = Lizzie.board.getHistory().getGameInfo().getKomi();
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {}));
+    awaitKomiCommands("8.5");
+    assertTrue(black.commandText().contains("komi 8.5"), black.commandText());
+    assertTrue(white.commandText().contains("komi 8.5"), white.commandText());
+    assertEquals(previousKomi, Lizzie.board.getHistory().getGameInfo().getKomi());
+    settleEngineGameCommands(whiteFirst ? white : black);
+    assertEquals(previousKomi, Lizzie.board.getHistory().getGameInfo().getKomi());
+    settleEngineGameCommands(whiteFirst ? black : white);
+    awaitOperationsReleased(owner);
+    assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(EngineManager.engineGameKomiState(owner).pending());
+    assertTrue(owner.paused());
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false,false,false", "false,false,true", "false,true,false", "false,true,true",
+      "true,false,false", "true,false,true", "true,true,false", "true,true,true"})
+  void runtimeKomiPreservesSearchModeAndPauseIntent(
+      boolean genmove, boolean ponder, boolean paused) throws Exception {
+    Lizzie.board = recordingBoard();
+    Lizzie.config.enginePkPonder = ponder;
+    black.isKatago = !genmove;
+    white.isKatago = !genmove;
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameOwnerTransaction owner =
+        activeTransaction(manager, EngineGamePlans.harness(0, 1, genmove), black, 0);
+    if (genmove) assertTrue(black.genmoveForPk("B", owner));
+    if (paused) EngineManager.pauseEngineGame(owner);
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {}));
+    if (genmove) {
+      assertFalse(black.commandText().contains("komi 8.5"));
+      black.parseEngineGameLineForTest("=" + commandIdFor(black.commandText(), "genmove B") + " D4");
+      white.processCommandResponseLineForTest(
+          "=" + commandIdFor(white.commandText(), "play B D4"));
+      assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+      assertFalse(white.commandText().contains("genmove W"));
+    }
+    awaitKomiCommands("8.5");
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (EngineManager.engineGameKomiState(owner).pending() && System.nanoTime() < deadline) {
+      Thread.sleep(5L);
+    }
+    assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    if (!paused) {
+      String expected = genmove ? "genmove W" : "kata-analyze";
+      while (!(black.commandText() + white.commandText()).contains(expected)
+          && System.nanoTime() < deadline) Thread.sleep(5L);
+      assertTrue((black.commandText() + white.commandText()).contains(expected),
+          EngineManager.engineGameKomiState(owner) + black.commandText() + white.commandText());
+    } else {
+      assertTrue(owner.paused());
+      assertFalse(white.commandText().contains("genmove W"));
+      assertFalse((black.commandText() + white.commandText()).contains("kata-analyze"));
+    }
+    manager.clearEngineGame();
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    awaitOperationsReleased(owner);
+  }
+
+  @Test
+  void runtimeKomiCoalescesTargetsWithoutResumingBetweenConfirmations() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameOwnerTransaction owner =
+        activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.pauseEngineGame(owner);
+    double original = Lizzie.board.getHistory().getGameInfo().getKomi();
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {}));
+    awaitKomiCommands("8.5");
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 9.0, () -> {}));
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 9.5, () -> {}));
+    assertEquals(original, Lizzie.board.getHistory().getGameInfo().getKomi());
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    awaitKomiCommands("9.5");
+    assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(black.commandText().contains("komi 9.0"));
+    assertFalse(white.commandText().contains("komi 9.0"));
+    assertFalse(black.commandText().contains("analyze"));
+    assertFalse(white.commandText().contains("analyze"));
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    awaitOperationsReleased(owner);
+    assertEquals(9.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertEquals(original, owner.plan.komi());
+    assertTrue(owner.paused());
+  }
+
+  @Test
+  void cancelledRuntimeKomiRetiresOffEdtAndPreservesReplacement() throws Exception {
+    WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
+    EngineManager.EngineGameOwnerTransaction owner =
+        activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.pauseEngineGame(owner);
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {}));
+    awaitKomiCommands("8.5");
+    black.blockForceQuit();
+    CountDownLatch stopReturned = new CountDownLatch(1);
+    SwingUtilities.invokeLater(() -> {
+      try { manager.clearEngineGame(); }
+      finally { stopReturned.countDown(); }
+    });
+    try {
+      assertTrue(black.forceQuitEntered.await(2, TimeUnit.SECONDS));
+      assertTrue(stopReturned.await(1, TimeUnit.SECONDS), "Stop must not wait for physical close");
+      assertFalse(black.isLoaded());
+      assertFalse(white.isLoaded());
+      assertNull(EngineManager.beginEngineGameTransaction(manager, gameInfo(), null, true));
+      white.bindLiveRuntime();
+    } finally {
+      black.releaseForceQuit.countDown();
+      assertTrue(stopReturned.await(2, TimeUnit.SECONDS));
+    }
+    assertTrue(black.forceQuitFinished.await(2, TimeUnit.SECONDS));
+    manager.runWatchdog();
+    awaitOperationsReleased(owner);
+    assertTrue(white.isLoaded(), "Old cleanup must not close the replacement binding");
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+  }
+
+  @Test
+  void cancelledRuntimeKomiCannotCommitLateConfirmations() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameOwnerTransaction owner =
+        activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.pauseEngineGame(owner);
+    double original = Lizzie.board.getHistory().getGameInfo().getKomi();
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {}));
+    awaitKomiCommands("8.5");
+    manager.clearEngineGame();
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    awaitOperationsReleased(owner);
+    assertFalse(black.isLoaded());
+    assertFalse(white.isLoaded());
+    assertEquals(original, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(EngineManager.reviseEngineGameKomi(owner, 9.5, () -> {}));
+    assertFalse(black.commandText().contains("komi 9.5"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"reject", "timeout", "replacement", "exit"})
+  void failedRuntimeKomiRetainsLastConfirmedValue(String failure) throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineManager.EngineGameOwnerTransaction owner =
+        activeTransaction(manager, gameInfo(), black, 0);
+    EngineManager.pauseEngineGame(owner);
+    white.komiTimeoutMillis = 500L;
+    double original = Lizzie.board.getHistory().getGameInfo().getKomi();
+    assertTrue(EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {}));
+    awaitKomiCommands("8.5");
+    settleEngineGameCommands(black);
+    int whiteKomiId = commandIdFor(white.commandText(), "komi 8.5");
+    if (failure.equals("reject")) {
+      white.processCommandResponseLineForTest("?" + whiteKomiId + " unsupported komi");
+    } else if (failure.equals("replacement")) {
+      white.bindLiveRuntime();
+    } else if (failure.equals("exit")) {
+      white.forceQuitIfCurrentIncarnation(white.currentEngineIncarnation());
+    }
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (EngineManager.engineGameKomiState(owner).failure() == null
+        && System.nanoTime() < deadline) Thread.sleep(5L);
+    assertNotNull(EngineManager.engineGameKomiState(owner).failure());
+    awaitOperationsReleased(owner);
+    assertFalse(black.isLoaded(), "partially updated engine must not remain reusable");
+    assertEquals(failure.equals("replacement"), white.isLoaded());
+    assertEquals(original, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(EngineManager.reviseEngineGameKomi(owner, 9.5, () -> {}));
+    white.processCommandResponseLineForTest("=" + whiteKomiId);
+    assertEquals(original, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(black.commandText().contains("analyze"));
+    assertFalse(white.commandText().contains("analyze"));
+  }
+
+  @Test
+  void runtimeKomiTransportFailureEndsUpdateWithoutCommitting() throws Exception {
+    white.bindLiveRuntime(new FlushFailingOutput());
+    WatchdogEngineManager manager = installManager(new WatchdogEngineManager(allEngines()));
+    EngineManager.EngineGameOwnerTransaction owner =
+        activeTransaction(manager, gameInfo(), black, 0);
+    double original = Lizzie.board.getHistory().getGameInfo().getKomi();
+    EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {});
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (EngineManager.engineGameKomiState(owner).failure() == null
+        && System.nanoTime() < deadline) Thread.sleep(5L);
+    while (!manager.hasPendingWatchdog() && System.nanoTime() < deadline) Thread.sleep(5L);
+    manager.runWatchdog();
+    awaitOperationsReleased(owner);
+    assertNotNull(EngineManager.engineGameKomiState(owner).failure());
+    assertEquals(original, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(black.isLoaded());
+    assertFalse(white.isLoaded());
+  }
+
+  private void awaitKomiCommands(String target) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while ((!black.commandText().contains("komi " + target)
+        || !white.commandText().contains("komi " + target)) && System.nanoTime() < deadline) {
+      for (StateMachineLeelaz engine : List.of(black, white)) {
+        for (String line : engine.commandText().split("\\R")) {
+          if (line.matches("\\d+ name")) {
+            engine.processCommandResponseLineForTest("=" + line.substring(0, line.indexOf(' ')));
+          }
+        }
+      }
+      Thread.sleep(5L);
+    }
+    assertTrue(black.commandText().contains("komi " + target), black.commandText());
+    assertTrue(white.commandText().contains("komi " + target), white.commandText());
   }
 
   @Test
@@ -5203,6 +5453,7 @@ class EngineManagerEngineGameStateMachineTest {
 
   private static final class StateMachineLeelaz extends Leelaz {
     private long tuningTimeoutMillis = TimeUnit.SECONDS.toMillis(120L);
+    private long komiTimeoutMillis = TimeUnit.SECONDS.toMillis(30L);
     private final AtomicInteger maybeAdjustPdaCalls = new AtomicInteger();
     private final AtomicInteger exactAnalysisActions = new AtomicInteger();
     private final AtomicInteger ordinaryAnalysisActions = new AtomicInteger();
@@ -5645,6 +5896,11 @@ class EngineManagerEngineGameStateMachineTest {
     long engineTuningSynchronizationTimeoutMillis() {
       return tuningTimeoutMillis;
     }
+
+    @Override
+    protected long engineGameKomiResponseTimeoutMillis() {
+      return komiTimeoutMillis;
+    }
   }
 
   private static final class TrackingFrame extends LizzieFrame {
@@ -5669,6 +5925,9 @@ class EngineManagerEngineGameStateMachineTest {
 
     @Override
     public void updateTitle() {}
+
+    @Override
+    public void clearSelectImage() {}
 
     @Override
     public BoardHistoryNode getDisplayNode() {
