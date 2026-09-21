@@ -35,6 +35,11 @@ desktop offline-board acceptance probe. The latter is required by desktop CI.
 - Windows release-script suite: 170 cases, zero failures, three skips.
 - CI-plan/provenance regression suite after adding the desktop requirement:
   51 cases, zero failures, three skips.
+- Final combined Windows desktop/rules rerun: 28 cases, zero failures or skips.
+- Fix PR #524 hosted CI: all nine checks passed, including full Java on Windows
+  and Linux, Linux desktop smoke, and native Windows/Linux engine-process gates.
+- Verified Windows Eigen CPU archive and executable hashes, then ran the real
+  B11 move-focus protocol probe: PASS, increasing root visits 11/21/31/41/52.
 - Isolated portable launcher in a Chinese/spaced path: startup, model-ready display,
   placement, history navigation, analysis pause/resume and exit were exercised.
 
