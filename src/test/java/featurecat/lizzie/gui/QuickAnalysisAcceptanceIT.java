@@ -35,6 +35,11 @@ public class QuickAnalysisAcceptanceIT {
     run("pause");
   }
 
+  @Test
+  public void ordinaryBatchAnalyzesEachFileAndRetriesAfterLoadFailure() throws Exception {
+    run("batch");
+  }
+
   private void run(String mode) throws Exception {
     DesktopProbeProcess.requireDisplay();
     String engine = System.getProperty("lizzie.acceptance.engine", "");
@@ -130,6 +135,14 @@ public class QuickAnalysisAcceptanceIT {
                 && Lizzie.board.getHistory().getCurrentHistoryNode().getData().getPlayouts() > 0,
         30,
         "initial foreground analysis usable");
+    if (mode.equals("batch")) {
+      probeBatch(work, result);
+      ImageIO.write(new Robot().createScreenCapture(Lizzie.frame.getBounds()), "png",
+          result.getParent().resolve("window.png").toFile());
+      primary.normalQuit();
+      Files.writeString(result, "result=PASS\nmode=batch\n");
+      return;
+    }
     DesktopProbeProcess.phase(result, "import-sgf");
     edt(
         () ->
@@ -187,6 +200,113 @@ public class QuickAnalysisAcceptanceIT {
         result.getParent().resolve("window.png").toFile());
     primary.normalQuit();
     Files.writeString(result, "result=PASS\nmode=" + mode + "\n");
+  }
+
+  private static void probeBatch(Path work, Path result) throws Exception {
+    Path first = work.resolve("batch-first.sgf");
+    Path second = work.resolve("batch-second.sgf");
+    Files.writeString(first, "(;FF[4]GM[1]SZ[19]KM[7.5]GN[first];B[pd];W[dd])");
+    Files.writeString(second, "(;FF[4]GM[1]SZ[19]KM[7.5]GN[second];B[qp];W[dq])");
+    SwingUtilities.invokeLater(() -> Lizzie.frame.openOrdinaryBatchAnalysis(List.of(first.toFile()), false));
+    await(() -> batchDialog() != null, 30, "ordinary settings cancellation");
+    edt(() -> {
+      StartAnaDialog dialog = batchDialog();
+      dialog.dispatchEvent(new java.awt.event.WindowEvent(dialog, java.awt.event.WindowEvent.WINDOW_CLOSING));
+      assertFalse(Lizzie.frame.isBatchAna, "Window close releases ordinary batch");
+      assertTrue(Lizzie.frame.Batchfiles.isEmpty(), "Window close clears ordinary queue");
+      assertSame(LizzieFrame.toolbar.anaPanel, LizzieFrame.toolbar.txtFirstAnaMove.getParent(),
+          "Window close returns the shared controls to the toolbar");
+      Lizzie.frame.Batchfiles = new java.util.ArrayList<>(List.of(first.toFile()));
+      Lizzie.frame.isBatchAna = true;
+      StartAnaDialog flash = new StartAnaDialog(true, Lizzie.frame);
+      flash.stop();
+      assertFalse(Lizzie.frame.isBatchAna, "Flash settings stop releases its preparation");
+      assertSame(LizzieFrame.toolbar.anaPanel, LizzieFrame.toolbar.txtFirstAnaMove.getParent());
+    });
+    DesktopProbeProcess.phase(result, "ordinary-close-and-flash-cancel-restored");
+    runBatch(List.of(first), result, "single");
+    assertSavedBatchGame(work, "batch-first", "GN[first]", "B[pd]");
+    try (var saved = Files.list(work)) {
+      for (Path path : saved.filter(p -> p.getFileName().toString().startsWith("batch-first_")).toList()) {
+        Files.delete(path);
+      }
+    }
+    runBatch(List.of(first, second), result, "multiple");
+    assertSavedBatchGame(work, "batch-first", "GN[first]", "B[pd]");
+    assertSavedBatchGame(work, "batch-second", "GN[second]", "B[qp]");
+    DesktopProbeProcess.phase(result, "batch-load-failure");
+    edt(() -> Lizzie.frame.openOrdinaryBatchAnalysis(
+        List.of(work.resolve("missing.sgf").toFile()), false));
+    await(() -> !Lizzie.frame.isBatchAna && !Lizzie.frame.isManualAutoAnalysisStarting(),
+        20, "failed load releases batch");
+    assertTrue(Lizzie.frame.Batchfiles.isEmpty(), "Failed load clears queue");
+    edt(() -> {
+      for (Window window : Window.getWindows()) if (window instanceof Dialog) window.dispose();
+    });
+    runBatch(List.of(second), result, "retry");
+    assertFalse(Lizzie.frame.isManualAutoAnalysisStarting());
+    Path flashFile = work.resolve("batch-flash.sgf");
+    Files.writeString(flashFile, "(;FF[4]GM[1]SZ[19]KM[7.5]GN[flash];B[pd];W[dd])");
+    edt(() -> {
+      Lizzie.frame.Batchfiles = new java.util.ArrayList<>(List.of(flashFile.toFile()));
+      Lizzie.frame.BatchAnaNum = 0;
+      Lizzie.frame.isBatchAna = true;
+      assertTrue(Lizzie.frame.loadFile(flashFile.toFile(), false, true));
+    });
+    edt(() -> {});
+    await(() -> LizzieFrame.canGoAfterload, 30, "flash file engine alignment");
+    edt(() -> {
+      Lizzie.config.batchAnalysisPlayouts = 2;
+      StartAnaDialog flash = new StartAnaDialog(true, Lizzie.frame);
+      flash.apply();
+    });
+    await(() -> !Lizzie.frame.isBatchAna && !Lizzie.frame.isBatchAnalysisMode, 45,
+        "flash batch completion");
+    assertSavedBatchGame(work, "batch-flash", "GN[flash]", "B[pd]");
+    DesktopProbeProcess.phase(result, "flash-batch-complete");
+  }
+
+  private static void runBatch(List<Path> files, Path result, String phase) throws Exception {
+    DesktopProbeProcess.phase(result, "batch-" + phase + "-open");
+    SwingUtilities.invokeLater(() -> Lizzie.frame.openOrdinaryBatchAnalysis(
+        files.stream().map(Path::toFile).toList(), false));
+    await(() -> batchDialog() != null, 30, "batch settings " + phase);
+    edt(() -> {
+      StartAnaDialog dialog = batchDialog();
+      LizzieFrame.toolbar.chkAnaBlack.setSelected(true);
+      LizzieFrame.toolbar.chkAnaWhite.setSelected(true);
+      LizzieFrame.toolbar.txtAnaTime.setText("");
+      LizzieFrame.toolbar.txtAnaFirstPlayouts.setText("");
+      LizzieFrame.toolbar.txtAnaPlayouts.setText("2");
+      LizzieFrame.toolbar.txtFirstAnaMove.setText("");
+      LizzieFrame.toolbar.txtLastAnaMove.setText("");
+      dialog.apply();
+    });
+    await(() -> !Lizzie.frame.isBatchAna && !Lizzie.config.isAutoAna
+            && !Lizzie.frame.isManualAutoAnalysisStarting(),
+        45, "batch completion " + phase);
+    assertTrue(Lizzie.frame.Batchfiles.isEmpty(), "Completed batch clears queue");
+    assertTrue(LizzieFrame.toolbar.start.isEnabled(), "Start control is restored");
+    DesktopProbeProcess.phase(result, "batch-" + phase + "-complete");
+  }
+
+  private static StartAnaDialog batchDialog() {
+    for (Window window : Window.getWindows()) {
+      if (window instanceof StartAnaDialog && window.isShowing()) return (StartAnaDialog) window;
+    }
+    return null;
+  }
+
+  private static void assertSavedBatchGame(Path work, String prefix, String name, String move)
+      throws Exception {
+    List<Path> outputs;
+    try (var paths = Files.list(work)) {
+      outputs = paths.filter(p -> p.getFileName().toString().startsWith(prefix + "_")).toList();
+    }
+    assertTrue(outputs.size() == 1, "Exactly one saved result for " + prefix + ": " + outputs);
+    String sgf = Files.readString(outputs.get(0));
+    assertTrue(sgf.contains(name) && sgf.contains(move), "Saved result belongs to " + prefix);
+    assertTrue(sgf.contains("LZ["), "Saved result contains engine analysis for " + prefix);
   }
 
   private static boolean allMovesAnalyzed() {

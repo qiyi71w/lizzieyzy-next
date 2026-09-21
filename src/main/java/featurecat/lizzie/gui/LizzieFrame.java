@@ -247,6 +247,20 @@ public class LizzieFrame extends JFrame {
   public int BatchAnaNum = 0;
   public static File curFile;
   public ArrayList<File> Batchfiles = new ArrayList<File>();
+
+  static final class BatchAutoAnalysis {
+    private final ArrayList<File> files;
+    private BoardHistoryNode root;
+    private boolean loaded;
+
+    private BatchAutoAnalysis(ArrayList<File> files, BoardHistoryNode root) {
+      this.files = files;
+      this.root = root;
+    }
+  }
+
+  private BatchAutoAnalysis batchAutoAnalysis;
+  private BatchAutoAnalysis pendingManualAutoAnalysisBatch;
   public int[] suggestionclick = outOfBoundCoordinate;
   public int[] clickbadmove = outOfBoundCoordinate;
   public int[] mouseOverCoordinate = outOfBoundCoordinate;
@@ -4228,21 +4242,7 @@ public class LizzieFrame extends JFrame {
         return true;
       }
 
-      isBatchAna = true;
-      BatchAnaNum = 0;
-      Batchfiles = new ArrayList<File>(files);
-      loadFile(files.get(0), true, true);
-      // 打开分析界面
-      StartAnaDialog newgame = new StartAnaDialog(false, Lizzie.frame);
-      newgame.setVisible(true);
-      if (newgame.isCancelled()) {
-        isBatchAna = false;
-        toolbar.resetAutoAna();
-        if (Lizzie.frame.analysisTable != null && Lizzie.frame.analysisTable.frame.isVisible()) {
-          Lizzie.frame.analysisTable.refreshTable();
-        }
-        Lizzie.frame.refresh();
-      }
+      openOrdinaryBatchAnalysis(files, true);
       return true;
     } catch (Exception e) {
       e.printStackTrace();
@@ -4332,13 +4332,127 @@ public class LizzieFrame extends JFrame {
    * Starts a foreground auto-analysis only after automatic curve analysis has fully released its
    * worker or shared foreground-engine lease.
    */
+  BatchAutoAnalysis beginBatchAutoAnalysis(List<File> files) {
+    AnalysisEngine automatic =
+        analysisEngine != null && analysisEngine.isAutomaticBackgroundTask() ? analysisEngine : null;
+    if (files.isEmpty() || manualAutoAnalysisStarting
+        || hasManualAutoAnalysisStartConflict(automatic, null)) {
+      return null;
+    }
+    Batchfiles = new ArrayList<>(files);
+    BatchAnaNum = 0;
+    isBatchAna = true;
+    batchAutoAnalysis = new BatchAutoAnalysis(Batchfiles, currentHistoryRoot());
+    return batchAutoAnalysis;
+  }
+
+  boolean ownsBatchAutoAnalysis(BatchAutoAnalysis batch) {
+    return batch != null && batch == batchAutoAnalysis && isBatchAna && Batchfiles == batch.files;
+  }
+
+  boolean isCurrentBatchAutoAnalysisGame(BatchAutoAnalysis batch) {
+    return ownsBatchAutoAnalysis(batch) && batch.root == currentHistoryRoot();
+  }
+
+  boolean rejectCompetingBatchAnalysis() {
+    if (!ownsBatchAutoAnalysis(batchAutoAnalysis)) return false;
+    toolbar.showAutoAnalysisStartFailure(ManualAutoAnalysisStartFailure.ANALYSIS_CONFLICT);
+    return true;
+  }
+
+  void endBatchAutoAnalysis(BatchAutoAnalysis batch) {
+    if (batch == null || batch != batchAutoAnalysis) return;
+    if (pendingManualAutoAnalysisBatch == batch) {
+      cancelPendingManualAutoAnalysisStart();
+      return;
+    }
+    batchAutoAnalysis = null;
+    if (Batchfiles != batch.files) return;
+    isBatchAna = false;
+    Batchfiles = new ArrayList<>();
+    BatchAnaNum = 0;
+    if (toolbar != null) toolbar.chkAnaAutoSave.setEnabled(true);
+    if (analysisTable != null) analysisTable.refreshTable();
+  }
+
+  private void failBatchKifuLoad(BoardHistoryNode root) {
+    BatchAutoAnalysis batch = batchAutoAnalysis;
+    if (batch == null || batch.root != root || !batch.loaded) return;
+    if (pendingManualAutoAnalysisBatch == batch) {
+      cancelPendingManualAutoAnalysisStart(ManualAutoAnalysisStartFailure.ENGINE_UNAVAILABLE);
+    } else {
+      endBatchAutoAnalysis(batch);
+    }
+  }
+
+  void openOrdinaryBatchAnalysis(List<File> files, boolean fromTemp) {
+    BatchAutoAnalysis batch = beginBatchAutoAnalysis(files);
+    if (batch == null) {
+      toolbar.showAutoAnalysisStartFailure(ManualAutoAnalysisStartFailure.ANALYSIS_CONFLICT);
+      return;
+    }
+    loadBatchAutoAnalysisFile(batch, 0, fromTemp,
+        () -> {
+          toolbar.chkAnaAutoSave.setSelected(true);
+          StartAnaDialog dialog = new StartAnaDialog(false, this, batch);
+          dialog.setVisible(true);
+          if (dialog.isCancelled()) endBatchAutoAnalysis(batch);
+        });
+  }
+
+  void loadNextBatchAutoAnalysis(BatchAutoAnalysis batch, Runnable loaded) {
+    loadBatchAutoAnalysisFile(batch, BatchAnaNum + 1, false, loaded);
+  }
+
+  private void loadBatchAutoAnalysisFile(
+      BatchAutoAnalysis batch, int index, boolean fromTemp, Runnable loaded) {
+    if (!ownsBatchAutoAnalysis(batch)) return;
+    // Release automatic analysis before changing games, with the same ownership and failure
+    // boundary as startup. An unrelated task must never be displaced by a batch load.
+    requestManualAutoAnalysisStart(batch,
+        () -> {
+          if (!loadFile(batch.files.get(index), fromTemp, true)) {
+            endBatchAutoAnalysis(batch);
+            return;
+          }
+          BatchAnaNum = index;
+          curFile = batch.files.get(index);
+          batch.root = currentHistoryRoot();
+          batch.loaded = true;
+          // SGF establishes its new analysis context on the next EDT turn. Admission then
+          // waits for that context's engine synchronization before starting analysis.
+          SwingUtilities.invokeLater(() -> {
+            if (!ownsBatchAutoAnalysis(batch)) return;
+            if (batch.root != currentHistoryRoot()) {
+              endBatchAutoAnalysis(batch);
+              return;
+            }
+            if (analysisTable != null) analysisTable.refreshTable();
+            loaded.run();
+          });
+        }, toolbar::showAutoAnalysisStartFailure);
+  }
+
   void requestManualAutoAnalysisStart(
       Runnable ready, Consumer<ManualAutoAnalysisStartFailure> failure) {
+    requestManualAutoAnalysisStart(null, ready, failure);
+  }
+
+  void requestManualAutoAnalysisStart(
+      BatchAutoAnalysis batch, Runnable ready, Consumer<ManualAutoAnalysisStartFailure> failure) {
     if (ready == null) {
       return;
     }
     if (!SwingUtilities.isEventDispatchThread()) {
-      SwingUtilities.invokeLater(() -> requestManualAutoAnalysisStart(ready, failure));
+      SwingUtilities.invokeLater(() -> requestManualAutoAnalysisStart(batch, ready, failure));
+      return;
+    }
+    Consumer<ManualAutoAnalysisStartFailure> failed = reason -> {
+      endBatchAutoAnalysis(batch);
+      notifyManualAutoAnalysisStartFailure(failure, reason);
+    };
+    if (batch != null && (!ownsBatchAutoAnalysis(batch) || batch.root != currentHistoryRoot())) {
+      failed.accept(ManualAutoAnalysisStartFailure.GAME_CHANGED);
       return;
     }
     if (manualAutoAnalysisStarting || (Lizzie.config != null && Lizzie.config.isAutoAna)) {
@@ -4361,21 +4475,22 @@ public class LizzieFrame extends JFrame {
                 ? currentEngine
                 : null;
 
-    if (hasManualAutoAnalysisStartConflict(interruptibleEngine)) {
+    if (hasManualAutoAnalysisStartConflict(interruptibleEngine, batch)) {
       notifyManualAutoAnalysisStartFailure(
-          failure, ManualAutoAnalysisStartFailure.ANALYSIS_CONFLICT);
+          failed, ManualAutoAnalysisStartFailure.ANALYSIS_CONFLICT);
       return;
     }
     if (root == null || Lizzie.leelaz == null) {
       notifyManualAutoAnalysisStartFailure(
-          failure, ManualAutoAnalysisStartFailure.ENGINE_UNAVAILABLE);
+          failed, ManualAutoAnalysisStartFailure.ENGINE_UNAVAILABLE);
       return;
     }
 
     manualAutoAnalysisStarting = true;
     long startGeneration = ++manualAutoAnalysisStartGeneration;
     pendingManualAutoAnalysisReady = ready;
-    pendingManualAutoAnalysisFailure = failure;
+    pendingManualAutoAnalysisFailure = failed;
+    pendingManualAutoAnalysisBatch = batch;
     pendingManualAutoAnalysisRoot = root;
     userCancelledQuickAnalysisRoot = root;
 
@@ -4425,6 +4540,7 @@ public class LizzieFrame extends JFrame {
     clearAbortedManualAutoAnalysisSuppression();
     Consumer<ManualAutoAnalysisStartFailure> failure = pendingManualAutoAnalysisFailure;
     pendingManualAutoAnalysisFailure = null;
+    pendingManualAutoAnalysisBatch = null;
     notifyManualAutoAnalysisStartFailure(failure, reason);
   }
 
@@ -4437,11 +4553,13 @@ public class LizzieFrame extends JFrame {
       completeManualAutoAnalysisStartFailure(ManualAutoAnalysisStartFailure.RELEASE_FAILED);
       return;
     }
-    if (root != currentHistoryRoot()) {
+    BatchAutoAnalysis batch = pendingManualAutoAnalysisBatch;
+    if (root != currentHistoryRoot()
+        || (batch != null && (!ownsBatchAutoAnalysis(batch) || batch.root != root))) {
       completeManualAutoAnalysisStartFailure(ManualAutoAnalysisStartFailure.GAME_CHANGED);
       return;
     }
-    if (hasManualAutoAnalysisStartConflict(null)) {
+    if (hasManualAutoAnalysisStartConflict(null, batch)) {
       completeManualAutoAnalysisStartFailure(ManualAutoAnalysisStartFailure.ANALYSIS_CONFLICT);
       return;
     }
@@ -4451,6 +4569,10 @@ public class LizzieFrame extends JFrame {
     }
     if (Lizzie.leelaz == null || (Lizzie.leelaz.isDownWithError && !Lizzie.leelaz.isStarted())) {
       completeManualAutoAnalysisStartFailure(ManualAutoAnalysisStartFailure.ENGINE_UNAVAILABLE);
+      return;
+    }
+    if (batch != null && batch.loaded && pendingKifuEngineSyncRoot == root) {
+      waitForPrimaryEngineBeforeManualAutoAnalysis(generation, root);
       return;
     }
     if (!Lizzie.leelaz.isLoaded()) {
@@ -4463,6 +4585,7 @@ public class LizzieFrame extends JFrame {
     pendingManualAutoAnalysisReady = null;
     pendingManualAutoAnalysisFailure = null;
     pendingManualAutoAnalysisRoot = null;
+    pendingManualAutoAnalysisBatch = null;
     ready.run();
   }
 
@@ -4493,6 +4616,7 @@ public class LizzieFrame extends JFrame {
     pendingManualAutoAnalysisReady = null;
     clearAbortedManualAutoAnalysisSuppression();
     pendingManualAutoAnalysisFailure = null;
+    pendingManualAutoAnalysisBatch = null;
     notifyManualAutoAnalysisStartFailure(failure, reason);
   }
 
@@ -4527,8 +4651,10 @@ public class LizzieFrame extends JFrame {
         || isAnaPlayingAgainstLeelaz;
   }
 
-  private boolean hasManualAutoAnalysisStartConflict(AnalysisEngine allowedAutomaticEngine) {
-    if (isWholeGameAnalysisStartingOrRunning() || isWholeGameAnalysisConflict()) {
+  private boolean hasManualAutoAnalysisStartConflict(
+      AnalysisEngine allowedAutomaticEngine, BatchAutoAnalysis batch) {
+    if (isWholeGameAnalysisStartingOrRunning()
+        || isWholeGameAnalysisConflict(ownsBatchAutoAnalysis(batch))) {
       return true;
     }
     AnalysisEngine currentEngine = analysisEngine;
@@ -4661,6 +4787,15 @@ public class LizzieFrame extends JFrame {
             filesystem.getString("last-folder"),
             true);
     if (files.length > 0) {
+      if (!isFlashMode) {
+        openOrdinaryBatchAnalysis(java.util.Arrays.asList(files), false);
+        this.setAlwaysOnTop(Lizzie.config.mainsalwaysontop);
+        return;
+      }
+      if (rejectCompetingBatchAnalysis()) {
+        this.setAlwaysOnTop(Lizzie.config.mainsalwaysontop);
+        return;
+      }
       isBatchAna = true;
       BatchAnaNum = 0;
       curFile = files[0];
@@ -5555,6 +5690,7 @@ public class LizzieFrame extends JFrame {
               @Override
               public void onFailed() {
                 if (rulesFailure == null) {
+                  failBatchKifuLoad(root);
                   return;
                 }
                 offerContinueAfterRulesFailure(
@@ -5730,6 +5866,7 @@ public class LizzieFrame extends JFrame {
           root, rulesTarget, primary, primaryGeneration, mirror, failure, delayMillis, action);
     } else {
       userAnalysisPaused = true;
+      failBatchKifuLoad(root);
     }
   }
 
@@ -16152,8 +16289,12 @@ public class LizzieFrame extends JFrame {
   }
 
   private boolean isWholeGameAnalysisConflict() {
+    return isWholeGameAnalysisConflict(false);
+  }
+
+  private boolean isWholeGameAnalysisConflict(boolean ownsOrdinaryBatch) {
     return Lizzie.config.isAutoAna
-        || isBatchAna
+        || (isBatchAna && !ownsOrdinaryBatch)
         || isBatchAnalysisMode
         || EngineGamePresentation.current().startingOrPlaying()
         || isPlayingAgainstLeelaz
