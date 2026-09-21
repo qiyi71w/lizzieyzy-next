@@ -6,8 +6,8 @@ import java.util.Objects;
 import java.util.ResourceBundle;
 
 /**
- * Immutable match-rules view for preparing, failed, playing, and completed games. Display names
- * are summaries; admission uses semantic equality.
+ * Immutable match-rules view for preparing, failed, playing, and completed games. Display names are
+ * summaries; admission uses semantic equality.
  */
 public final class MatchRulesSnapshot {
   public enum Phase {
@@ -151,13 +151,10 @@ public final class MatchRulesSnapshot {
     if (rules == null) {
       return bundle.getString("MatchRules.unconfirmed");
     }
-    return switch (rules.summary()) {
-      case CHINESE -> bundle.getString("LizzieFrame.currentRules.chinese");
-      case CHINESE_ANCIENT -> bundle.getString("LizzieFrame.currentRules.chn-ancient");
-      case JAPANESE -> bundle.getString("LizzieFrame.currentRules.japanese");
-      case TROMP_TAYLOR -> bundle.getString("LizzieFrame.currentRules.tromp-taylor");
-      case OTHER -> bundle.getString("LizzieFrame.currentRules.others");
-    };
+    MatchRuleOption option = MatchRuleOption.matching(rules);
+    return option == null
+        ? bundle.getString("NewEngineGameDialog.matchRules.custom")
+        : option.displayName(bundle);
   }
 
   private static String sideSummary(Side side, ResourceBundle bundle) {
