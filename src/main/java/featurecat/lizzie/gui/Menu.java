@@ -10,6 +10,7 @@ import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.analysis.MoveRankEvaluationMode;
 import featurecat.lizzie.enginegame.EngineGamePresentation;
 import featurecat.lizzie.enginegame.EngineGameSnapshot;
+import featurecat.lizzie.enginegame.EngineGameKomiState;
 import featurecat.lizzie.teacher.TeacherDialog;
 import featurecat.lizzie.theme.MorandiPalette;
 import featurecat.lizzie.theme.Theme;
@@ -74,6 +75,61 @@ public class Menu extends JMenuBar {
   JFontMenuItem shutdownOtherEngine;
   JFontMenuItem minPlayoutsForNextMove;
   private TencentKifuDownload tencentKifuDownload;
+  private EngineGameKomiState shownKomiFailure;
+
+  /** Returns true when Engine Game owns this edit, including a retiring/starting game. */
+  static boolean submitEngineGameKomi(double value) {
+    if (!EngineGamePresentation.current().playing()
+        && !EngineManager.occupiesEngineGameAdmission()) return false;
+    Lizzie.engineGame.reviseKomi(value);
+    if (LizzieFrame.menu != null) LizzieFrame.menu.refreshEngineGameKomi();
+    return true;
+  }
+
+  private double komiIncrementBase() {
+    EngineGameKomiState state = Lizzie.engineGame.komiState();
+    return state != null && state.pending()
+        ? state.target() : Double.parseDouble(txtKomi.getText().trim());
+  }
+
+  private static void applyOrdinaryKomi(double value, boolean updateMenu) {
+    Leelaz engine = Lizzie.leelaz;
+    if (engine != null) {
+      if (updateMenu) engine.komi(value);
+      else engine.komiNoMenu(value);
+    } else {
+      GameInfo info = Lizzie.board.getHistory().getGameInfo();
+      if (updateMenu) info.setKomi(value);
+      else info.setKomiNoMenu(value);
+      Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
+    }
+  }
+
+  public void refreshEngineGameKomi() {
+    if (txtKomi == null || Lizzie.board == null) return;
+    EngineGameKomiState state = Lizzie.engineGame.komiState();
+    boolean pending = state != null && state.pending();
+    double value = pending ? state.target() : Lizzie.board.getHistory().getGameInfo().getKomi();
+    if (!txtKomi.isFocusOwner() || !Lizzie.engineGame.current().playing()
+        || (state != null && state.failure() != null)) {
+      txtKomi.setText(String.valueOf(value));
+    }
+    if (lblKomiSpinner != null) {
+      lblKomiSpinner.setText(Lizzie.resourceBundle.getString(
+          pending ? "EngineGame.komiPendingLabel" : "Menu.komi"));
+    }
+    String detail = pending ? java.text.MessageFormat.format(
+        Lizzie.resourceBundle.getString("EngineGame.komiPending"), state.applied(), state.target()) : null;
+    txtKomi.setToolTipText(detail);
+    if (lblKomiSpinner != null) lblKomiSpinner.setToolTipText(detail);
+    if (state != null && state.failure() != null && shownKomiFailure != state) {
+      shownKomiFailure = state;
+      Utils.showMsg(java.text.MessageFormat.format(
+          Lizzie.resourceBundle.getString("EngineGame.komiFailed"), state.failure()));
+    }
+    if (Lizzie.frame != null) Lizzie.frame.refresh();
+  }
+
 
   static Font languageOptionFont(AppLocale locale, String preferredName, int size) {
     String fontName =
@@ -5832,16 +5888,9 @@ public class Menu extends JMenuBar {
                 return;
               double oriKomi = Lizzie.board.getHistory().getGameInfo().getKomi();
               double newKomi = Double.parseDouble(txtKomi.getText());
+              if (submitEngineGameKomi(newKomi)) return;
               if (newKomi == oriKomi) return;
-              EngineGameSnapshot snapshot = EngineGamePresentation.current();
-              if (snapshot.playing()) {
-                EngineGamePresentation.sendToParticipants(
-                    snapshot,
-                    engine ->
-                        engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
-                if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
-                Lizzie.board.getHistory().getGameInfo().setKomiNoMenu(newKomi);
-              } else Lizzie.leelaz.komiNoMenu(newKomi);
+              applyOrdinaryKomi(newKomi, false);
               Lizzie.board.getHistory().getGameInfo().changeKomi();
               Lizzie.frame.refresh();
             } catch (Exception es) {
@@ -5862,7 +5911,7 @@ public class Menu extends JMenuBar {
           @Override
           public void focusLost(FocusEvent e) {
             // TODO Auto-generated method stub
-            txtKomi.setText(String.valueOf(Lizzie.board.getHistory().getGameInfo().getKomi()));
+            refreshEngineGameKomi();
           }
         });
 
@@ -5874,16 +5923,9 @@ public class Menu extends JMenuBar {
             try {
               double oriKomi = Lizzie.board.getHistory().getGameInfo().getKomi();
               double newKomi = Double.parseDouble(txtKomi.getText());
+              if (submitEngineGameKomi(newKomi)) return;
               if (newKomi == oriKomi) return;
-              EngineGameSnapshot snapshot = EngineGamePresentation.current();
-              if (snapshot.playing()) {
-                EngineGamePresentation.sendToParticipants(
-                    snapshot,
-                    engine ->
-                        engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
-                if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
-                Lizzie.board.getHistory().getGameInfo().setKomiNoMenu(newKomi);
-              } else Lizzie.leelaz.komiNoMenu(newKomi);
+              applyOrdinaryKomi(newKomi, false);
               Lizzie.board.getHistory().getGameInfo().changeKomi();
               Lizzie.frame.refresh();
             } catch (Exception es) {
@@ -5944,16 +5986,10 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             if (txtKomi.getText().trim().equals("")) return;
-            double newKomi = Double.parseDouble(txtKomi.getText().trim()) + 0.5;
-            EngineGameSnapshot snapshot = EngineGamePresentation.current();
-            if (snapshot.playing()) {
-              EngineGamePresentation.sendToParticipants(
-                  snapshot,
-                  engine ->
-                      engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
-              if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
-              Lizzie.board.getHistory().getGameInfo().setKomi(newKomi);
-            } else Lizzie.leelaz.komi(newKomi);
+            double newKomi = komiIncrementBase() + 0.5;
+            txtKomi.setText(String.valueOf(newKomi));
+            if (submitEngineGameKomi(newKomi)) return;
+            applyOrdinaryKomi(newKomi, true);
             Lizzie.board.getHistory().getGameInfo().changeKomi();
             Lizzie.frame.refresh();
           }
@@ -5969,16 +6005,10 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             if (txtKomi.getText().trim().equals("")) return;
-            double newKomi = Double.parseDouble(txtKomi.getText().trim()) - 0.5;
-            EngineGameSnapshot snapshot = EngineGamePresentation.current();
-            if (snapshot.playing()) {
-              EngineGamePresentation.sendToParticipants(
-                  snapshot,
-                  engine ->
-                      engine.sendCommand("komi " + (newKomi == 0.0 ? "0" : newKomi)));
-              if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
-              Lizzie.board.getHistory().getGameInfo().setKomi(newKomi);
-            } else Lizzie.leelaz.komi(newKomi);
+            double newKomi = komiIncrementBase() - 0.5;
+            txtKomi.setText(String.valueOf(newKomi));
+            if (submitEngineGameKomi(newKomi)) return;
+            applyOrdinaryKomi(newKomi, true);
             Lizzie.board.getHistory().getGameInfo().changeKomi();
             Lizzie.frame.refresh();
           }

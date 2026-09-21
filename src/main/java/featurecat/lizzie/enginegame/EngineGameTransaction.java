@@ -57,12 +57,7 @@ public final class EngineGameTransaction {
 
   public void setPaused(boolean paused) {
     this.paused = paused;
-    if (paused && plan.playMode() == EngineGamePlayMode.GENMOVE) {
-      genmovePauseSettled = false;
-    }
-    if (!paused) {
-      genmovePauseSettled = false;
-    }
+    genmovePauseSettled = pendingGenmoveSide != null;
   }
 
   public void recordPendingGenmoveSide(EngineGameSide side) {

@@ -26,6 +26,7 @@ import featurecat.lizzie.enginegame.EngineGameRecordContext;
 import featurecat.lizzie.enginegame.EngineGameResignPolicy;
 import featurecat.lizzie.enginegame.EngineGameSaveSnapshot;
 import featurecat.lizzie.enginegame.EngineGamePresentation;
+import featurecat.lizzie.enginegame.EngineGameKomiState;
 import featurecat.lizzie.enginegame.EngineGameSide;
 import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.enginegame.EngineGameTransaction;
@@ -51,6 +52,7 @@ import featurecat.lizzie.rules.BoardHistoryList;
 import featurecat.lizzie.rules.SGFParser;
 
 import java.io.ByteArrayOutputStream;
+import java.util.concurrent.TimeUnit;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -847,6 +849,242 @@ class EngineGameModuleContractTest {
         0, reordered.resolveEngineGameParticipant(new EngineParticipantIdentity("cmd-b", "")));
   }
 
+  @Test
+  void pauseAndResumeWhileKomiUpdatePendingPreservesPauseIntent() throws Exception {
+    manager.manualActivation = true;
+    playAccepted(analysisSpec());
+    EngineGameTransaction txn = Lizzie.engineGame.transaction();
+    activateOwner(txn);
+
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertNull(Lizzie.engineGame.komiState());
+    assertTrue(Lizzie.engineGame.current().playing());
+    assertFalse(Lizzie.engineGame.current().paused());
+
+    assertTrue(Lizzie.engineGame.reviseKomi(8.5));
+    awaitKomiCommands("8.5");
+
+    EngineGameKomiState pendingState = Lizzie.engineGame.komiState();
+    assertNotNull(pendingState);
+    assertTrue(pendingState.pending());
+    assertEquals(7.5, pendingState.applied());
+    assertEquals(8.5, pendingState.target());
+    assertNull(pendingState.failure());
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+
+    Lizzie.engineGame.pause();
+    assertTrue(Lizzie.engineGame.current().paused());
+    assertEquals(
+        RunState.PAUSED, ((GameActivity.Playing) activity(Lizzie.engineGame.current())).runState());
+    assertTrue(txn.paused());
+
+    Lizzie.engineGame.resume();
+    assertFalse(Lizzie.engineGame.current().paused());
+    assertEquals(
+        RunState.RUNNING, ((GameActivity.Playing) activity(Lizzie.engineGame.current())).runState());
+    assertFalse(txn.paused());
+
+    Lizzie.engineGame.pause();
+    assertTrue(Lizzie.engineGame.current().paused());
+    assertEquals(
+        RunState.PAUSED, ((GameActivity.Playing) activity(Lizzie.engineGame.current())).runState());
+    assertTrue(txn.paused());
+
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    awaitKomiSettled();
+
+    EngineGameKomiState settledState = Lizzie.engineGame.komiState();
+    assertNotNull(settledState);
+    assertFalse(settledState.pending());
+    assertEquals(8.5, settledState.applied());
+    assertEquals(8.5, settledState.target());
+    assertNull(settledState.failure());
+    assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+
+    assertTrue(Lizzie.engineGame.current().paused());
+    assertEquals(
+        RunState.PAUSED, ((GameActivity.Playing) activity(Lizzie.engineGame.current())).runState());
+    assertTrue(txn.paused());
+
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertFalse(Lizzie.engineGame.successorPending());
+    assertEquals("", Lizzie.board.getHistory().getGameInfo().getResult());
+    assertNull(Lizzie.board.getHistory().getGameInfo().engineGameRecord());
+    assertNotNull(Lizzie.board.getHistory().getGameInfo().engineGameRecordContext());
+    assertFalse(txn.alreadyCompleted());
+  }
+
+  @Test
+  void komiFailureEndsAcceptedBatchWithoutCompletedGameOrSuccessor() throws Exception {
+    manager.manualActivation = true;
+    playAccepted(analysisBatchSpec(3));
+    EngineGameTransaction txn = Lizzie.engineGame.transaction();
+    activateOwner(txn);
+
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+
+    assertTrue(Lizzie.engineGame.reviseKomi(8.5));
+    awaitKomiCommands("8.5");
+
+    EngineGameKomiState pendingState = Lizzie.engineGame.komiState();
+    assertNotNull(pendingState);
+    assertTrue(pendingState.pending());
+    assertEquals(7.5, pendingState.applied());
+    assertEquals(8.5, pendingState.target());
+
+    settleEngineGameCommands(black);
+    int whiteKomiId = commandIdFor(white.commandText(), "komi 8.5");
+    white.processCommandResponseLineForTest("?" + whiteKomiId + " unsupported komi");
+
+    awaitKomiFailure();
+
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertNull(Lizzie.engineGame.transaction());
+    assertFalse(Lizzie.engineGame.successorPending());
+
+    EngineGameKomiState failureState = Lizzie.engineGame.komiState();
+    assertNotNull(failureState);
+    assertFalse(failureState.pending());
+    assertNotNull(failureState.failure());
+    assertTrue(failureState.failure().contains("unsupported komi"));
+    assertEquals(7.5, failureState.applied());
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertEquals("", Lizzie.board.getHistory().getGameInfo().getResult());
+    assertNull(Lizzie.board.getHistory().getGameInfo().engineGameRecord());
+    assertNotNull(Lizzie.board.getHistory().getGameInfo().engineGameRecordContext());
+
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertEquals(0, Lizzie.engineGame.lastSummary().maxMoveGames());
+
+    Lizzie.engineGame.onOwnerRetired();
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertNull(Lizzie.engineGame.transaction());
+  }
+
+  @Test
+  void stopAndNewGameAreImmuneToOldCompletionAndKomiCallbacks() throws Exception {
+    manager.manualActivation = true;
+    playAccepted(analysisBatchSpec(3));
+    EngineGameTransaction firstTxn = Lizzie.engineGame.transaction();
+    Object firstOwner = firstTxn.lifecycle().ownerToken();
+    activateOwner(firstTxn);
+
+    assertTrue(Lizzie.engineGame.reviseKomi(8.5));
+    awaitKomiCommands("8.5");
+    int lateBlack = commandIdFor(black.commandText(), "komi 8.5");
+    int lateWhite = commandIdFor(white.commandText(), "komi 8.5");
+
+    Lizzie.engineGame.stop();
+
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+    assertNull(Lizzie.engineGame.transaction());
+    assertNull(Lizzie.engineGame.komiState());
+    assertFalse(Lizzie.engineGame.successorPending());
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertEquals("", Lizzie.board.getHistory().getGameInfo().getResult());
+    assertNull(Lizzie.board.getHistory().getGameInfo().engineGameRecord());
+
+    assertFalse(Lizzie.engineGame.complete(new GameOutcome.DoublePass(), firstOwner, 0));
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
+
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (EngineManager.occupiesEngineGameAdmission() && System.nanoTime() < deadline) {
+      Thread.sleep(5L);
+    }
+    assertFalse(EngineManager.occupiesEngineGameAdmission());
+    black.bindLiveRuntime();
+    white.bindLiveRuntime();
+    playAccepted(analysisBatchSpec(3));
+    EngineGameTransaction secondTxn = Lizzie.engineGame.transaction();
+    assertNotSame(firstTxn, secondTxn);
+    activateOwner(secondTxn);
+
+    assertTrue(Lizzie.engineGame.current().playing());
+    assertNull(Lizzie.engineGame.komiState());
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+
+    black.processCommandResponseLineForTest("=" + lateBlack);
+    white.processCommandResponseLineForTest("?" + lateWhite + " late rejection");
+
+    assertNull(Lizzie.engineGame.komiState());
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertTrue(Lizzie.engineGame.current().playing());
+
+    assertFalse(Lizzie.engineGame.complete(new GameOutcome.DoublePass(), firstOwner, 0));
+    assertFalse(secondTxn.alreadyCompleted());
+    assertTrue(Lizzie.engineGame.current().playing());
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertEquals("", Lizzie.board.getHistory().getGameInfo().getResult());
+    assertNull(Lizzie.board.getHistory().getGameInfo().engineGameRecord());
+    assertNotNull(Lizzie.board.getHistory().getGameInfo().engineGameRecordContext());
+    assertSame(secondTxn, Lizzie.engineGame.transaction());
+  }
+  @Test
+  void inFlightGenmoveCompletesBeforeKomiUpdateApplies() throws Exception {
+    manager.manualActivation = true;
+    playAccepted(genmoveSpec());
+    EngineGameTransaction txn = Lizzie.engineGame.transaction();
+    activateOwner(txn);
+    EngineManager.EngineGameOwnerTransaction owner =
+        (EngineManager.EngineGameOwnerTransaction) txn.lifecycle().ownerToken();
+
+    assertTrue(black.genmoveForPk("B", owner));
+    assertTrue(Lizzie.engineGame.reviseKomi(8.5));
+
+    EngineGameKomiState pendingState = Lizzie.engineGame.komiState();
+    assertNotNull(pendingState);
+    assertTrue(pendingState.pending());
+    assertEquals(7.5, pendingState.applied());
+    assertEquals(8.5, pendingState.target());
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(black.commandText().contains("komi 8.5"));
+
+    int blackGenmoveId = commandIdFor(black.commandText(), "kata-genmove_analyze B 0");
+    black.parseEngineGameLineForTest("=" + blackGenmoveId);
+    black.parseEngineGameLineForTest("play D4");
+    int whitePlayId = commandIdFor(white.commandText(), "play B D4");
+    white.processCommandResponseLineForTest("=" + whitePlayId);
+
+    assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(7.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertFalse(white.commandText().contains("genmove W"));
+
+    awaitKomiCommands("8.5");
+    Lizzie.engineGame.pause();
+    settleEngineGameCommands(black);
+    settleEngineGameCommands(white);
+    awaitKomiSettled();
+
+    EngineGameKomiState settledState = Lizzie.engineGame.komiState();
+    assertNotNull(settledState);
+    assertFalse(settledState.pending());
+    assertEquals(8.5, settledState.applied());
+    assertEquals(8.5, settledState.target());
+    assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+    assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+    assertEquals(0, Lizzie.engineGame.lastSummary().firstWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().secondWins());
+    assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
+    assertEquals("", Lizzie.board.getHistory().getGameInfo().getResult());
+    assertNull(Lizzie.board.getHistory().getGameInfo().engineGameRecord());
+    assertNotNull(Lizzie.board.getHistory().getGameInfo().engineGameRecordContext());
+    assertFalse(txn.alreadyCompleted());
+  }
+
   private static GameActivity activity(EngineGameSnapshot snapshot) {
     return ((EngineGameSnapshot.BatchActive) snapshot).activity();
   }
@@ -901,6 +1139,100 @@ class EngineGameModuleContractTest {
             .build());
   }
 
+  private static EngineGameBatchSpec analysisBatchSpec(int games) {
+    return EngineGameBatchSpecFactory.from(
+        EngineGameParsedStart.builder()
+            .first(FIRST)
+            .second(SECOND)
+            .visitLimitEnabled(true)
+            .firstVisits(10)
+            .secondVisits(10)
+            .batch(true)
+            .batchLimit(games)
+            .build());
+  }
+
+  private void activateOwner(EngineGameTransaction txn) {
+    EngineManager.EngineGameOwnerTransaction owner =
+        (EngineManager.EngineGameOwnerTransaction) txn.lifecycle().ownerToken();
+    assertTrue(EngineManager.transitionEngineGameToDispatched(owner));
+    assertTrue(
+        EngineManager.activateEngineGameTransaction(
+            owner,
+            black,
+            0,
+            black.currentEngineIncarnation(),
+            white.currentEngineIncarnation()));
+  }
+
+  private void awaitKomiCommands(String target) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while ((!black.commandText().contains("komi " + target)
+        || !white.commandText().contains("komi " + target)) && System.nanoTime() < deadline) {
+      for (OccupancyLeelaz engine : List.of(black, white)) {
+        for (String line : engine.commandText().split("\\R")) {
+          if (line.matches("\\d+ name")) {
+            engine.processCommandResponseLineForTest("=" + line.substring(0, line.indexOf(' ')));
+          }
+        }
+      }
+      Thread.sleep(5L);
+    }
+    assertTrue(black.commandText().contains("komi " + target), black.commandText());
+    assertTrue(white.commandText().contains("komi " + target), white.commandText());
+  }
+
+  private void settleEngineGameCommands(OccupancyLeelaz engine) {
+    int settled = 0;
+    while (true) {
+      int[] ids = numberedCommandIds(engine.commandText());
+      if (ids.length == settled) {
+        return;
+      }
+      for (int index = settled; index < ids.length; index++) {
+        engine.processCommandResponseLineForTest("=" + ids[index]);
+      }
+      settled = ids.length;
+    }
+  }
+
+  private static void awaitKomiSettled() throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (Lizzie.engineGame.komiState() != null
+        && Lizzie.engineGame.komiState().pending()
+        && System.nanoTime() < deadline) {
+      Thread.sleep(5L);
+    }
+  }
+
+  private static void awaitKomiFailure() throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (Lizzie.engineGame.current().playing() && System.nanoTime() < deadline) {
+      Thread.sleep(5L);
+    }
+  }
+
+  private static int[] numberedCommandIds(String output) {
+    return output
+        .lines()
+        .map(String::trim)
+        .map(line -> line.split("\\s+", 2)[0])
+        .filter(token -> !token.isEmpty() && token.chars().allMatch(Character::isDigit))
+        .mapToInt(Integer::parseInt)
+        .toArray();
+  }
+
+  private static int commandIdFor(String output, String command) {
+    return output
+        .lines()
+        .map(String::trim)
+        .filter(line -> line.endsWith(command))
+        .map(line -> line.split("\\s+", 2)[0])
+        .mapToInt(Integer::parseInt)
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("missing command '" + command + "' in: " + output));
+  }
+
   private static final class RecordingObserver implements StartObserver {
     private int playing;
     private final List<StartFailure> failures = new ArrayList<>();
@@ -952,6 +1284,7 @@ class EngineGameModuleContractTest {
   private static final class CountingLeaseEngineManager extends EngineManager {
     private int leaseConflictCount;
     private boolean runWorkersInline;
+    private boolean manualActivation;
     private boolean failNextNonFirstStart;
     private EngineGamePlan lastSuccessorPlan;
 
@@ -961,6 +1294,9 @@ class EngineGameModuleContractTest {
 
     @Override
     public boolean startEngineGame(EngineGamePlan plan, boolean firstGame) {
+      if (manualActivation) {
+        return EngineManager.beginEngineGameTransaction(this, plan, null, firstGame) != null;
+      }
       if (!firstGame) {
         lastSuccessorPlan = plan;
         if (failNextNonFirstStart) {
@@ -1015,13 +1351,20 @@ class EngineGameModuleContractTest {
       super("");
     }
 
+    private ByteArrayOutputStream commandOutput;
+
     private void bindLiveRuntime() {
-      installFreshCommandOutputForTest(new ByteArrayOutputStream());
+      commandOutput = new ByteArrayOutputStream();
+      installFreshCommandOutputForTest(commandOutput);
       started = true;
       isLoaded = true;
       width = 19;
       height = 19;
       enableAutoSettleMatchRulesForTest();
+    }
+
+    private String commandText() {
+      return commandOutput == null ? "" : commandOutput.toString();
     }
 
     @Override
@@ -1115,6 +1458,12 @@ class EngineGameModuleContractTest {
 
     @Override
     public void updateMenuStatusForEngine() {}
+
+    @Override
+    public void changeEngineIcon(int index, int mode) {}
+
+    @Override
+    public void changeicon(int index) {}
   }
 
 

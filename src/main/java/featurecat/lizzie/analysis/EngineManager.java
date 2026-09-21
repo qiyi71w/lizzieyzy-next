@@ -5,6 +5,7 @@ import featurecat.lizzie.EngineStartupStatus;
 import featurecat.lizzie.ExtraMode;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.enginegame.BatchSummary;
+import featurecat.lizzie.enginegame.EngineGameKomiState;
 import featurecat.lizzie.enginegame.EngineGamePlan;
 import featurecat.lizzie.enginegame.EngineGamePlayMode;
 import featurecat.lizzie.enginegame.EngineGameSide;
@@ -280,6 +281,9 @@ public class EngineManager {
     private volatile boolean paused;
     private volatile boolean genmovePauseSettled;
     private volatile EngineGameSide pendingGenmoveSide;
+    private volatile EngineGameKomiState komiState;
+    private volatile long komiRevision;
+    private volatile boolean komiUnconfirmed;
     private String batchGameName = "";
     private String timestamp = "";
     private String settingFirst = "";
@@ -364,7 +368,8 @@ public class EngineManager {
     }
 
     boolean paused() {
-      return paused || (product != null && product.paused());
+      return paused || (product != null && product.paused())
+          || (komiState != null && komiState.pending());
     }
 
     boolean genmovePauseSettled() {
@@ -7530,6 +7535,211 @@ public class EngineManager {
     return value == null ? 10.0 : value;
   }
 
+  public static EngineGameKomiState engineGameKomiState(Object ownerToken) {
+    return ownerToken instanceof EngineGameOwnerTransaction owner ? owner.komiState : null;
+  }
+
+  /** Accepts one current-game intent; only the worker below performs protocol I/O. */
+  public static boolean reviseEngineGameKomi(
+      Object ownerToken, double target, Runnable onChange) {
+    if (!(ownerToken instanceof EngineGameOwnerTransaction owner) || !Double.isFinite(target)) {
+      return false;
+    }
+    Board board;
+    BoardHistoryList history;
+    boolean start;
+    owner.mutationLock.lock();
+    try {
+      if (!isCurrentEngineGameTransaction(owner) || owner.phase != EngineGamePhase.ACTIVE
+          || Lizzie.board == null) {
+        return false;
+      }
+      board = Lizzie.board;
+      history = board.getHistory();
+      EngineGameKomiState old = owner.komiState;
+      if (old != null && old.failure() != null) return false;
+      start = old == null || !old.pending();
+      double applied = history.getGameInfo().getKomi();
+      if (start && target == applied) return true;
+      owner.komiState = new EngineGameKomiState(applied, target, true, null);
+    } finally {
+      owner.mutationLock.unlock();
+    }
+    onChange.run();
+    if (start) {
+      boolean dispatched = owner.manager.dispatchEngineGameWorker(
+          owner, "engine-game-komi-" + owner.epoch,
+          () -> runEngineGameKomiUpdate(owner, board, history, onChange));
+      if (!dispatched && owner.phase == EngineGamePhase.FAILED) {
+        failEngineGameKomiUpdate(owner, "Could not schedule engine-game komi update", onChange);
+      }
+      return dispatched;
+    }
+    return true;
+  }
+
+  private static void runEngineGameKomiUpdate(
+      EngineGameOwnerTransaction owner, Board board, BoardHistoryList history, Runnable onChange) {
+    try {
+      // The current genmove may complete. Its successor records the pending side instead of
+      // starting another request because paused() includes the komi update barrier.
+      while (isCurrentEngineGameTransaction(owner) && owner.isGenmove()
+          && !owner.genmovePauseSettled()) {
+        Thread.sleep(10L);
+      }
+      if (!isCurrentEngineGameTransaction(owner)) return;
+      confirmEngineGameKomiParticipants(owner, null);
+      long deadline = System.nanoTime()
+          + TimeUnit.MILLISECONDS.toNanos(owner.manager.engineGameStartupTimeoutMillis());
+      // Drain admitted move continuations and their responses. This worker owns one lease.
+      while (isCurrentEngineGameTransaction(owner) && owner.operationsInFlight.get() > 1) {
+        if (System.nanoTime() >= deadline) {
+          throw new IllegalStateException("Timed out waiting for the current engine-game turn");
+        }
+        Thread.sleep(10L);
+      }
+      if (!isCurrentEngineGameTransaction(owner)) return;
+      BoardHistoryNode node = history.getCurrentHistoryNode();
+      long boardRevision = board.getContextRevision();
+      owner.mutationLock.lock();
+      try {
+        owner.komiRevision++;
+      } finally {
+        owner.mutationLock.unlock();
+      }
+      while (isCurrentEngineGameTransaction(owner)) {
+        double target;
+        owner.mutationLock.lock();
+        try {
+          if (!isCurrentEngineGameTransaction(owner)) return;
+          target = owner.komiState.target();
+          owner.komiUnconfirmed = target != owner.komiState.applied();
+        } finally {
+          owner.mutationLock.unlock();
+        }
+        if (target != owner.komiState.applied()) {
+          confirmEngineGameKomiParticipants(owner, target);
+        }
+        boolean resume;
+        boolean again;
+        owner.mutationLock.lock();
+        try {
+          if (!isCurrentEngineGameTransaction(owner)) return;
+          synchronized (board) {
+            if (Lizzie.board != board || board.getHistory() != history
+                || history.getCurrentHistoryNode() != node
+                || board.getContextRevision() != boardRevision) {
+              throw new IllegalStateException("Engine-game position changed during komi update");
+            }
+            if (!owner.blackEngine.isCurrentLiveEngineIncarnation(owner.blackIncarnation)
+                || !owner.whiteEngine.isCurrentLiveEngineIncarnation(owner.whiteIncarnation)) {
+              throw new IllegalStateException("Engine-game participant changed during komi update");
+            }
+            history.getGameInfo().setKomiNoMenu(target);
+            history.getGameInfo().changeKomi();
+            owner.blackEngine.komi = (float) target;
+            owner.whiteEngine.komi = (float) target;
+            board.clearBestMovesAfter(history.getStart());
+            EngineGameKomiState requested = owner.komiState;
+            again = requested.target() != target;
+            owner.komiState = new EngineGameKomiState(target, requested.target(), again, null);
+            owner.komiUnconfirmed = false;
+            resume = !again && !owner.paused && (owner.product == null || !owner.product.paused());
+          }
+        } finally {
+          owner.mutationLock.unlock();
+        }
+        onChange.run();
+        if (!again) {
+          if (resume && isCurrentEngineGameTransaction(owner)) continueEngineGame(owner);
+          return;
+        }
+      }
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      if (isCurrentEngineGameTransaction(owner)) {
+        failEngineGameKomiUpdate(owner, "Komi update interrupted", onChange);
+      }
+    } catch (RuntimeException failure) {
+      if (isCurrentEngineGameTransaction(owner) || owner.phase == EngineGamePhase.FAILED) {
+        failEngineGameKomiUpdate(owner, failure.getMessage(), onChange);
+      }
+    } finally {
+      if (owner.komiState != null && owner.komiState.pending()
+          && owner.phase == EngineGamePhase.FAILED) {
+        Throwable cause = owner.terminalFailure;
+        failEngineGameKomiUpdate(owner,
+            cause == null ? "Engine-game komi update failed" : cause.getMessage(), onChange);
+      }
+      if (owner.komiUnconfirmed && !isCurrentEngineGameTransaction(owner)) {
+        // This worker's operation lease keeps retirement closed while physical cleanup runs off EDT.
+        boolean interrupted = Thread.interrupted();
+        try {
+          Throwable cleanupFailure = runEngineGameCleanupStep(null,
+              () -> owner.blackEngine.forceQuitIfCurrentIncarnation(owner.blackIncarnation));
+          cleanupFailure = runEngineGameCleanupStep(cleanupFailure,
+              () -> owner.whiteEngine.forceQuitIfCurrentIncarnation(owner.whiteIncarnation));
+          if (cleanupFailure != null) appendEngineGameTerminalFailure(owner, cleanupFailure);
+        } finally {
+          if (interrupted) Thread.currentThread().interrupt();
+        }
+      }
+    }
+  }
+
+  private static void confirmEngineGameKomiParticipants(
+      EngineGameOwnerTransaction owner, Double target) throws InterruptedException {
+    CountDownLatch completed = new CountDownLatch(2);
+    AtomicReference<String> failure = new AtomicReference<>();
+    owner.blackEngine.confirmEngineGameKomi(owner, owner.blackIncarnation, target,
+        completed::countDown, detail -> {
+          failure.compareAndSet(null, "Black: " + detail);
+          completed.countDown();
+        });
+    owner.whiteEngine.confirmEngineGameKomi(owner, owner.whiteIncarnation, target,
+        completed::countDown, detail -> {
+          failure.compareAndSet(null, "White: " + detail);
+          completed.countDown();
+        });
+    while (!completed.await(25L, TimeUnit.MILLISECONDS)) {
+      if (failure.get() != null) throw new IllegalStateException(failure.get());
+      if (!isCurrentEngineGameTransaction(owner)) {
+        throw new IllegalStateException("Engine-game komi update lost its transaction");
+      }
+    }
+    if (failure.get() != null) throw new IllegalStateException(failure.get());
+  }
+
+  private static void failEngineGameKomiUpdate(
+      EngineGameOwnerTransaction owner, String detail, Runnable onChange) {
+    detail = detail == null ? "Engine-game komi update failed" : detail;
+    owner.mutationLock.lock();
+    try {
+      EngineGameKomiState old = owner.komiState;
+      if (old == null || old.failure() != null) return;
+      owner.komiState = new EngineGameKomiState(old.applied(), old.applied(), false, detail);
+      owner.paused = true;
+    } finally {
+      owner.mutationLock.unlock();
+    }
+    // A participant may already have applied the uncommitted value. Retire only the captured
+    // incarnations before releasing admission; a replacement must remain untouched.
+    Leelaz.ExactForceQuitClaim blackClose =
+        owner.blackEngine.claimForceQuitIfCurrentIncarnation(owner.blackIncarnation);
+    Leelaz.ExactForceQuitClaim whiteClose = null;
+    try {
+      whiteClose = owner.whiteEngine.claimForceQuitIfCurrentIncarnation(owner.whiteIncarnation);
+      onChange.run();
+      failEngineGameTransaction(owner, new IllegalStateException(detail));
+    } finally {
+      try {
+        if (blackClose != null) blackClose.finish();
+      } finally {
+        if (whiteClose != null) whiteClose.finish();
+      }
+    }
+  }
+
   public static void pauseEngineGame(Object ownerToken) {
     if (ownerToken instanceof EngineGameOwnerTransaction owner) {
       pauseEngineGame(owner);
@@ -7548,7 +7758,7 @@ public class EngineManager {
       return;
     }
     if (owner.isGenmove()) {
-      owner.genmovePauseSettled = false;
+      owner.genmovePauseSettled = owner.pendingGenmoveSide != null;
       return;
     }
     owner.blackEngine.nameCmd();
@@ -7565,16 +7775,23 @@ public class EngineManager {
     if (owner == null) {
       return;
     }
-    EngineGameSide pending =
-        owner.product != null ? owner.product.takePendingGenmoveSide() : owner.pendingGenmoveSide;
-    owner.pendingGenmoveSide = null;
-    owner.genmovePauseSettled = false;
     owner.paused = false;
-    if (owner.product != null) {
-      owner.product.setPaused(false);
-    }
-    if (owner.phase != EngineGamePhase.ACTIVE) {
-      return;
+    if (owner.product != null) owner.product.setPaused(false);
+    continueEngineGame(owner);
+  }
+
+  private static void continueEngineGame(EngineGameOwnerTransaction owner) {
+    EngineGameSide pending;
+    owner.mutationLock.lock();
+    try {
+      if (!isCurrentEngineGameTransaction(owner) || owner.phase != EngineGamePhase.ACTIVE
+          || owner.paused()) return;
+      pending = owner.product != null
+          ? owner.product.takePendingGenmoveSide() : owner.pendingGenmoveSide;
+      owner.pendingGenmoveSide = null;
+      owner.genmovePauseSettled = false;
+    } finally {
+      owner.mutationLock.unlock();
     }
     if (owner.isGenmove()) {
       if (pending == null) {
@@ -7582,22 +7799,24 @@ public class EngineManager {
       }
       Leelaz mover = pending == EngineGameSide.BLACK ? owner.blackEngine : owner.whiteEngine;
       String color = pending == EngineGameSide.BLACK ? "B" : "W";
-      mover.nameCmd();
-      mover.genmoveForPk(color, owner);
+      if (!runEngineGameIoStep(owner, () -> {
+        mover.nameCmd();
+        mover.genmoveForPk(color, owner);
+      })) return;
       if (Lizzie.config != null && Lizzie.config.enginePkPonder) {
         Leelaz opponent =
             pending == EngineGameSide.BLACK ? owner.whiteEngine : owner.blackEngine;
-        opponent.ponder();
+        runEngineGameIoStep(owner, opponent::ponder);
       }
       return;
     }
     if (Lizzie.config != null && Lizzie.config.enginePkPonder) {
-      owner.blackEngine.ponder();
-      owner.whiteEngine.ponder();
+      if (!runEngineGameIoStep(owner, owner.blackEngine::ponder)) return;
+      runEngineGameIoStep(owner, owner.whiteEngine::ponder);
     } else if (Lizzie.board != null && Lizzie.board.getData().blackToPlay) {
-      owner.blackEngine.ponder();
+      runEngineGameIoStep(owner, owner.blackEngine::ponder);
     } else if (Lizzie.board != null) {
-      owner.whiteEngine.ponder();
+      runEngineGameIoStep(owner, owner.whiteEngine::ponder);
     }
   }
 
@@ -8217,6 +8436,12 @@ public class EngineManager {
         transaction.whiteEngine.cancelEngineGameRequests(transaction);
       } catch (RuntimeException | Error endpointFailure) {
         cancellationFailure = appendEngineGameFailure(cancellationFailure, endpointFailure);
+      }
+      if (transaction.komiUnconfirmed) {
+        cancellationFailure = runEngineGameCleanupStep(cancellationFailure,
+            () -> transaction.blackEngine.markUnavailableIfCurrentIncarnation(transaction.blackIncarnation));
+        cancellationFailure = runEngineGameCleanupStep(cancellationFailure,
+            () -> transaction.whiteEngine.markUnavailableIfCurrentIncarnation(transaction.whiteIncarnation));
       }
       if (cancellationFailure != null) {
         appendEngineGameTerminalFailure(transaction, cancellationFailure);
@@ -9554,6 +9779,7 @@ public class EngineManager {
     final Board board;
     final BoardHistoryList boardHistory;
     final BoardHistoryNode boardNode;
+    final long komiRevision;
     final int moveNumber;
     final long boardRevision;
     final boolean blackToPlay;
@@ -9573,6 +9799,7 @@ public class EngineManager {
       this.plan = plan;
       this.transaction = transaction;
       this.epoch = transaction.epoch;
+      this.komiRevision = transaction.komiRevision;
       this.participant = participant;
       this.participantIndex = participantIndex;
       this.participantIncarnation = participantIncarnation;
@@ -9592,6 +9819,7 @@ public class EngineManager {
   static final class EngineGamePostMoveToken {
     final EngineGameOwnerTransaction transaction;
     final long epoch;
+    final long komiRevision;
     final Board board;
     final BoardHistoryList boardHistory;
     final BoardHistoryNode boardNode;
@@ -9608,6 +9836,7 @@ public class EngineManager {
         boolean blackToPlay) {
       this.transaction = transaction;
       this.epoch = transaction.epoch;
+      this.komiRevision = transaction.komiRevision;
       this.board = board;
       this.boardHistory = board.getHistory();
       this.boardNode = boardNode;
@@ -9984,6 +10213,7 @@ public class EngineManager {
         && transaction.manager == context.manager
         && transaction.plan == context.plan
         && transaction.epoch == context.epoch
+        && transaction.komiRevision == context.komiRevision
         && engineGameTransactionSequence == context.epoch
         && context.plan.genmove() == context.genmoveMode
         && expectedParticipantIncarnation == context.participantIncarnation
@@ -10071,6 +10301,10 @@ public class EngineManager {
       long expectedPrimaryGeneration;
       synchronized (ENGINE_SELECTION_STATE_LOCK) {
         if (!isCurrentEngineGameMoveResponseLocked(response)) {
+          return null;
+        }
+        if (!response.genmoveMode && transaction.komiState != null
+            && transaction.komiState.pending()) {
           return null;
         }
         selectedIncarnation =
@@ -10255,6 +10489,7 @@ public class EngineManager {
     return token != null
         && token.transaction != null
         && token.epoch == token.transaction.epoch
+        && token.komiRevision == token.transaction.komiRevision
         && isCurrentEngineGameTransactionLocked(token.transaction)
         && token.transaction.phase == EngineGamePhase.ACTIVE
         && Lizzie.board == token.board
@@ -15622,6 +15857,8 @@ public class EngineManager {
     synchronized (ENGINE_SELECTION_STATE_LOCK) {
       if (!isCurrentEngineGameTransactionLocked(transaction)
           || transaction.phase != EngineGamePhase.ACTIVE
+          || (transaction.komiState != null && transaction.komiState.pending()
+              && (!transaction.isGenmove() || transaction.genmovePauseSettled()))
           || Lizzie.board == null) {
         return null;
       }

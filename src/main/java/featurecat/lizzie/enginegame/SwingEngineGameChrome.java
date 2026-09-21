@@ -39,6 +39,9 @@ public class SwingEngineGameChrome implements EngineGameChrome {
       case STARTING -> applyStarting(toolbar, menu);
       case PLAYING, RESUMED -> applyRunning(toolbar, menu);
       case PAUSED -> applyPaused(toolbar, menu);
+      case KOMI_CHANGED -> {
+        if (!Lizzie.engineGame.current().playing()) applyIdle(toolbar, menu);
+      }
       case BETWEEN_GAMES -> {
         if (menu != null) {
           menu.toggleDoubleMenuGameStatus();
@@ -46,6 +49,7 @@ public class SwingEngineGameChrome implements EngineGameChrome {
       }
       case START_FAILED, USER_STOPPED, BATCH_ENDED, LATER_GAME_FAILED -> applyIdle(toolbar, menu);
     }
+    if (menu != null) menu.refreshEngineGameKomi();
   }
 
   private static void applyStarting(BottomToolbar toolbar, Menu menu) {

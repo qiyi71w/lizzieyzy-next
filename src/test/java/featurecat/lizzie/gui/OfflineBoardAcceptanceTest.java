@@ -55,7 +55,38 @@ public final class OfflineBoardAcceptanceTest {
             assertTrue(SGFParser.loadFromString(sgf));
             assertEquals(3, Lizzie.board.getHistory().mainTrunkLength());
             assertEquals(6.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+            LizzieFrame.menu.btnKomiUp.doClick();
+            assertEquals(7.0, Lizzie.board.getHistory().getGameInfo().getKomi());
+            LizzieFrame.menu.btnKomiDown.doClick();
+            assertEquals(6.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+            LizzieFrame.menu.txtKomi.setText("8.5");
+            java.awt.event.KeyEvent released = new java.awt.event.KeyEvent(
+                LizzieFrame.menu.txtKomi, java.awt.event.KeyEvent.KEY_RELEASED,
+                System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n');
+            for (java.awt.event.KeyListener listener : LizzieFrame.menu.txtKomi.getKeyListeners())
+              listener.keyReleased(released);
+            assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+            GameInfoDialog dialog = new GameInfoDialog();
+            try {
+              dialog.setGameInfo(Lizzie.board.getHistory().getGameInfo());
+              assertDoesNotThrow(dialog::apply);
+              assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+            } finally {
+              dialog.dispose();
+            }
             while (Lizzie.board.nextMove(true)) {}
+            java.awt.image.BufferedImage graphImage = new java.awt.image.BufferedImage(
+                640, 480, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D graphGraphics = graphImage.createGraphics();
+            try {
+              for (boolean kataBoard : new boolean[] {false, true}) {
+                Lizzie.board.isKataBoard = kataBoard;
+                assertDoesNotThrow(() -> new WinrateGraph().draw(
+                    graphGraphics, graphGraphics, graphGraphics, 0, 0, 640, 480));
+              }
+            } finally {
+              graphGraphics.dispose();
+            }
             Lizzie.board.SpinAndMirror(3);
             assertEquals(3, Lizzie.board.getHistory().mainTrunkLength());
             Lizzie.board.clear(false);
