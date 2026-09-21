@@ -3,10 +3,9 @@ package featurecat.lizzie.gui;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.KataGoRules;
 import featurecat.lizzie.enginegame.EngineGameMatchRulesSelection;
+import featurecat.lizzie.enginegame.MatchRuleOption;
 import java.awt.Dimension;
 import java.awt.GraphicsEnvironment;
-import java.util.ArrayList;
-import java.util.List;
 import javax.swing.JComboBox;
 
 /** Typical and custom match-rules picker for the engine-game start dialog. */
@@ -18,30 +17,15 @@ final class MatchRulesPicker {
   MatchRulesPicker() {
     KataGoRules prefill = EngineGameMatchRulesSelection.prefill(Lizzie.config);
     selected = prefill;
-    List<Item> items = new ArrayList<>();
-    int selectedIndex = 0;
-    int index = 0;
-    for (String name : KataGoRules.officialPresetNames()) {
-      KataGoRules rules = KataGoRules.parse(name).orElseThrow();
-      items.add(new Item(displayName(name, rules), rules, false));
-      if (rules.semanticallyEquals(prefill)) {
-        selectedIndex = index;
-      }
-      index++;
+    for (MatchRuleOption option : MatchRuleOption.options()) {
+      combo.addItem(new Item(option.displayName(Lizzie.resourceBundle), option.rules(), false));
     }
-    boolean matched = items.stream().anyMatch(item -> item.rules.semanticallyEquals(prefill));
-    items.add(
+    combo.addItem(
         new Item(
             Lizzie.resourceBundle.getString("NewEngineGameDialog.matchRules.custom"),
             prefill,
             true));
-    if (!matched) {
-      selectedIndex = items.size() - 1;
-    }
-    for (Item item : items) {
-      combo.addItem(item);
-    }
-    combo.setSelectedIndex(selectedIndex);
+    selectItemMatching(prefill);
     combo.addActionListener(event -> onComboChanged());
     combo.setPreferredSize(new Dimension(180, combo.getPreferredSize().height));
   }
@@ -73,7 +57,7 @@ final class MatchRulesPicker {
               true);
       combo.removeItemAt(customIndex);
       combo.insertItemAt(custom, customIndex);
-      combo.setSelectedIndex(customIndex);
+      selectItemMatching(rules);
     } finally {
       applyingProgrammatically = false;
     }
@@ -96,10 +80,11 @@ final class MatchRulesPicker {
       return;
     }
     KataGoRules edited =
-        SetKataRules.composeMatchRules(combo.getTopLevelAncestor() instanceof java.awt.Window
-                ? (java.awt.Window) combo.getTopLevelAncestor()
-                : null,
-            selected)
+        SetKataRules.composeMatchRules(
+                combo.getTopLevelAncestor() instanceof java.awt.Window
+                    ? (java.awt.Window) combo.getTopLevelAncestor()
+                    : null,
+                selected)
             .orElse(null);
     if (edited != null) {
       applyCustom(edited);
@@ -114,18 +99,9 @@ final class MatchRulesPicker {
   }
 
   private void selectItemMatching(KataGoRules rules) {
-    for (int i = 0; i < combo.getItemCount(); i++) {
-      Item item = combo.getItemAt(i);
-      if (item.rules.semanticallyEquals(rules) && !item.custom) {
-        combo.setSelectedIndex(i);
-        return;
-      }
-    }
-    combo.setSelectedIndex(combo.getItemCount() - 1);
-  }
-
-  private static String displayName(String preset, KataGoRules rules) {
-    return MatchRulesSnapshotName.display(rules) + " (" + preset + ")";
+    MatchRuleOption option = MatchRuleOption.matching(rules);
+    combo.setSelectedIndex(
+        option == null ? combo.getItemCount() - 1 : MatchRuleOption.options().indexOf(option));
   }
 
   private static final class Item {
@@ -143,14 +119,5 @@ final class MatchRulesPicker {
     public String toString() {
       return label;
     }
-  }
-}
-
-final class MatchRulesSnapshotName {
-  private MatchRulesSnapshotName() {}
-
-  static String display(KataGoRules rules) {
-    return featurecat.lizzie.enginegame.MatchRulesSnapshot.ruleName(
-        rules, Lizzie.resourceBundle);
   }
 }
