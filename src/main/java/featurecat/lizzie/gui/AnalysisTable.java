@@ -72,14 +72,12 @@ public class AnalysisTable {
     stopStart.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.config.isAutoAna) {
+            if (Lizzie.config.isAutoAna || Lizzie.frame.isManualAutoAnalysisStarting()) {
               LizzieFrame.toolbar.stopAutoAna(true, true);
-              Lizzie.frame.isBatchAna = false;
             } else {
-              verifyCurrentKifu();
-              Lizzie.frame.isBatchAna = true;
-              StartAnaDialog newgame = new StartAnaDialog(false, Lizzie.frame);
-              newgame.setVisible(true);
+              Lizzie.frame.openOrdinaryBatchAnalysis(
+                  new ArrayList<>(Lizzie.frame.Batchfiles.subList(
+                      Lizzie.frame.BatchAnaNum, Lizzie.frame.Batchfiles.size())), false);
             }
           }
         });
@@ -95,6 +93,7 @@ public class AnalysisTable {
               Lizzie.frame.destroyAnalysisEngine();
               Lizzie.frame.isBatchAnalysisMode = false;
             } else {
+              if (Lizzie.frame.rejectCompetingBatchAnalysis()) return;
               verifyCurrentKifu();
               Lizzie.frame.isBatchAna = true;
               StartAnaDialog newgame = new StartAnaDialog(true, Lizzie.frame);
@@ -129,7 +128,6 @@ public class AnalysisTable {
             File[] files = fileDialog.getFiles();
 
             if (files.length > 0) {
-              Lizzie.frame.isBatchAna = true;
               for (int i = 0; i < files.length; i++) {
                 Lizzie.frame.Batchfiles.add(files[i]);
               }
@@ -144,6 +142,9 @@ public class AnalysisTable {
     clearAllFiles.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
+            if (Lizzie.config.isAutoAna || Lizzie.frame.isManualAutoAnalysisStarting()) {
+              LizzieFrame.toolbar.stopAutoAna(false, true);
+            }
             Lizzie.frame.isBatchAna = false;
             Lizzie.frame.BatchAnaNum = 0;
             Lizzie.frame.Batchfiles = new ArrayList<File>();

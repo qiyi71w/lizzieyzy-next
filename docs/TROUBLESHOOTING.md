@@ -76,6 +76,8 @@ chmod +x start-linux64.sh
 - Windows / Linux：`Lizzieyzy/weights/default.bin.gz`
 - macOS：`LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
 
+主界面和一键设置从当前权重文件头读取模型内部名称，支持 KataGo 原生 `.bin`、`.bin.gz`、`.txt` 和 `.txt.gz`。保留 `default.bin.gz` 文件名不会影响识别；未收录的 Transformer 版本保留完整内部名称，读取失败时显示文件名。内部名称用于显示和已知命名规则的兼容性提示，不代表模型完整性验证；最终能否加载仍由 KataGo 判断。下载时的 SHA-256 完整性校验保持不变。
+
 替换后如果启动异常，请先恢复原版权重确认是不是新权重本身的问题。
 
 ## 5. 想用自己熟悉的引擎，不用内置 KataGo
@@ -86,6 +88,10 @@ chmod +x start-linux64.sh
 - macOS / Linux：继续用当前主推荐包，在软件里把引擎路径改成你自己的 KataGo
 
 如果你只是想换权重，保留内置 KataGo 即可。
+
+内置 KataGo 可以在引擎管理中改名；重启、一键设置和便携包搬移后的路径更新会保留名称与原条目设置。同路径替换 `default.bin.gz` 只改变模型信息，不改变条目身份。手动修改引擎命令或启用 Java SSH 后，原命令不会被内置配置修复覆盖；完整包仍会按原策略补建内置默认项。
+
+旧配置会自动迁移可确认的内置条目。对于已改名且指向另一份完整包的旧条目，程序不会猜测其归属，也不会自动合并历史重复项。
 
 ## 6. 反馈问题时最好带什么
 
