@@ -402,6 +402,215 @@ public class ConfigBundledKataGoDefaultsTest {
   }
 
   @Test
+  void renamedBundledProfileSurvivesSaveReloadAndWeightReplacement() throws Exception {
+    Path root = Files.createTempDirectory("lizzie-renamed-bundled");
+    Files.writeString(root.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(root);
+    Config config = ConfigTestHelper.createForTests(root);
+    config.config =
+        new JSONObject()
+            .put("ui", new JSONObject().put("autoload-empty", true).put("default-engine", 0))
+            .put("leelaz", new JSONObject().put("engine-settings-list", new JSONArray()));
+    withUserDir(root, () -> applyBundledKataGoDefaults(config));
+    JSONObject entry =
+        config.config.getJSONObject("leelaz").getJSONArray("engine-settings-list").getJSONObject(0);
+    entry
+        .put("id", "notebook")
+        .put("name", "Notebook KataGo")
+        .put("komi", 6.5)
+        .put("preload", true)
+        .put("width", 13)
+        .put("height", 9)
+        .put("threadPolicy", new JSONObject().put("source", "CFG"));
+    Config previous = Lizzie.config;
+    try {
+      Lizzie.config = config;
+      config.uiConfig = config.config.getJSONObject("ui");
+      config.leelazConfig = config.config.getJSONObject("leelaz");
+      featurecat.lizzie.util.Utils.saveEngineSettings(featurecat.lizzie.util.Utils.getEngineData());
+    } finally {
+      Lizzie.config = previous;
+    }
+    createBundledKataGoAssets(root, "custom-notebook-network.bin.gz");
+    for (int restart = 0; restart < 3; restart++) {
+      config.config = new JSONObject(Files.readString(root.resolve("config.txt")));
+      withUserDir(root, () -> applyBundledKataGoDefaultsAndPersist(config));
+      JSONArray engines =
+          config.config.getJSONObject("leelaz").getJSONArray("engine-settings-list");
+      assertEquals(1, engines.length());
+      JSONObject saved = engines.getJSONObject(0);
+      assertEquals("notebook", saved.getString("id"));
+      assertEquals("Notebook KataGo", saved.getString("name"));
+      assertEquals(6.5, saved.getDouble("komi"));
+      assertEquals(13, saved.getInt("width"));
+      assertEquals(9, saved.getInt("height"));
+      assertTrue(saved.getBoolean("preload"));
+      assertEquals("CFG", saved.getJSONObject("threadPolicy").getString("source"));
+      assertTrue(config.config.getJSONObject("ui").getBoolean("autoload-empty"));
+    }
+    assertEquals(
+        "custom-notebook-network",
+        KataGoAutoSetupHelper.resolveWeightDisplayName(root.resolve("weights/default.bin.gz")));
+  }
+
+  @Test
+  void legacyRenamedProfileMigratesThenRebindsAfterPackageCopy() throws Exception {
+    Path oldRoot = Files.createTempDirectory("lizzie-legacy-renamed");
+    Path newRoot = Files.createTempDirectory("lizzie-renamed-copy");
+    createBundledKataGoAssets(oldRoot);
+    createBundledKataGoAssets(newRoot);
+    Files.writeString(oldRoot.resolve("config.txt"), "{}");
+    Config config = ConfigTestHelper.createForTests(oldRoot);
+    JSONObject entry =
+        new JSONObject()
+            .put("id", "legacy-renamed")
+            .put("name", "Notebook KataGo")
+            .put("command", bundledGtpCommand(oldRoot))
+            .put("komi", 6.5)
+            .put("preload", true);
+    config.config =
+        new JSONObject()
+            .put(
+                "ui",
+                new JSONObject()
+                    .put("autoload-last", true)
+                    .put("last-engine", 0)
+                    .put("default-engine", 0))
+            .put(
+                "leelaz", new JSONObject().put("engine-settings-list", new JSONArray().put(entry)));
+    assertTrue(withUserDirResult(oldRoot, () -> applyBundledKataGoDefaultsAndPersist(config)));
+    config.config = new JSONObject(Files.readString(oldRoot.resolve("config.txt")));
+    assertFalse(withUserDirResult(oldRoot, () -> applyBundledKataGoDefaults(config)));
+    withUserDir(newRoot, () -> applyBundledKataGoDefaults(config));
+    JSONArray engines = config.config.getJSONObject("leelaz").getJSONArray("engine-settings-list");
+    assertEquals(1, engines.length());
+    JSONObject moved = engines.getJSONObject(0);
+    assertEquals("legacy-renamed", moved.getString("id"));
+    assertEquals("Notebook KataGo", moved.getString("name"));
+    assertEquals(bundledGtpCommand(newRoot), moved.getString("command"));
+    assertEquals(6.5, moved.getDouble("komi"));
+    assertTrue(moved.getBoolean("preload"));
+    assertTrue(config.config.getJSONObject("ui").getBoolean("autoload-last"));
+    assertEquals(0, config.config.getJSONObject("ui").getInt("last-engine"));
+    assertFalse(withUserDirResult(newRoot, () -> applyBundledKataGoDefaults(config)));
+    engines.remove(0);
+    withUserDir(newRoot, () -> applyBundledKataGoDefaults(config));
+    assertEquals(1, engines.length());
+    assertEquals("KataGo Bundled", engines.getJSONObject(0).getString("name"));
+    assertFalse("legacy-renamed".equals(engines.getJSONObject(0).getString("id")));
+    assertFalse(withUserDirResult(newRoot, () -> applyBundledKataGoDefaults(config)));
+  }
+
+  @Test
+  void changedManagedCommandIsNotAuthorizedByOldIdentity() throws Exception {
+    Path root = Files.createTempDirectory("lizzie-detached-managed");
+    Path other = Files.createTempDirectory("lizzie-independent-bundle");
+    createBundledKataGoAssets(root);
+    createBundledKataGoAssets(other);
+    Files.writeString(root.resolve("config.txt"), "{}");
+    Config config = ConfigTestHelper.createForTests(root);
+    for (String replacement :
+        List.of(
+            bundledGtpCommand(other),
+            bundledGtpCommand(root) + " -override-config numSearchThreads=2",
+            "ssh user@example katago gtp",
+            "remote-compute://zhizi")) {
+      config.config =
+          new JSONObject()
+              .put("ui", new JSONObject().put("autoload-empty", true))
+              .put("leelaz", new JSONObject().put("engine-settings-list", new JSONArray()));
+      withUserDir(root, () -> applyBundledKataGoDefaults(config));
+      JSONArray engines =
+          config.config.getJSONObject("leelaz").getJSONArray("engine-settings-list");
+      JSONObject repurposed = engines.getJSONObject(0);
+      String id = repurposed.getString("id");
+      repurposed.put("command", replacement);
+      withUserDir(root, () -> applyBundledKataGoDefaults(config));
+      assertEquals(2, engines.length());
+      assertEquals(replacement, repurposed.getString("command"));
+      assertEquals(id, repurposed.getString("id"));
+      assertFalse(withUserDirResult(root, () -> applyBundledKataGoDefaults(config)));
+    }
+    JSONArray engines = config.config.getJSONObject("leelaz").getJSONArray("engine-settings-list");
+    JSONObject managed = engines.getJSONObject(1);
+    managed.put("useJavaSSH", true);
+    String command = managed.getString("command");
+    withUserDir(root, () -> applyBundledKataGoDefaults(config));
+    assertEquals(3, engines.length());
+    assertEquals(command, managed.getString("command"));
+    assertTrue(managed.getBoolean("useJavaSSH"));
+  }
+
+  @Test
+  void legacyCustomConfigAndAdditionalOptionsAreNotClaimed() throws Exception {
+    Path root = Files.createTempDirectory("lizzie-legacy-custom-command");
+    createBundledKataGoAssets(root);
+    Files.writeString(root.resolve("config.txt"), "{}");
+    Config config = ConfigTestHelper.createForTests(root);
+    for (String command :
+        List.of(
+            bundledGtpCommand(root).replace("gtp.cfg", "study.cfg"),
+            bundledGtpCommand(root) + " -override-config numSearchThreads=2")) {
+      JSONObject custom = new JSONObject().put("name", "KataGo Bundled").put("command", command);
+      JSONArray engines = new JSONArray().put(custom);
+      config.config =
+          new JSONObject()
+              .put("ui", new JSONObject().put("autoload-empty", true))
+              .put("leelaz", new JSONObject().put("engine-settings-list", engines));
+      withUserDir(root, () -> applyBundledKataGoDefaults(config));
+      assertEquals(2, engines.length());
+      assertEquals(command, custom.getString("command"));
+      assertFalse(custom.has("managedProfileType"));
+    }
+  }
+
+  @Test
+  void legacyDeduplicationPreservesStartupSelectionsInEitherOrder() throws Exception {
+    Path root = Files.createTempDirectory("lizzie-legacy-deduplicate");
+    createBundledKataGoAssets(root);
+    Files.writeString(root.resolve("config.txt"), "{}");
+    Config config = ConfigTestHelper.createForTests(root);
+    for (boolean autoFirst : List.of(false, true)) {
+      JSONObject bundled =
+          new JSONObject()
+              .put("name", "KataGo Bundled")
+              .put("command", bundledGtpCommand(root))
+              .put("isDefault", true);
+      JSONObject auto =
+          new JSONObject()
+              .put("id", "tuned")
+              .put("name", "KataGo Auto Setup")
+              .put("command", bundledGtpCommand(root))
+              .put("komi", 6.5);
+      JSONObject external = new JSONObject().put("name", "External").put("command", "external gtp");
+      JSONArray engines =
+          new JSONArray()
+              .put(autoFirst ? auto : bundled)
+              .put(autoFirst ? bundled : auto)
+              .put(external);
+      JSONObject ui =
+          new JSONObject()
+              .put("default-engine", autoFirst ? 1 : 0)
+              .put("last-engine", 2)
+              .put("autoload-default", true);
+      config.config =
+          new JSONObject()
+              .put("ui", ui)
+              .put("leelaz", new JSONObject().put("engine-settings-list", engines));
+      withUserDir(root, () -> applyBundledKataGoDefaults(config));
+      assertEquals(2, engines.length());
+      assertEquals("tuned", engines.getJSONObject(0).getString("id"));
+      assertEquals("KataGo Auto Setup", engines.getJSONObject(0).getString("name"));
+      assertEquals(6.5, engines.getJSONObject(0).getDouble("komi"));
+      assertTrue(engines.getJSONObject(0).getBoolean("isDefault"));
+      assertEquals(0, ui.getInt("default-engine"));
+      assertEquals(1, ui.getInt("last-engine"));
+      assertTrue(ui.getBoolean("autoload-default"));
+      assertFalse(withUserDirResult(root, () -> applyBundledKataGoDefaults(config)));
+    }
+  }
+
+  @Test
   void existingBundledEngineKeepsUserStartupModeAndKomiOnRestart() throws Exception {
     Path tempRoot = Files.createTempDirectory("lizzie-bundled-katago-existing");
     Files.writeString(tempRoot.resolve("config.txt"), "{}");

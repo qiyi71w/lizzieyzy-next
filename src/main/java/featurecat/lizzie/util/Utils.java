@@ -1169,6 +1169,8 @@ public class Utils {
   static EngineData engineDataFromJson(JSONObject engineInfo, int index) {
     EngineData engineDt = new EngineData();
     engineDt.id = engineInfo.optString("id", "");
+    engineDt.managedProfileType = engineInfo.optString("managedProfileType", "");
+    engineDt.managedProfileCommand = engineInfo.optString("managedProfileCommand", "");
     JSONObject threadPolicy = engineInfo.optJSONObject("threadPolicy");
     engineDt.threadPolicy = threadPolicy == null ? null : new JSONObject(threadPolicy.toString());
     engineDt.index = index;
@@ -1198,6 +1200,10 @@ public class Utils {
   static JSONObject engineDataToJson(EngineData engineDt) {
     JSONObject engineInfo = new JSONObject();
     if (!engineDt.id.isBlank()) engineInfo.put("id", engineDt.id);
+    if (!engineDt.managedProfileType.isBlank()) {
+      engineInfo.put("managedProfileType", engineDt.managedProfileType);
+      engineInfo.put("managedProfileCommand", engineDt.managedProfileCommand);
+    }
     if (engineDt.threadPolicy != null) {
       engineInfo.put("threadPolicy", new JSONObject(engineDt.threadPolicy.toString()));
     }

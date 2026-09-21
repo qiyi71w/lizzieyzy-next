@@ -11,6 +11,7 @@ import featurecat.lizzie.logging.LoggingSettings;
 import featurecat.lizzie.logging.WorkDirectoryResolver;
 import featurecat.lizzie.theme.Theme;
 import featurecat.lizzie.util.AnalysisEngineCommandHelper;
+import featurecat.lizzie.util.BundledKataGoProfile;
 import featurecat.lizzie.util.KataGoAutoSetupHelper;
 import featurecat.lizzie.util.LocaleFontSupport;
 import featurecat.lizzie.util.NetworkProxy;
@@ -322,7 +323,8 @@ public class Config {
       seedPaths.add((codeSource.isFile() ? codeSource.toPath().getParent() : codeSource.toPath()));
     } catch (Exception e) {
       if (LOG.isErrorEnabled()) {
-        LOG.error("config operation={} source={} outcome={}", "resolve", "bundled-root", "failed", e);
+        LOG.error(
+            "config operation={} source={} outcome={}", "resolve", "bundled-root", "failed", e);
       }
     }
     seedPaths.add(Path.of("").toAbsolutePath());
@@ -642,65 +644,56 @@ public class Config {
     }
 
     int bundledIndex = -1;
+    int legacyIndex = -1;
+    int legacyBundledIndex = -1;
     int autoSetupIndex = -1;
     for (int i = 0; i < engineSettings.length(); i++) {
-      JSONObject engineInfo = engineSettings.optJSONObject(i);
-      if (engineInfo == null) {
-        continue;
+      JSONObject entry = engineSettings.optJSONObject(i);
+      if (entry == null) continue;
+      if (BundledKataGoProfile.isManaged(entry)) {
+        if (bundledIndex < 0) bundledIndex = i;
+      } else if (BundledKataGoProfile.canMigrate(entry, bundledConfig.appRoot)) {
+        if (legacyIndex < 0) legacyIndex = i;
+        if ("KataGo Auto Setup".equals(entry.optString("name")) && autoSetupIndex < 0) {
+          autoSetupIndex = i;
+        }
+        if (BUNDLED_ENGINE_NAME.equals(entry.optString("name")) && legacyBundledIndex < 0) {
+          legacyBundledIndex = i;
+        }
       }
-      String name = engineInfo.optString("name", "");
-      String command = engineInfo.optString("command", "");
-      boolean managedDefaultCommand =
-          !engineInfo.optBoolean("useJavaSSH", false)
-              && isManagedBundledDefaultCommand(command, bundledConfig.appRoot);
-      if (autoSetupIndex < 0 && "KataGo Auto Setup".equals(name) && managedDefaultCommand) {
-        autoSetupIndex = i;
-      }
-      if (bundledIndex < 0
-          && managedDefaultCommand
-          && (BUNDLED_ENGINE_NAME.equals(name) || "KataGo Auto Setup".equals(name))) {
-        bundledIndex = i;
+    }
+    if (bundledIndex < 0) {
+      bundledIndex = autoSetupIndex >= 0 ? autoSetupIndex : legacyIndex;
+      // Only the known legacy pair is deduplicated; renamed entries are never merged by guesswork.
+      if (autoSetupIndex >= 0 && legacyBundledIndex >= 0) {
+        JSONObject removed = engineSettings.getJSONObject(legacyBundledIndex);
+        JSONObject retained = engineSettings.getJSONObject(autoSetupIndex);
+        if (removed.optBoolean("isDefault", false)) retained.put("isDefault", true);
+        engineSettings.remove(legacyBundledIndex);
+        if (bundledIndex > legacyBundledIndex) bundledIndex--;
+        for (String key : List.of("default-engine", "last-engine")) {
+          if (!ui.has(key)) continue;
+          int selected = ui.optInt(key, -1);
+          if (selected == legacyBundledIndex) ui.put(key, bundledIndex);
+          else if (selected > legacyBundledIndex) ui.put(key, selected - 1);
+        }
       }
     }
 
-    // If both "KataGo Bundled" and "KataGo Auto Setup" exist (legacy configs), the auto-setup
-    // variant has better tuned parameters; keep it and drop the duplicate bundled entry.
-    if (autoSetupIndex >= 0 && bundledIndex >= 0 && autoSetupIndex != bundledIndex) {
-      engineSettings.remove(bundledIndex);
-      if (autoSetupIndex > bundledIndex) autoSetupIndex--;
-      bundledIndex = autoSetupIndex;
-    } else if (autoSetupIndex >= 0) {
-      bundledIndex = autoSetupIndex;
-    }
-
-    JSONObject bundledEngine;
-    boolean reusedAutoSetupEntry = false;
     boolean createdBundledEngine = bundledIndex < 0;
-    // Only refresh the managed command when the slot still holds a bundled KataGo command. A user
-    // may repurpose the default slot (usually engine 1) with their own engine while keeping the
-    // default name; in that case the entry still matches by name, but overwriting its command would
-    // silently replace the user's engine with the bundled default on every restart. Preserve any
-    // command that is no longer a bundled KataGo command so custom engines survive restarts.
-    boolean refreshBundledCommand;
-    if (bundledIndex >= 0) {
-      bundledEngine = engineSettings.getJSONObject(bundledIndex);
-      reusedAutoSetupEntry = "KataGo Auto Setup".equals(bundledEngine.optString("name", ""));
-      String existingCommand = bundledEngine.optString("command", "");
-      refreshBundledCommand =
-          existingCommand.trim().isEmpty()
-              || isManagedBundledDefaultCommand(existingCommand, bundledConfig.appRoot);
-    } else {
-      bundledEngine = new JSONObject();
+    JSONObject bundledEngine;
+    if (createdBundledEngine) {
+      bundledEngine = new JSONObject().put("name", BUNDLED_ENGINE_NAME);
       engineSettings.put(bundledEngine);
       bundledIndex = engineSettings.length() - 1;
-      refreshBundledCommand = true;
+    } else {
+      bundledEngine = engineSettings.getJSONObject(bundledIndex);
     }
-
-    if (refreshBundledCommand) {
-      bundledEngine.put("command", bundledConfig.engineCommand);
-      if (!reusedAutoSetupEntry) {
-        bundledEngine.put("name", BUNDLED_ENGINE_NAME);
-      }
+    if (bundledEngine.optString("id", "").isBlank()) {
+      bundledEngine.put("id", UUID.randomUUID().toString());
+    }
+    bundledEngine.put("command", bundledConfig.engineCommand);
+    BundledKataGoProfile.claim(bundledEngine);
       if (!newProfile) {
         boolean analysisCustomized =
             AnalysisEngineCommandHelper.isAnalysisCommandCustomized(
@@ -719,7 +712,6 @@ public class Config {
           ui.put(DEFAULT_TRANSFORMER_MIGRATION_KEY, true);
         }
       }
-    }
     if (createdBundledEngine) {
       bundledEngine.put("preload", false);
       bundledEngine.put("komi", 7.5);
@@ -1439,7 +1431,8 @@ public class Config {
       ui.put(
           "blunder-node-colors",
           new JSONArray(
-              "[[155, 25, 150],[208, 16, 19],[200, 140, 50],[180, 180, 0],[140, 202, 34],[0, 220, 0],[0,230,230]]"));
+              "[[155, 25, 150],[208, 16, 19],[200, 140, 50],[180, 180, 0],[140, 202, 34],[0, 220,"
+                  + " 0],[0,230,230]]"));
       modified = true;
     }
 
@@ -1454,14 +1447,16 @@ public class Config {
       theme.config.put(
           "blunder-node-colors",
           new JSONArray(
-              "[[155, 25, 150],[208, 16, 19],[200, 140, 50],[180, 180, 0],[140, 202, 34],[0, 220, 0],[0,210,210]]"));
+              "[[155, 25, 150],[208, 16, 19],[200, 140, 50],[180, 180, 0],[140, 202, 34],[0, 220,"
+                  + " 0],[0,210,210]]"));
       theme.save();
     } else {
       uiConfig.put("blunder-winrate-thresholds", new JSONArray("[-24,-12,-6,-3,-1,3,100]"));
       uiConfig.put(
           "blunder-node-colors",
           new JSONArray(
-              "[[155, 25, 150],[208, 16, 19],[200, 140, 50],[180, 180, 0],[140, 202, 34],[0, 220, 0],[0,210,210]]"));
+              "[[155, 25, 150],[208, 16, 19],[200, 140, 50],[180, 180, 0],[140, 202, 34],[0, 220,"
+                  + " 0],[0,210,210]]"));
       try {
         save();
       } catch (IOException e) {
