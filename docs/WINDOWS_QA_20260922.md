@@ -55,6 +55,22 @@ AMD/Intel GPU, or actual TensorRT certification is claimed by this Windows run.
 
 ## Recently merged PR review
 
+### Native acceptance-tool follow-up
+
+While preparing the exact previous CPU portable product as an upgrade baseline,
+`Start` returned before asynchronous KataGo startup. The subsequent read-only
+`Status` correctly rejected the new, unrecorded PID, even though the application
+was analyzing normally. The acceptance runner now waits for exactly one owned
+process matching the packaged engine before freezing its strict process baseline.
+This is process-start evidence, not inference certification. PID/incarnation,
+component hashes and JVM ownership checks remain unchanged.
+
+The same real previous product then passed Prepare/Start/Status/Stop. All 26
+Windows acceptance-tool tests passed natively, without skips; the delayed-engine
+fixture is included. The suite now supports native Windows as well as WSL and is
+required by Windows script CI. This is a test-tool-only follow-up: final products
+remain bound to their own exact release SHA and provenance, not the tool revision.
+
 PR #519's deferred startup recovery and strict bundled-engine provenance are included
 in the full suite and native engine/TensorRT-fixture checks above. PR #522's distribution
 evidence introduced the cross-host absolute-path bug fixed here. Fixture/hosted CI

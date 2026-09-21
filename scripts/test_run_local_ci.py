@@ -99,6 +99,12 @@ class RunLocalCiTest(unittest.TestCase):
         self.assertIn("Run full Windows verification gate", [step.name for step in steps])
         self.assertNotIn("Verify local Markdown links", [step.name for step in steps])
 
+    def test_windows_scripts_require_native_product_fixtures(self):
+        steps = run_local_ci.build_steps("windows", "mvn", None, "pwsh", "scripts")
+        fixtures = [step for step in steps if "scripts.test_windows_product_acceptance" in step.command]
+        self.assertEqual(1, len(fixtures))
+        self.assertEqual("1", fixtures[0].env["LIZZIE_WINDOWS_PRODUCT_TESTS_REQUIRED"])
+
     def test_acceptance_helpers_are_tested_on_both_ci_platforms(self):
         for profile in ("windows", "portable"):
             with self.subTest(profile=profile):

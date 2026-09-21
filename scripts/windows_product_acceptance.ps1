@@ -988,6 +988,17 @@ function Restore-ConfigBytes {
     }
 }
 
+function Test-OwnedStartupEngine {
+    param([object]$Layout, [object[]]$Processes)
+    if ($Layout.Backend -eq "none") { return $true }
+    if (-not $Layout.Engine) { return $false }
+    $expected = [System.IO.Path]::GetFullPath([string]$Layout.Engine)
+    $matches = @($Processes | Where-Object {
+        $_.image -and [System.IO.Path]::GetFullPath([string]$_.image) -ieq $expected
+    })
+    return $matches.Count -eq 1
+}
+
 function Start-PreparedProduct {
     param([object]$PreparedIdentity, [string]$OutputRunJson, [string]$ScenarioId, [string]$Evidence, [bool]$Offline)
     $candidateClass = [string]$PreparedIdentity.Candidate.Value.artifact.class
@@ -1025,7 +1036,8 @@ function Start-PreparedProduct {
             if ($process.HasExited) { throw "Packaged launcher exited before readiness with code $($process.ExitCode)." }
             $currentOwned = @(Get-OwnedProcessTree -RootPid $process.Id -ProductRoot $layout.Root)
             foreach ($processId in $currentOwned) { [void]$ownedHistory.Add([int]$processId) }
-            foreach ($snapshot in @(Get-ProcessSnapshot -ProcessIds $currentOwned)) {
+            $startupSnapshots = @(Get-ProcessSnapshot -ProcessIds $currentOwned)
+            foreach ($snapshot in $startupSnapshots) {
                 $key = "$($snapshot.pid)|$($snapshot.creationDate)"
                 if ($seenIncarnations.Add($key)) { $processHistory.Add($snapshot) }
             }
@@ -1036,13 +1048,18 @@ function Start-PreparedProduct {
             $logText = if (Test-Path -LiteralPath $appLog -PathType Leaf) { Get-Content -LiteralPath $appLog -Raw -ErrorAction Stop } else { "" }
             $hasReadyLog = $logText -match 'application ready'
             $hasRepairLog = $logText -match '(?i)(no[- ]engine|engine unavailable|backend unavailable|repair required)'
-            if ($windowPid -and $hasConfig -and ($hasReadyLog -or ($ScenarioId -eq "variant-launch" -and $hasRepairLog))) {
+            # The window becomes ready before EngineManager launches KataGo. Freeze the
+            # strict PID baseline only after the expected owned engine exists. This is
+            # process-start evidence, not proof of inference or model readiness.
+            $hasStartupEngine = Test-OwnedStartupEngine -Layout $layout -Processes $startupSnapshots
+            $explicitRepair = $ScenarioId -eq "variant-launch" -and $hasRepairLog
+            if ($windowPid -and $hasConfig -and (($hasReadyLog -and $hasStartupEngine) -or $explicitRepair)) {
                 $ready = $true
-                $readinessState = if ($hasReadyLog) { "application-ready" } else { "explicit-repair" }
+                $readinessState = if ($hasReadyLog -and $hasStartupEngine) { "application-ready" } else { "explicit-repair" }
                 break
             }
         }
-        if (-not $ready) { throw "Timed out waiting for visible window, application-ready/repair log, config.txt and persist." }
+        if (-not $ready) { throw "Timed out waiting for visible window, application-ready/repair log, owned startup engine, config.txt and persist." }
         if ($layout.Backend -eq "none") { Require-Value -Condition ($readinessState -eq "explicit-repair") -Message "No-engine product did not expose the required visible repair/no-engine state." }
         $currentOwned = @(Get-OwnedProcessTree -RootPid $process.Id -ProductRoot $layout.Root)
         foreach ($processId in $currentOwned) { [void]$ownedHistory.Add([int]$processId) }
