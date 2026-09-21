@@ -1006,7 +1006,8 @@ public class MoreEngines extends JPanel {
       if (lockedCfg) {
         threadPolicyCfg.setSelected(true);
         threadPolicyBenchmark.setText(resourceBundle.getString("EngineThreadPolicy.benchmark"));
-        benchmarkSelectedEngine.setText(resourceBundle.getString("EngineThreadPolicy.startBenchmark"));
+        benchmarkSelectedEngine.setText(
+            resourceBundle.getString("EngineThreadPolicy.startBenchmark"));
         AccessibilitySupport.button(
             benchmarkSelectedEngine, benchmarkSelectedEngine.getText(), benchmarkSelectedEngine.getText());
         benchmarkSelectedEngine.setToolTipText(null);
@@ -1307,6 +1308,8 @@ public class MoreEngines extends JPanel {
     if (latest != null) {
       copyGtpConfigurationForUnchangedCommand(engineDt, latest, editedCommand);
       engineDt.id = latest.id;
+      engineDt.managedProfileType = latest.managedProfileType;
+      engineDt.managedProfileCommand = latest.managedProfileCommand;
       engineDt.threadPolicy =
           latest.threadPolicy == null
               ? new JSONObject().put("source", "CFG").put("sourceRevision", 0L)

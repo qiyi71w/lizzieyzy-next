@@ -76,6 +76,8 @@ Default locations:
 - Windows / Linux: `Lizzieyzy/weights/default.bin.gz`
 - macOS: `LizzieYzy Next.app/Contents/app/weights/default.bin.gz`
 
+The main window and Auto Setup read the internal model name from the current weight header. Native KataGo `.bin`, `.bin.gz`, `.txt`, and `.txt.gz` files are supported, including files renamed to `default.bin.gz`. Unlisted Transformer versions keep their full internal names; unreadable headers fall back to the filename. The name supplies display metadata and compatibility hints for recognized naming conventions, not an integrity check. KataGo still determines whether the model can load. Download SHA-256 verification is unchanged.
+
 If the app stops starting after the change, restore the original weight first to confirm whether the new weight file is the problem.
 
 ## 5. I want to use my own engine instead of bundled KataGo
@@ -86,6 +88,10 @@ Recommended path:
 - macOS / Linux: keep using the current main bundle and point the app to your own KataGo in settings
 
 If you only want to replace the weight, you can usually keep the bundled KataGo.
+
+You can rename bundled KataGo in engine settings. Restarts, Auto Setup, and path updates after moving a portable package preserve its name and entry settings. Replacing `default.bin.gz` at the same path changes model information, not entry ownership. After you edit the engine command or enable Java SSH, bundled-profile repair leaves that command intact; a complete package still recreates its bundled default entry when needed.
+
+Legacy entries are migrated when their bundled ownership can be established. Already-renamed legacy entries pointing to another complete package are left alone, and historical duplicates are not merged by guesswork.
 
 ## 6. What should I include in a bug report
 

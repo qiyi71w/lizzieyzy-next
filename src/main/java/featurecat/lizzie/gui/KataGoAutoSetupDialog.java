@@ -5194,14 +5194,9 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (path == null || path.getFileName() == null) {
       return null;
     }
-    String fileName = normalizeWeightName(path.getFileName().toString());
-    String displayName = normalizeWeightName(KataGoAutoSetupHelper.resolveWeightDisplayName(path));
+    String modelName = KataGoAutoSetupHelper.readWeightModelName(path);
     for (RemoteWeightInfo info : remoteWeightInfos) {
-      if (fileName.equals(normalizeWeightName(info.fileName()))
-          || displayName.equals(normalizeWeightName(formatRemoteModelName(info)))) {
-        return info;
-      }
-      if (isCurrentLocalWeight(path) && matchesCurrentWeight(info)) {
+      if (matchesModelName(info, modelName)) {
         return info;
       }
     }

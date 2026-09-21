@@ -21,7 +21,6 @@ import featurecat.lizzie.util.Utils;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dialog;
-import java.awt.GraphicsEnvironment;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.Window;
@@ -46,7 +45,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -70,7 +68,6 @@ import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.text.JTextComponent;
@@ -738,7 +735,6 @@ public final class TensorRtRepairAcceptanceTest {
         List.of(
             "default-engine",
             "katago-preferred-weight-path",
-            "katago-auto-setup-weight-name",
             "katago-auto-setup-weight-path",
             "katago-auto-setup-engine-path",
             "katago-auto-setup-gtp-config-path",
@@ -1404,8 +1400,7 @@ public final class TensorRtRepairAcceptanceTest {
               .put("katago-auto-setup-gtp-config-path", gtp.toString())
               .put("katago-auto-setup-analysis-config-path", analysis.toString())
               .put("katago-auto-setup-weight-path", weight.toString())
-              .put("katago-preferred-weight-path", weight.toString())
-              .put("katago-auto-setup-weight-name", weight.getFileName().toString());
+              .put("katago-preferred-weight-path", weight.toString());
       JSONObject root =
           new JSONObject()
               .put(

@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
@@ -733,21 +734,6 @@ public class KataGoAutoSetupHelperTest {
     assertEquals("", KataGoAutoSetupHelper.parseKataGoVersion("unknown engine"));
   }
 
-  @Test
-  void bundledDefaultUsesManifestToIdentifyTransformerArchitecture() throws Exception {
-    Path root = Files.createTempDirectory("katago-transformer-default");
-    Path weight = touch(root.resolve("weights").resolve("default.bin.gz"));
-    Path manifest = root.resolve("engines").resolve("katago").resolve("VERSION.txt");
-    Files.createDirectories(manifest.getParent());
-    Files.writeString(
-        manifest, "Model source: " + KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_FILE_NAME + "\n");
-
-    assertTrue(KataGoAutoSetupHelper.isTransformerWeight(weight));
-    String displayName = KataGoAutoSetupHelper.resolveWeightDisplayName(weight);
-    assertTrue(displayName.contains("Transformer"));
-    assertEquals("Transformer B11 · 2026-09-07", displayName);
-    assertFalse(displayName.equals("default"));
-  }
 
   @Test
   void recognizesTrainedTransformersWithoutRelabelingOldModels() {
@@ -1077,15 +1063,14 @@ public class KataGoAutoSetupHelperTest {
               withUserDirAndConfig(
                   tempRoot,
                   () -> {
-                    Path modelDir = Files.createDirectories(tempRoot.resolve("quick-analysis-models"));
+                    Path modelDir =
+                        Files.createDirectories(tempRoot.resolve("quick-analysis-models"));
                     Path partial =
                         modelDir.resolve(
                             KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_FILE_NAME + ".part");
-                    Files.write(
-                        partial, java.util.Arrays.copyOf(modelBytes, partialSize));
+                    Files.write(partial, java.util.Arrays.copyOf(modelBytes, partialSize));
 
-                    Path downloaded =
-                        KataGoAutoSetupHelper.downloadQuickAnalysisModel(null, null);
+                    Path downloaded = KataGoAutoSetupHelper.downloadQuickAnalysisModel(null, null);
                     KataGoAutoSetupHelper.QuickAnalysisModelStatus status =
                         KataGoAutoSetupHelper.inspectQuickAnalysisModel();
                     KataGoAutoSetupHelper.SetupSnapshot snapshot =
@@ -1241,6 +1226,10 @@ public class KataGoAutoSetupHelperTest {
     Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
     touch(configDir.resolve("analysis.cfg"));
     Path bundledWeight = touch(appRoot.resolve("weights").resolve("default.bin.gz"));
+    try (OutputStream output = new GZIPOutputStream(Files.newOutputStream(bundledWeight))) {
+      output.write(
+          "kata1-zhizi-b28c512nbt-muonfd2\n15\n22\n19\n".getBytes(StandardCharsets.US_ASCII));
+    }
     Path source = touch(tempRoot.resolve("incoming").resolve("default.bin.gz"));
 
     withProcessDirAndConfig(
@@ -1263,7 +1252,7 @@ public class KataGoAutoSetupHelperTest {
           assertTrue(refreshed.weightCandidates.contains(imported));
           assertEquals(bundledWeight, refreshed.activeWeightPath);
           assertFalse(imported.equals(refreshed.activeWeightPath));
-          assertEquals("default", KataGoAutoSetupHelper.resolveWeightDisplayName(imported));
+          assertEquals("default.bin.gz", KataGoAutoSetupHelper.resolveWeightDisplayName(imported));
         });
   }
 
@@ -1816,6 +1805,111 @@ public class KataGoAutoSetupHelperTest {
           assertEquals(13, refreshed.height);
           assertEquals("kata-set-rules chinese", refreshed.initialCommand);
           assertFalse(refreshed.isDefault);
+        });
+  }
+
+  @Test
+  void autoSetupReusesRenamedManagedEntryAndProtectsRepurposedCommand() throws Exception {
+    Path root = Files.createTempDirectory("katago-renamed-profile");
+    Path engine =
+        touch(
+            root.resolve("engines/katago")
+                .resolve(detectTestPlatformDir())
+                .resolve(testKataGoBinaryName()));
+    Path gtp = touch(root.resolve("engines/katago/configs/gtp.cfg"));
+    touch(root.resolve("engines/katago/configs/analysis.cfg"));
+    Path weight = touch(root.resolve("weights/default.bin.gz"));
+    withUserDirAndConfig(
+        root,
+        () -> {
+          Lizzie.config.uiConfig.put("autoload-empty", true);
+          var snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+          KataGoAutoSetupHelper.applyAutoSetup(snapshot, false);
+          ArrayList<EngineData> entries = Utils.getEngineData();
+          EngineData managed = entries.get(0);
+          String id = managed.id;
+          managed.name = "Notebook KataGo";
+          managed.komi = 6.5F;
+          managed.preload = true;
+          EngineData namesake = engineData("KataGo Auto Setup", engine, gtp, weight, false);
+          namesake.commands += " -override-config numSearchThreads=2";
+          entries.add(namesake);
+          Utils.saveEngineSettings(entries);
+          KataGoAutoSetupHelper.applyAutoSetup(snapshot, false);
+          entries = Utils.getEngineData();
+          assertEquals(2, entries.size());
+          assertEquals(id, entries.get(0).id);
+          assertEquals("Notebook KataGo", entries.get(0).name);
+          assertEquals(6.5F, entries.get(0).komi);
+          assertTrue(entries.get(0).preload);
+          assertEquals(namesake.commands, entries.get(1).commands);
+
+          entries.get(0).commands += " -override-config numSearchThreads=3";
+          String customCommand = entries.get(0).commands;
+          Utils.saveEngineSettings(entries);
+          Lizzie.config.uiConfig.put("default-engine", 0);
+          assertFalse(KataGoAutoSetupHelper.repairBrokenStartupEngineIfNeeded());
+          KataGoAutoSetupHelper.applyAutoSetup(snapshot, false);
+          entries = Utils.getEngineData();
+          assertEquals(3, entries.size());
+          assertEquals(customCommand, entries.get(0).commands);
+          assertEquals(id, entries.get(0).id);
+          assertEquals(namesake.commands, entries.get(1).commands);
+          assertTrue(BundledKataGoProfile.isManaged(entries.get(2)));
+        });
+  }
+
+  @Test
+  void startupFallbackDoesNotClaimUnownedMissingCommands() throws Exception {
+    Path root = Files.createTempDirectory("katago-stale-custom-startup");
+    Path engine =
+        touch(
+            root.resolve("engines/katago")
+                .resolve(detectTestPlatformDir())
+                .resolve(testKataGoBinaryName()));
+    Path gtp = touch(root.resolve("engines/katago/configs/gtp.cfg"));
+    touch(root.resolve("engines/katago/configs/analysis.cfg"));
+    Path weight = touch(root.resolve("weights/default.bin.gz"));
+    withUserDirAndConfig(
+        root,
+        () -> {
+          EngineData bundled = engineData("Notebook KataGo", engine, gtp, weight, false);
+          BundledKataGoProfile.claim(bundled);
+          Path staleEngine =
+              root.resolve("removed/engines/katago")
+                  .resolve(detectTestPlatformDir())
+                  .resolve(testKataGoBinaryName());
+          for (String customCommand :
+              List.of(
+                  engineData("", staleEngine, gtp, weight, false).commands
+                      + " -override-config numSearchThreads=2",
+                  "\"" + root.resolve("external/katago") + "\" gtp")) {
+            EngineData custom = engineData("KataGo Auto Setup", engine, gtp, weight, true);
+            custom.id = "custom-stale";
+            custom.commands = customCommand;
+            custom.komi = 6.5F;
+            Utils.saveEngineSettings(new ArrayList<>(List.of(custom, bundled)));
+            Lizzie.config.uiConfig.put("default-engine", 0);
+            for (int restart = 0; restart < 2; restart++) {
+              assertFalse(KataGoAutoSetupHelper.repairBrokenStartupEngineIfNeeded());
+              ArrayList<EngineData> saved = Utils.getEngineData();
+              assertEquals(2, saved.size());
+              assertEquals("custom-stale", saved.get(0).id);
+              assertEquals("KataGo Auto Setup", saved.get(0).name);
+              assertEquals(customCommand, saved.get(0).commands);
+              assertEquals(6.5F, saved.get(0).komi);
+              assertFalse(BundledKataGoProfile.isManaged(saved.get(0)));
+              assertTrue(BundledKataGoProfile.isManaged(saved.get(1)));
+            }
+          }
+          EngineData legacy = engineData("Legacy launcher", engine, gtp, weight, true);
+          legacy.commands = "java -jar \"" + root.resolve("missing-launcher.jar") + "\"";
+          Utils.saveEngineSettings(new ArrayList<>(List.of(legacy)));
+          Lizzie.config.uiConfig.put("default-engine", 0);
+          assertTrue(KataGoAutoSetupHelper.repairBrokenStartupEngineIfNeeded());
+          assertEquals(1, Utils.getEngineData().size());
+          assertTrue(BundledKataGoProfile.isManaged(Utils.getEngineData().get(0)));
+          assertEquals("Legacy launcher", Utils.getEngineData().get(0).name);
         });
   }
 
