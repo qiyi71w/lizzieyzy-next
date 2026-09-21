@@ -255,6 +255,12 @@ public final class FunctionSearchInputTest {
     FunctionSearchDialog dialog = awaitSearch(path + " search");
     JTextField input = searchInput(dialog);
     await(input::isFocusOwner, path + " search input focus", UI_TIMEOUT_MILLIS);
+    // This probe types an ASCII query with physical keys. A machine's active Pinyin
+    // composition can turn "winr" into "win'r"; it is not the ASCII input under test.
+    if ("toolbar".equals(path) && "shift".equals(System.getenv("LIZZIE_TEST_ASCII_IME"))) {
+      press(robot, KeyEvent.VK_SHIFT);
+      evidence.put("input.ascii-mode", "explicit-shift-toggle");
+    }
     evidence.put(path + ".open-focus", "true");
     assertBoardAndConfigUnchanged(beforeNode, configBefore, path + " search opening");
 
@@ -674,10 +680,20 @@ public final class FunctionSearchInputTest {
     for (int offset = 0; offset < text.length(); offset++) {
       String expected = text.substring(0, offset + 1);
       type(robot, text.substring(offset, offset + 1));
-      await(
-          () -> expected.equals(runOnEdtUnchecked(input::getText)),
-          label + " character " + (offset + 1),
-          UI_TIMEOUT_MILLIS);
+      try {
+        await(
+            () -> expected.equals(runOnEdtUnchecked(input::getText)),
+            label + " character " + (offset + 1),
+            UI_TIMEOUT_MILLIS);
+      } catch (AssertionError failure) {
+        throw new AssertionError(
+            failure.getMessage()
+                + "; expected=" + expected
+                + "; actual=" + runOnEdtUnchecked(input::getText)
+                + "; focus=" + runOnEdtUnchecked(
+                    () -> java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()),
+            failure);
+      }
     }
   }
 

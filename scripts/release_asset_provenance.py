@@ -8,7 +8,7 @@ from datetime import datetime
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import stat
 import sys
@@ -524,7 +524,11 @@ def _validate_expected_artifact_identity(expected: dict[str, object]) -> None:
             "standalone artifact identity buildIdentity must not be empty",
         )
         path = _required_string(artifact.get("path"), "expected.artifact.path")
-        require(Path(path).is_absolute(), "standalone artifact identity path must be absolute")
+        # Evidence can be validated on a different OS from the producing machine.
+        require(
+            PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute(),
+            "standalone artifact identity path must be absolute",
+        )
         _positive_integer(artifact.get("sizeBytes"), "expected.artifact.sizeBytes")
         digest = artifact.get("sha256")
         require(

@@ -59,6 +59,14 @@ mvn -B -DskipTests package
 
 If you changed packaging, engine paths, first-launch behavior, or the Fox fetch flow, do the relevant manual verification too.
 
+Desktop smoke tests include board editing and SGF import after engine startup failure.
+On a Windows test desktop whose Chinese IME is in composition mode, the ASCII
+physical-key search probe can be run with `LIZZIE_TEST_ASCII_IME=shift`. This
+explicit opt-in toggles Shift once per probe after focusing the search field;
+only use it when Shift switches that IME to ASCII. It does not change production
+input handling and is not a test of Chinese composition. Leave it unset on
+ordinary ASCII-input desktops and hosted CI.
+
 ## Repository Map
 
 ### Code directories

@@ -364,7 +364,7 @@ public class BoardHistoryList {
     Optional<BoardHistoryNode> n = head.next(includeDummay);
     // n.ifPresent(x -> head = x);
     if (n.isPresent()) {
-      Lizzie.leelaz.clearBestMoves();
+      if (Lizzie.leelaz != null) Lizzie.leelaz.clearBestMoves();
       head = n.get();
       // Lizzie.board.clearAfterMove();
     }
@@ -740,7 +740,7 @@ public class BoardHistoryList {
         changeMove,
         addLast,
         Lizzie.config.noCapture,
-        Lizzie.leelaz.canSuicidal);
+        Lizzie.leelaz != null && Lizzie.leelaz.canSuicidal);
   }
 
   /** Places a move using rules frozen by an owning engine-game transaction. */
