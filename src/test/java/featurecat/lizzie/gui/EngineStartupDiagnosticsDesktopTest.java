@@ -157,6 +157,59 @@ public class EngineStartupDiagnosticsDesktopTest {
 
   @Test
   @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
+  void nativeSearchAndRuntimeEvidenceReachApplicationConsumers(@TempDir Path root)
+      throws Exception {
+    DesktopProbeProcess.requireDisplay();
+    Path pathDir = Files.createDirectory(root.resolve("effective-path"));
+    WindowsStatusProcessFixture.createImported(pathDir.resolve("path-only.dll"),
+        "missing-path-transitive.dll", true);
+    WindowsStatusProcessFixture.createImported(pathDir.resolve("wrong-first.dll"),
+        "unused.dll", true);
+    String path = pathDir + ";" + System.getenv("PATH");
+    String systemRoot = System.getenv("SystemRoot");
+    assertNotNull(systemRoot);
+    for (String kind : List.of("path", "wrong", "known", "api", "runtime-pe")) {
+      String effectivePath = kind.equals("runtime-pe")
+          ? pathDir + ";" + systemRoot + "\\System32;" + systemRoot : path;
+      Path result = DesktopProbeProcess.run(EngineStartupDiagnosticsDesktopTest.class,
+          "startup-integrated-" + kind,
+          List.of("-Dsun.java2d.uiScale=1.5", "-Dlizzie.diagnostic.peFixture=" + kind),
+          List.of("probe"), java.util.Map.of("PATH", effectivePath), 90, root, null);
+      JSONObject evidence = new JSONObject(Files.readString(result));
+      assertEquals("passed", evidence.getString("result"));
+      JSONObject copy = new JSONObject(Files.readString(result.resolveSibling("copied-error.json")));
+      assertEquals("MAIN_BOARD", copy.getString("launchPurpose"));
+      assertEquals("final", copy.getJSONObject("launch").getString("environmentState"));
+      assertTrue(Files.isRegularFile(Path.of(evidence.getString("zip"))));
+      if (kind.equals("path")) {
+        assertTrue(copy.getJSONArray("findings").toString().contains("missing-path-transitive.dll"));
+        assertFalse(copy.getJSONArray("findings").toString().contains(
+            "DLL not found in checked search scope: path-only.dll"));
+      } else if (kind.equals("wrong")) {
+        assertEquals("STATUS_INVALID_IMAGE_FORMAT", copy.getString("statusName"));
+        assertTrue(copy.getJSONArray("findings").toString().contains("architecture-mismatch"));
+      } else if (kind.equals("known")) {
+        assertEquals("STATUS_ENTRYPOINT_NOT_FOUND", copy.getString("statusName"));
+        assertTrue(copy.getJSONObject("sources").getJSONObject("pe-import-scan")
+            .getString("checkedScope").contains("known-dlls-view=authoritative"));
+        assertFalse(copy.getJSONArray("findings").toString().contains(
+            "DLL not found in checked search scope: kernel32.dll"));
+      } else if (kind.equals("api")) {
+        assertTrue(copy.getJSONArray("findings").toString().contains("unresolved-api-set"));
+        assertEquals("partial", copy.getString("outcome"));
+        assertFalse(copy.getJSONArray("findings").toString().contains(
+            "DLL not found in checked search scope: api-ms-win-core-sysinfo-l1-1-0.dll"));
+      } else {
+        assertTrue(copy.getJSONArray("findings").toString().contains("missing-level2.dll"));
+        assertTrue(copy.getJSONArray("findings").toString().contains("runtime-preflight"));
+        assertTrue(copy.getJSONArray("findings").toString().contains("pe-import-scan"));
+        assertTrue(copy.getJSONArray("findings").toString().contains("not-found-in-checked-search-scope"));
+      }
+    }
+  }
+
+  @Test
+  @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
   void nativeProbeMissingTransitiveDllReachesSharedWarnAndZipWithoutPopup(@TempDir Path work)
       throws Exception {
     Path exe = WindowsStatusProcessFixture.createImported(
@@ -231,7 +284,7 @@ public class EngineStartupDiagnosticsDesktopTest {
         assertEquals(finding.getString("importer"), exportedFinding.getString("importer"));
         assertEquals(finding.getJSONArray("chain").toString(),
             exportedFinding.getJSONArray("chain").toString());
-        assertFalse(exported.toString().contains(work.toString()));
+        assertFalse(exported.toString().contains(work.toString().replace("\\", "\\\\")));
       }
     } finally {
       runtime.shutdown();
@@ -285,21 +338,57 @@ public class EngineStartupDiagnosticsDesktopTest {
     boolean windows = System.getProperty("os.name").startsWith("Windows");
     boolean outputFixture = Boolean.getBoolean("lizzie.diagnostic.outputFixture");
     String peFixture = System.getProperty("lizzie.diagnostic.peFixture", "");
+    String expectedDll = switch (peFixture) {
+      case "direct" -> "missing-direct.dll";
+      case "path" -> "missing-path-transitive.dll";
+      case "wrong" -> "wrong-first.dll";
+      case "api" -> "api-ms-win-core-sysinfo-l1-1-0.dll";
+      case "indirect", "runtime-pe" -> "missing-level2.dll";
+      default -> null;
+    };
     String command;
     int expectedCode;
     if (windows && !outputFixture) {
       Path fixture;
-      if (!peFixture.isEmpty()) {
-        fixture = WindowsStatusProcessFixture.createImported(work.resolve("native-import.exe"),
-            peFixture.equals("direct") ? "missing-direct.dll" : "level1.dll", false);
-        if (peFixture.equals("indirect"))
-          WindowsStatusProcessFixture.createImported(work.resolve("level1.dll"),
-              "missing-level2.dll", true);
-      } else {
+      if (peFixture.isEmpty()) {
         fixture = WindowsStatusProcessFixture.create(work.resolve("native-status.exe"), 0xC0000135);
+      } else {
+        Path fixtureDir = peFixture.equals("runtime-pe")
+            ? Files.createDirectory(work.resolve("windows-x64-nvidia")) : work;
+        String dependency = switch (peFixture) {
+          case "direct" -> "missing-direct.dll";
+          case "path" -> "path-only.dll";
+          case "wrong" -> "wrong-first.dll";
+          case "known" -> "kernel32.dll";
+          case "api" -> "api-ms-win-core-sysinfo-l1-1-0.dll";
+          default -> "level1.dll";
+        };
+        fixture = WindowsStatusProcessFixture.createImported(
+            fixtureDir.resolve("native-import.exe"), dependency, false);
+        if (peFixture.equals("indirect") || peFixture.equals("runtime-pe"))
+          WindowsStatusProcessFixture.createImported(fixtureDir.resolve("level1.dll"),
+              "missing-level2.dll", true);
+        if (peFixture.equals("wrong")) {
+          Path wrong = WindowsStatusProcessFixture.createImported(
+              work.resolve("wrong-first.dll"), "unused.dll", true);
+          byte[] bytes = Files.readAllBytes(wrong);
+          bytes[0x84] = 0x4c;
+          bytes[0x85] = 0x01;
+          Files.write(wrong, bytes);
+        }
+        if (peFixture.equals("known"))
+          WindowsStatusProcessFixture.createImported(work.resolve("kernel32.dll"),
+              "unused.dll", true);
       }
       command = quote(fixture.toString());
-      expectedCode = -1073741515;
+      expectedCode = switch (peFixture) {
+        case "wrong" -> 0xC000007B;
+        case "known" -> 0xC0000139;
+        case "api" -> new ProcessBuilder(fixture.toString()).directory(work.toFile())
+            .start().waitFor();
+        default -> 0xC0000135;
+      };
+      assertNotEquals(0, expectedCode);
     } else {
       command =
           quote(Path.of(System.getProperty("java.home"), "bin", "java" + (windows ? ".exe" : "")).toString())
@@ -347,19 +436,17 @@ public class EngineStartupDiagnosticsDesktopTest {
     await(() -> !EngineStartupDiagnostics.getDefault().snapshot().failures().isEmpty());
     await(() -> failedWindow() != null);
     await(() -> !latest().toJson().getString("outcome").equals("collecting"));
-    if (!peFixture.isEmpty()) {
-      String missing = peFixture.equals("direct") ? "missing-direct.dll" : "missing-level2.dll";
-      await(() -> latest().toJson().getJSONArray("findings").toString().contains(missing)
+    if (expectedDll != null)
+      await(() -> latest().toJson().getJSONArray("findings").toString().contains(expectedDll)
           && !latest().toJson().getString("outcome").equals("collecting"));
-    }
     EngineStartupDiagnostic diagnostic = latest();
     assertEquals(expectedCode, diagnostic.toJson().getInt("exitCode"));
     assertEquals("MAIN_BOARD", diagnostic.toJson().getString("launchPurpose"));
     if (windows && !outputFixture)
-      assertEquals("STATUS_DLL_NOT_FOUND", diagnostic.toJson().getString("statusName"));
-    if (!peFixture.isEmpty())
-      await(() -> componentTextOnEdt(failedWindow()).contains(
-          peFixture.equals("direct") ? "missing-direct.dll" : "missing-level2.dll"));
+      assertEquals(EngineStartupDiagnostic.windowsStatus(expectedCode),
+          diagnostic.toJson().getString("statusName"));
+    if (expectedDll != null)
+      await(() -> componentTextOnEdt(failedWindow()).contains(expectedDll));
     EngineFailedMessage dialog = failedWindow();
     assertNotNull(dialog);
     await(
@@ -377,9 +464,8 @@ public class EngineStartupDiagnosticsDesktopTest {
     Path collapsedScreenshot = result.getParent().resolve("startup-failure-collapsed.png");
     ImageIO.write(
         new Robot().createScreenCapture(dialog.getBounds()), "png", collapsedScreenshot.toFile());
-    if (outputFixture || !windows || !peFixture.isEmpty()) {
-      String target = peFixture.isEmpty() ? "cudnn64_9.dll"
-          : peFixture.equals("direct") ? "missing-direct.dll" : "missing-level2.dll";
+    if (outputFixture || !windows || expectedDll != null) {
+      String target = expectedDll == null ? "cudnn64_9.dll" : expectedDll;
       SwingUtilities.invokeAndWait(() -> scrollSummaryToFindings(dialog, target));
       new Robot().waitForIdle();
       ImageIO.write(new Robot().createScreenCapture(dialog.getBounds()), "png",
@@ -397,19 +483,19 @@ public class EngineStartupDiagnosticsDesktopTest {
     assertEquals(expectedCode, copy.getInt("exitCode"));
     assertFalse(copied.contains("fixture-secret"));
     if (outputFixture || !windows) assertOutputEvidence(copy);
-    if (!peFixture.isEmpty()) {
-      String missing = peFixture.equals("direct") ? "missing-direct.dll" : "missing-level2.dll";
-      assertTrue(copy.getJSONArray("findings").toString().contains(missing));
+    if (expectedDll != null) {
       JSONObject found = null;
       for (int i = 0; i < copy.getJSONArray("findings").length(); i++) {
         JSONObject candidate = copy.getJSONArray("findings").getJSONObject(i);
-        if (missing.equals(candidate.optString("dll"))) found = candidate;
+        if (expectedDll.equals(candidate.optString("dll"))) found = candidate;
       }
       assertNotNull(found);
       assertEquals("pe-import-scan", found.getString("evidence"));
-      assertEquals(peFixture.equals("direct") ? "native-import.exe" : "level1.dll",
-          found.getString("importer"));
-      assertEquals(peFixture.equals("direct") ? 2 : 3, found.getJSONArray("chain").length());
+      assertEquals(peFixture.equals("path") ? "path-only.dll"
+              : peFixture.equals("indirect") || peFixture.equals("runtime-pe")
+                  ? "level1.dll" : "native-import.exe", found.getString("importer"));
+      assertEquals(peFixture.equals("path") || peFixture.equals("indirect")
+          || peFixture.equals("runtime-pe") ? 3 : 2, found.getJSONArray("chain").length());
     }
     Files.writeString(result.getParent().resolve("copied-error.json"), copied);
     SwingUtilities.invokeAndWait(
@@ -479,8 +565,8 @@ public class EngineStartupDiagnosticsDesktopTest {
     assertTrue(log.contains(Integer.toString(expectedCode)));
     assertFalse(log.contains("fixture-secret"));
     if (windows && !outputFixture) {
-      assertTrue(log.contains("0xC0000135"));
-      assertTrue(log.contains("STATUS_DLL_NOT_FOUND"));
+      assertTrue(log.contains(String.format("0x%08X", expectedCode)));
+      assertTrue(log.contains(EngineStartupDiagnostic.windowsStatus(expectedCode)));
     }
 
     String warnLine =
@@ -512,9 +598,8 @@ public class EngineStartupDiagnosticsDesktopTest {
     assertEquals(exported.getLong("diagnosticRevision"), warnCore.getLong("diagnosticRevision"));
     assertEquals(exported.getString("engineId"), warnCore.getString("engineId"));
     assertEquals(exported.getInt("exitCode"), warnCore.getInt("exitCode"));
-    if (!peFixture.isEmpty()) {
-      String missing = peFixture.equals("direct") ? "missing-direct.dll" : "missing-level2.dll";
-      assertTrue(warnLine.contains(missing));
+    if (expectedDll != null) {
+      assertTrue(warnLine.contains(expectedDll));
       assertTrue(warnLine.contains("pe-import-scan"));
     }
     assertEquals(exported.optString("statusName", ""), warnCore.optString("statusName", ""));
