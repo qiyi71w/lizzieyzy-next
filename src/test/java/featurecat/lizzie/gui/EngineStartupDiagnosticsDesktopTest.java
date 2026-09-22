@@ -5,10 +5,17 @@ import static org.junit.jupiter.api.Assertions.*;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineStartupDiagnostic;
 import featurecat.lizzie.analysis.EngineStartupDiagnostics;
-import featurecat.lizzie.analysis.PeDependencyScanner;
 import featurecat.lizzie.analysis.Leelaz;
+import featurecat.lizzie.analysis.PeDependencyScanner;
+import featurecat.lizzie.analysis.SyncDiagnosticsExportSnapshot;
+import featurecat.lizzie.analysis.gtpconfig.GtpConfigurationProbe;
 import featurecat.lizzie.logging.DiagnosticBundleExporter;
+import featurecat.lizzie.logging.DiagnosticBundleRequest;
+import featurecat.lizzie.logging.LoggingLimits;
 import featurecat.lizzie.logging.LoggingRuntime;
+import featurecat.lizzie.logging.LoggingSettings;
+import featurecat.lizzie.logging.TraceScope;
+import featurecat.lizzie.logging.WorkDirectoryResolution;
 import featurecat.lizzie.util.Utils;
 import java.awt.Component;
 import java.awt.Container;
@@ -16,10 +23,12 @@ import java.awt.Robot;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.datatransfer.DataFlavor;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -144,6 +153,76 @@ public class EngineStartupDiagnosticsDesktopTest {
             && "partial".equals(f.completeness())));
     assertFalse(apiResult.findings().stream().anyMatch(f ->
         contract.equals(f.dll()) && "not-found-in-checked-search-scope".equals(f.outcome())));
+  }
+
+  @Test
+  @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
+  void nativeProbeMissingTransitiveDllReachesSharedWarnAndZipWithoutPopup(@TempDir Path work)
+      throws Exception {
+    Path exe = WindowsStatusProcessFixture.createImported(
+        work.resolve("probe-import.exe"), "probe-level1.dll", false);
+    WindowsStatusProcessFixture.createImported(
+        work.resolve("probe-level1.dll"), "probe-missing-level2.dll", true);
+    LoggingRuntime runtime = LoggingRuntime.initialize(
+        new WorkDirectoryResolution(work, List.of()),
+        new LoggingLimits(64, 32, 32, 32, 7, 1_000_000, 256_000));
+    runtime.applySettings(LoggingSettings.defaults().withDiagnosticsEnabled(false));
+    try {
+      assertThrows(IOException.class, () -> new GtpConfigurationProbe().inspect(quote(exe.toString())));
+      await(() -> EngineStartupDiagnostics.getDefault().snapshot().failures().stream()
+          .anyMatch(f -> "GTP_CONFIG_PROBE".equals(f.toJson().optString("launchPurpose"))
+              && f.toJson().getJSONArray("findings").toString().contains("probe-missing-level2.dll")));
+      EngineStartupDiagnostic failure = EngineStartupDiagnostics.getDefault().snapshot().failures()
+          .stream().filter(f -> "GTP_CONFIG_PROBE".equals(f.toJson().optString("launchPurpose"))
+              && f.toJson().getJSONArray("findings").toString().contains("probe-missing-level2.dll"))
+          .findFirst().orElseThrow();
+      JSONObject observed = failure.toJson();
+      assertEquals(-1073741515, observed.getInt("exitCode"));
+      assertEquals("STATUS_DLL_NOT_FOUND", observed.getString("statusName"));
+      assertEquals("startup-exit", observed.getString("phase"));
+      JSONObject finding = null;
+      for (int i = 0; i < observed.getJSONArray("findings").length(); i++) {
+        JSONObject candidate = observed.getJSONArray("findings").getJSONObject(i);
+        if ("probe-missing-level2.dll".equals(candidate.optString("dll"))) finding = candidate;
+      }
+      assertNotNull(finding);
+      assertEquals("pe-import-scan", finding.getString("evidence"));
+      assertEquals("probe-level1.dll", finding.getString("importer"));
+      assertEquals(3, finding.getJSONArray("chain").length());
+      assertFalse(List.of(Window.getWindows()).stream()
+          .anyMatch(w -> w instanceof EngineFailedMessage && w.isShowing()));
+      await(() -> {
+        try {
+          return Files.readString(work.resolve("logs/app.log")).lines()
+              .anyMatch(line -> line.contains("WARN") && line.contains(failure.attemptId())
+                  && line.contains("\"diagnosticRevision\":" + failure.revision())
+                  && line.contains("probe-missing-level2.dll"));
+        } catch (IOException unavailable) {
+          return false;
+        }
+      });
+      Path zip = new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(work))
+          .export(new DiagnosticBundleRequest(runtime, EnumSet.noneOf(TraceScope.class),
+              new JSONObject(), new SyncDiagnosticsExportSnapshot(1L, null, List.of(),
+                  List.of(), List.of(), null), "next-dev"));
+      try (ZipFile archive = new ZipFile(zip.toFile())) {
+        JSONObject history = new JSONObject(new String(archive.getInputStream(
+            archive.getEntry("snapshots/engine-startup-failures.json")).readAllBytes(),
+            StandardCharsets.UTF_8));
+        JSONObject exported = null;
+        for (int i = 0; i < history.getJSONArray("failures").length(); i++) {
+          JSONObject candidate = history.getJSONArray("failures").getJSONObject(i);
+          if (failure.attemptId().equals(candidate.optString("attemptId"))) exported = candidate;
+        }
+        assertNotNull(exported);
+        assertEquals(failure.engineId(), exported.getString("engineId"));
+        assertEquals(failure.revision(), exported.getLong("diagnosticRevision"));
+        assertEquals(observed.getJSONArray("findings").toString(),
+            exported.getJSONArray("findings").toString());
+      }
+    } finally {
+      runtime.shutdown();
+    }
   }
 
   public static void main(String[] args) throws Exception {
