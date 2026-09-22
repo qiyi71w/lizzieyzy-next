@@ -171,6 +171,7 @@ public class EngineStartupDiagnosticsDesktopTest {
       assertThrows(IOException.class, () -> new GtpConfigurationProbe().inspect(quote(exe.toString())));
       await(() -> EngineStartupDiagnostics.getDefault().snapshot().failures().stream()
           .anyMatch(f -> "GTP_CONFIG_PROBE".equals(f.toJson().optString("launchPurpose"))
+              && !"collecting".equals(f.toJson().getString("outcome"))
               && f.toJson().getJSONArray("findings").toString().contains("probe-missing-level2.dll")));
       EngineStartupDiagnostic failure = EngineStartupDiagnostics.getDefault().snapshot().failures()
           .stream().filter(f -> "GTP_CONFIG_PROBE".equals(f.toJson().optString("launchPurpose"))
@@ -217,8 +218,20 @@ public class EngineStartupDiagnosticsDesktopTest {
         assertNotNull(exported);
         assertEquals(failure.engineId(), exported.getString("engineId"));
         assertEquals(failure.revision(), exported.getLong("diagnosticRevision"));
-        assertEquals(observed.getJSONArray("findings").toString(),
-            exported.getJSONArray("findings").toString());
+        JSONObject exportedFinding = null;
+        for (int i = 0; i < exported.getJSONArray("findings").length(); i++) {
+          JSONObject candidate = exported.getJSONArray("findings").getJSONObject(i);
+          if ("probe-missing-level2.dll".equals(candidate.optString("dll")))
+            exportedFinding = candidate;
+        }
+        assertNotNull(exportedFinding);
+        assertEquals(finding.getString("evidence"), exportedFinding.getString("evidence"));
+        assertEquals(finding.getString("outcome"), exportedFinding.getString("outcome"));
+        assertEquals(finding.getString("completeness"), exportedFinding.getString("completeness"));
+        assertEquals(finding.getString("importer"), exportedFinding.getString("importer"));
+        assertEquals(finding.getJSONArray("chain").toString(),
+            exportedFinding.getJSONArray("chain").toString());
+        assertFalse(exported.toString().contains(work.toString()));
       }
     } finally {
       runtime.shutdown();
