@@ -198,6 +198,17 @@ public final class EngineObservation {
     if (!runtimeActive() || !ENGINE.isWarnEnabled()) return;
     org.json.JSONObject summary = diagnostic.toJson();
     summary.remove("launch");
+    // Search directories belong to copy/export, not the ordinary WARN environment summary.
+    org.json.JSONObject sources = summary.getJSONObject("sources");
+    for (String source : sources.keySet())
+      sources.getJSONObject(source).remove("checkedScope");
+    org.json.JSONArray findings = summary.getJSONArray("findings");
+    for (int index = 0; index < findings.length(); index++) {
+      org.json.JSONObject finding = findings.getJSONObject(index);
+      finding.remove("checkedScope");
+      if ("runtime-requirements-satisfied".equals(finding.optString("outcome")))
+        finding.remove("detail");
+    }
     org.json.JSONObject core = new org.json.JSONObject();
     for (String field :
         java.util.List.of(

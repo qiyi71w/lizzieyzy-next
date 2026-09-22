@@ -388,6 +388,11 @@ public final class KataGoRuntimeHelper {
     public final List<String> missingDlls;
     public final long downloadBytes;
     public final String detailText;
+    public final String backend;
+    public final String checkedScope;
+    public final boolean verifiedStaticZlib;
+    public final java.time.Instant checkedAt;
+    public final boolean readError;
 
     private NvidiaRuntimeStatus(
         boolean applicable,
@@ -396,14 +401,23 @@ public final class KataGoRuntimeHelper {
         Path runtimeDir,
         List<String> missingDlls,
         long downloadBytes,
-        String detailText) {
+        String detailText,
+        String backend,
+        String checkedScope,
+        boolean verifiedStaticZlib,
+        boolean readError) {
       this.applicable = applicable;
       this.ready = ready;
       this.enginePath = enginePath;
       this.runtimeDir = runtimeDir;
-      this.missingDlls = missingDlls;
+      this.missingDlls = List.copyOf(missingDlls);
       this.downloadBytes = downloadBytes;
       this.detailText = detailText;
+      this.backend = backend;
+      this.checkedScope = checkedScope;
+      this.verifiedStaticZlib = verifiedStaticZlib;
+      this.checkedAt = java.time.Instant.now();
+      this.readError = readError;
     }
   }
 
@@ -1112,7 +1126,14 @@ public final class KataGoRuntimeHelper {
     public static void ensureBundledRuntimeReady(
             Path enginePath, List<String> launchCommand, String originalCommand, Window owner)
             throws IOException {
+          ensureBundledRuntimeReady(enginePath, launchCommand, originalCommand, owner, null);
+        }
+
+    public static void ensureBundledRuntimeReady(
+        Path enginePath, List<String> launchCommand, String originalCommand, Window owner,
+        java.util.function.Consumer<NvidiaRuntimeStatus> observation) throws IOException {
           NvidiaRuntimeStatus status = inspectNvidiaRuntime(enginePath);
+          if (observation != null) observation.accept(status);
           TensorRtRepairContext context =
               inspectTensorRtStartupFailure(enginePath, launchCommand, originalCommand);
           if (context != null) {
@@ -2106,7 +2127,41 @@ public final class KataGoRuntimeHelper {
 
   static NvidiaRuntimeStatus inspectNvidiaRuntime(Path enginePath, String runtimeSearchPath) {
     Path runtimeDir = getNvidiaRuntimeDir();
+    return inspectNvidiaRuntime(
+        enginePath, runtimeDir, collectRuntimeSearchDirs(enginePath, runtimeDir, runtimeSearchPath));
+  }
+
+  /** Read-only failure inspection: only the captured executable directory, cwd and final PATH. */
+  public static NvidiaRuntimeStatus inspectStartupRuntime(
+      Path enginePath, Path cwd, String effectivePath) {
+    LinkedHashSet<Path> directories = new LinkedHashSet<>();
+    if (enginePath != null && enginePath.getParent() != null)
+      directories.add(enginePath.getParent().toAbsolutePath().normalize());
+    directories.add(cwd.toAbsolutePath().normalize());
+    for (String entry : effectivePath.split(Pattern.quote(java.io.File.pathSeparator), -1)) {
+      String value = entry.trim();
+      if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2)
+        value = value.substring(1, value.length() - 1);
+      Path path = Path.of(value);
+      directories.add((path.isAbsolute() ? path : cwd.resolve(path)).normalize());
+    }
+    return inspectNvidiaRuntime(enginePath, null, new ArrayList<>(directories), true);
+  }
+
+
+  private static NvidiaRuntimeStatus inspectNvidiaRuntime(
+      Path enginePath, Path runtimeDir, List<Path> searchDirs) {
+    return inspectNvidiaRuntime(enginePath, runtimeDir, searchDirs, false);
+  }
+
+  private static NvidiaRuntimeStatus inspectNvidiaRuntime(
+      Path enginePath, Path runtimeDir, List<Path> searchDirs, boolean diagnostic) {
     String backend = resolveNvidiaBackend(enginePath);
+    String scope = "KataGo runtime file groups and pinned NVRTC manifest; backend="
+        + (backend == null ? "unmatched" : backend)
+        + "; directories=" + searchDirs.stream().map(Path::toString)
+            .collect(java.util.stream.Collectors.joining(" ; "))
+        + "; checks files and project provenance, not Windows Loader or GPU readiness";
     if (!isWindowsPlatform() || backend == null) {
       return new NvidiaRuntimeStatus(
           false,
@@ -2117,19 +2172,34 @@ public final class KataGoRuntimeHelper {
           0L,
           resource(
               "AutoSetup.nvidiaRuntimeNotApplicable",
-              "Current engine does not need the NVIDIA runtime."));
+              "Current engine does not need the NVIDIA runtime."),
+          backend, scope, false, false);
     }
 
-    List<Path> searchDirs =
-        collectRuntimeSearchDirs(enginePath, runtimeDir, runtimeSearchPath);
-    List<List<String>> requiredDllGroups = requiredRuntimeDllGroups(enginePath, backend);
-    List<String> missing = collectMissingRuntimeGroups(searchDirs, requiredDllGroups);
-    if ((usesCuda12_8Runtime(enginePath, backend) || isTensorRtBackend(backend))
-        && !hasPinnedCuda12_8NvrtcManifest(searchDirs)) {
-      missing.add("CUDA NVRTC " + CUDA_12_8_NVRTC_VERSION + " manifest");
+    boolean staticZlib = hasVerifiedStaticZlibProvenance(enginePath, backend);
+    List<List<String>> requiredDllGroups = requiredRuntimeDllGroups(enginePath, backend, staticZlib);
+    List<String> missing = new ArrayList<>();
+    boolean readError = false;
+    for (List<String> group : requiredDllGroups) {
+      try {
+        if (!(diagnostic ? hasStartupAnyFile(searchDirs, group) : hasAnyFile(searchDirs, group)))
+          missing.add(describeRequirementGroup(group));
+      } catch (IOException | SecurityException unreadable) {
+        readError = true;
+      }
     }
-    Path readyDir = findDirectoryContainingRequiredDlls(searchDirs, requiredDllGroups);
-    boolean ready = missing.isEmpty();
+    if (usesCuda12_8Runtime(enginePath, backend) || isTensorRtBackend(backend)) {
+      try {
+        if (!(diagnostic ? hasStartupPinnedCuda12_8NvrtcManifest(searchDirs)
+            : hasPinnedCuda12_8NvrtcManifest(searchDirs)))
+          missing.add("CUDA NVRTC " + CUDA_12_8_NVRTC_VERSION + " manifest");
+      } catch (IOException | SecurityException unreadable) {
+        readError = true;
+      }
+    }
+    // The diagnostic reports the captured scope; legacy readiness text keeps its directory hint.
+    Path readyDir = diagnostic ? null : findDirectoryContainingRequiredDlls(searchDirs, requiredDllGroups);
+    boolean ready = missing.isEmpty() && !readError;
     String detailText;
     if (ready) {
       detailText =
@@ -2146,7 +2216,8 @@ public final class KataGoRuntimeHelper {
               + "  |  "
               + String.join(", ", missing);
     }
-    return new NvidiaRuntimeStatus(true, ready, enginePath, runtimeDir, missing, 0L, detailText);
+    return new NvidiaRuntimeStatus(
+        true, ready, enginePath, runtimeDir, missing, 0L, detailText, backend, scope, staticZlib, readError);
   }
 
   public static void downloadAndInstallNvidiaRuntime(
@@ -6044,7 +6115,12 @@ public final class KataGoRuntimeHelper {
   }
 
   static List<List<String>> requiredRuntimeDllGroups(Path enginePath, String backend) {
-    boolean staticZlib = hasVerifiedStaticZlibProvenance(enginePath, backend);
+    return requiredRuntimeDllGroups(
+        enginePath, backend, hasVerifiedStaticZlibProvenance(enginePath, backend));
+  }
+
+  private static List<List<String>> requiredRuntimeDllGroups(
+      Path enginePath, String backend, boolean staticZlib) {
     if (isTensorRtBackend(backend)) {
       return staticZlib
           ? REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS_STATIC_ZLIB
@@ -6110,16 +6186,103 @@ public final class KataGoRuntimeHelper {
         && !Files.isRegularFile(engineDir.resolve("cudnn64_9.dll"));
   }
 
-  private static List<String> collectMissingRuntimeGroups(
-      List<Path> searchDirs, List<List<String>> requiredDllGroups) {
-    List<String> missing = new ArrayList<String>();
-    for (List<String> requirementGroup : requiredDllGroups) {
-      if (!hasAnyFile(searchDirs, requirementGroup)) {
-        missing.add(describeRequirementGroup(requirementGroup));
+
+  private static boolean hasStartupAnyFile(List<Path> searchDirs, List<String> fileNames) throws IOException {
+    for (String fileName : fileNames) {
+      if (hasStartupFile(searchDirs, fileName)) {
+        return true;
       }
     }
-    return missing;
+    return false;
   }
+
+  private static boolean hasStartupFile(List<Path> searchDirs, String fileName) throws IOException {
+    for (Path dir : searchDirs) {
+      if (dir == null) {
+        continue;
+      }
+      try {
+        java.nio.file.attribute.BasicFileAttributes dirAttrs =
+            Files.readAttributes(dir, java.nio.file.attribute.BasicFileAttributes.class);
+        if (!dirAttrs.isDirectory()) {
+          continue;
+        }
+      } catch (java.nio.file.NoSuchFileException notFound) {
+        continue;
+      }
+      if (fileName.contains("*")) {
+        String prefix = fileName.substring(0, fileName.indexOf('*'));
+        String suffix = fileName.substring(fileName.indexOf('*') + 1);
+        try (Stream<Path> files = Files.list(dir)) {
+          boolean found =
+              files.anyMatch(
+                  path -> {
+                    String name = path.getFileName().toString();
+                    try {
+                      return isStartupRegularFile(path)
+                          && name.startsWith(prefix)
+                          && name.endsWith(suffix);
+                    } catch (IOException e) {
+                      throw new java.io.UncheckedIOException(e);
+                    }
+                  });
+          if (found) {
+            return true;
+          }
+        } catch (java.io.UncheckedIOException uio) {
+          throw uio.getCause();
+        } catch (java.nio.file.NoSuchFileException notFound) {
+          continue;
+        }
+        continue;
+      }
+      if (isStartupRegularFile(dir.resolve(fileName))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isStartupRegularFile(Path file) throws IOException {
+    try {
+      return Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class).isRegularFile();
+    } catch (java.nio.file.NoSuchFileException | java.io.FileNotFoundException notFound) {
+      return false;
+    } catch (SecurityException se) {
+      throw new IOException(se);
+    }
+  }
+
+  private static boolean hasStartupPinnedCuda12_8NvrtcManifest(List<Path> searchDirs) throws IOException {
+    for (Path directory : searchDirs) {
+      if (directory == null) {
+        continue;
+      }
+      try {
+        java.nio.file.attribute.BasicFileAttributes dirAttrs =
+            Files.readAttributes(directory, java.nio.file.attribute.BasicFileAttributes.class);
+        if (!dirAttrs.isDirectory()) {
+          continue;
+        }
+      } catch (java.nio.file.NoSuchFileException notFound) {
+        continue;
+      }
+      for (String manifestName :
+          Arrays.asList("lizzieyzy-next-nvidia-runtime-manifest.txt", "manifest.txt")) {
+        Path manifest = directory.resolve(manifestName);
+        if (!isStartupRegularFile(manifest)) {
+          continue;
+        }
+        String text = Files.readString(manifest, StandardCharsets.UTF_8);
+        if (containsPinnedCuda12_8NvrtcManifestEntry(text)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+
 
   private static boolean hasPinnedCuda12_8NvrtcManifest(List<Path> searchDirs) {
     for (Path directory : searchDirs) {

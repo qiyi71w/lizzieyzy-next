@@ -1436,7 +1436,8 @@ public class Leelaz {
               engineExecutable,
               commands,
               engineCommand,
-              deferredEngineGameRecovery ? null : Lizzie.frame);
+              deferredEngineGameRecovery ? null : Lizzie.frame,
+              startupDiagnosticAttempt == null ? null : startupDiagnosticAttempt::runtimePreflight);
         } catch (IOException e) {
           if (startupDiagnosticAttempt != null)
             startupDiagnosticAttempt.fail("runtime-preflight", e.toString());

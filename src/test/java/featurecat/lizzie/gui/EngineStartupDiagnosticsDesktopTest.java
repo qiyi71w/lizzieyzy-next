@@ -56,10 +56,24 @@ public class EngineStartupDiagnosticsDesktopTest {
         evidence.getString("surface"));
   }
 
+  @Test
+  void dllOutputSurvivesActualWindowLogClipboardAndZip() throws Exception {
+    DesktopProbeProcess.requireDisplay();
+    Path result = DesktopProbeProcess.run(EngineStartupDiagnosticsDesktopTest.class,
+        "startup-output-diagnostics", List.of("-Dsun.java2d.uiScale=1.5",
+            "-Dlizzie.diagnostic.outputFixture=true"), List.of("probe"));
+    JSONObject evidence = new JSONObject(Files.readString(result));
+    assertEquals("passed", evidence.getString("result"));
+    assertEquals("engine-output-process", evidence.getString("surface"));
+  }
+
   public static void main(String[] args) throws Exception {
     if (args.length == 1 && args[0].equals("engine-child")) {
       Thread.sleep(400);
       System.err.println("Controlled startup failure; token=fixture-secret");
+      System.err.println("Could not load library cudnn64_9.dll. Error code 126");
+      System.out.println("The procedure entry point launch could not be located in the dynamic link library nvinfer_10.dll");
+      System.out.println("Successfully loaded benign.dll");
       System.exit(17);
     }
     Path work = Path.of(args[1]);
@@ -98,16 +112,17 @@ public class EngineStartupDiagnosticsDesktopTest {
     assertFalse(runtime.settings().diagnosticsEnabled());
 
     boolean windows = System.getProperty("os.name").startsWith("Windows");
+    boolean outputFixture = Boolean.getBoolean("lizzie.diagnostic.outputFixture");
     String command;
     int expectedCode;
-    if (windows) {
+    if (windows && !outputFixture) {
       Path fixture =
           WindowsStatusProcessFixture.create(work.resolve("native-status.exe"), 0xC0000135);
       command = quote(fixture.toString());
       expectedCode = -1073741515;
     } else {
       command =
-          quote(Path.of(System.getProperty("java.home"), "bin", "java").toString())
+          quote(Path.of(System.getProperty("java.home"), "bin", "java" + (windows ? ".exe" : "")).toString())
               + " -cp "
               + quote(System.getProperty("java.class.path"))
               + " "
@@ -155,7 +170,7 @@ public class EngineStartupDiagnosticsDesktopTest {
     EngineStartupDiagnostic diagnostic = latest();
     assertEquals(expectedCode, diagnostic.toJson().getInt("exitCode"));
     assertEquals("MAIN_BOARD", diagnostic.toJson().getString("launchPurpose"));
-    if (windows) assertEquals("STATUS_DLL_NOT_FOUND", diagnostic.toJson().getString("statusName"));
+    if (windows && !outputFixture) assertEquals("STATUS_DLL_NOT_FOUND", diagnostic.toJson().getString("statusName"));
     EngineFailedMessage dialog = failedWindow();
     assertNotNull(dialog);
     await(
@@ -164,9 +179,21 @@ public class EngineStartupDiagnosticsDesktopTest {
           return text.contains(diagnostic.attemptId())
               && text.contains(Integer.toString(expectedCode));
         });
+    if (outputFixture || !windows) {
+      await(() -> componentTextOnEdt(dialog).contains("cudnn64_9.dll")
+          && componentTextOnEdt(dialog).contains("engine-stderr")
+          && componentTextOnEdt(dialog).contains("nvinfer_10.dll")
+          && componentTextOnEdt(dialog).contains("engine-stdout"));
+    }
     Path collapsedScreenshot = result.getParent().resolve("startup-failure-collapsed.png");
     ImageIO.write(
         new Robot().createScreenCapture(dialog.getBounds()), "png", collapsedScreenshot.toFile());
+    if (outputFixture || !windows) {
+      SwingUtilities.invokeAndWait(() -> scrollSummaryToFindings(dialog));
+      new Robot().waitForIdle();
+      ImageIO.write(new Robot().createScreenCapture(dialog.getBounds()), "png",
+          result.getParent().resolve("startup-failure-findings.png").toFile());
+    }
     SwingUtilities.invokeAndWait(() -> button(dialog, "EngineFailedMessage.details").doClick());
     Path screenshot = result.getParent().resolve("startup-failure-details.png");
     ImageIO.write(new Robot().createScreenCapture(dialog.getBounds()), "png", screenshot.toFile());
@@ -178,6 +205,7 @@ public class EngineStartupDiagnosticsDesktopTest {
     assertEquals(diagnostic.engineId(), copy.getString("engineId"));
     assertEquals(expectedCode, copy.getInt("exitCode"));
     assertFalse(copied.contains("fixture-secret"));
+    if (outputFixture || !windows) assertOutputEvidence(copy);
     Files.writeString(result.getParent().resolve("copied-error.json"), copied);
     SwingUtilities.invokeAndWait(
         () -> button(dialog, "EngineFailedMessage.exportDiagnostics").doClick());
@@ -226,6 +254,7 @@ public class EngineStartupDiagnosticsDesktopTest {
       assertEquals(copy.getLong("diagnosticRevision"), exported.getLong("diagnosticRevision"));
       assertEquals(copy.getString("engineId"), exported.getString("engineId"));
       assertEquals(expectedCode, exported.getInt("exitCode"));
+      if (outputFixture || !windows) assertOutputEvidence(exported);
     }
     assertFalse(LoggingRuntime.current().orElseThrow().fullTraceActive());
     Path appLog = work.resolve("logs/app.log");
@@ -242,7 +271,7 @@ public class EngineStartupDiagnosticsDesktopTest {
     assertTrue(log.contains(diagnostic.engineId()));
     assertTrue(log.contains(Integer.toString(expectedCode)));
     assertFalse(log.contains("fixture-secret"));
-    if (windows) {
+    if (windows && !outputFixture) {
       assertTrue(log.contains("0xC0000135"));
       assertTrue(log.contains("STATUS_DLL_NOT_FOUND"));
     }
@@ -277,6 +306,10 @@ public class EngineStartupDiagnosticsDesktopTest {
     assertEquals(exported.getString("engineId"), warnCore.getString("engineId"));
     assertEquals(exported.getInt("exitCode"), warnCore.getInt("exitCode"));
     assertEquals(exported.optString("statusName", ""), warnCore.optString("statusName", ""));
+    if (outputFixture || !windows) {
+      JSONObject warnSummary = new JSONObject(warnLine.substring(diagEnd + "} summary=".length()));
+      assertOutputEvidence(warnSummary);
+    }
 
     Path javaExecutable =
         Path.of(System.getProperty("java.home"), "bin", "java" + (windows ? ".exe" : ""));
@@ -457,7 +490,7 @@ public class EngineStartupDiagnosticsDesktopTest {
         result,
         new JSONObject()
             .put("result", "passed")
-            .put("surface", windows ? "windows-native" : "java-process")
+            .put("surface", outputFixture ? "engine-output-process" : windows ? "windows-native" : "java-process")
             .put("attemptId", diagnostic.attemptId())
             .put("engineId", diagnostic.engineId())
             .put("revision", copy.getLong("diagnosticRevision"))
@@ -476,6 +509,26 @@ public class EngineStartupDiagnosticsDesktopTest {
         () -> {
           for (Window window : Window.getWindows()) window.dispose();
         });
+  }
+
+  private static void assertOutputEvidence(JSONObject diagnostic) {
+    JSONArray findings = diagnostic.getJSONArray("findings");
+    boolean stderr = false;
+    boolean stdout = false;
+    for (int i = 0; i < findings.length(); i++) {
+      JSONObject f = findings.getJSONObject(i);
+      if ("engine-stderr".equals(f.optString("evidence"))) {
+        stderr |= "cudnn64_9.dll".equals(f.optString("dll"));
+        assertTrue(f.getString("detail").contains("Could not load library"));
+        assertTrue(f.isNull("importer"));
+        assertTrue(f.getJSONArray("chain").isEmpty());
+      }
+      if ("engine-stdout".equals(f.optString("evidence")))
+        stdout |= "nvinfer_10.dll".equals(f.optString("dll"));
+      assertNotEquals("benign.dll", f.optString("dll"));
+    }
+    assertTrue(stderr, "stderr DLL evidence must be retained");
+    assertTrue(stdout, "stdout DLL evidence must be retained");
   }
 
   private static EngineStartupDiagnostic latest() {
@@ -600,5 +653,21 @@ public class EngineStartupDiagnosticsDesktopTest {
       if (component instanceof Container child) text.append(componentText(child));
     }
     return text.toString();
+  }
+
+  private static void scrollSummaryToFindings(Container parent) {
+    for (Component component : parent.getComponents()) {
+      if (component instanceof JTextArea area
+          && "EngineFailedMessage.diagnosticSummary".equals(area.getName())) {
+        int index = area.getText().indexOf("cudnn64_9.dll");
+        assertTrue(index >= 0);
+        area.setCaretPosition(index);
+        try {
+          area.scrollRectToVisible(area.modelToView2D(index).getBounds());
+        } catch (javax.swing.text.BadLocationException failure) {
+          throw new AssertionError(failure);
+        }
+      } else if (component instanceof Container child) scrollSummaryToFindings(child);
+    }
   }
 }

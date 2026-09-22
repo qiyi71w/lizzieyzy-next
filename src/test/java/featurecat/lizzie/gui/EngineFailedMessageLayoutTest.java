@@ -33,6 +33,8 @@ import javax.swing.JLabel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
 class EngineFailedMessageLayoutTest {
@@ -76,6 +78,54 @@ class EngineFailedMessageLayoutTest {
     assertTrue(area.getWrapStyleWord());
     assertEquals(0, area.getCaretPosition());
     assertSame(font, area.getFont());
+  }
+  @Test
+  void findingSummaryShowsDistinctEvidenceAndSafeBoundedDetails() {
+    JSONArray findings =
+        new JSONArray()
+            .put(
+                new JSONObject()
+                    .put("outcome", "dll-not-found")
+                    .put("dll", "C:\\Users\\alice\\engine\\cudnn64_9.dll")
+                    .put("importer", "katago.exe")
+                    .put("chain", new JSONArray(List.of("katago.exe", "cudnn64_9.dll")))
+                    .put("evidence", "engine-stderr")
+                    .put("completeness", "complete")
+                    .put("checkedScope", "captured stderr")
+                    .put(
+                        "detail",
+                        "Load failed under C:\\Users\\alice\\engine token=do-not-display "
+                            + "raw failure ".repeat(1_000)))
+            .put(
+                new JSONObject()
+                    .put("outcome", "runtime-requirements-satisfied")
+                    .put("dll", JSONObject.NULL)
+                    .put("importer", JSONObject.NULL)
+                    .put("chain", new JSONArray())
+                    .put("evidence", "runtime-preflight")
+                    .put("completeness", "complete")
+                    .put("checkedScope", "frozen runtime search scope")
+                    .put("detail", "Runtime files were present"));
+
+    String summary = EngineFailedMessage.formatFindingsText(findings);
+
+    assertTrue(
+        summary.contains(Lizzie.resourceBundle.getString("EngineFailedMessage.evidence.engine-stderr")));
+    assertTrue(
+        summary.contains(
+            Lizzie.resourceBundle.getString("EngineFailedMessage.evidence.runtime-preflight")));
+    assertTrue(
+        summary.contains(Lizzie.resourceBundle.getString("EngineFailedMessage.outcome.dll-not-found")));
+    assertTrue(
+        summary.contains(
+            Lizzie.resourceBundle.getString(
+                "EngineFailedMessage.outcome.runtime-requirements-satisfied")));
+    assertTrue(summary.contains("cudnn64_9.dll"));
+    assertTrue(summary.contains("katago.exe -> cudnn64_9.dll"));
+    assertTrue(summary.contains("captured stderr"));
+    assertFalse(summary.contains("do-not-display"));
+    assertFalse(summary.contains("C:\\Users\\alice"));
+    assertTrue(summary.length() < 5_000);
   }
 
   @Test

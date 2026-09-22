@@ -1,6 +1,8 @@
 package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.logging.EngineObservation;
+import featurecat.lizzie.util.KataGoRuntimeHelper;
+import featurecat.lizzie.util.KataGoRuntimeHelper.NvidiaRuntimeStatus;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -83,9 +85,13 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
     }
   }
 
-  public record Evidence(List<Finding> findings, String checkedScope) {
+  public record Evidence(List<Finding> findings, String checkedScope, boolean readError) {
     public Evidence {
       findings = List.copyOf(findings);
+    }
+
+    public Evidence(List<Finding> findings, String checkedScope) {
+      this(findings, checkedScope, false);
     }
   }
 
@@ -176,6 +182,10 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
     private final JSONObject sources = new JSONObject();
     private final JSONArray findings = new JSONArray();
     private int findingBytes = 2;
+    private Evidence preflightEvidence;
+    private Collector runtimeCollector;
+    private boolean outputEvidenceDirty = true;
+    private List<Finding> outputFindings = List.of();
     private final Map<String, Job> jobs = new LinkedHashMap<>();
     private final Tail stdout = new Tail();
     private final Tail stderr = new Tail();
@@ -267,6 +277,21 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
                       ? "non-native-or-wrapper"
                       : "not-collected";
       launch.put("dependencyApplicability", applicability);
+      if ("not-collected".equals(applicability)) {
+        if (launchTruncated) {
+          sources.put("runtime", state("not-applicable", "not-applicable", "context-truncated",
+              "Final launch environment exceeded capture limits; no runtime check"));
+        } else {
+          Path target = Path.of(command.get(0));
+          Path resolved = (target.isAbsolute() ? target : cwd.resolve(target)).normalize();
+          runtimeCollector = () -> runtimeEvidence(
+              KataGoRuntimeHelper.inspectStartupRuntime(resolved, cwd, path), "post-failure-final-environment");
+          sources.put("runtime", state("applicable", "queued", "", "Frozen final environment; check pending"));
+        }
+      } else {
+        sources.put("runtime", state("not-applicable", "not-applicable", applicability,
+            "KataGo runtime inspection not applicable to this launch"));
+      }
       launch.put(
           "searchContext",
           new JSONObject()
@@ -287,6 +312,17 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
       String result = limited(value, maxBytes);
       launchTruncated |= value != null && !result.equals(value);
       return result;
+    }
+
+    /** Retain the check performed by the startup owner before the final builder exists. */
+    public synchronized void runtimePreflight(NvidiaRuntimeStatus status) {
+      if (failedAt != null || !"not-formed".equals(launch.getString("environmentState")))
+        throw new IllegalStateException("Preflight observation must precede final environment");
+      preflightEvidence = runtimeEvidence(status, "before-launch-preflight; final environment not formed");
+      sources.put("runtime-preflight", state(status.applicable ? "applicable" : "not-applicable",
+          status.readError ? "failed" : status.applicable ? "completed" : "not-applicable",
+          status.readError ? "read-error" : status.applicable ? "" : "runtime-backend-unmatched",
+          preflightEvidence.checkedScope()));
     }
 
     public synchronized void attachProcess(Process original) {
@@ -317,6 +353,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
     public synchronized void output(String stream, String line) {
       if (!collectingOutput()) return;
       ("stderr".equals(stream) ? stderr : stdout).add(line);
+      outputEvidenceDirty = true;
       notifyAll();
     }
 
@@ -344,14 +381,18 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
       failedAt = Instant.now();
       deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(policy.deadlineMillis());
       observeExit();
+      if (preflightEvidence != null && !appendFindings(preflightEvidence))
+        sources.put("runtime-preflight", state("applicable", "partial", "result-limit",
+            preflightEvidence.checkedScope()));
       sources.put(
           "process-tail",
           state(
               process == null ? "not-applicable" : "applicable",
               process == null ? "not-applicable" : "queued",
               process == null ? "no-process" : "",
-              "Original process exit and bounded stdout and stderr; no DLL dependency scan"));
+              "Original process exit and bounded stdout/stderr DLL error evidence; no static scan"));
       publish();
+      if (runtimeCollector != null) collect("runtime", runtimeCollector);
       if (process != null)
         collect(
             "process-tail",
@@ -371,7 +412,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
                   throw new CollectionFailure("exit-unavailable");
                 return new Evidence(
                     List.of(),
-                    "Observed original process exit and drained bounded output; no DLL dependency scan");
+                    "Observed original process exit and bounded stdout/stderr DLL error evidence; no static scan");
               }
             });
       return published;
@@ -423,29 +464,27 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
       job.terminal = true;
       activeJobs.remove(job);
       if (job.alarm != null) job.alarm.cancel(false);
+      if (evidence != null && evidence.readError()) {
+        collectionState = "failed";
+        reason = "read-error";
+      }
       if (!"completed".equals(collectionState)) {
         job.task.cancel(true);
         workers.remove(job.task);
       }
-      if (evidence != null) {
-        for (Finding finding : evidence.findings()) {
-          JSONObject next = finding.json();
-          int nextBytes =
-              EngineStartupDiagnostic.bytes(next.toString()) + (findings.isEmpty() ? 0 : 1);
-          if (findingBytes + nextBytes > policy.diagnosticBytes() / 2) {
-            collectionState = "partial";
-            reason = "result-limit";
-            break;
-          }
-          findings.put(next);
-          findingBytes += nextBytes;
-        }
+      if (evidence != null && !appendFindings(evidence)) {
+        collectionState = "partial";
+        reason = "result-limit";
       }
+      boolean applicable = evidence == null || evidence.findings().stream().anyMatch(
+          finding -> !finding.outcome().equals("runtime-backend-unmatched")
+              && !finding.outcome().equals("runtime-not-applicable"));
+      if (evidence != null && evidence.findings().isEmpty()) applicable = true;
       sources.put(
           job.source,
           state(
-              "applicable",
-              collectionState,
+              applicable ? "applicable" : "not-applicable",
+              applicable ? collectionState : "not-applicable",
               reason,
               evidence == null
                   ? "partial collection; no static scan evidence"
@@ -453,7 +492,38 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
       publish();
     }
 
+    private boolean appendFindings(Evidence evidence) {
+      for (Finding finding : evidence.findings()) {
+        JSONObject next = finding.json();
+        int nextBytes = EngineStartupDiagnostic.bytes(next.toString()) + 1;
+        if (findingBytes + nextBytes > policy.diagnosticBytes() / 2) return false;
+        findings.put(next);
+        findingBytes += nextBytes;
+      }
+      return true;
+    }
+
     private void publish() {
+      if (outputEvidenceDirty) {
+        List<Finding> captured = new ArrayList<>();
+        Instant checked = Instant.now();
+        captured.addAll(EngineOutputDiagnostic.parse("stdout", stdout.text(), checked));
+        captured.addAll(EngineOutputDiagnostic.parse("stderr", stderr.text(), checked));
+        outputFindings = List.copyOf(captured);
+        outputEvidenceDirty = false;
+      }
+      JSONArray allFindings = new JSONArray(findings.toString());
+      int totalFindingBytes = findingBytes;
+      boolean findingsTruncated = false;
+      for (Finding finding : outputFindings) {
+        JSONObject next = finding.json();
+        totalFindingBytes += EngineStartupDiagnostic.bytes(next.toString()) + 1;
+        if (totalFindingBytes > policy.diagnosticBytes() / 2) {
+          findingsTruncated = true;
+          break;
+        }
+        allFindings.put(next);
+      }
       String outcome = "not-applicable";
       boolean applicable = false;
       boolean pending = false;
@@ -472,7 +542,9 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
                 ? "collecting"
                 : incomplete
                     ? "partial"
-                    : findings.isEmpty() ? "no-specific-dll-identified" : "evidence-available";
+                    : allFindings.isEmpty() ? "no-specific-dll-identified" : "evidence-available";
+      if (findingsTruncated) outcome = "partial";
+      else if (!applicable && !outputFindings.isEmpty()) outcome = "evidence-available";
       JSONObject value =
           new JSONObject()
               .put("attemptId", id)
@@ -506,9 +578,9 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
               .put("stdoutTruncated", stdout.truncated)
               .put("stderrTruncated", stderr.truncated)
               .put("sources", sources)
-              .put("findings", findings)
+              .put("findings", allFindings)
               .put("outcome", outcome)
-              .put("truncated", launchTruncated || stdout.truncated || stderr.truncated);
+              .put("truncated", findingsTruncated || launchTruncated || stdout.truncated || stderr.truncated);
       published = new EngineStartupDiagnostic(value, policy.diagnosticBytes());
       retain(published);
       if (publisher != null) {
@@ -518,6 +590,28 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
         }
       }
     }
+  }
+
+  private static Evidence runtimeEvidence(NvidiaRuntimeStatus status, String phase) {
+    String scope = phase + "; " + status.checkedScope
+        + "; static-zlib=" + (status.verifiedStaticZlib ? "verified-project-build" : "not-verified");
+    List<Finding> result = new ArrayList<>();
+    if (!status.applicable || status.ready) {
+      result.add(new Finding(!status.applicable
+          ? status.backend == null ? "runtime-backend-unmatched" : "runtime-not-applicable"
+          : "runtime-requirements-satisfied",
+          null, null, List.of(), "runtime-preflight", status.applicable ? "complete" : "not-applicable",
+          scope, status.detailText, status.checkedAt));
+    } else {
+      for (String missing : status.missingDlls) {
+        boolean manifest = missing.contains("manifest");
+        // A group (including alternatives/wildcards) is not a uniquely identified DLL.
+        String dll = !manifest && missing.matches("(?i)[a-z0-9_.-]+\\.dll") ? missing : null;
+        result.add(new Finding(manifest ? "runtime-manifest-mismatch" : "not-found-in-checked-search-scope",
+            dll, null, List.of(), "runtime-preflight", "complete", scope, missing, status.checkedAt));
+      }
+    }
+    return new Evidence(result, scope, status.readError);
   }
 
   private final class Job {

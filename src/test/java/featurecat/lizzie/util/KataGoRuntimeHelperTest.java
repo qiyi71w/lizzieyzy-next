@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -32,6 +33,8 @@ import java.net.InetSocketAddress;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;
+import java.nio.file.FileSystems;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
@@ -970,6 +973,237 @@ public class KataGoRuntimeHelperTest {
                 assertTrue(status.missingDlls.isEmpty());
               });
         });
+  }
+
+  @Test
+  void failureInspectionDoesNotAddCurrentConfiguredRuntimeDirectory() throws Exception {
+    withOsName(WINDOWS_OS_NAME, () -> {
+      Path root = Files.createTempDirectory("runtime-search-isolation");
+      Path engine = touch(root.resolve("windows-x64-nvidia-tensorrt/katago.exe"));
+      Path runtime = Files.createDirectories(root.resolve("nvidia-runtime"));
+      touchRequiredCuda12_8Dlls(runtime);
+      touch(runtime.resolve("nvinfer_10.dll"));
+      touch(runtime.resolve("nvinfer_plugin_10.dll"));
+      withConfig(root, () -> {
+        assertTrue(KataGoRuntimeHelper.inspectNvidiaRuntime(engine, "").ready);
+        var captured = KataGoRuntimeHelper.inspectStartupRuntime(engine, engine.getParent(), "");
+        assertFalse(captured.ready);
+        assertTrue(captured.missingDlls.contains("cudnn64_9.dll"));
+      });
+    });
+  }
+
+  @Test
+  void startupDiagnosticUsesFrozenFinalPathAndRetainsConflictingOutput() throws Exception {
+    withOsName(WINDOWS_OS_NAME, () -> {
+      Path root = Files.createTempDirectory("startup-runtime-frozen");
+      Path engine = touch(root.resolve("windows-x64-nvidia-tensorrt/katago.exe"));
+      Path runtime = Files.createDirectories(root.resolve("only-final-path"));
+      touchRequiredCuda12_8Dlls(runtime);
+      Files.delete(runtime.resolve("z.dll"));
+      touch(runtime.resolve("nvinfer_10.dll"));
+      touch(runtime.resolve("nvinfer_plugin_10.dll"));
+      writeCurrentTensorRtEngineManifestWithoutCompanion(engine.getParent());
+      withConfig(root.resolve("config"), () -> {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var policy = new featurecat.lizzie.analysis.EngineStartupDiagnostics.Policy(
+            1, 4, 2000, 40, 16384, 262144, 32, 8388608);
+        try (var service = new featurecat.lizzie.analysis.EngineStartupDiagnostics(policy, null)) {
+          var blocker = service.begin("blocker", "PRELOAD", List.of("engine"), true);
+          blocker.fail("process-create", "fixture");
+          blocker.collect("runtime", () -> {
+            entered.countDown();
+            release.await();
+            return new featurecat.lizzie.analysis.EngineStartupDiagnostics.Evidence(List.of(), "fixture");
+          });
+          assertTrue(entered.await(1, java.util.concurrent.TimeUnit.SECONDS));
+          ProcessBuilder builder = new ProcessBuilder(engine.toString());
+          builder.directory(root.toFile());
+          builder.environment().put("PATH", runtime.toString());
+          var attempt = service.begin("frozen-runtime", "MAIN_BOARD", builder.command(), true);
+          attempt.capture(builder);
+          attempt.output("stderr", "Could not load library cudnn64_9.dll. Error code 126");
+          var first = attempt.fail("process-create", "fixture start failure");
+          builder.environment().put("PATH", root.resolve("later-path").toString());
+          System.setProperty("lizzie.tensorrt.runtimeSearchPath", root.resolve("later-path").toString());
+          release.countDown();
+          JSONObject finalJson = awaitRuntimeDiagnostic(attempt);
+          assertEquals(first.attemptId(), finalJson.getString("attemptId"));
+          assertTrue(finalJson.getLong("diagnosticRevision") > first.revision());
+          JSONArray findings = finalJson.getJSONArray("findings");
+          assertTrue(findings.toList().stream().anyMatch(v ->
+              "runtime-requirements-satisfied".equals(((Map<?, ?>) v).get("outcome"))));
+          assertTrue(findings.toList().stream().anyMatch(v ->
+              "engine-stderr".equals(((Map<?, ?>) v).get("evidence"))
+                  && "cudnn64_9.dll".equals(((Map<?, ?>) v).get("dll"))));
+          assertTrue(finalJson.toString().contains("static-zlib=verified-project-build"));
+          assertFalse(finalJson.toString().contains("later-path"));
+          assertTrue(finalJson.toString().contains("post-failure-final-environment"));
+          assertTrue(first.toJson().getString("outcome").equals("collecting"));
+        } finally {
+          release.countDown();
+        }
+      });
+    });
+  }
+
+  @Test
+  void capturedPreflightManifestFailureKeepsOriginalScopeWithoutFinalEnvironment() throws Exception {
+    withOsName(WINDOWS_OS_NAME, () -> {
+      Path root = Files.createTempDirectory("startup-preflight-manifest");
+      Path engine = touch(root.resolve("windows-x64-nvidia50-cuda/katago.exe"));
+      Path runtime = Files.createDirectories(root.resolve("runtime"));
+      touchRequiredCuda12_8Dlls(runtime);
+      Files.delete(runtime.resolve("lizzieyzy-next-nvidia-runtime-manifest.txt"));
+      withConfig(root.resolve("config"), () -> {
+        var status = KataGoRuntimeHelper.inspectStartupRuntime(engine, root, runtime.toString());
+        assertFalse(status.ready);
+        try (var service = new featurecat.lizzie.analysis.EngineStartupDiagnostics(
+            featurecat.lizzie.analysis.EngineStartupDiagnostics.Policy.production(), null)) {
+          var attempt = service.begin("preflight", "MAIN_BOARD", List.of(engine.toString()), true);
+          attempt.runtimePreflight(status);
+          touchRequiredCuda12_8Dlls(runtime);
+          var json = attempt.fail("runtime-preflight", "manifest rejected").toJson();
+          assertEquals("not-formed", json.getJSONObject("launch").getString("environmentState"));
+          assertTrue(json.isNull("exitCode"));
+          var finding = json.getJSONArray("findings").getJSONObject(0);
+          assertEquals("runtime-manifest-mismatch", finding.getString("outcome"));
+          assertEquals("runtime-preflight", finding.getString("evidence"));
+          assertTrue(finding.isNull("dll"));
+          assertTrue(finding.isNull("importer"));
+          assertTrue(finding.getJSONArray("chain").isEmpty());
+          assertEquals(status.checkedAt.toString(), finding.getString("checkedAt"));
+          assertTrue(finding.getString("checkedScope").contains(runtime.toString()));
+        }
+      });
+    });
+  }
+
+  private static JSONObject awaitRuntimeDiagnostic(
+      featurecat.lizzie.analysis.EngineStartupDiagnostics.Attempt attempt) throws Exception {
+    long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(4);
+    while (System.nanoTime() < deadline) {
+      JSONObject json = attempt.snapshot().toJson();
+      if (!"collecting".equals(json.getString("outcome"))) return json;
+      Thread.sleep(5);
+    }
+    throw new AssertionError("Runtime diagnostic did not finish");
+  }
+
+  @Test
+  void startupDiagnosticInaccessibleLocationYieldsTerminalReadError() throws Exception {
+    assumeTrue(
+        FileSystems.getDefault().supportedFileAttributeViews().contains("posix"),
+        "POSIX file permissions required");
+    withOsName(WINDOWS_OS_NAME, () -> {
+      Path root = Files.createTempDirectory("startup-inaccessible-runtime");
+      Path engine = touch(root.resolve("windows-x64-nvidia50-cuda/katago.exe"));
+      Path runtime = Files.createDirectories(root.resolve("runtime-dir"));
+      try {
+        Files.setPosixFilePermissions(runtime, PosixFilePermissions.fromString("---------"));
+        assumeTrue(!Files.isReadable(runtime), "Requires non-root execution where permissions deny read");
+
+        withConfig(root.resolve("config"), () -> {
+          var policy = new featurecat.lizzie.analysis.EngineStartupDiagnostics.Policy(
+              1, 4, 2000, 40, 16384, 262144, 32, 8388608);
+          try (var service = new featurecat.lizzie.analysis.EngineStartupDiagnostics(policy, null)) {
+            ProcessBuilder builder = new ProcessBuilder(engine.toString());
+            builder.directory(root.toFile());
+            builder.environment().put("PATH", runtime.toString());
+
+            var attempt = service.begin("inaccessible-runtime", "MAIN_BOARD", builder.command(), true);
+            attempt.capture(builder);
+            attempt.output("stderr", "Could not load library cudnn64_9.dll. Error code 126");
+            var first = attempt.fail("process-create", "fixture start failure");
+
+            JSONObject finalJson = awaitRuntimeDiagnostic(attempt);
+
+            // Assert terminal read-error
+            JSONObject runtimeSource = finalJson.getJSONObject("sources").getJSONObject("runtime");
+            assertEquals("applicable", runtimeSource.getString("applicability"));
+            assertEquals("failed", runtimeSource.getString("collectionState"));
+            assertEquals("read-error", runtimeSource.getString("terminalReason"));
+            assertEquals("partial", finalJson.getString("outcome"));
+
+            // Assert retained base failure and stderr output evidence
+            assertEquals("process-create", finalJson.getString("phase"));
+            assertEquals("fixture start failure", finalJson.getString("originalError"));
+            assertEquals("Could not load library cudnn64_9.dll. Error code 126", finalJson.getString("stderr"));
+            JSONArray findings = finalJson.getJSONArray("findings");
+            assertTrue(findings.toList().stream().anyMatch(v ->
+                "engine-stderr".equals(((Map<?, ?>) v).get("evidence"))
+                    && "cudnn64_9.dll".equals(((Map<?, ?>) v).get("dll"))));
+
+            // No unsupported complete missing claims
+            assertFalse(findings.toList().stream().anyMatch(v ->
+                "not-found-in-checked-search-scope".equals(((Map<?, ?>) v).get("outcome"))));
+            assertFalse(findings.toList().stream().anyMatch(v ->
+                "runtime-requirements-satisfied".equals(((Map<?, ?>) v).get("outcome"))));
+            assertFalse(findings.toList().stream().anyMatch(v ->
+                "runtime-manifest-mismatch".equals(((Map<?, ?>) v).get("outcome"))));
+
+            // Restore directory permissions and verify genuinely absent findings are preserved
+            Files.setPosixFilePermissions(runtime, PosixFilePermissions.fromString("rwxr-xr-x"));
+
+            var attemptRestored = service.begin("restored-runtime", "MAIN_BOARD", builder.command(), true);
+            attemptRestored.capture(builder);
+            attemptRestored.fail("process-create", "fixture start failure");
+
+            JSONObject restoredJson = awaitRuntimeDiagnostic(attemptRestored);
+            JSONObject restoredRuntime = restoredJson.getJSONObject("sources").getJSONObject("runtime");
+            assertEquals("applicable", restoredRuntime.getString("applicability"));
+            assertEquals("completed", restoredRuntime.getString("collectionState"));
+            assertEquals("", restoredRuntime.getString("terminalReason"));
+            JSONArray restoredFindings = restoredJson.getJSONArray("findings");
+            assertTrue(restoredFindings.toList().stream().anyMatch(v ->
+                "not-found-in-checked-search-scope".equals(((Map<?, ?>) v).get("outcome"))
+                    && "complete".equals(((Map<?, ?>) v).get("completeness"))));
+
+            // Inaccessible manifest yields read-error
+            touchRequiredCuda12_8Dlls(runtime);
+            Files.delete(runtime.resolve("cudnn64_9.dll"));
+            Path manifest = runtime.resolve("lizzieyzy-next-nvidia-runtime-manifest.txt");
+            Files.writeString(manifest, "- cuda nvrtc: 12.8 | sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+            Files.setPosixFilePermissions(manifest, PosixFilePermissions.fromString("---------"));
+            try {
+              var attemptManifest = service.begin("inaccessible-manifest", "MAIN_BOARD", builder.command(), true);
+              attemptManifest.capture(builder);
+              attemptManifest.fail("process-create", "fixture start failure");
+
+              JSONObject manifestJson = awaitRuntimeDiagnostic(attemptManifest);
+              JSONObject manifestSource = manifestJson.getJSONObject("sources").getJSONObject("runtime");
+              assertEquals("applicable", manifestSource.getString("applicability"));
+              assertEquals("failed", manifestSource.getString("collectionState"));
+              assertEquals("read-error", manifestSource.getString("terminalReason"));
+              assertEquals("partial", manifestJson.getString("outcome"));
+              assertFalse(manifestJson.getJSONArray("findings").toList().stream().anyMatch(v ->
+                  "runtime-manifest-mismatch".equals(((Map<?, ?>) v).get("outcome"))
+                      && "complete".equals(((Map<?, ?>) v).get("completeness"))));
+              assertTrue(manifestJson.getJSONArray("findings").toList().stream().anyMatch(v ->
+                  "not-found-in-checked-search-scope".equals(((Map<?, ?>) v).get("outcome"))
+                      && "cudnn64_9.dll".equals(((Map<?, ?>) v).get("dll"))),
+                  "A later manifest read error must retain the already checked missing DLL");
+              assertTrue(manifestSource.getString("checkedScope").contains(runtime.toString()));
+            } finally {
+              Files.setPosixFilePermissions(manifest, PosixFilePermissions.fromString("rw-r--r--"));
+            }
+          }
+        });
+      } finally {
+        try {
+          if (Files.exists(runtime.resolve("lizzieyzy-next-nvidia-runtime-manifest.txt"))) {
+            Files.setPosixFilePermissions(runtime.resolve("lizzieyzy-next-nvidia-runtime-manifest.txt"),
+                PosixFilePermissions.fromString("rw-r--r--"));
+          }
+        } catch (Exception ignored) {
+        }
+        try {
+          Files.setPosixFilePermissions(runtime, PosixFilePermissions.fromString("rwxr-xr-x"));
+        } catch (Exception ignored) {
+        }
+      }
+    });
   }
 
   @Test

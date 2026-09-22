@@ -559,6 +559,32 @@ class EngineObservationTest {
     }
   }
 
+  @Test
+  void runtimeSearchScopeStaysInCopyButNotOrdinaryWarn() throws Exception {
+    LoggingRuntime runtime = LoggingRuntime.initialize(
+        new WorkDirectoryResolution(tempDir, List.of()), LoggingLimits.production());
+    runtime.applySettings(LoggingSettings.defaults().withDiagnosticsEnabled(false));
+    ListAppender<ILoggingEvent> events = attach((Logger) LoggerFactory.getLogger(LogCategories.ENGINE));
+    try (var service = new EngineStartupDiagnostics(
+        EngineStartupDiagnostics.Policy.production(), EngineObservation::recordStartupDiagnostic)) {
+      var attempt = service.begin("scope-privacy", "MAIN_BOARD", List.of("engine"), true);
+      attempt.fail("process-create", "cannot start");
+      attempt.collect("runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(
+          new EngineStartupDiagnostics.Finding("not-found-in-checked-search-scope", "cudnn64_9.dll",
+              null, List.of(), "runtime-preflight", "complete", "UNLOGGED_SEARCH_CONTEXT",
+              "Missing cudnn64_9.dll; token=runtime-secret", java.time.Instant.now())),
+          "UNLOGGED_SEARCH_CONTEXT"));
+      awaitSettled(attempt);
+      String log = formatted(events);
+      assertTrue(log.contains("cudnn64_9.dll"));
+      assertTrue(log.contains("runtime-preflight"));
+      assertFalse(log.contains("UNLOGGED_SEARCH_CONTEXT"));
+      assertFalse(log.contains("runtime-secret"));
+      assertTrue(attempt.snapshot().shareText().contains("UNLOGGED_SEARCH_CONTEXT"));
+      assertFalse(attempt.snapshot().shareText().contains("runtime-secret"));
+    }
+  }
+
   private static JSONObject extractCore(ILoggingEvent event) {
     String msg = event.getFormattedMessage();
     int diagStart = msg.indexOf("diagnostic={");

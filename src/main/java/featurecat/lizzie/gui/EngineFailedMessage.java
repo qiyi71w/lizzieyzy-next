@@ -5,6 +5,8 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineStartupDiagnostic;
 import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.logging.LoggingRuntime;
+import featurecat.lizzie.logging.ExportSanitizer;
+import featurecat.lizzie.logging.ObservationText;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -48,6 +50,7 @@ import javax.swing.JTextArea;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class EngineFailedMessage extends JDialog {
@@ -61,6 +64,9 @@ public class EngineFailedMessage extends JDialog {
       Pattern.compile("(?i)\\b" + SENSITIVE_KEY + "\\b[\\\"']?\\s*[:=]\\s*");
   private static final Pattern SENSITIVE_FLAG_START =
       Pattern.compile("(?i)(?<!\\S)(?:-{1,2}|/)" + SENSITIVE_KEY + "\\b(?:\\s*[:=]\\s*|\\s+)");
+  private static final int MAX_SUMMARY_FINDINGS = 16;
+  private static final int MAX_SUMMARY_FIELD_BYTES = 1024;
+  private static final Pattern CONTROL_CHARACTERS = Pattern.compile("[\\p{Cc}\\p{Cf}]+");
 
   private final TensorRtRepairContext repairContext;
   private final JButton tensorRtRepairButton;
@@ -676,10 +682,15 @@ public class EngineFailedMessage extends JDialog {
             revision,
             outcome);
     String sourcesLine = formatSourcesText(json.optJSONObject("sources"));
-    if (sourcesLine.isEmpty()) {
-      return summaryLine;
+    String findingsText = formatFindingsText(json.optJSONArray("findings"));
+    StringBuilder rendered = new StringBuilder(summaryLine);
+    if (!sourcesLine.isEmpty()) {
+      rendered.append('\n').append(sourcesLine);
     }
-    return summaryLine + "\n" + sourcesLine;
+    if (!findingsText.isEmpty()) {
+      rendered.append('\n').append(findingsText);
+    }
+    return rendered.toString();
   }
 
   static String formatSourcesText(JSONObject sources) {
@@ -704,6 +715,140 @@ public class EngineFailedMessage extends JDialog {
       }
     }
     return sb.toString();
+  }
+  static String formatFindingsText(JSONArray findings) {
+    if (findings == null || findings.isEmpty()) {
+      return "";
+    }
+    ExportSanitizer sanitizer = new ExportSanitizer();
+    StringBuilder rendered =
+        new StringBuilder(Lizzie.resourceBundle.getString("EngineFailedMessage.findings"));
+    int displayed = Math.min(findings.length(), MAX_SUMMARY_FINDINGS);
+    for (int index = 0; index < displayed; index++) {
+      JSONObject finding = findings.optJSONObject(index);
+      if (finding == null) {
+        continue;
+      }
+      rendered.append('\n').append(index + 1).append(". ");
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.source",
+          localizeFindingEvidence(safeFindingText(finding.optString("evidence"), sanitizer)));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.outcome",
+          localizeFindingOutcome(safeFindingText(finding.optString("outcome"), sanitizer)));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.dll",
+          safeDllName(finding.optString("dll"), sanitizer));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.importer",
+          safeFindingText(finding.optString("importer"), sanitizer));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.chain",
+          safeChain(finding.optJSONArray("chain"), sanitizer));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.completeness",
+          localizeFindingCompleteness(
+              safeFindingText(finding.optString("completeness"), sanitizer)));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.scope",
+          safeFindingText(finding.optString("checkedScope"), sanitizer));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.detail",
+          safeFindingText(finding.optString("detail"), sanitizer));
+    }
+    if (findings.length() > displayed) {
+      rendered
+          .append('\n')
+          .append(
+              MessageFormat.format(
+                  Lizzie.resourceBundle.getString("EngineFailedMessage.finding.more"),
+                  findings.length() - displayed));
+    }
+    return rendered.toString();
+  }
+
+  private static void appendFindingField(StringBuilder rendered, String labelKey, String value) {
+    if (value == null || value.isEmpty() || "null".equalsIgnoreCase(value)) {
+      return;
+    }
+    if (rendered.charAt(rendered.length() - 1) != ' ') {
+      rendered.append(" · ");
+    }
+    rendered.append(Lizzie.resourceBundle.getString(labelKey)).append(": ").append(value);
+  }
+
+  private static String safeChain(JSONArray chain, ExportSanitizer sanitizer) {
+    if (chain == null || chain.isEmpty()) {
+      return "";
+    }
+    StringBuilder rendered = new StringBuilder();
+    for (int index = 0; index < chain.length(); index++) {
+      String item = safeFindingText(chain.optString(index), sanitizer);
+      if (item.isEmpty() || "null".equalsIgnoreCase(item)) {
+        continue;
+      }
+      if (!rendered.isEmpty()) {
+        rendered.append(" -> ");
+      }
+      rendered.append(item);
+    }
+    return boundedSummaryField(rendered.toString());
+  }
+
+  private static String safeDllName(String dll, ExportSanitizer sanitizer) {
+    if (dll == null || dll.isEmpty() || "null".equalsIgnoreCase(dll)) {
+      return "";
+    }
+    int separator = Math.max(dll.lastIndexOf('/'), dll.lastIndexOf('\\'));
+    String basename = separator < 0 ? dll : dll.substring(separator + 1);
+    return safeFindingText(basename, sanitizer);
+  }
+
+  private static String safeFindingText(String value, ExportSanitizer sanitizer) {
+    if (value == null || value.isEmpty()) {
+      return "";
+    }
+    return boundedSummaryField(CONTROL_CHARACTERS.matcher(sanitizer.sanitizeText(value)).replaceAll(" "));
+  }
+
+  private static String boundedSummaryField(String value) {
+    return ObservationText.boundedUtf8(value, MAX_SUMMARY_FIELD_BYTES, 1).trim();
+  }
+
+  private static String localizeFindingEvidence(String evidence) {
+    if (evidence == null || evidence.isEmpty()) {
+      return "";
+    }
+    String key = "EngineFailedMessage.evidence." + evidence;
+    return Lizzie.resourceBundle.containsKey(key) ? Lizzie.resourceBundle.getString(key) : evidence;
+  }
+
+  private static String localizeFindingOutcome(String outcome) {
+    if (outcome == null || outcome.isEmpty()) {
+      return "";
+    }
+    String key = "EngineFailedMessage.outcome." + outcome;
+    return Lizzie.resourceBundle.containsKey(key) ? Lizzie.resourceBundle.getString(key) : outcome;
+  }
+  private static String localizeFindingCompleteness(String completeness) {
+    if (completeness == null || completeness.isEmpty()) {
+      return "";
+    }
+    return switch (completeness) {
+      case "complete" -> Lizzie.resourceBundle.getString("EngineFailedMessage.complete");
+      case "partial" -> Lizzie.resourceBundle.getString("EngineFailedMessage.partial");
+      case "not-applicable" ->
+          Lizzie.resourceBundle.getString("EngineFailedMessage.notApplicable");
+      default -> completeness;
+    };
   }
 
   private static String localizeOutcome(String outcome) {
