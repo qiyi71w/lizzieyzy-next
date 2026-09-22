@@ -84,3 +84,51 @@ PR #519's deferred startup recovery and strict bundled-engine provenance are inc
 in the full suite and native engine/TensorRT-fixture checks above. PR #522's distribution
 evidence introduced the cross-host absolute-path bug fixed here. Fixture/hosted CI
 success remains distinct from real final-product acceptance, as those PRs document.
+
+## Final source integration for next-2026-09-22.2
+
+Application integration includes PR #530 (merge `a0135a8a6fa57606141326fb2f92b230fddaea6a`)
+and PR #531 (reviewed head `028b8b0f`, merged with the release request at `9cc51e3b`).
+The earlier `.1` candidate was never published and is superseded; its binaries and
+acceptance results must not be substituted for the `.2` final product.
+
+- Reviewed #527 (bounded weight-header identity), #528 (persistent ownership of
+  renamed bundled profiles), #529 (ordinary batch ownership/start/continuation),
+  and #530 (both-participant runtime komi confirmation, pause/cancel/failure).
+- Reviewed #531 (six rule choices, shared rule-family labels, unchanged legacy
+  preset/custom JSON preservation). All 22 focused Windows JVM cases passed
+  with zero skips; this is not manual native custom-editor acceptance.
+- Full Maven verify repeated on the integrated release tree `9cc51e3b`: 4,225
+  unit cases, zero failures/errors, 66 explicit skips; shaded logging integration
+  passed (six other integration cases conditionally skipped in the default run).
+- Resolved changelog conflicts without dropping either side. Fixed a Windows
+  test race in #529 by waiting for the actual continuation timer, not two assumed
+  EDT turns; all pre/post-synchronization assertions remain required.
+- Reproduced an offline komi-button NullPointerException in the native desktop
+  probe. Guarded ordinary komi edits and game-info apply with no engine, and fixed
+  the same missing-engine dereference in score-graph rendering. Required desktop
+  regression now exercises +/- buttons, typed komi, game-info apply and both
+  KataGo/non-KataGo graph paths.
+- Full Maven verify at `750530649d31787e9c5dacfa75f8540cfbaccc76`: 4,221 unit
+  cases, zero failures/errors, 66 explicit skips. Integration default: seven
+  cases, six conditional skips, shaded logging smoke passed.
+- Native Windows focused engine-game/offline tests: 206 passed, zero skips.
+- Final native desktop/rules rerun: 28 passed, zero failures/errors/skips,
+  including Chinese/English physical-key search, settings persistence, engine
+  startup, offline editing and transforms.
+- Real pinned CUDA+B11 integration: four passed, zero skips (move focus plus
+  three quick-analysis cases including ordinary batch continuation/cancel/retry).
+  These execute the final source against a verified engine, not `.2` app binaries.
+- PR #530 all ten hosted checks passed: CI run `35669122132` and native-focus
+  run `35669122138`. PRs #524, #526 and #529 were also merged only after their
+  full required checks passed.
+- Windows-compatible release metadata tests: 178 cases, zero errors/failures,
+  four explicit platform skips. Linux shell inventory checks are exercised by
+  hosted Linux CI, not represented as Windows passes.
+
+The final `.2` packages require fresh provenance/hash, launch/process cleanup,
+real CPU/CUDA protocol and core-update preservation acceptance before publication.
+Manual native chooser completion and final-package manual UI automation remain
+unverified: computer-use approval timed out, and no alternative UI automation
+was used to bypass it. Automated application desktop tests above are separate
+development test evidence. Hardware boundaries in the earlier section still apply.
