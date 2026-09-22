@@ -174,7 +174,7 @@ public class EngineStartupDiagnosticsDesktopTest {
       Path result = DesktopProbeProcess.run(EngineStartupDiagnosticsDesktopTest.class,
           "startup-integrated-" + kind,
           List.of("-Dsun.java2d.uiScale=1.5", "-Dlizzie.diagnostic.peFixture=" + kind),
-          List.of("probe"), java.util.Map.of("PATH", effectivePath), 90, root, null);
+          List.of("probe"), java.util.Map.of("PATH", effectivePath), 90);
       JSONObject evidence = new JSONObject(Files.readString(result));
       assertEquals("passed", evidence.getString("result"));
       JSONObject copy = new JSONObject(Files.readString(result.resolveSibling("copied-error.json")));
