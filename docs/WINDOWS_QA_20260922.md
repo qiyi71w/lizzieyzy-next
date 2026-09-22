@@ -87,13 +87,20 @@ success remains distinct from real final-product acceptance, as those PRs docume
 
 ## Final source integration for next-2026-09-22.2
 
-Application source frozen after PR #530, merge `a0135a8a6fa57606141326fb2f92b230fddaea6a`.
+Application integration includes PR #530 (merge `a0135a8a6fa57606141326fb2f92b230fddaea6a`)
+and PR #531 (reviewed head `028b8b0f`, merged with the release request at `9cc51e3b`).
 The earlier `.1` candidate was never published and is superseded; its binaries and
 acceptance results must not be substituted for the `.2` final product.
 
 - Reviewed #527 (bounded weight-header identity), #528 (persistent ownership of
   renamed bundled profiles), #529 (ordinary batch ownership/start/continuation),
   and #530 (both-participant runtime komi confirmation, pause/cancel/failure).
+- Reviewed #531 (six rule choices, shared rule-family labels, unchanged legacy
+  preset/custom JSON preservation). All 22 focused Windows JVM cases passed
+  with zero skips; this is not manual native custom-editor acceptance.
+- Full Maven verify repeated on the integrated release tree `9cc51e3b`: 4,225
+  unit cases, zero failures/errors, 66 explicit skips; shaded logging integration
+  passed (six other integration cases conditionally skipped in the default run).
 - Resolved changelog conflicts without dropping either side. Fixed a Windows
   test race in #529 by waiting for the actual continuation timer, not two assumed
   EDT turns; all pre/post-synchronization assertions remain required.
