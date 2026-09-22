@@ -176,10 +176,11 @@ public class EngineManager {
   private static long engineGameTransactionSequence;
   private static EngineGameOwnerTransaction activeEngineGameTransaction;
   private static EngineGameOwnerTransaction retiringEngineGameTransaction;
+
   /**
-   * A failed participant is recovered only after its game transaction has fully retired. While
-   * this gate is installed no successor game may be admitted: the recovery worker owns the exact
-   * failed slot/incarnation until it either publishes a replacement incarnation or gives up.
+   * A failed participant is recovered only after its game transaction has fully retired. While this
+   * gate is installed no successor game may be admitted: the recovery worker owns the exact failed
+   * slot/incarnation until it either publishes a replacement incarnation or gives up.
    */
   private static EngineGameRecoveryBatch activeEngineGameRecoveryBatch;
   private final ResourceBundle resourceBundle = Lizzie.resourceBundle;
@@ -447,7 +448,9 @@ public class EngineManager {
     }
   }
 
-  /** One exact failed participant generation captured before terminal cleanup mutates the runtime. */
+  /**
+   * One exact failed participant generation captured before terminal cleanup mutates the runtime.
+   */
   static final class EngineGameDeferredRecovery {
     private final EngineGameOwnerTransaction transaction;
     private final long transactionEpoch;
@@ -5304,25 +5307,25 @@ public class EngineManager {
                 runEngineGameCleanupStep(
                     failure,
                     () -> {
-          if (Lizzie.frame != null && Lizzie.frame.isInputRoutingInitialized()) {
-            Lizzie.frame.addInput(true);
-          }
+                      if (Lizzie.frame != null && Lizzie.frame.isInputRoutingInitialized()) {
+                        Lizzie.frame.addInput(true);
+                      }
                     });
             failure =
                 runEngineGameCleanupStep(
                     failure,
                     () -> {
-          if (LizzieFrame.toolbar != null) {
-            LizzieFrame.toolbar.enableDisabelForEngineGame(true);
-          }
+                      if (LizzieFrame.toolbar != null) {
+                        LizzieFrame.toolbar.enableDisabelForEngineGame(true);
+                      }
                     });
             failure =
                 runEngineGameCleanupStep(
                     failure,
                     () -> {
-          if (Menu.engineMenu != null) {
-            Menu.engineMenu.setEnabled(true);
-          }
+                      if (Menu.engineMenu != null) {
+                        Menu.engineMenu.setEnabled(true);
+                      }
                     });
             if (failure != null) {
               failure.printStackTrace();
@@ -5387,8 +5390,8 @@ public class EngineManager {
 
   /**
    * Captures one exact failed engine-game endpoint before any reader/OpenCL/remote worker can
-   * restart it. Registration is selection-atomic; command-state retirement and transaction
-   * failure deliberately happen after releasing the selection lock.
+   * restart it. Registration is selection-atomic; command-state retirement and transaction failure
+   * deliberately happen after releasing the selection lock.
    */
   static EngineGameRecoveryDisposition requestEngineGameParticipantRecovery(
       EngineManager manager,
@@ -5903,10 +5906,11 @@ public class EngineManager {
     private volatile boolean targetInstalled;
     private volatile boolean targetStartFailureCleanupClaimed;
     private volatile boolean synchronizationFailureSuperseded;
+
     /**
-     * Primary authority published by the exact failed-target rollback.  Failure presentation must
-     * be fenced to this post-settlement owner rather than the provisional target generation that
-     * was required to claim the failure: a successful rollback deliberately advances PRIMARY.
+     * Primary authority published by the exact failed-target rollback. Failure presentation must be
+     * fenced to this post-settlement owner rather than the provisional target generation that was
+     * required to claim the failure: a successful rollback deliberately advances PRIMARY.
      */
     private volatile Leelaz failurePresentationPrimaryEngine;
     private volatile long failurePresentationPrimaryGeneration = -1L;
@@ -6475,7 +6479,9 @@ public class EngineManager {
     }
   }
 
-  /** Caller holds selection state after publishing the PRIMARY owner represented by this failure. */
+  /**
+   * Caller holds selection state after publishing the PRIMARY owner represented by this failure.
+   */
   private static void captureFailurePresentationPrimaryAuthorityLocked(
       EngineSwitchTransaction transaction, long uiToken) {
     if (transaction == null || transaction.uiToken != uiToken) {
@@ -6511,7 +6517,9 @@ public class EngineManager {
     }
   }
 
-  /** Caller holds {@link #ENGINE_SELECTION_STATE_LOCK}; returned shutdown remains incarnation-safe. */
+  /**
+   * Caller holds {@link #ENGINE_SELECTION_STATE_LOCK}; returned shutdown remains incarnation-safe.
+   */
   private static Runnable quarantineUnavailableEngineLocked(Leelaz target, long token) {
     if (target == null) {
       return null;
@@ -7672,7 +7680,8 @@ public class EngineManager {
             cause == null ? "Engine-game komi update failed" : cause.getMessage(), onChange);
       }
       if (owner.komiUnconfirmed && !isCurrentEngineGameTransaction(owner)) {
-        // This worker's operation lease keeps retirement closed while physical cleanup runs off EDT.
+        // This worker's operation lease keeps retirement closed while physical cleanup runs off
+        // EDT.
         boolean interrupted = Thread.interrupted();
         try {
           Throwable cleanupFailure = runEngineGameCleanupStep(null,
@@ -8020,10 +8029,10 @@ public class EngineManager {
   }
 
   /**
-   * Classifies a transaction-less physical analysis write at one canonical
-   * analysis-mutation -> selection boundary. A game/recovery barrier may never be inferred merely
-   * from an endpoint suppression flag: only the exact recovery token captured by this binding can
-   * authorize a quarantine write.
+   * Classifies a transaction-less physical analysis write at one canonical analysis-mutation ->
+   * selection boundary. A game/recovery barrier may never be inferred merely from an endpoint
+   * suppression flag: only the exact recovery token captured by this binding can authorize a
+   * quarantine write.
    */
   static TransactionlessAnalysisWriteLease claimTransactionlessAnalysisWrite(
       Leelaz engine, Object expectedIncarnation, Object recoveryToken, Object restoreOwner) {
@@ -9134,9 +9143,9 @@ public class EngineManager {
   }
 
   /**
-   * Clears the exact recovery capability and promotes any physically published tombstone while
-   * the batch barrier is still active. The later batch commit only removes presentation
-   * quarantine and the global barrier; ordinary output can never observe an unowned gap.
+   * Clears the exact recovery capability and promotes any physically published tombstone while the
+   * batch barrier is still active. The later batch commit only removes presentation quarantine and
+   * the global barrier; ordinary output can never observe an unowned gap.
    */
   private static boolean completeDeferredEngineGameAnalysisOutputRecovery(
       EngineGameRecoveryBatch recoveryBatch,
@@ -9706,8 +9715,8 @@ public class EngineManager {
   /**
    * Selection-locked engine-game identity captured when a reader line enters parsing.
    *
-   * <p>Batch games reuse catalog slots and engine objects. This context freezes the monotonic
-   * epoch and routing mode before the parser can block.
+   * <p>Batch games reuse catalog slots and engine objects. This context freezes the monotonic epoch
+   * and routing mode before the parser can block.
    */
   static final class EngineGamePrimaryContext {
     final EngineManager manager;
@@ -10559,8 +10568,8 @@ public class EngineManager {
    *
    * <p>The first analysis command can be written while the game is still {@link
    * EngineGamePhase#DISPATCHED}. Capturing the transaction and board frame here prevents an early
-   * info line from falling through to ordinary autoplay before activation, and lets the same
-   * owner become actionable once activation reaches the identical frame.
+   * info line from falling through to ordinary autoplay before activation, and lets the same owner
+   * become actionable once activation reaches the identical frame.
    */
   static EngineGamePrimaryContext captureEngineGameAnalysisOutputContext(
       EngineGameOwnerTransaction transaction, Leelaz participant, Object participantIncarnation) {
@@ -12188,15 +12197,15 @@ public class EngineManager {
     Runnable delegatedAfterSync = null;
     Leelaz.UpdateEngineStartAttempt targetStartAttempt = null;
     try {
-    if (Lizzie.frame.isContributing) {
-      showContributingEngineSwitchUnavailable();
-      return;
-    }
+      if (Lizzie.frame.isContributing) {
+        showContributingEngineSwitchUnavailable();
+        return;
+      }
 
     engineNo = index;
       if (rejectSameEngineSelection(index, isMain)) {
-      return;
-    }
+        return;
+      }
       Leelaz newEng = preparedSwitch.targetEngine;
     if (newEng == null) return;
       if (preparedSwitch.engineSwitchUiToken <= 0L) {
@@ -14255,6 +14264,10 @@ public class EngineManager {
         tuningTimeoutApplied = true;
       }
       if (now >= deadline) {
+        engine.recordStartupFailure(
+            expectedIncarnation,
+            "startup-timeout",
+            "Engine name recognition did not complete before the startup deadline");
         if (transaction != null && isCurrentEngineGameTransaction(transaction)) {
           logEngineGameStartRefused("name-recognition-timeout");
           failEngineGameTransaction(
@@ -14313,9 +14326,12 @@ public class EngineManager {
     String message = engineFailedText();
     try {
       if (SwingUtilities.isEventDispatchThread()) {
+        if (!engine.showRetainedStartupDiagnostic())
         Utils.showMsg(message);
       } else {
-        SwingUtilities.invokeLater(() -> Utils.showMsg(message));
+        SwingUtilities.invokeLater(() -> {
+              if (!engine.showRetainedStartupDiagnostic()) Utils.showMsg(message);
+            });
       }
     } catch (RuntimeException | Error presentationFailure) {
       presentationFailure.printStackTrace();

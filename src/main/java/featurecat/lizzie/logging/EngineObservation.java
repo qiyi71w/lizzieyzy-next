@@ -193,6 +193,41 @@ public final class EngineObservation {
     }
   }
 
+  public static void recordStartupDiagnostic(
+      featurecat.lizzie.analysis.EngineStartupDiagnostic diagnostic) {
+    if (!runtimeActive() || !ENGINE.isWarnEnabled()) return;
+    org.json.JSONObject summary = diagnostic.toJson();
+    summary.remove("launch");
+    org.json.JSONObject core = new org.json.JSONObject();
+    for (String field :
+        java.util.List.of(
+            "attemptId",
+            "engineId",
+            "diagnosticRevision",
+            "exitCode",
+            "exitHex",
+            "statusName",
+            "errorDomain",
+            "phase",
+            "outcome",
+            "sources",
+            "truncated")) {
+      core.put(field, summary.remove(field));
+    }
+    ExportSanitizer sanitizer = new ExportSanitizer();
+    String safeCore = sanitizer.sanitizeJsonObject(core).toString();
+    String safe = sanitizer.sanitizeJsonObject(summary).toString();
+    inContext(
+        diagnostic.engineId(),
+        null,
+        () ->
+            ENGINE.warn(
+                "engine event={} diagnostic={} summary={}",
+                diagnostic.revision() == 1 ? "startup-failed" : "dependency-diagnostic",
+                safeCore,
+                ObservationText.boundedUtf8(safe, 48 * 1024, 1)));
+  }
+
   public static void recordTransportFailure(
       String engineId, String stream, String reason, Throwable error) {
     if (!runtimeActive() || !ENGINE.isWarnEnabled()) {
@@ -392,8 +427,8 @@ public final class EngineObservation {
   }
 
   /**
-   * Records the final history-node analysis-cache accept/reject decision on the Full Trace
-   * {@code engine-gtp} channel. No-op when Full Trace is off; never throws to callers.
+   * Records the final history-node analysis-cache accept/reject decision on the Full Trace {@code
+   * engine-gtp} channel. No-op when Full Trace is off; never throws to callers.
    */
   public static void traceAnalysisCacheDecision(
       Object engineOwner,

@@ -1,5 +1,6 @@
 package featurecat.lizzie.logging;
 
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.analysis.ReadBoardLoggingProtocol;
 import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
 import featurecat.lizzie.analysis.SyncDiagnosticsExportSnapshot;
@@ -819,6 +820,7 @@ public final class DiagnosticBundleExporter {
         NS_SNAPSHOTS + "readboard-observed.json",
         renderObserved(request.readBoardLogging(), sanitizer).toString(2));
     writeThreadSnapshot(out, sanitizer, sources, hostSession);
+    writeEngineStartupFailuresSnapshot(out, request, sanitizer, sources, hostSession);
     SyncDiagnosticsExportSnapshot snapshot =
         request.snapshot() == null
             ? new SyncDiagnosticsExportSnapshot(
@@ -902,6 +904,32 @@ public final class DiagnosticBundleExporter {
           "threads",
           sourceRecord(true, "failed", 0, 0, 0, NS_SNAPSHOTS, hostSession, "unreadable", false));
     }
+  }
+
+  private void writeEngineStartupFailuresSnapshot(
+      ZipOutputStream out,
+      DiagnosticBundleRequest request,
+      ExportSanitizer sanitizer,
+      JSONObject sources,
+      String hostSession)
+      throws IOException {
+    EngineStartupDiagnostics.History history = request.startupFailures();
+    String text = sanitizer.sanitizeJsonObject(history.toJson()).toString(2);
+    writeTextEntry(out, NS_SNAPSHOTS + "engine-startup-failures.json", text);
+    JSONObject source =
+        sourceRecord(
+            true,
+            "included",
+            text.getBytes(StandardCharsets.UTF_8).length,
+            0,
+            0,
+            NS_SNAPSHOTS,
+            hostSession,
+            "",
+            false);
+    source.put("count", history.failures().size());
+    source.put("evicted", history.evicted());
+    sources.put("engine-startup-failures", source);
   }
 
   private static CaptureEventSet listCurrentCaptureEvents(

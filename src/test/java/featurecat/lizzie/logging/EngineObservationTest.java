@@ -8,11 +8,13 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.List;
+import org.json.JSONObject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -328,6 +330,269 @@ class EngineObservationTest {
     String message = events.list.get(0).getFormattedMessage();
     assertTrue(message.contains("reason=unknown"), message);
     assertFalse(message.contains("not-a-real-reason"), message);
+  }
+
+  @Test
+  void startupDiagnosticLogsWarnCoreForEachNoFindingsTerminalReasonAndOutcome() throws Exception {
+    LoggingRuntime runtime =
+        LoggingRuntime.initialize(
+            new WorkDirectoryResolution(tempDir, List.of()),
+            new LoggingLimits(64, 32, 32, 32, 7, 1_000_000, 256_000));
+    runtime.applySettings(LoggingSettings.defaults().withDiagnosticsEnabled(false));
+    Logger engine = (Logger) LoggerFactory.getLogger(LogCategories.ENGINE);
+    ListAppender<ILoggingEvent> events = attach(engine);
+
+    var policy = new EngineStartupDiagnostics.Policy(1, 1, 100, 2, 128, 4096, 10, 8192);
+    try (EngineStartupDiagnostics service =
+        new EngineStartupDiagnostics(policy, EngineObservation::recordStartupDiagnostic)) {
+
+      // 1. not-applicable: preflight failure before process creation
+      events.list.clear();
+      var naAttempt = service.begin("eng-na", "MAIN_BOARD", List.of("engine"), true);
+      naAttempt.fail("runtime-preflight", "missing executable");
+      assertEquals(1, events.list.size());
+      ILoggingEvent naEvent = events.list.get(0);
+      assertEquals(Level.WARN, naEvent.getLevel());
+      assertTrue(naEvent.getFormattedMessage().contains("engine event=startup-failed"));
+      JSONObject naCore = extractCore(naEvent);
+      assertEquals("eng-na", naCore.getString("engineId"));
+      assertEquals(naAttempt.id(), naCore.getString("attemptId"));
+      assertEquals(1L, naCore.getLong("diagnosticRevision"));
+      assertEquals("not-applicable", naCore.getString("outcome"));
+      assertEquals(
+          "not-applicable",
+          naCore
+              .getJSONObject("sources")
+              .getJSONObject("pe-import-scan")
+              .getString("applicability"));
+
+      // 2. no-specific-dll-identified: normal completion with no findings
+      events.list.clear();
+      var normAttempt = service.begin("eng-norm", "MAIN_BOARD", List.of("engine"), true);
+      normAttempt.fail("startup-exit", "clean exit");
+      normAttempt.collect(
+          "runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "all clean"));
+      awaitSettled(normAttempt);
+      ILoggingEvent normEvent = lastEventWithEngineId(events, "eng-norm");
+      assertEquals(Level.WARN, normEvent.getLevel());
+      assertTrue(normEvent.getFormattedMessage().contains("engine event=dependency-diagnostic"));
+      JSONObject normCore = extractCore(normEvent);
+      assertEquals("eng-norm", normCore.getString("engineId"));
+      assertEquals(normAttempt.id(), normCore.getString("attemptId"));
+      assertTrue(normCore.getLong("diagnosticRevision") > 1L);
+      assertEquals("no-specific-dll-identified", normCore.getString("outcome"));
+      assertEquals(
+          "completed",
+          normCore.getJSONObject("sources").getJSONObject("runtime").getString("collectionState"));
+
+      // 3. timeout: collector times out against deadline
+      events.list.clear();
+      var timeoutAttempt = service.begin("eng-timeout", "MAIN_BOARD", List.of("engine"), true);
+      timeoutAttempt.fail("startup-exit", "exit code 1");
+      timeoutAttempt.collect(
+          "runtime",
+          () -> {
+            try {
+              Thread.sleep(500);
+            } catch (InterruptedException ignored) {
+            }
+            return new EngineStartupDiagnostics.Evidence(List.of(), "late");
+          });
+      awaitSettled(timeoutAttempt);
+      ILoggingEvent timeoutEvent = lastEventWithEngineId(events, "eng-timeout");
+      assertEquals(Level.WARN, timeoutEvent.getLevel());
+      JSONObject timeoutCore = extractCore(timeoutEvent);
+      assertEquals("eng-timeout", timeoutCore.getString("engineId"));
+      assertEquals("partial", timeoutCore.getString("outcome"));
+      assertEquals(
+          "timeout",
+          timeoutCore
+              .getJSONObject("sources")
+              .getJSONObject("runtime")
+              .getString("terminalReason"));
+      assertEquals(
+          "timeout",
+          timeoutCore
+              .getJSONObject("sources")
+              .getJSONObject("runtime")
+              .getString("collectionState"));
+
+      // 4. queue-full: worker is busy, queue is full, next job is rejected
+      events.list.clear();
+      java.util.concurrent.CountDownLatch workerBusy = new java.util.concurrent.CountDownLatch(1);
+      java.util.concurrent.CountDownLatch releaseWorker =
+          new java.util.concurrent.CountDownLatch(1);
+      var occupier = service.begin("eng-occ", "MAIN_BOARD", List.of("engine"), true);
+      occupier.fail("runtime-preflight", "busy");
+      occupier.collect(
+          "runtime",
+          () -> {
+            workerBusy.countDown();
+            while (true) {
+              try {
+                releaseWorker.await();
+                break;
+              } catch (InterruptedException ignored) {
+              }
+            }
+            return new EngineStartupDiagnostics.Evidence(List.of(), "done");
+          });
+      assertTrue(workerBusy.await(1, java.util.concurrent.TimeUnit.SECONDS));
+
+      var queuedAttempt = service.begin("eng-queued", "MAIN_BOARD", List.of("engine"), true);
+      queuedAttempt.fail("process-create", "fail-q");
+      queuedAttempt.collect("runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "q"));
+
+      var qfullAttempt = service.begin("eng-qfull", "MAIN_BOARD", List.of("engine"), true);
+      qfullAttempt.fail("process-create", "fail-qfull");
+      qfullAttempt.collect(
+          "runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "qfull"));
+
+      ILoggingEvent qfullEvent = lastEventWithEngineId(events, "eng-qfull");
+      assertEquals(Level.WARN, qfullEvent.getLevel());
+      JSONObject qfullCore = extractCore(qfullEvent);
+      assertEquals("eng-qfull", qfullCore.getString("engineId"));
+      assertEquals("partial", qfullCore.getString("outcome"));
+      assertEquals(
+          "queue-full",
+          qfullCore.getJSONObject("sources").getJSONObject("runtime").getString("terminalReason"));
+      assertEquals(
+          "rejected",
+          qfullCore.getJSONObject("sources").getJSONObject("runtime").getString("collectionState"));
+
+      releaseWorker.countDown();
+
+      // 5. cancelled: attempt is cancelled before completion
+      events.list.clear();
+      var cancelAttempt = service.begin("eng-cancel", "MAIN_BOARD", List.of("engine"), true);
+      cancelAttempt.fail("startup-exit", "cancelled exit");
+      cancelAttempt.collect(
+          "runtime",
+          () -> {
+            try {
+              Thread.sleep(500);
+            } catch (InterruptedException ignored) {
+            }
+            return new EngineStartupDiagnostics.Evidence(List.of(), "never");
+          });
+      cancelAttempt.cancel();
+      ILoggingEvent cancelEvent = lastEventWithEngineId(events, "eng-cancel");
+      assertEquals(Level.WARN, cancelEvent.getLevel());
+      JSONObject cancelCore = extractCore(cancelEvent);
+      assertEquals("eng-cancel", cancelCore.getString("engineId"));
+      assertEquals("partial", cancelCore.getString("outcome"));
+      assertEquals(
+          "cancelled",
+          cancelCore.getJSONObject("sources").getJSONObject("runtime").getString("terminalReason"));
+      assertEquals(
+          "cancelled",
+          cancelCore
+              .getJSONObject("sources")
+              .getJSONObject("runtime")
+              .getString("collectionState"));
+
+      // 6. read-error: collector throws exception
+      events.list.clear();
+      var errorAttempt = service.begin("eng-err", "MAIN_BOARD", List.of("engine"), true);
+      errorAttempt.fail("startup-exit", "exit with error");
+      errorAttempt.collect(
+          "runtime",
+          () -> {
+            throw new java.io.IOException("simulated read error");
+          });
+      awaitSettled(errorAttempt);
+      ILoggingEvent errorEvent = lastEventWithEngineId(events, "eng-err");
+      assertEquals(Level.WARN, errorEvent.getLevel());
+      JSONObject errorCore = extractCore(errorEvent);
+      assertEquals("eng-err", errorCore.getString("engineId"));
+      assertEquals("partial", errorCore.getString("outcome"));
+      assertEquals(
+          "read-error",
+          errorCore.getJSONObject("sources").getJSONObject("runtime").getString("terminalReason"));
+      assertEquals(
+          "failed",
+          errorCore.getJSONObject("sources").getJSONObject("runtime").getString("collectionState"));
+    }
+  }
+
+  @Test
+  void startupDiagnosticOversizedTailsCannotTruncateIdentityStatusOrSources() throws Exception {
+    LoggingRuntime runtime =
+        LoggingRuntime.initialize(
+            new WorkDirectoryResolution(tempDir, List.of()),
+            new LoggingLimits(64, 32, 32, 32, 7, 1_000_000, 256_000));
+    runtime.applySettings(LoggingSettings.defaults().withDiagnosticsEnabled(false));
+    Logger engine = (Logger) LoggerFactory.getLogger(LogCategories.ENGINE);
+    ListAppender<ILoggingEvent> events = attach(engine);
+
+    var policy = new EngineStartupDiagnostics.Policy(1, 1, 1000, 2, 128, 4096, 2, 8192);
+    try (EngineStartupDiagnostics service =
+        new EngineStartupDiagnostics(policy, EngineObservation::recordStartupDiagnostic)) {
+      var attempt =
+          service.begin("eng-huge", "MAIN_BOARD", List.of("engine.exe", "x".repeat(10_000)), true);
+      attempt.output("stdout", "long-stdout-line-".repeat(1000));
+      attempt.output("stderr", "long-stderr-line-".repeat(1000));
+      attempt.fail("startup-exit", "massive-error-text-".repeat(1000));
+
+      ILoggingEvent event = lastEventWithEngineId(events, "eng-huge");
+      assertEquals(Level.WARN, event.getLevel());
+      assertTrue(event.getFormattedMessage().contains("engine event=startup-failed"));
+
+      JSONObject core = extractCore(event);
+      assertEquals("eng-huge", core.getString("engineId"));
+      assertEquals(attempt.id(), core.getString("attemptId"));
+      assertEquals(1L, core.getLong("diagnosticRevision"));
+      assertTrue(core.getBoolean("truncated"));
+      assertTrue(core.has("statusName"));
+      assertTrue(core.has("errorDomain"));
+      assertTrue(core.has("phase"));
+      assertEquals("startup-exit", core.getString("phase"));
+
+      JSONObject sources = core.getJSONObject("sources");
+      assertTrue(sources.has("pe-import-scan"));
+      assertTrue(sources.has("process-tail"));
+      assertEquals(
+          "not-applicable", sources.getJSONObject("process-tail").getString("applicability"));
+
+      assertFalse(core.getString("engineId").contains("truncated"));
+      assertFalse(core.getString("attemptId").contains("truncated"));
+    }
+  }
+
+  private static JSONObject extractCore(ILoggingEvent event) {
+    String msg = event.getFormattedMessage();
+    int diagStart = msg.indexOf("diagnostic={");
+    assertTrue(diagStart >= 0, "Missing diagnostic={ in: " + msg);
+    int jsonStart = diagStart + "diagnostic=".length();
+    int summaryStart = msg.indexOf(" summary={", jsonStart);
+    assertTrue(summaryStart >= 0, "Missing summary={ in: " + msg);
+    String jsonStr = msg.substring(jsonStart, summaryStart);
+    return new JSONObject(jsonStr);
+  }
+
+  private static ILoggingEvent lastEventWithEngineId(
+      ListAppender<ILoggingEvent> events, String engineId) {
+    ILoggingEvent found = null;
+    for (ILoggingEvent event : events.list) {
+      if (event.getFormattedMessage().contains("\"engineId\":\"" + engineId + "\"")
+          || event.getFormattedMessage().contains(engineId)) {
+        found = event;
+      }
+    }
+    assertTrue(found != null, "No event found for engineId: " + engineId);
+    return found;
+  }
+
+  private static void awaitSettled(EngineStartupDiagnostics.Attempt attempt) throws Exception {
+    long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+    while (System.nanoTime() < deadline) {
+      var snap = attempt.snapshot();
+      if (snap != null && !snap.toJson().getString("outcome").equals("collecting")) {
+        return;
+      }
+      Thread.sleep(5);
+    }
+    org.junit.jupiter.api.Assertions.fail("Attempt did not settle");
   }
 
   private static String formatted(ListAppender<ILoggingEvent> events) {

@@ -141,7 +141,14 @@ public final class ExportSanitizer {
     if (value instanceof JSONArray array) {
       JSONArray sanitized = new JSONArray();
       for (int i = 0; i < array.length(); i++) {
-        Object rewritten = sanitizeJsonValue(array.get(i), key);
+        boolean secretArgument =
+            "arguments".equals(key)
+                && i > 0
+                && array.opt(i - 1) instanceof String previous
+                && previous.startsWith("-")
+                && !previous.contains("=")
+                && isSecretKey(previous);
+        Object rewritten = secretArgument ? "<redacted>" : sanitizeJsonValue(array.get(i), key);
         if (rewritten != OMIT) {
           sanitized.put(rewritten);
         }
@@ -180,9 +187,7 @@ public final class ExportSanitizer {
   }
 
   private boolean isSafeJsonFieldName(String field) {
-    if (field == null
-        || !SAFE_JSON_FIELD_NAME.matcher(field).matches()
-        || isSecretKey(field)) {
+    if (field == null || !SAFE_JSON_FIELD_NAME.matcher(field).matches() || isSecretKey(field)) {
       return false;
     }
     return field.equals(sanitizeText(field));
@@ -255,7 +260,9 @@ public final class ExportSanitizer {
       if (normalized.contains("session")) {
         return alias("session", text);
       }
-      if (normalized.contains("path") || normalized.contains("file") || normalized.contains("dir")) {
+      if (normalized.contains("path")
+          || normalized.contains("file")
+          || normalized.contains("dir")) {
         return alias("path", text);
       }
       if (normalized.contains("url")) {
@@ -273,7 +280,9 @@ public final class ExportSanitizer {
     StringBuffer rewritten = new StringBuffer();
     while (matcher.find()) {
       matcher.appendReplacement(
-          rewritten, Matcher.quoteReplacement(matcher.group().replace(matcher.group(1), alias("nickname", matcher.group(1)))));
+          rewritten,
+          Matcher.quoteReplacement(
+              matcher.group().replace(matcher.group(1), alias("nickname", matcher.group(1)))));
     }
     matcher.appendTail(rewritten);
     return rewritten.toString();

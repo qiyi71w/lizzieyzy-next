@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.analysis.ReadBoardLoggingControl;
 import featurecat.lizzie.analysis.ReadBoardLoggingProtocol;
 import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
@@ -25,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -131,6 +133,7 @@ class DiagnosticBundleExporterTest {
     assertTrue(names.contains("snapshots/versions.json"));
     assertTrue(names.contains("snapshots/runtime.json"));
     assertTrue(names.contains("snapshots/threads.txt"));
+    assertTrue(names.contains("snapshots/engine-startup-failures.json"));
     assertFalse(names.contains("app.log"));
     assertFalse(names.contains("crash.log"));
     assertFalse(names.contains("logs/lizzie/engine-trace.log"));
@@ -189,6 +192,7 @@ class DiagnosticBundleExporterTest {
     assertTrue(threads.contains("daemon="), threads);
     assertTrue(threads.contains("--- stack ---"), threads);
     assertEquals("included", source(manifest, "threads").getString("status"));
+    assertEquals("included", source(manifest, "engine-startup-failures").getString("status"));
     assertNoCanaries(entries, "CANARY_PASSWORD_EXPORT", "C:\\Users\\alice");
   }
 
@@ -1214,11 +1218,9 @@ class DiagnosticBundleExporterTest {
             + " INFO  [lizzie.app] 下一条\n",
         StandardCharsets.UTF_8);
     String nextRecord = timestamp + " INFO  [lizzie.app] 下一条\n";
-    String expected =
-        timestamp + " INFO  [lizzie.app] password=\"<redacted>\"\n" + nextRecord;
+    String expected = timestamp + " INFO  [lizzie.app] password=\"<redacted>\"\n" + nextRecord;
 
-    assertEquals(
-        expected, unzipTextEntries(exportDefault(runtime)).get("logs/lizzie/app.log"));
+    assertEquals(expected, unzipTextEntries(exportDefault(runtime)).get("logs/lizzie/app.log"));
 
     long cap = expected.getBytes(StandardCharsets.UTF_8).length - 1L;
     Path cappedZip =
@@ -2465,6 +2467,115 @@ class DiagnosticBundleExporterTest {
     assertFalse(
         entries.keySet().stream()
             .anyMatch(name -> name.startsWith("diagnostics/readboard-capture/")));
+  }
+
+  @Test
+  void exportCapturesRetainedStartupFailuresAndRedactsSecretsThroughSanitizer() throws Exception {
+    LoggingRuntime runtime = start();
+
+    DiagnosticBundleRequest emptyRequest =
+        new DiagnosticBundleRequest(
+            runtime,
+            EnumSet.noneOf(TraceScope.class),
+            false,
+            false,
+            new JSONObject(),
+            emptySnapshot(),
+            ReadBoardLoggingSnapshot.detached(),
+            "next-dev",
+            "unknown",
+            new EngineStartupDiagnostics.History(List.of(), 0));
+    Path emptyZip =
+        new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
+            .export(emptyRequest);
+    Map<String, byte[]> emptyEntries = unzipEntries(emptyZip);
+    assertTrue(emptyEntries.containsKey("snapshots/engine-startup-failures.json"));
+    JSONObject emptyJson =
+        new JSONObject(text(emptyEntries, "snapshots/engine-startup-failures.json"));
+    assertEquals("no-failures", emptyJson.getString("status"));
+    assertEquals(0, emptyJson.getLong("evicted"));
+    assertEquals(0, emptyJson.getJSONArray("failures").length());
+    JSONObject emptySource = source(manifest(emptyEntries), "engine-startup-failures");
+    assertSource(emptySource, true, true, "included", "snapshots/");
+    assertEquals(0, emptySource.getInt("count"));
+    assertEquals(0, emptySource.getLong("evicted"));
+
+    try (EngineStartupDiagnostics service =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      ProcessBuilder builder =
+          new ProcessBuilder(
+              "katago.exe", "gtp", "--token", CANARY_TOKEN, "--secret=" + CANARY_PASSWORD);
+      builder
+          .environment()
+          .put("PATH", "C:\\Users\\alice\\AppData\\Local;" + System.getenv("PATH"));
+      var attempt1 = service.begin("eng-first-test", "MAIN_BOARD", builder.command(), true);
+      attempt1.capture(builder);
+      var diag1 = attempt1.fail("process-create", "login failed password=" + CANARY_PASSWORD);
+
+      DiagnosticBundleRequest capturedRequest =
+          new DiagnosticBundleRequest(
+              runtime,
+              EnumSet.noneOf(TraceScope.class),
+              false,
+              false,
+              new JSONObject(),
+              emptySnapshot(),
+              ReadBoardLoggingSnapshot.detached(),
+              "next-dev",
+              "unknown",
+              service.snapshot());
+      assertEquals(
+          1,
+          capturedRequest.startupFailures().failures().stream()
+              .filter(f -> attempt1.id().equals(f.attemptId()))
+              .count());
+
+      attempt1.output("stderr", "late stderr token=" + CANARY_COOKIE);
+      attempt1.streamEnded("stderr", null);
+      var attempt2 = service.begin("eng-second-test", "MAIN_BOARD", List.of("leelaz.exe"), true);
+      attempt2.fail("runtime-preflight", "missing runtime");
+
+      Path exportedZip =
+          new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
+              .export(capturedRequest);
+      Map<String, byte[]> entries = unzipEntries(exportedZip);
+      assertTrue(entries.containsKey("snapshots/engine-startup-failures.json"));
+
+      JSONObject exportedJson =
+          new JSONObject(text(entries, "snapshots/engine-startup-failures.json"));
+      assertEquals("available", exportedJson.getString("status"));
+      JSONArray failures = exportedJson.getJSONArray("failures");
+      assertEquals(1, failures.length());
+
+      boolean foundAttempt1 = false;
+      for (int i = 0; i < failures.length(); i++) {
+        JSONObject f = failures.getJSONObject(i);
+        String aid = f.getString("attemptId");
+        if (attempt1.id().equals(aid)) {
+          foundAttempt1 = true;
+          assertEquals(diag1.revision(), f.getLong("diagnosticRevision"));
+          assertEquals("eng-first-test", f.getString("engineId"));
+          assertFalse(
+              f.getString("stderr").contains("late stderr"),
+              "late output added after capture must not leak into export");
+        }
+        assertNotEquals(
+            attempt2.id(), aid, "later attempt must not leak into export of captured request");
+      }
+      assertTrue(foundAttempt1, "captured attempt1 must be present in exported zip");
+
+      String failuresRaw = text(entries, "snapshots/engine-startup-failures.json");
+      assertFalse(failuresRaw.contains(CANARY_PASSWORD), failuresRaw);
+      assertFalse(failuresRaw.contains(CANARY_TOKEN), failuresRaw);
+      assertFalse(failuresRaw.contains("C:\\Users\\alice"), failuresRaw);
+      assertFalse(failuresRaw.contains(CANARY_COOKIE), failuresRaw);
+      assertNoCanaries(entries, CANARY_PASSWORD, CANARY_TOKEN, "C:\\Users\\alice", CANARY_COOKIE);
+
+      JSONObject manifest = manifest(entries);
+      JSONObject source = source(manifest, "engine-startup-failures");
+      assertSource(source, true, true, "included", "snapshots/");
+      assertEquals(1, source.getInt("count"));
+    }
   }
 
   private LoggingRuntime start() {

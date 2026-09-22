@@ -2,16 +2,20 @@ package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.gui.EngineFailedMessage.DiagnosticActionResult;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtFailureKind;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtInstallStatus;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GraphicsEnvironment;
@@ -24,6 +28,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.JButton;
+import javax.swing.JLabel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -80,20 +86,9 @@ class EngineFailedMessageLayoutTest {
     String apiKey = "qa-api-key-do-not-leak";
     String secret = "qa-secret-do-not-leak";
     String message =
-        "Recent stderr: password="
-            + password
-            + " token:"
-            + token
-            + " --secret \""
-            + secret
-            + "\"";
+        "Recent stderr: password=" + password + " token:" + token + " --secret \"" + secret + "\"";
     String command =
-        "engine.exe --password "
-            + password
-            + " --token=\""
-            + token
-            + "\" api_key="
-            + apiKey;
+        "engine.exe --password " + password + " --token=\"" + token + "\" api_key=" + apiKey;
     String contributeCommand =
         "engine.exe -override-config \"username=qa\",\"password="
             + password
@@ -133,30 +128,14 @@ class EngineFailedMessageLayoutTest {
     List<SensitiveCase> cases =
         List.of(
             contributionCase(
-                '"',
-                "QaSpaceLeft42 QaSpaceRight42",
-                "QaSpaceLeft42",
-                "QaSpaceRight42"),
+                '"', "QaSpaceLeft42 QaSpaceRight42", "QaSpaceLeft42", "QaSpaceRight42"),
             contributionCase(
-                '"',
-                "QaCommaLeft42,QaCommaRight42",
-                "QaCommaLeft42",
-                "QaCommaRight42"),
+                '"', "QaCommaLeft42,QaCommaRight42", "QaCommaLeft42", "QaCommaRight42"),
+            contributionCase('"', "QaSemiLeft42;QaSemiRight42", "QaSemiLeft42", "QaSemiRight42"),
             contributionCase(
-                '"',
-                "QaSemiLeft42;QaSemiRight42",
-                "QaSemiLeft42",
-                "QaSemiRight42"),
+                '"', "QaDoubleLeft42\"QaDoubleRight42", "QaDoubleLeft42", "QaDoubleRight42"),
             contributionCase(
-                '"',
-                "QaDoubleLeft42\"QaDoubleRight42",
-                "QaDoubleLeft42",
-                "QaDoubleRight42"),
-            contributionCase(
-                '\'',
-                "QaSingleLeft42'QaSingleRight42",
-                "QaSingleLeft42",
-                "QaSingleRight42"),
+                '\'', "QaSingleLeft42'QaSingleRight42", "QaSingleLeft42", "QaSingleRight42"),
             contributionCase(
                 '"',
                 "QaInjectLead42\",\"token=QaInjectedToken42\",\"QaInjectTail42",
@@ -169,16 +148,8 @@ class EngineFailedMessageLayoutTest {
                 "QaSingleInjectLead42",
                 "QaInjectedSecret42",
                 "QaSingleInjectTail42"),
-            contributionCase(
-                '"',
-                "QaCrLeft42\rQaCrRight42",
-                "QaCrLeft42",
-                "QaCrRight42"),
-            contributionCase(
-                '\'',
-                "QaLfLeft42\nQaLfRight42",
-                "QaLfLeft42",
-                "QaLfRight42"),
+            contributionCase('"', "QaCrLeft42\rQaCrRight42", "QaCrLeft42", "QaCrRight42"),
+            contributionCase('\'', "QaLfLeft42\nQaLfRight42", "QaLfLeft42", "QaLfRight42"),
             contributionCase(
                 '"',
                 "QaMultilineLead42\r\n\",\"token=QaMultilineInjected42\",\"QaMultilineTail42",
@@ -193,10 +164,7 @@ class EngineFailedMessageLayoutTest {
                     "QaMessageLeft42 QaMessageRight42",
                     "--mode",
                     "gtp"),
-                List.of(
-                    "QaMessageLeft42 QaMessageRight42",
-                    "QaMessageLeft42",
-                    "QaMessageRight42")),
+                List.of("QaMessageLeft42 QaMessageRight42", "QaMessageLeft42", "QaMessageRight42")),
             new SensitiveCase(
                 "Recent stderr: token=QaMessageCrLeft42\r\nQaMessageCrRight42\nstatus=failed",
                 List.of(
@@ -211,10 +179,8 @@ class EngineFailedMessageLayoutTest {
                     "QaMessageCrRight42")),
             new SensitiveCase(
                 "engine.exe --api-key QaFlagLeft42 QaFlagRight42 --mode gtp",
-                List.of(
-                    "engine.exe", "--api-key", "QaFlagLeft42 QaFlagRight42", "--mode", "gtp"),
-                List.of(
-                    "QaFlagLeft42 QaFlagRight42", "QaFlagLeft42", "QaFlagRight42")));
+                List.of("engine.exe", "--api-key", "QaFlagLeft42 QaFlagRight42", "--mode", "gtp"),
+                List.of("QaFlagLeft42 QaFlagRight42", "QaFlagLeft42", "QaFlagRight42")));
 
     for (SensitiveCase sensitiveCase : cases) {
       JScrollPane pane =
@@ -283,8 +249,7 @@ class EngineFailedMessageLayoutTest {
     assertEquals(new Rectangle(-2560, -80, 2548, 1320), usable);
     assertEquals(
         new Rectangle(-2560, -80, 980, 360),
-        EngineFailedMessage.clampDialogBounds(
-            new Rectangle(-2700, -200, 980, 360), usable));
+        EngineFailedMessage.clampDialogBounds(new Rectangle(-2700, -200, 980, 360), usable));
     assertEquals(
         new Rectangle(-992, 880, 980, 360),
         EngineFailedMessage.clampDialogBounds(new Rectangle(-600, 1300, 980, 360), usable));
@@ -450,5 +415,136 @@ class EngineFailedMessageLayoutTest {
     assertTrue(dialog.recordTensorRtRepairInvoked());
     assertTrue(dialog.tensorRtRepairInvoked());
     assertTrue(DiagnosticActionResult.of(dialog).directedRepairOpened);
+  }
+
+  @Test
+  void boundAttemptDisplaysSummaryAndDetailsWithIsolation() {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    try (EngineStartupDiagnostics diagnostics =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      EngineStartupDiagnostics.Attempt attempt1 =
+          diagnostics.begin("engine-test-1", "play", List.of("katago.exe", "gtp"), true);
+      attempt1.fail("startup", "process failed to start");
+
+      EngineFailedMessage dialog =
+          new EngineFailedMessage(
+              List.of("katago.exe"), "katago.exe gtp", "failure", true, true, false);
+      dialog.bindStartupDiagnostic(attempt1);
+
+      JTextArea summaryArea =
+          findComponentByName(dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
+      JTextArea detailsArea =
+          findComponentByName(dialog, "EngineFailedMessage.detailsArea", JTextArea.class);
+
+      assertNotNull(summaryArea);
+      assertNotNull(detailsArea);
+      assertTrue(summaryArea.getText().contains("engine-test-1"));
+      assertTrue(summaryArea.getText().contains(attempt1.id()));
+      assertTrue(detailsArea.getText().contains("engine-test-1"));
+      assertTrue(detailsArea.getText().contains(attempt1.id()));
+      assertTrue(detailsArea.getText().contains("diagnosticRevision"));
+
+      // Attempt 2 fails independently
+      EngineStartupDiagnostics.Attempt attempt2 =
+          diagnostics.begin("engine-test-2", "play", List.of("leelaz.exe"), true);
+      attempt2.fail("startup", "different failure");
+
+      // Dialog remains isolated to attempt 1
+      assertTrue(summaryArea.getText().contains("engine-test-1"));
+      assertFalse(summaryArea.getText().contains("engine-test-2"));
+      assertTrue(detailsArea.getText().contains("engine-test-1"));
+      assertFalse(detailsArea.getText().contains("engine-test-2"));
+      dialog.dispose();
+    }
+  }
+
+  @Test
+  void copyErrorConsumesDisplayedRevisionWithoutReRead() {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    try (EngineStartupDiagnostics diagnostics =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      EngineStartupDiagnostics.Attempt attempt =
+          diagnostics.begin("copy-engine", "analysis", List.of("engine.exe"), true);
+      attempt.fail("startup", "simulated exit");
+
+      EngineFailedMessage dialog =
+          new EngineFailedMessage(
+              List.of("engine.exe"), "engine.exe", "error msg", false, false, false);
+      dialog.bindStartupDiagnostic(attempt);
+
+      JButton copyButton =
+          findComponentByName(dialog, "EngineFailedMessage.copyError", JButton.class);
+      assertNotNull(copyButton);
+
+      copyButton.doClick();
+
+      JLabel copyStatus =
+          findComponentByName(dialog, "EngineFailedMessage.copyStatus", JLabel.class);
+      assertNotNull(copyStatus);
+      assertEquals(
+          Lizzie.resourceBundle.getString("EngineFailedMessage.copied"), copyStatus.getText());
+
+      JTextArea detailsArea =
+          findComponentByName(dialog, "EngineFailedMessage.detailsArea", JTextArea.class);
+      assertNotNull(detailsArea);
+      assertTrue(detailsArea.getText().contains(attempt.id()));
+      assertTrue(detailsArea.getText().contains("\"diagnosticRevision\": 1"));
+      dialog.dispose();
+    }
+  }
+
+  @Test
+  void detailsButtonTogglesDetailsPane() {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    try (EngineStartupDiagnostics diagnostics =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      EngineStartupDiagnostics.Attempt attempt =
+          diagnostics.begin("toggle-engine", "play", List.of("engine.exe"), true);
+      attempt.fail("startup", "test toggle");
+
+      EngineFailedMessage dialog =
+          new EngineFailedMessage(
+              List.of("engine.exe"), "engine.exe", "error msg", false, false, false);
+      dialog.bindStartupDiagnostic(attempt);
+
+      JButton detailsButton =
+          findComponentByName(dialog, "EngineFailedMessage.details", JButton.class);
+      JScrollPane detailsPane =
+          findComponentByName(dialog, "EngineFailedMessage.detailsPane", JScrollPane.class);
+
+      assertNotNull(detailsButton);
+      assertNotNull(detailsPane);
+      assertFalse(detailsPane.isVisible());
+
+      detailsButton.doClick();
+      assertTrue(detailsPane.isVisible());
+
+      detailsButton.doClick();
+      assertFalse(detailsPane.isVisible());
+      dialog.dispose();
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T extends Component> T findComponentByName(
+      Container root, String name, Class<T> type) {
+    if (root == null || name == null) {
+      return null;
+    }
+    for (Component c : root.getComponents()) {
+      if (name.equals(c.getName()) && type.isInstance(c)) {
+        return (T) c;
+      }
+      if (c instanceof Container) {
+        T found = findComponentByName((Container) c, name, type);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+    return null;
   }
 }
