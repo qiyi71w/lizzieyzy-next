@@ -367,6 +367,33 @@ class EngineStartupDiagnosticsTest {
     }
   }
 
+  @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.LINUX)
+  @Test
+  void mergedProcessOutputDoesNotClaimStderrWasStdout() throws Exception {
+    try (EngineStartupDiagnostics service =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      ProcessBuilder builder =
+          new ProcessBuilder("/bin/sh", "-c", "printf 'missing x.dll\\n' >&2; exit 17");
+      builder.redirectErrorStream(true);
+      var attempt = service.begin("eng-merged", "PROBE", builder.command(), true);
+      attempt.capture(builder);
+      Process process = builder.start();
+      attempt.attachProcess(process);
+      String line =
+          new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))
+              .readLine();
+      attempt.output("merged", line);
+      assertEquals(17, process.waitFor());
+      attempt.streamEnded("stdout", null);
+      attempt.streamEnded("stderr", null);
+      var result = attempt.fail("startup-exit", "probe failed").toJson();
+      assertEquals("merged", result.getString("stdoutOrigin"));
+      assertEquals(line, result.getString("stdout"));
+      assertEquals("", result.getString("stderr"));
+      assertEquals("engine-merged", result.getJSONArray("findings").getJSONObject(0).getString("evidence"));
+    }
+  }
+
   private static String reason(EngineStartupDiagnostics.Attempt attempt, String source) {
     return attempt
         .snapshot()

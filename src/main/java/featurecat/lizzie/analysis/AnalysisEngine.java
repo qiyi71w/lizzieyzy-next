@@ -24,6 +24,7 @@ import featurecat.lizzie.util.KataGoRuntimeHelper;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRuntimeException;
 import featurecat.lizzie.util.Utils;
+import featurecat.lizzie.logging.EngineObservation;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
@@ -95,6 +96,13 @@ public class AnalysisEngine {
   // private int analyzeNumberCount;
   // private BoardHistoryNode startAnalyzeNode;
   public WaitForAnalysis waitFrame;
+  private volatile EngineStartupDiagnostics.Attempt startupDiagnosticAttempt;
+  private EngineStartupDiagnostics.Attempt presentedStartupDiagnosticAttempt;
+  private EngineFailedMessage engineFailedMessage;
+
+  public EngineStartupDiagnostics.Attempt startupDiagnosticAttempt() {
+    return startupDiagnosticAttempt;
+  }
 
   public boolean useJavaSSH = false;
   public String ip;
@@ -309,10 +317,34 @@ public class AnalysisEngine {
   }
 
   public void startEngine(String engineCommand) {
+    this.engineCommand = engineCommand;
     CommandLaunchHelper.LaunchSpec launchSpec =
         CommandLaunchHelper.prepare(Utils.splitCommand(engineCommand));
     commands = launchSpec.getCommandParts();
     this.useRemoteCompute = RemoteComputeConfig.isRemoteComputeEngineCommand(engineCommand);
+    if (this.useRemoteCompute) {
+      this.useJavaSSH = false;
+    }
+    boolean isLocal = !this.useRemoteCompute && !this.useJavaSSH;
+    if (isLocal && KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
+      process = null;
+      isLoaded = false;
+      return;
+    }
+    startupDiagnosticAttempt = null;
+    String launchPurpose = purpose == null ? "OTHER" : purpose.name();
+    String engineId =
+        EngineObservation.restartInstance(
+            this,
+            launchPurpose,
+            EngineStartupBootstrap.factsFor(engineCommand, launchPurpose));
+    startupDiagnosticAttempt =
+        EngineStartupDiagnostics.getDefault()
+            .begin(
+                engineId,
+                launchPurpose,
+                commands,
+                isLocal);
     if (this.useRemoteCompute) {
       this.useJavaSSH = false;
       process = null;
@@ -323,6 +355,9 @@ public class AnalysisEngine {
             remoteTransport.stdout(), remoteTransport.stdin(), remoteTransport.stderr());
         isLoaded = true;
       } catch (IOException e) {
+        if (startupDiagnosticAttempt != null) {
+          startupDiagnosticAttempt.fail("remote-connect", e.toString());
+        }
         showErrMsg(
             resourceBundle.getString("Leelaz.engineFailed")
                 + ": "
@@ -351,6 +386,9 @@ public class AnalysisEngine {
       } else {
         javaSSHClosed = true;
         isLoaded = false;
+        if (startupDiagnosticAttempt != null) {
+          startupDiagnosticAttempt.fail("remote-connect", "ssh login failed");
+        }
         return;
       }
     } else {
@@ -363,8 +401,15 @@ public class AnalysisEngine {
       if (Config.isBundledKataGoCommand(engineCommand)) {
         try {
           KataGoRuntimeHelper.ensureBundledRuntimeReady(
-              engineExecutable, commands, engineCommand, Lizzie.frame);
+              engineExecutable,
+              commands,
+              engineCommand,
+              Lizzie.frame,
+              startupDiagnosticAttempt == null ? null : startupDiagnosticAttempt::runtimePreflight);
         } catch (IOException e) {
+          if (startupDiagnosticAttempt != null) {
+            startupDiagnosticAttempt.fail("runtime-preflight", e.toString());
+          }
           TensorRtRepairContext repairContext =
               e instanceof TensorRtRuntimeException
                   ? ((TensorRtRuntimeException) e).context
@@ -384,11 +429,19 @@ public class AnalysisEngine {
       CommandLaunchHelper.configureProcessBuilder(processBuilder, launchSpec);
       KataGoRuntimeHelper.configureBundledProcessBuilder(processBuilder, engineExecutable);
       processBuilder.redirectErrorStream(true);
+      if (startupDiagnosticAttempt != null) {
+        startupDiagnosticAttempt.capture(processBuilder);
+      }
       try {
         process = processBuilder.start();
+        if (startupDiagnosticAttempt != null) {
+          startupDiagnosticAttempt.attachProcess(process);
+        }
         isLoaded = true;
       } catch (IOException e) {
-        // TODO Auto-generated catch block
+        if (startupDiagnosticAttempt != null) {
+          startupDiagnosticAttempt.fail("process-create", e.toString());
+        }
         showErrMsg(
             resourceBundle.getString("Leelaz.engineFailed") + ": " + e.getLocalizedMessage());
         process = null;
@@ -397,26 +450,38 @@ public class AnalysisEngine {
       }
       initializeStreams();
     }
+    EngineStartupDiagnostics.Attempt readerAttempt = startupDiagnosticAttempt;
+    BufferedReader readerInput = inputStream;
+    BufferedReader readerError = errorStream;
     executor = Executors.newSingleThreadScheduledExecutor();
-    executor.execute(this::read);
+    executor.execute(() -> read(readerAttempt, readerInput));
     executorErr = Executors.newSingleThreadScheduledExecutor();
-    executorErr.execute(this::readError);
+    executorErr.execute(() -> readError(readerAttempt, readerError));
     isNormalEnd = false;
-    AnalysisResourceCoordinator.processStarted(this, purpose, engineCommand, process);
+    AnalysisResourceCoordinator.processStarted(
+        this, purpose, engineCommand, process, startupDiagnosticAttempt != null);
   }
 
   private void showErrMsg(String errMsg) {
-    showErrMsg(errMsg, null);
+    showErrMsg(errMsg, (TensorRtRepairContext) null);
   }
 
   private void showErrMsg(String errMsg, TensorRtRepairContext repairContext) {
+    showErrMsg(errMsg, repairContext, startupDiagnosticAttempt);
+  }
+
+  private void showErrMsg(
+      String errMsg, TensorRtRepairContext repairContext, EngineStartupDiagnostics.Attempt attempt) {
     if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
-      javax.swing.SwingUtilities.invokeLater(() -> showErrMsg(errMsg, repairContext));
+      javax.swing.SwingUtilities.invokeLater(() -> showErrMsg(errMsg, repairContext, attempt));
       return;
     }
+    if (attempt != null && attempt != startupDiagnosticAttempt) return;
+    if (isNormalEnd || (Lizzie.frame != null && Lizzie.frame.analysisEngine != null
+        && Lizzie.frame.analysisEngine != this)) return;
     if (isPreLoad) return;
     if (waitFrame != null) waitFrame.setVisible(false);
-    DiagnosticActionResult diagnostic = tryToDignostic(errMsg, repairContext);
+    DiagnosticActionResult diagnostic = tryToDignostic(errMsg, repairContext, attempt);
     if (shouldOpenAnalysisSettingsAfterDiagnostic(isPreLoad, diagnostic)) {
       AnalysisSettings analysisSettings = new AnalysisSettings(true, true);
       analysisSettings.setVisible(true);
@@ -424,11 +489,27 @@ public class AnalysisEngine {
   }
 
   public DiagnosticActionResult tryToDignostic(String message) {
-    return tryToDignostic(message, null);
+    return tryToDignostic(message, (TensorRtRepairContext) null);
   }
 
   public DiagnosticActionResult tryToDignostic(
       String message, TensorRtRepairContext repairContext) {
+    return tryToDignostic(message, repairContext, startupDiagnosticAttempt);
+  }
+
+  public DiagnosticActionResult tryToDignostic(
+      String message, TensorRtRepairContext repairContext, EngineStartupDiagnostics.Attempt attempt) {
+    EngineStartupDiagnostics.Attempt diagnosticAttempt =
+        attempt != null ? attempt : startupDiagnosticAttempt;
+    if (engineFailedMessage != null
+        && engineFailedMessage.isVisible()
+        && presentedStartupDiagnosticAttempt == diagnosticAttempt) {
+      return DiagnosticActionResult.of(engineFailedMessage);
+    }
+    if (diagnosticAttempt != null && diagnosticAttempt.snapshot() == null) {
+      diagnosticAttempt.fail(
+          !useJavaSSH && !useRemoteCompute ? "startup-exit" : "remote-connect", message);
+    }
     AtomicReference<EngineFailedMessage> dialog = new AtomicReference<>();
     EngineFailedMessage.showDialog(
         commands,
@@ -439,7 +520,14 @@ public class AnalysisEngine {
         false,
         true,
         repairContext,
-        dialog::set);
+        createdDialog -> {
+          engineFailedMessage = createdDialog;
+          presentedStartupDiagnosticAttempt = diagnosticAttempt;
+          dialog.set(createdDialog);
+          if (diagnosticAttempt != null && diagnosticAttempt.snapshot() != null) {
+            createdDialog.bindStartupDiagnostic(diagnosticAttempt);
+          }
+        });
     return DiagnosticActionResult.of(dialog.get());
   }
 
@@ -455,10 +543,17 @@ public class AnalysisEngine {
   }
 
   private void readError() {
-    String line = "";
+    readError(startupDiagnosticAttempt, errorStream);
+  }
 
+  private void readError(EngineStartupDiagnostics.Attempt attempt, BufferedReader readerError) {
+    String line = "";
+    Throwable error = null;
     try {
-      while ((line = errorStream.readLine()) != null) {
+      while ((line = readerError.readLine()) != null) {
+        if (attempt != null) {
+          attempt.output("stderr", line);
+        }
         try {
           parseLineForError(line);
         } catch (Exception e) {
@@ -466,8 +561,12 @@ public class AnalysisEngine {
         }
       }
     } catch (IOException e) {
-      // TODO Auto-generated catch block
+      error = e;
       e.printStackTrace();
+    } finally {
+      if (attempt != null) {
+        attempt.streamEnded("stderr", error == null ? null : error.toString());
+      }
     }
   }
 
@@ -476,28 +575,46 @@ public class AnalysisEngine {
   }
 
   private void read() {
+    read(startupDiagnosticAttempt, inputStream);
+  }
+
+  private void read(EngineStartupDiagnostics.Attempt attempt, BufferedReader readerInput) {
+    Throwable error = null;
     try {
       String line = "";
-      // while ((c = inputStream.read()) != -1) {
-      while ((line = inputStream.readLine()) != null) {
+      while ((line = readerInput.readLine()) != null) {
+        if (attempt != null) {
+          attempt.output(!useJavaSSH && !useRemoteCompute ? "merged" : "stdout", line);
+          if (attempt != startupDiagnosticAttempt) continue;
+        }
         try {
           parseLine(line.toString());
         } catch (Exception ex) {
           ex.printStackTrace();
         }
       }
-      // this line will be reached when engine shuts down
       if (this.useJavaSSH) javaSSHClosed = true;
       if (this.useRemoteCompute && remoteTransport != null) remoteTransport.close();
       System.out.println("Flash analyze process ended.");
-      // Do no exit for switching weights
-      // System.exit(-1);
     } catch (IOException e) {
+      error = e;
+    } finally {
+      if (attempt != null) {
+        attempt.streamEnded("stdout", error == null ? null : error.toString());
+      }
     }
+    if (attempt != startupDiagnosticAttempt) return;
     if (this.useJavaSSH) javaSSHClosed = true;
     isLoaded = false;
     if (!isNormalEnd) {
-      showErrMsg(resourceBundle.getString("Leelaz.engineEndUnormalHint"));
+      if (attempt != null) {
+        attempt.fail(
+            "startup-exit",
+            error != null
+                ? error.toString()
+                : resourceBundle.getString("Leelaz.engineEndUnormalHint"));
+      }
+      showErrMsg(resourceBundle.getString("Leelaz.engineEndUnormalHint"), null, attempt);
     }
     process = null;
     shutdown();
@@ -534,13 +651,6 @@ public class AnalysisEngine {
       finishFailedRequestDispatch(false);
       return;
     }
-    if (shouldKeepForegroundAnalysis(node)) {
-      responseCount++;
-      resultCount++;
-      notifyProgress();
-      if (canFinalizeCurrentRequest() && responseCount == analyzeMap.size()) setResult();
-      return;
-    }
     List<MoveData> moves = Utils.getBestMovesFromJsonArray(moveInfos, true, true);
     List<Double> ownershipArray = null;
     if (result.has("ownership")) {
@@ -554,6 +664,16 @@ public class AnalysisEngine {
     JSONObject rootInfo = result.optJSONObject("rootInfo");
     if (rootInfo != null && rootInfo.has("visits")) {
       reportedPlayouts = rootInfo.getInt("visits");
+    }
+    if (startupDiagnosticAttempt != null) {
+      startupDiagnosticAttempt.ready();
+    }
+    if (shouldKeepForegroundAnalysis(node)) {
+      responseCount++;
+      resultCount++;
+      notifyProgress();
+      if (canFinalizeCurrentRequest() && responseCount == analyzeMap.size()) setResult();
+      return;
     }
     boolean payloadApplied = applyAnalysisPayload(node, moves, ownershipArray, reportedPlayouts);
     if (payloadApplied && node.getData().bestMoves == moves
@@ -780,6 +900,9 @@ public class AnalysisEngine {
     remoteGtpExpectedRulesCommandId = 0;
     cancelRemoteGtpSetupAckTimeout();
     sharedForegroundOriginalRules = payload;
+    if (startupDiagnosticAttempt != null) {
+      startupDiagnosticAttempt.ready();
+    }
     if (!startNextRemoteGtpJob()) {
       failRemoteGtpSetup();
     }
@@ -797,6 +920,9 @@ public class AnalysisEngine {
     }
     remoteGtpExpectedSetupCommandId = 0;
     cancelRemoteGtpSetupAckTimeout();
+    if (startupDiagnosticAttempt != null) {
+      startupDiagnosticAttempt.ready();
+    }
     if (!sendNextSharedForegroundSetupCommand()) {
       failRemoteGtpSetup();
     }
@@ -1100,7 +1226,12 @@ public class AnalysisEngine {
       if (this.remoteTransport != null) this.remoteTransport.close();
       if (executor != null) executor.shutdownNow();
       if (executorErr != null) executorErr.shutdownNow();
-    } else if (this.process != null) this.process.destroyForcibly();
+    } else if (this.process != null) {
+      if (startupDiagnosticAttempt != null) {
+        startupDiagnosticAttempt.beforeTermination();
+      }
+      this.process.destroyForcibly();
+    }
     Lizzie.frame.requestProblemListRefresh();
   }
 
@@ -2475,7 +2606,12 @@ public class AnalysisEngine {
       if (javaSSH != null) javaSSH.close();
     } else if (useRemoteCompute) {
       if (remoteTransport != null) remoteTransport.close();
-    } else if (process != null) process.destroy();
+    } else if (process != null) {
+      if (startupDiagnosticAttempt != null) {
+        startupDiagnosticAttempt.beforeTermination();
+      }
+      process.destroy();
+    }
   }
 
   public boolean isRunning() {

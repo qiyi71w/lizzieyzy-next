@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
@@ -922,6 +924,72 @@ class HumanSlAnalysisRunnerTest {
 
     assertFalse(runner.start());
     assertEquals(1, launches.get());
+  }
+
+  @Test
+  void startupDiagnostic_recordsTimeoutOnReadinessFailureAndPreservesAcrossRetry()
+      throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+      boardWithHistory(history);
+      AtomicInteger launches = new AtomicInteger();
+      HumanSlAnalysisRunner runner =
+          new HumanSlAnalysisRunner(
+              List.of("katago", "analysis"),
+              ignored -> {
+                int launch = launches.incrementAndGet();
+                if (launch == 1) {
+                  return new FakeProcess(request -> null);
+                }
+                return new FakeProcess(
+                    request ->
+                        new JSONObject()
+                            .put("id", request.getString("id"))
+                            .put("humanPolicy", new JSONObject().put("A3", 1.0)));
+              });
+
+      assertFalse(
+          runner.verifyReady(history.getCurrentHistoryNode(), "rank_3k", Duration.ofMillis(40)));
+      EngineStartupDiagnostics.Attempt firstAttempt = runner.getStartupDiagnosticAttempt();
+      assertNotNull(firstAttempt);
+      EngineStartupDiagnostic firstDiagnostic = firstAttempt.snapshot();
+      assertNotNull(firstDiagnostic);
+      JSONObject firstJson = firstDiagnostic.toJson();
+      assertEquals("startup-timeout", firstJson.getString("phase"));
+      assertEquals("HUMAN_SL", firstJson.getString("launchPurpose"));
+      assertTrue(
+          firstJson.getJSONObject("launch").getString("configuredCommand").contains("katago"));
+
+      // Retry succeeds and produces a distinct, ready attempt without a failure snapshot
+      assertTrue(
+          runner.verifyReady(history.getCurrentHistoryNode(), "rank_3k", Duration.ofSeconds(1)));
+      EngineStartupDiagnostics.Attempt secondAttempt = runner.getStartupDiagnosticAttempt();
+      assertNotNull(secondAttempt);
+      assertNotEquals(firstAttempt.id(), secondAttempt.id());
+      assertNull(secondAttempt.snapshot());
+      assertEquals(firstDiagnostic.attemptId(), firstAttempt.snapshot().attemptId());
+      runner.close();
+    }
+  }
+
+  @Test
+  void startupDiagnostic_recordsProcessCreateFailureWhenProcessStarterThrows() {
+    HumanSlAnalysisRunner runner =
+        new HumanSlAnalysisRunner(
+            List.of("katago", "analysis"),
+            ignored -> {
+              throw new IOException("simulated process creation failure");
+            });
+
+    assertFalse(runner.start());
+    EngineStartupDiagnostics.Attempt attempt = runner.getStartupDiagnosticAttempt();
+    assertNotNull(attempt);
+    EngineStartupDiagnostic diagnostic = attempt.snapshot();
+    assertNotNull(diagnostic);
+    JSONObject json = diagnostic.toJson();
+    assertEquals("process-create", json.getString("phase"));
+    assertEquals("HUMAN_SL", json.getString("launchPurpose"));
+    assertTrue(json.getString("originalError").contains("simulated process creation failure"));
   }
 
   private static void waitForRequest(FakeProcess process, int expected, long timeout, TimeUnit unit)

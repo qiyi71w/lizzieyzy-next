@@ -316,6 +316,7 @@ final class EngineOutputDiagnostic {
   }
 
   private static String resolveEvidence(String stream) {
+    if ("merged".equalsIgnoreCase(stream)) return "engine-merged";
     if (stream != null && stream.toLowerCase(Locale.ROOT).contains("stdout")) {
       return "engine-stdout";
     }
