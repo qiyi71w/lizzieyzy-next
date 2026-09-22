@@ -145,9 +145,7 @@ public final class ExportSanitizer {
             "arguments".equals(key)
                 && i > 0
                 && array.opt(i - 1) instanceof String previous
-                && previous.startsWith("-")
-                && !previous.contains("=")
-                && isSecretKey(previous);
+                && isSecretArgumentFlag(previous);
         Object rewritten = secretArgument ? "<redacted>" : sanitizeJsonValue(array.get(i), key);
         if (rewritten != OMIT) {
           sanitized.put(rewritten);
@@ -315,6 +313,33 @@ public final class ExportSanitizer {
         || normalized.contains("authorization")
         || normalized.contains("credential")
         || normalized.contains("machinekey");
+  }
+
+  private static boolean isSecretArgumentFlag(String argument) {
+    if (argument == null || argument.isEmpty()) {
+      return false;
+    }
+    if (argument.indexOf('=') >= 0 || argument.indexOf(':') >= 0) {
+      return false;
+    }
+    if (!argument.startsWith("-") && !argument.startsWith("/")) {
+      return false;
+    }
+    int start = 0;
+    while (start < argument.length()
+        && (argument.charAt(start) == '-' || argument.charAt(start) == '/')) {
+      start++;
+    }
+    if (start == 0 || start == argument.length()) {
+      return false;
+    }
+    String name = argument.substring(start);
+    if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+      return false;
+    }
+    return PersistenceSanitizer.isCredentialName(name)
+        || isSecretKey(name)
+        || isSecretKey(argument);
   }
 
   private static final Object OMIT = new Object();

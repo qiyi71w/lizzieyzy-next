@@ -1309,16 +1309,20 @@ public class Leelaz {
         CommandLaunchHelper.prepare(Utils.splitCommand(engineCommand));
     commands = launchSpec.getCommandParts();
     if (!KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
+      String launchPurpose =
+          engineGameStartupTransaction != null
+              ? "ENGINE_GAME"
+              : this == Lizzie.leelaz
+                  ? "MAIN_BOARD"
+                  : this == Lizzie.leelaz2 ? "COMPARE" : preload ? "PRELOAD" : "MAIN_BOARD";
       loggingEngineId =
           EngineObservation.restartInstance(
-              this, "MAIN_BOARD", EngineStartupBootstrap.factsFor(engineCommand, "MAIN_BOARD"));
+              this, launchPurpose, EngineStartupBootstrap.factsFor(engineCommand, launchPurpose));
       startupDiagnosticAttempt =
           EngineStartupDiagnostics.getDefault()
               .begin(
                   loggingEngineId,
-                  engineGameStartupTransaction != null
-                      ? "ENGINE_GAME"
-                      : preload ? "PRELOAD" : "MAIN_BOARD",
+                  launchPurpose,
                   commands,
                   !useJavaSSH && !RemoteComputeConfig.isRemoteComputeEngineCommand(engineCommand));
     }
@@ -4278,23 +4282,31 @@ public class Leelaz {
         || launchCommands.isEmpty()) {
       return SnapshotFileAccessKind.DIRECT_LOCAL;
     }
-    String executable = new File(launchCommands.get(0)).getName().toLowerCase(Locale.ROOT);
+    return isIndirectLauncher(launchCommands.get(0))
+        ? SnapshotFileAccessKind.UNSUPPORTED
+        : SnapshotFileAccessKind.DIRECT_LOCAL;
+  }
+
+  static boolean isIndirectLauncher(String command) {
+    String executable =
+        command.substring(Math.max(command.lastIndexOf('/'), command.lastIndexOf('\\')) + 1)
+            .toLowerCase(Locale.ROOT);
     if (executable.endsWith(".exe")) {
       executable = executable.substring(0, executable.length() - 4);
     } else if (executable.endsWith(".bat")
         || executable.endsWith(".cmd")
         || executable.endsWith(".ps1")
         || executable.endsWith(".sh")) {
-      return SnapshotFileAccessKind.UNSUPPORTED;
+      return true;
     }
     if (isInterpreterHostExecutable(executable)) {
-      return SnapshotFileAccessKind.UNSUPPORTED;
+      return true;
     }
     return switch (executable) {
       case "ssh", "plink", "wsl", "wslhost", "docker", "podman", "wine", "wine64",
           "flatpak", "snap", "cmd", "powershell", "pwsh", "sh", "bash", "zsh", "fish",
-          "env", "nohup" -> SnapshotFileAccessKind.UNSUPPORTED;
-      default -> SnapshotFileAccessKind.DIRECT_LOCAL;
+          "env", "nohup" -> true;
+      default -> false;
     };
   }
 

@@ -63,6 +63,8 @@ class DiagnosticBundleExporterTest {
   private static final String CANARY_COOKIE = "CANARY_COOKIE_4d11";
   private static final String CANARY_MACHINE_KEY = "CANARY_MACHINEKEY_88aa";
   private static final String CANARY_CREDENTIAL = "CANARY_CREDENTIAL_12ef";
+  private static final String CANARY_API_KEY = "CANARY_API_KEY_3e89";
+  private static final String CANARY_SLASH_PASSWORD = "CANARY_SLASH_PASSWORD_5b1c";
   private static final String CANARY_JSON_NESTED = "OPAQUE_JSON_NESTED_31aa";
   private static final String CANARY_JSON_UNKNOWN = "OPAQUE_JSON_UNKNOWN_96bd";
   private static final String CANARY_CAPTURE_NESTED = "OPAQUE_CAPTURE_NESTED_a780";
@@ -2504,7 +2506,15 @@ class DiagnosticBundleExporterTest {
         new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
       ProcessBuilder builder =
           new ProcessBuilder(
-              "katago.exe", "gtp", "--token", CANARY_TOKEN, "--secret=" + CANARY_PASSWORD);
+              "katago.exe",
+              "gtp",
+              "--api-key",
+              CANARY_API_KEY,
+              "/password",
+              CANARY_SLASH_PASSWORD,
+              "--token",
+              CANARY_TOKEN,
+              "--secret=" + CANARY_PASSWORD);
       builder
           .environment()
           .put("PATH", "C:\\Users\\alice\\AppData\\Local;" + System.getenv("PATH"));
@@ -2558,6 +2568,8 @@ class DiagnosticBundleExporterTest {
           assertFalse(
               f.getString("stderr").contains("late stderr"),
               "late output added after capture must not leak into export");
+          JSONArray exportedArgs = f.getJSONObject("launch").getJSONArray("arguments");
+          assertEquals("gtp", exportedArgs.getString(0));
         }
         assertNotEquals(
             attempt2.id(), aid, "later attempt must not leak into export of captured request");
@@ -2567,9 +2579,26 @@ class DiagnosticBundleExporterTest {
       String failuresRaw = text(entries, "snapshots/engine-startup-failures.json");
       assertFalse(failuresRaw.contains(CANARY_PASSWORD), failuresRaw);
       assertFalse(failuresRaw.contains(CANARY_TOKEN), failuresRaw);
+      assertFalse(failuresRaw.contains(CANARY_API_KEY), failuresRaw);
+      assertFalse(failuresRaw.contains(CANARY_SLASH_PASSWORD), failuresRaw);
       assertFalse(failuresRaw.contains("C:\\Users\\alice"), failuresRaw);
       assertFalse(failuresRaw.contains(CANARY_COOKIE), failuresRaw);
-      assertNoCanaries(entries, CANARY_PASSWORD, CANARY_TOKEN, "C:\\Users\\alice", CANARY_COOKIE);
+      assertNoCanaries(
+          entries,
+          CANARY_PASSWORD,
+          CANARY_TOKEN,
+          CANARY_API_KEY,
+          CANARY_SLASH_PASSWORD,
+          "C:\\Users\\alice",
+          CANARY_COOKIE);
+
+      String shareText = diag1.shareText();
+      assertFalse(shareText.contains(CANARY_PASSWORD), shareText);
+      assertFalse(shareText.contains(CANARY_TOKEN), shareText);
+      assertFalse(shareText.contains(CANARY_API_KEY), shareText);
+      assertFalse(shareText.contains(CANARY_SLASH_PASSWORD), shareText);
+      assertTrue(shareText.contains("eng-first-test"), shareText);
+      assertTrue(shareText.contains("gtp"), shareText);
 
       JSONObject manifest = manifest(entries);
       JSONObject source = source(manifest, "engine-startup-failures");

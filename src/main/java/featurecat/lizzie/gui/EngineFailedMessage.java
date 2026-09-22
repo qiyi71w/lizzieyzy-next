@@ -293,7 +293,18 @@ public class EngineFailedMessage extends JDialog {
         .getAccessibleContext()
         .setAccessibleName(
             Lizzie.resourceBundle.getString("EngineFailedMessage.diagnosticSummary"));
-    diagnosticPanel.add(summaryArea, BorderLayout.NORTH);
+    JScrollPane summaryPane =
+        new JScrollPane(
+            summaryArea,
+            JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+            JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+    summaryPane.setName("EngineFailedMessage.summaryPane");
+    summaryPane.setPreferredSize(new Dimension(1, 86));
+    summaryPane
+        .getAccessibleContext()
+        .setAccessibleName(
+            Lizzie.resourceBundle.getString("EngineFailedMessage.diagnosticSummary"));
+    diagnosticPanel.add(summaryPane, BorderLayout.CENTER);
 
     detailsPane = createScrollableText("", textFont);
     detailsPane.setName("EngineFailedMessage.detailsPane");
@@ -304,7 +315,7 @@ public class EngineFailedMessage extends JDialog {
         .setAccessibleName(Lizzie.resourceBundle.getString("EngineFailedMessage.details"));
     detailsArea = (JTextArea) detailsPane.getViewport().getView();
     detailsArea.setName("EngineFailedMessage.detailsArea");
-    diagnosticPanel.add(detailsPane, BorderLayout.CENTER);
+    diagnosticPanel.add(detailsPane, BorderLayout.SOUTH);
 
     centerPanel.add(diagnosticPanel, BorderLayout.CENTER);
     root.add(centerPanel, BorderLayout.CENTER);
@@ -578,6 +589,9 @@ public class EngineFailedMessage extends JDialog {
                   + (originalCommand == null ? "" : originalCommand)));
     }
     detailsArea.setCaretPosition(0);
+    summaryArea.setCaretPosition(0);
+    revalidate();
+    repaint();
   }
 
   private void stopRefreshTimer() {

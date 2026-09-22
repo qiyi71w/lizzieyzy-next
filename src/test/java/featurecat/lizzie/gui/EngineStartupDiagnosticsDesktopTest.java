@@ -132,6 +132,8 @@ public class EngineStartupDiagnosticsDesktopTest {
           }
         };
     engine.savedEntryId = entry.id;
+    // Selected startup targets retain the catalog's preload hint; owner selection wins.
+    engine.preload = true;
     engine.width = engine.height = engine.oriWidth = engine.oriHeight = 19;
     engine.komi = engine.orikomi = 6.5f;
     Lizzie.engineManager.engineList.add(engine);
@@ -152,6 +154,7 @@ public class EngineStartupDiagnosticsDesktopTest {
     await(() -> !latest().toJson().getString("outcome").equals("collecting"));
     EngineStartupDiagnostic diagnostic = latest();
     assertEquals(expectedCode, diagnostic.toJson().getInt("exitCode"));
+    assertEquals("MAIN_BOARD", diagnostic.toJson().getString("launchPurpose"));
     if (windows) assertEquals("STATUS_DLL_NOT_FOUND", diagnostic.toJson().getString("statusName"));
     EngineFailedMessage dialog = failedWindow();
     assertNotNull(dialog);
@@ -161,6 +164,9 @@ public class EngineStartupDiagnosticsDesktopTest {
           return text.contains(diagnostic.attemptId())
               && text.contains(Integer.toString(expectedCode));
         });
+    Path collapsedScreenshot = result.getParent().resolve("startup-failure-collapsed.png");
+    ImageIO.write(
+        new Robot().createScreenCapture(dialog.getBounds()), "png", collapsedScreenshot.toFile());
     SwingUtilities.invokeAndWait(() -> button(dialog, "EngineFailedMessage.details").doClick());
     Path screenshot = result.getParent().resolve("startup-failure-details.png");
     ImageIO.write(new Robot().createScreenCapture(dialog.getBounds()), "png", screenshot.toFile());

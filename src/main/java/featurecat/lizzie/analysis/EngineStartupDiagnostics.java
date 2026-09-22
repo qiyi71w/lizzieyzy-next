@@ -26,21 +26,6 @@ import org.json.JSONObject;
  * decisions.
  */
 public final class EngineStartupDiagnostics implements AutoCloseable {
-  private static final java.util.Set<String> WRAPPER_EXECUTABLES =
-      java.util.Set.of(
-          "cmd.exe",
-          "powershell.exe",
-          "pwsh.exe",
-          "java.exe",
-          "javaw.exe",
-          "python.exe",
-          "python3.exe",
-          "node.exe",
-          "dotnet.exe",
-          "wscript.exe",
-          "cscript.exe",
-          "bash.exe",
-          "sh.exe");
   private static final java.util.Set<String> COLLECTOR_SOURCES =
       java.util.Set.of("process-tail", "runtime", "pe-import-scan");
 
@@ -272,10 +257,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
               .orElse("");
       launch.put("effectivePath", launchText(path, 65536));
       String executable = command.get(0).toLowerCase(Locale.ROOT);
-      String baseName =
-          executable.substring(
-              Math.max(executable.lastIndexOf('/'), executable.lastIndexOf('\\')) + 1);
-      boolean wrapper = WRAPPER_EXECUTABLES.contains(baseName);
+      boolean wrapper = Leelaz.isIndirectLauncher(executable);
       String applicability =
           !launch.getBoolean("local")
               ? "remote"

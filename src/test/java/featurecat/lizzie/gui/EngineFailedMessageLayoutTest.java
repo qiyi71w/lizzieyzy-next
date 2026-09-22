@@ -528,6 +528,77 @@ class EngineFailedMessageLayoutTest {
     }
   }
 
+  @Test
+  void lastSummaryLineIsAccessibleViaScrollingWithoutOpeningDetails() throws Exception {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    try (EngineStartupDiagnostics diagnostics =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      EngineStartupDiagnostics.Attempt attempt =
+          diagnostics.begin("eng-1-a893feda428170a", "MAIN_BOARD", List.of("engine.exe"), true);
+      attempt.fail("runtime-preflight", "Runtime unavailable");
+
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(
+          () -> {
+            EngineFailedMessage dialog = null;
+            try {
+              dialog =
+                  new EngineFailedMessage(
+                      List.of("engine.exe"), "engine.exe", "Runtime unavailable", true, true, false);
+              dialog.bindStartupDiagnostic(attempt);
+              dialog.setVisible(true);
+              dialog.validate();
+
+              JScrollPane detailsPane =
+                  findComponentByName(dialog, "EngineFailedMessage.detailsPane", JScrollPane.class);
+              assertNotNull(detailsPane);
+              assertFalse(detailsPane.isVisible());
+
+              JTextArea summaryArea =
+                  findComponentByName(dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
+              assertNotNull(summaryArea);
+
+              Rectangle end =
+                  summaryArea.modelToView2D(summaryArea.getDocument().getLength()).getBounds();
+              summaryArea.scrollRectToVisible(end);
+              assertTrue(
+                  summaryArea.getVisibleRect().contains(end),
+                  () -> "Expected visibleRect " + summaryArea.getVisibleRect() + " to contain " + end);
+
+              JButton detailsButton =
+                  findComponentByName(dialog, "EngineFailedMessage.details", JButton.class);
+              assertNotNull(detailsButton);
+              assertTrue(detailsButton.isVisible());
+              assertTrue(detailsButton.isEnabled());
+
+              JButton copyButton =
+                  findComponentByName(dialog, "EngineFailedMessage.copyError", JButton.class);
+              assertNotNull(copyButton);
+              assertTrue(copyButton.isVisible());
+              assertTrue(copyButton.isEnabled());
+
+              JButton exportButton =
+                  findComponentByName(dialog, "EngineFailedMessage.exportDiagnostics", JButton.class);
+              assertNotNull(exportButton);
+              assertTrue(exportButton.isVisible());
+              assertTrue(exportButton.isEnabled());
+
+            } catch (Throwable t) {
+              failure.set(t);
+            } finally {
+              if (dialog != null) dialog.dispose();
+            }
+          });
+      if (failure.get() != null) {
+        if (failure.get() instanceof AssertionError ae) {
+          throw ae;
+        }
+        throw new RuntimeException(failure.get());
+      }
+    }
+  }
+
   @SuppressWarnings("unchecked")
   private static <T extends Component> T findComponentByName(
       Container root, String name, Class<T> type) {
