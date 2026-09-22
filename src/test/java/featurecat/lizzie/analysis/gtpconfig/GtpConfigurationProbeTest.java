@@ -8,14 +8,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.analysis.AnalysisResourceCoordinator;
 import featurecat.lizzie.analysis.AnalysisResourceCoordinatorTestAccess;
+import featurecat.lizzie.analysis.SyncDiagnosticsExportSnapshot;
 import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.logging.LoggingLimits;
+import featurecat.lizzie.logging.DiagnosticBundleExporter;
+import featurecat.lizzie.logging.DiagnosticBundleRequest;
 import featurecat.lizzie.logging.LoggingRuntime;
 import featurecat.lizzie.logging.LoggingSettings;
 import featurecat.lizzie.logging.ObservationText;
 import featurecat.lizzie.logging.WorkDirectoryResolution;
+import featurecat.lizzie.logging.TraceScope;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -31,6 +36,7 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.time.Duration;
+import java.util.EnumSet;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -48,6 +54,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
+import java.util.zip.ZipFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
@@ -273,6 +280,71 @@ class GtpConfigurationProbeTest {
       String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
       assertFalse(app.contains("probe-secret-token"), app);
       assertTrue(app.contains("probe event=stderr"), app);
+      var failures =
+          EngineStartupDiagnostics.getDefault()
+              .snapshot()
+              .failures()
+              .stream()
+              .filter(f -> "GTP_CONFIG_PROBE".equals(f.toJson().optString("launchPurpose")))
+              .toList();
+      assertFalse(failures.isEmpty(), "probe failure must be recorded in EngineStartupDiagnostics");
+      var latest = failures.get(failures.size() - 1);
+      org.json.JSONObject latestJson = latest.toJson();
+      assertEquals("GTP_CONFIG_PROBE", latestJson.getString("launchPurpose"));
+      assertEquals("startup-exit", latestJson.getString("phase"));
+      assertTrue(latestJson.getJSONObject("launch").getBoolean("local"));
+      assertTrue(app.lines().anyMatch(line -> line.contains("WARN") && line.contains(latest.attemptId())));
+      Path zip =
+          new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
+              .export(
+                  new DiagnosticBundleRequest(
+                      runtime,
+                      EnumSet.noneOf(TraceScope.class),
+                      new JSONObject(),
+                      new SyncDiagnosticsExportSnapshot(1L, null, List.of(), List.of(), List.of(), null),
+                      "next-dev"));
+      try (ZipFile archive = new ZipFile(zip.toFile())) {
+        JSONObject exported =
+            new JSONObject(
+                new String(
+                    archive.getInputStream(archive.getEntry("snapshots/engine-startup-failures.json"))
+                        .readAllBytes(),
+                    StandardCharsets.UTF_8));
+        assertTrue(
+            exported.getJSONArray("failures").toList().stream()
+                .anyMatch(value -> latest.attemptId().equals(((java.util.Map<?, ?>) value).get("attemptId"))));
+      }
+    } finally {
+      runtime.shutdown();
+    }
+  }
+
+  @Test
+  void malformedSuccessfulGtpRepliesPublishStartupFailureWithoutChangingIOException() throws Exception {
+    LoggingRuntime runtime = startProbeDiagnostics();
+    try {
+      GtpConfigurationProbe probe = new GtpConfigurationProbe();
+      IOException schema =
+          assertThrows(
+              IOException.class,
+              () -> probe.inspect(fakeEngineCommand("malformed-schema"), Duration.ofSeconds(2)));
+      assertTrue(schema.getMessage().contains("Invalid GTP configuration schema"), schema.getMessage());
+      IOException save =
+          assertThrows(
+              IOException.class,
+              () ->
+                  probe.applyProfile(
+                      fakeEngineCommand("malformed-save"),
+                      new JSONObject().put("threads", 2),
+                      Duration.ofSeconds(2)));
+      assertTrue(save.getMessage().contains("Invalid GTP configuration response"), save.getMessage());
+      var failures =
+          EngineStartupDiagnostics.getDefault().snapshot().failures().stream()
+              .filter(f -> "GTP_CONFIG_PROBE".equals(f.toJson().optString("launchPurpose")))
+              .filter(f -> "startup-handshake".equals(f.toJson().optString("phase")))
+              .filter(f -> f.toJson().getString("originalError").contains("Invalid GTP configuration"))
+              .toList();
+      assertEquals(2, failures.size(), "both real child attempts must publish handshake failures");
     } finally {
       runtime.shutdown();
     }
@@ -307,6 +379,19 @@ class GtpConfigurationProbeTest {
       String app = Files.readString(tempDir.resolve("logs/app.log"), StandardCharsets.UTF_8);
       assertFalse(app.contains("probe-secret-token"), app);
       assertTrue(app.contains("probe event=stderr"), app);
+      var timeoutFailures =
+          EngineStartupDiagnostics.getDefault()
+              .snapshot()
+              .failures()
+              .stream()
+              .filter(
+                  f ->
+                      "GTP_CONFIG_PROBE".equals(f.toJson().optString("launchPurpose"))
+                          && "startup-timeout".equals(f.toJson().optString("phase")))
+              .toList();
+      assertFalse(
+          timeoutFailures.isEmpty(),
+          "timeout failure must be recorded in EngineStartupDiagnostics with startup-timeout phase");
     } finally {
       runtime.shutdown();
     }
@@ -767,6 +852,8 @@ class GtpConfigurationProbeTest {
 
     public static void main(String[] args) throws Exception {
       boolean hangOnSchema = false;
+      boolean malformedSchema = false;
+      boolean malformedSave = false;
       boolean exitBeforeHandshake = false;
       Path schemaGate = null;
       int stderrLines = 0;
@@ -776,6 +863,10 @@ class GtpConfigurationProbeTest {
           hangOnSchema = true;
         } else if ("exit".equals(arg)) {
           exitBeforeHandshake = true;
+        } else if ("malformed-schema".equals(arg)) {
+          malformedSchema = true;
+        } else if ("malformed-save".equals(arg)) {
+          malformedSave = true;
         } else if ("stderr".equals(arg)) {
           stderrLines = Math.max(stderrLines, 4);
         } else if ("stderr-huge".equals(arg)) {
@@ -841,13 +932,13 @@ class GtpConfigurationProbeTest {
                   Thread.sleep(10L);
                 }
               }
-              respond(output, id, SCHEMA);
+              respond(output, id, malformedSchema ? "{bad" : SCHEMA);
             }
           } else if (command.startsWith("zengtp_config_set ")) {
             profile = command.substring("zengtp_config_set ".length());
             respond(output, id, "{\"operation\":\"set\"}");
           } else if ("zengtp_config_save".equals(command)) {
-            respond(output, id, "{\"profile\":" + profile + ",\"state\":{}}");
+            respond(output, id, malformedSave ? "{bad" : "{\"profile\":" + profile + ",\"state\":{}}");
           } else {
             output.println("?" + id + " unknown command");
             output.println();

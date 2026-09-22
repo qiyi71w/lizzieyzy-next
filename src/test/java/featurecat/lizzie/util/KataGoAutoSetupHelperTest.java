@@ -582,6 +582,32 @@ public class KataGoAutoSetupHelperTest {
   }
 
   @Test
+  void versionProbeFailureRetainsItsOwnExitAndLaunchEnvironment() throws Exception {
+    assumeFalse(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"));
+    Path root = Files.createTempDirectory("katago-version-failure");
+    Path engine = root.resolve("katago");
+    Files.writeString(engine, "#!/bin/sh\nprintf 'missing fixture.dll\\n' >&2\nexit 7\n");
+    assertTrue(engine.toFile().setExecutable(true));
+
+    var result = KataGoAutoSetupHelper.validateLocalEngine(engine, 8L);
+    assertFalse(result.isValid());
+    var record = featurecat.lizzie.analysis.EngineStartupDiagnostics.getDefault().snapshot()
+        .failures().stream()
+        .filter(f -> f.toJson().getJSONObject("launch").optString("configuredCommand")
+            .contains(engine.toString()))
+        .findFirst().orElseThrow().toJson();
+    assertEquals("AUTO_SETUP_VERSION_PROBE", record.getString("launchPurpose"));
+    assertEquals("startup-exit", record.getString("phase"));
+    assertEquals(7, record.getInt("exitCode"));
+    assertEquals(root.toString(), record.getJSONObject("launch").getString("cwd"));
+    assertEquals(System.getenv("PATH"), record.getJSONObject("launch").getString("effectivePath"));
+    assertTrue(record.getString("stdout").contains("fixture.dll"));
+    assertEquals("merged", record.getString("stdoutOrigin"));
+    assertEquals(
+        "engine-merged", record.getJSONArray("findings").getJSONObject(0).getString("evidence"));
+  }
+
+  @Test
   void timesOutAHungKataGoExecutableWithinTheConfiguredBound() throws Exception {
     assumeFalse(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"));
     Path root = Files.createTempDirectory("katago-version-timeout");

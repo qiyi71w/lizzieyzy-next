@@ -5,8 +5,10 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.AnalysisEngine;
 import featurecat.lizzie.analysis.AnalysisResourceCoordinator;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.EngineData;
+import featurecat.lizzie.logging.EngineObservation;
 import featurecat.lizzie.logging.MaintenanceObservation;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadCancelledException;
@@ -1523,26 +1525,45 @@ public final class KataGoRuntimeHelper {
       Path enginePath, CudaCompatibilityProbeInputs inputs, String driverVersion)
       throws IOException {
     List<String> command = buildCudaCompatibilityProbeCommand(enginePath, inputs);
+    Object probeOwner = new Object();
+    EngineStartupDiagnostics.Attempt attempt = EngineStartupDiagnostics.getDefault().begin(
+        EngineObservation.ensureStarted(probeOwner, "CUDA_COMPATIBILITY_PROBE"),
+        "CUDA_COMPATIBILITY_PROBE", command, true);
 
     ProcessBuilder processBuilder = new ProcessBuilder(command);
     processBuilder.redirectErrorStream(true);
     configureBundledProcessBuilder(processBuilder, enginePath);
-    Process process = processBuilder.start();
+    attempt.capture(processBuilder);
+    Process process;
+    try {
+      process = processBuilder.start();
+    } catch (IOException failure) {
+      attempt.fail("process-create", failure.toString());
+      EngineObservation.ensureStopped(probeOwner, "compatibility-probe-failed");
+      throw failure;
+    }
+    attempt.attachProcess(process);
     StringBuilder output = new StringBuilder();
-    Thread outputReader = startCompatibilityProbeOutputReader(process, output);
+    Thread outputReader = startCompatibilityProbeOutputReader(process, output, attempt);
     boolean finished;
     try {
       finished = process.waitFor(CUDA_COMPATIBILITY_PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       if (!finished) {
+        attempt.fail("startup-timeout", "CUDA compatibility probe timed out");
+        attempt.beforeTermination();
         process.destroyForcibly();
       }
       outputReader.join(2000L);
     } catch (InterruptedException e) {
+      attempt.fail("startup-timeout", "CUDA compatibility probe interrupted");
+      attempt.beforeTermination();
       process.destroyForcibly();
+      EngineObservation.ensureStopped(probeOwner, "compatibility-probe-interrupted");
       Thread.currentThread().interrupt();
       throw new InterruptedIOException("CUDA compatibility probe interrupted");
     }
 
+    EngineObservation.ensureStopped(probeOwner, "compatibility-probe-finished");
     KataGoBenchmarkObservation observation = KataGoBenchmarkParser.parse(output.toString(), 1);
     boolean successfulInference =
         finished
@@ -1552,6 +1573,8 @@ public final class KataGoRuntimeHelper {
                 .recommendedMetric()
                 .filter(KataGoBenchmarkObservation.ThreadMetrics::validForThroughputSelection)
                 .isPresent();
+    if (successfulInference) attempt.ready();
+    else attempt.fail("startup-exit", summarizeCompatibilityProbeOutput(output.toString()));
     if (!successfulInference) {
       String detail = summarizeCompatibilityProbeOutput(output.toString());
       throw new IOException(
@@ -1599,7 +1622,7 @@ public final class KataGoRuntimeHelper {
   }
 
   private static Thread startCompatibilityProbeOutputReader(
-      Process process, StringBuilder output) {
+      Process process, StringBuilder output, EngineStartupDiagnostics.Attempt attempt) {
     Thread reader =
         new Thread(
             () -> {
@@ -1610,9 +1633,13 @@ public final class KataGoRuntimeHelper {
                 while ((line = buffered.readLine()) != null) {
                   synchronized (output) {
                     output.append(line).append('\n');
+                    attempt.output("merged", line);
                   }
                 }
               } catch (IOException ignored) {
+              } finally {
+                attempt.streamEnded("stdout", null);
+                attempt.streamEnded("stderr", null);
               }
             },
             "katago-cuda-compatibility-probe-output");
@@ -3071,8 +3098,18 @@ public final class KataGoRuntimeHelper {
     if (requireComputeIsolation) {
       requireLayeredBenchmarkComputeIsolation();
     }
+    Object benchmarkOwner = new Object();
+    EngineStartupDiagnostics.Attempt attempt = EngineStartupDiagnostics.getDefault().begin(
+        EngineObservation.ensureStarted(benchmarkOwner, "TUNING_BENCHMARK"),
+        "TUNING_BENCHMARK", command, true);
     if (isWindowsPlatform() && isNvidiaBundledPath(snapshot.enginePath)) {
-      ensureBundledRuntimeReady(snapshot.enginePath, command, null);
+      try {
+        ensureBundledRuntimeReady(snapshot.enginePath, command, null);
+      } catch (IOException failure) {
+        attempt.fail("runtime-preflight", failure.toString());
+        EngineObservation.ensureStopped(benchmarkOwner, "benchmark-preflight-failed");
+        throw failure;
+      }
     }
     notifyProgress(
         listener,
@@ -3086,15 +3123,19 @@ public final class KataGoRuntimeHelper {
         processBuilder, CommandLaunchHelper.prepare(command));
     configureBundledProcessBuilder(processBuilder, snapshot.enginePath);
     processBuilder.directory(snapshot.executionDirectory.toFile());
+    attempt.capture(processBuilder);
 
-    Process process;
+    Process process = null;
     try {
       process = processBuilder.start();
+      attempt.attachProcess(process);
       if (activeSession.isCancelled()) {
+        attempt.beforeTermination();
         process.destroyForcibly();
         activeSession.throwIfCancelled();
       }
       if (requireComputeIsolation && !isLayeredBenchmarkComputeIsolated()) {
+        attempt.beforeTermination();
         process.destroyForcibly();
         throw benchmarkIsolationLostException();
       }
@@ -3104,6 +3145,8 @@ public final class KataGoRuntimeHelper {
           90L,
           1000L);
     } catch (IOException e) {
+      if (process == null) attempt.fail("process-create", e.toString());
+      EngineObservation.ensureStopped(benchmarkOwner, "benchmark-start-failed");
       throw new IOException(
           resource("AutoSetup.benchmarkFailed", "Unable to run KataGo benchmark right now.")
               + " "
@@ -3119,7 +3162,7 @@ public final class KataGoRuntimeHelper {
     AtomicBoolean computeIsolationLost = new AtomicBoolean(false);
     Thread cancellationWatcher =
         startBenchmarkCancellationWatcher(
-            process, activeSession, requireComputeIsolation, computeIsolationLost);
+            process, activeSession, requireComputeIsolation, computeIsolationLost, attempt);
     Thread progressHeartbeat =
         startBenchmarkProgressHeartbeat(
             process,
@@ -3132,6 +3175,7 @@ public final class KataGoRuntimeHelper {
     try {
       readBenchmarkOutput(
           process.getInputStream(),
+          attempt,
           output,
           listener,
           activeSession,
@@ -3140,7 +3184,11 @@ public final class KataGoRuntimeHelper {
           lastProgressAt,
           lastProgressPermille);
     } catch (IOException e) {
+      if (!activeSession.isCancelled() && !computeIsolationLost.get())
+        attempt.fail("startup-handshake", e.toString());
+      attempt.beforeTermination();
       process.destroyForcibly();
+      EngineObservation.ensureStopped(benchmarkOwner, "benchmark-read-failed");
       if (activeSession.isCancelled()) {
         throw new DownloadCancelledException(
             resource("AutoSetup.benchmarkCancelled", "Benchmark stopped."));
@@ -3169,6 +3217,8 @@ public final class KataGoRuntimeHelper {
         requireLayeredBenchmarkComputeIsolation();
       }
       if (exitCode != 0) {
+        attempt.fail("startup-exit", "KataGo benchmark exit " + exitCode);
+        EngineObservation.ensureStopped(benchmarkOwner, "benchmark-exit-failed");
         throw new IOException(
             resource("AutoSetup.benchmarkFailed", "Unable to run KataGo benchmark right now.")
                 + " (exit "
@@ -3176,11 +3226,16 @@ public final class KataGoRuntimeHelper {
                 + "): "
                 + output.substring(Math.max(0, output.length() - 2000)).trim());
       }
+      attempt.ready();
     } catch (InterruptedException e) {
+      attempt.fail("startup-timeout", "KataGo benchmark interrupted");
+      attempt.beforeTermination();
+      EngineObservation.ensureStopped(benchmarkOwner, "benchmark-interrupted");
       process.destroyForcibly();
       Thread.currentThread().interrupt();
       throw new InterruptedIOException("KataGo benchmark interrupted");
     }
+    EngineObservation.ensureStopped(benchmarkOwner, "benchmark-finished");
     notifyProgress(
         listener, resource("AutoSetup.benchmarkDone", "Benchmark complete."), 1000L, 1000L);
     return output.toString();
@@ -3432,7 +3487,7 @@ public final class KataGoRuntimeHelper {
       Process process,
       DownloadSession session,
       boolean requireComputeIsolation,
-      AtomicBoolean computeIsolationLost) {
+      AtomicBoolean computeIsolationLost, EngineStartupDiagnostics.Attempt attempt) {
     if (process == null || session == null) {
       return null;
     }
@@ -3442,6 +3497,7 @@ public final class KataGoRuntimeHelper {
               try {
                 while (process.isAlive()) {
                   if (session.isCancelled()) {
+                    attempt.beforeTermination();
                     process.destroyForcibly();
                     return;
                   }
@@ -3449,6 +3505,7 @@ public final class KataGoRuntimeHelper {
                     if (computeIsolationLost != null) {
                       computeIsolationLost.set(true);
                     }
+                    attempt.beforeTermination();
                     process.destroyForcibly();
                     return;
                   }
@@ -3520,6 +3577,7 @@ public final class KataGoRuntimeHelper {
 
   private static void readBenchmarkOutput(
       InputStream inputStream,
+      EngineStartupDiagnostics.Attempt attempt,
       StringBuilder output,
       ProgressListener listener,
       DownloadSession session,
@@ -3535,10 +3593,12 @@ public final class KataGoRuntimeHelper {
       int read;
       while ((read = reader.read(buffer)) != -1) {
         if (session != null && session.isCancelled()) {
+          attempt.beforeTermination();
           process.destroyForcibly();
           throw new DownloadCancelledException(
               resource("AutoSetup.benchmarkCancelled", "Benchmark stopped."));
         }
+        attempt.output("merged", new String(buffer, 0, read));
         for (int i = 0; i < read; i++) {
           char ch = buffer[i];
           output.append(ch);
@@ -3574,6 +3634,10 @@ public final class KataGoRuntimeHelper {
           lastPublishedStatus,
           lastProgressAt,
           lastProgressPermille);
+    }
+    finally {
+      attempt.streamEnded("stdout", null);
+      attempt.streamEnded("stderr", null);
     }
   }
 

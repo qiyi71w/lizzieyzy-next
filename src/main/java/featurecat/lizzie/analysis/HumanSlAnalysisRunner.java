@@ -2,6 +2,7 @@ package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.logging.EngineObservation;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
@@ -84,6 +85,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   private volatile KataGoRuntimeHelper.TensorRtRepairContext tensorRtRepairContext;
   private volatile int activeProcessGeneration;
   private volatile StartupListener startupListener;
+  private volatile EngineStartupDiagnostics.Attempt startupDiagnosticAttempt;
 
   public HumanSlAnalysisRunner(String analysisCommand, Path humanModelPath) {
     this(buildHumanSlCommand(analysisCommand, humanModelPath), ProcessBuilder::start);
@@ -113,6 +115,11 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       return false;
     }
 
+    String engineId = EngineObservation.restartInstance(this, "HUMAN_SL");
+    EngineStartupDiagnostics.Attempt attempt =
+        EngineStartupDiagnostics.getDefault().begin(engineId, "HUMAN_SL", commandParts, true);
+    startupDiagnosticAttempt = attempt;
+
     CommandLaunchHelper.LaunchSpec launchSpec = CommandLaunchHelper.prepare(commandParts);
     List<String> preparedCommands = launchSpec.getCommandParts();
     Path engineExecutable = KataGoRuntimeHelper.resolveCommandExecutable(preparedCommands);
@@ -120,10 +127,12 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
         KataGoRuntimeHelper.inspectHumanSlTensorRtStartupFailure(
             engineExecutable, preparedCommands, String.join(" ", preparedCommands));
     if (tensorRtRepairContext != null && tensorRtRepairContext.repairable) {
+      attempt.fail("runtime-preflight", tensorRtRepairContext.displayMessage);
       unavailableReason = tensorRtRepairContext.displayMessage;
       return false;
     }
     if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
+      attempt.fail("runtime-preflight", "KataGo tuning is using the local compute device.");
       unavailableReason = "KataGo tuning is using the local compute device.";
       return false;
     }
@@ -133,6 +142,9 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
           KataGoRuntimeHelper.prepareBundledLaunchCommand(
               preparedCommands, engineExecutable, KataGoRuntimeHelper.LaunchPurpose.HUMAN_SL);
     } catch (IllegalStateException e) {
+      attempt.fail(
+          "runtime-preflight",
+          usefulMessage(e, "HumanSL engine launch configuration is invalid."));
       unavailableReason = usefulMessage(e, "HumanSL engine launch configuration is invalid.");
       return false;
     }
@@ -140,8 +152,13 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     if (Config.isBundledKataGoExecutable(launchExecutable)) {
       try {
         KataGoRuntimeHelper.ensureBundledRuntimeReady(
-            launchExecutable, launchCommands, Lizzie.frame);
+            launchExecutable,
+            launchCommands,
+            String.join(" ", launchCommands),
+            Lizzie.frame,
+            attempt::runtimePreflight);
       } catch (IOException e) {
+        attempt.fail("runtime-preflight", e.toString());
         unavailableReason = e.getLocalizedMessage();
         return false;
       }
@@ -150,12 +167,15 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     CommandLaunchHelper.configureProcessBuilder(processBuilder, launchSpec);
     KataGoRuntimeHelper.configureBundledProcessBuilder(processBuilder, launchExecutable);
     processBuilder.redirectErrorStream(true);
+    attempt.capture(processBuilder);
     clearStartupDiagnostics();
     reportStartupStage(StartupStage.STARTING, "");
     try {
       Process launchedProcess = processStarter.start(processBuilder);
       // Publish ownership immediately so every later unchecked failure can terminate this process.
       process = launchedProcess;
+      attempt.attachProcess(launchedProcess);
+      attempt.streamEnded("stderr", null);
       BufferedReader launchedInput =
           new BufferedReader(
               new InputStreamReader(launchedProcess.getInputStream(), StandardCharsets.UTF_8));
@@ -170,18 +190,23 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       started = true;
       unavailableReason = null;
       tensorRtRepairContext = null;
-      launchedReader.execute(() -> readLoop(generation, launchedInput));
+      launchedReader.execute(() -> readLoop(generation, launchedInput, attempt));
       AnalysisResourceCoordinator.processStarted(
           this,
           AnalysisResourceCoordinator.Purpose.OTHER,
           String.join(" ", launchCommands),
-          launchedProcess);
+          launchedProcess,
+          true);
       return true;
     } catch (IOException e) {
+      attempt.fail("process-create", e.toString());
+      attempt.beforeTermination();
       unavailableReason = withStartupDiagnostics(e.getLocalizedMessage());
       stopActiveProcess(false, unavailableReason);
       return false;
     } catch (RuntimeException | Error failure) {
+      attempt.fail("process-create", failure.toString());
+      attempt.beforeTermination();
       Throwable cleanupFailure = null;
       try {
         stopActiveProcess(false, usefulMessage(failure, "HumanSL engine startup failed."));
@@ -207,12 +232,18 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       return false;
     }
     int generation = activeProcessGeneration;
+    EngineStartupDiagnostics.Attempt attempt = startupDiagnosticAttempt;
     String requestId = "humansl-ready-" + nextRequestId.getAndIncrement();
     JSONObject readinessRequest = buildHumanSlRequest(requestId, positionNode, profile, 1, 1);
     try {
       JSONObject response =
           request(readinessRequest, timeout == null ? Duration.ofSeconds(180) : timeout);
       if (response == null || !requestId.equals(response.optString("id", ""))) {
+        if (attempt != null) {
+          attempt.fail(
+              "startup-handshake", "HumanSL engine returned an invalid readiness response.");
+          attempt.beforeTermination();
+        }
         stopActiveProcess(
             generation,
             false,
@@ -221,8 +252,20 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       }
       unavailableReason = null;
       reportStartupStage(StartupStage.READY, "");
+      if (attempt != null) {
+        attempt.ready();
+      }
+      String engineId = EngineObservation.identityFor(this);
+      if (engineId != null) {
+        EngineObservation.recordReady(engineId);
+      }
       return true;
     } catch (TimeoutException | IOException e) {
+      if (attempt != null) {
+        String stage = e instanceof TimeoutException ? "startup-timeout" : "startup-handshake";
+        attempt.fail(stage, usefulMessage(e, "HumanSL engine did not become ready."));
+        attempt.beforeTermination();
+      }
       stopActiveProcess(
           generation,
           false,
@@ -589,11 +632,19 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
    * request.
    */
   public void cancelActiveRequests() {
+    EngineStartupDiagnostics.Attempt attempt = startupDiagnosticAttempt;
+    if (attempt != null) {
+      attempt.cancel();
+    }
     stopActiveProcess(false, "HumanSL request cancelled.");
   }
 
   @Override
   public void close() {
+    EngineStartupDiagnostics.Attempt attempt = startupDiagnosticAttempt;
+    if (attempt != null) {
+      attempt.cancel();
+    }
     Throwable failure = null;
     try {
       stopActiveProcess(true, "HumanSL analysis runner closed.");
@@ -615,6 +666,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     BufferedReader stoppedInput;
     BufferedOutputStream stoppedOutput;
     ScheduledExecutorService stoppedReader;
+    EngineStartupDiagnostics.Attempt stoppedAttempt;
     synchronized (this) {
       if (expectedGeneration >= 0 && expectedGeneration != activeProcessGeneration) {
         return null;
@@ -625,6 +677,7 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       started = false;
       activeProcessGeneration = processGeneration.incrementAndGet();
       stoppedProcess = process;
+      stoppedAttempt = startupDiagnosticAttempt;
       stoppedInput = inputStream;
       stoppedOutput = outputStream;
       stoppedReader = readerExecutor;
@@ -662,6 +715,9 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
       }
     }
     if (stoppedProcess != null) {
+      if (stoppedAttempt != null) {
+        stoppedAttempt.beforeTermination();
+      }
       try {
         if (stoppedProcess.isAlive()) {
           stoppedProcess.destroyForcibly();
@@ -1197,13 +1253,17 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     return isStarted() || start();
   }
 
-  private void readLoop(int generation, BufferedReader reader) {
+  private void readLoop(
+      int generation, BufferedReader reader, EngineStartupDiagnostics.Attempt attempt) {
     IOException failure = null;
     try {
       String line;
       while (!closed
           && generation == activeProcessGeneration
           && (line = reader.readLine()) != null) {
+        if (attempt != null) {
+          attempt.output("merged", line);
+        }
         if (!line.trim().startsWith("{")) {
           if (!line.trim().isEmpty()) {
             String diagnostic = line.trim();
@@ -1225,8 +1285,17 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     } catch (Exception e) {
       failure = new IOException("HumanSL analysis reader stopped.", e);
     } finally {
+      if (attempt != null) {
+        attempt.streamEnded("stdout", failure == null ? null : failure.toString());
+      }
       boolean activeGeneration = generation == activeProcessGeneration;
       if (activeGeneration && !closed) {
+        if (attempt != null) {
+          attempt.fail(
+              "startup-exit",
+              failure == null ? stoppedProcessMessage(generation) : failure.toString());
+          attempt.beforeTermination();
+        }
         IOException ioException =
             failure == null ? new IOException(stoppedProcessMessage(generation)) : failure;
         String reason =
@@ -1392,6 +1461,10 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
     return positionNode != null
         && positionNode.getData() != null
         && positionNode.getData().moveNumber >= 200;
+  }
+
+  public EngineStartupDiagnostics.Attempt getStartupDiagnosticAttempt() {
+    return startupDiagnosticAttempt;
   }
 
   interface ProcessStarter {

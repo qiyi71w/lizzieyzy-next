@@ -189,6 +189,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
     private final Map<String, Job> jobs = new LinkedHashMap<>();
     private final Tail stdout = new Tail();
     private final Tail stderr = new Tail();
+    private boolean stdoutMerged;
     private boolean launchTruncated;
     private final boolean windows = System.getProperty("os.name", "").startsWith("Windows");
     private Process process;
@@ -352,6 +353,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
 
     public synchronized void output(String stream, String line) {
       if (!collectingOutput()) return;
+      if ("merged".equals(stream)) stdoutMerged = true;
       ("stderr".equals(stream) ? stderr : stdout).add(line);
       outputEvidenceDirty = true;
       notifyAll();
@@ -507,7 +509,8 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
       if (outputEvidenceDirty) {
         List<Finding> captured = new ArrayList<>();
         Instant checked = Instant.now();
-        captured.addAll(EngineOutputDiagnostic.parse("stdout", stdout.text(), checked));
+        captured.addAll(
+            EngineOutputDiagnostic.parse(stdoutMerged ? "merged" : "stdout", stdout.text(), checked));
         captured.addAll(EngineOutputDiagnostic.parse("stderr", stderr.text(), checked));
         outputFindings = List.copyOf(captured);
         outputEvidenceDirty = false;
@@ -574,6 +577,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
                   naturalExit == null ? "unavailable" : windows ? "NTSTATUS" : "process-exit")
               .put("exitObservation", naturalExit == null ? "unavailable" : "natural")
               .put("stdout", stdout.text())
+              .put("stdoutOrigin", stdoutMerged ? "merged" : "stdout")
               .put("stderr", stderr.text())
               .put("stdoutTruncated", stdout.truncated)
               .put("stderrTruncated", stderr.truncated)

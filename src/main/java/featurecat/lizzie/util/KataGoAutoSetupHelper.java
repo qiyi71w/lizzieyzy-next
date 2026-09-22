@@ -3,7 +3,9 @@ package featurecat.lizzie.util;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.gui.EngineData;
+import featurecat.lizzie.logging.EngineObservation;
 import featurecat.lizzie.logging.MaintenanceObservation;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
@@ -791,6 +793,10 @@ public final class KataGoAutoSetupHelper {
     Process process = null;
     ByteArrayOutputStream output = new ByteArrayOutputStream();
     Thread outputPump = null;
+    Object probeOwner = new Object();
+    EngineStartupDiagnostics.Attempt attempt = EngineStartupDiagnostics.getDefault().begin(
+        EngineObservation.ensureStarted(probeOwner, "AUTO_SETUP_VERSION_PROBE"),
+        "AUTO_SETUP_VERSION_PROBE", List.of(enginePath.toString(), "version"), true);
     try {
       ProcessBuilder builder = new ProcessBuilder(enginePath.toString(), "version");
       Path parent = enginePath.toAbsolutePath().normalize().getParent();
@@ -799,7 +805,9 @@ public final class KataGoAutoSetupHelper {
       }
       KataGoRuntimeHelper.configureBundledProcessBuilder(builder, enginePath);
       builder.redirectErrorStream(true);
+      attempt.capture(builder);
       process = builder.start();
+      attempt.attachProcess(process);
       final Process runningProcess = process;
       outputPump =
           new Thread(
@@ -809,8 +817,12 @@ public final class KataGoAutoSetupHelper {
                   int read;
                   while ((read = input.read(buffer)) >= 0 && output.size() < 64 * 1024) {
                     output.write(buffer, 0, Math.min(read, 64 * 1024 - output.size()));
+                    attempt.output("merged", new String(buffer, 0, read, StandardCharsets.UTF_8));
                   }
                 } catch (IOException ignored) {
+                } finally {
+                  attempt.streamEnded("stdout", null);
+                  attempt.streamEnded("stderr", null);
                 }
               },
               "katago-version-output");
@@ -818,6 +830,8 @@ public final class KataGoAutoSetupHelper {
       outputPump.start();
       long effectiveTimeout = Math.max(2L, timeoutSeconds);
       if (!process.waitFor(effectiveTimeout, TimeUnit.SECONDS)) {
+        attempt.fail("startup-timeout", "KataGo version check timed out.");
+        attempt.beforeTermination();
         process.destroyForcibly();
         return new EngineValidationResult(
             EngineValidationStatus.TIMED_OUT, "KataGo version check timed out.");
@@ -825,17 +839,23 @@ public final class KataGoAutoSetupHelper {
       outputPump.join(1000L);
       String detail = output.toString(StandardCharsets.UTF_8.name()).trim();
       if (process.exitValue() == 0) {
+        attempt.ready();
         return new EngineValidationResult(EngineValidationStatus.VALID, detail);
       }
+      attempt.fail("startup-exit", detail);
       return classifyValidationFailure(detail, null);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+      attempt.fail("startup-timeout", "KataGo version check was interrupted.");
       return new EngineValidationResult(
           EngineValidationStatus.TIMED_OUT, "KataGo version check was interrupted.");
     } catch (IOException e) {
+      attempt.fail(process == null ? "process-create" : "startup-handshake", e.toString());
       return classifyValidationFailure("", e);
     } finally {
+      EngineObservation.ensureStopped(probeOwner, "version-probe-finished");
       if (process != null && process.isAlive()) {
+        attempt.beforeTermination();
         process.destroyForcibly();
       }
     }
