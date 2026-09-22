@@ -44,7 +44,10 @@ public final class EngineGameMatchRulesSelection {
   public static void persist(Config config, KataGoRules rules) {
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(rules, "rules");
-    config.engineGameMatchRules = rules.toGtpArgument();
+    KataGoRules previous = stored(config).orElse(null);
+    if (!rules.semanticallyEquals(previous)) {
+      config.engineGameMatchRules = rules.toGtpArgument();
+    }
     if (config.uiConfig != null) {
       config.uiConfig.put(CONFIG_KEY, config.engineGameMatchRules);
     }

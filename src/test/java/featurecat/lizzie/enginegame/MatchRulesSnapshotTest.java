@@ -35,9 +35,11 @@ class MatchRulesSnapshotTest {
             confirmed(BLACK, CHINESE),
             confirmed(WHITE, CHINESE),
             MatchRulesAdmission.Outcome.ADMIT_CONFIRMED);
-    assertEquals(bundle.getString("LizzieFrame.currentRules.chinese"), snapshot.mainSummary(bundle));
     assertEquals(
-        bundle.getString("LizzieFrame.currentRules.chinese"), snapshot.completed().mainSummary(bundle));
+        bundle.getString("LizzieFrame.currentRules.chinese"), snapshot.mainSummary(bundle));
+    assertEquals(
+        bundle.getString("LizzieFrame.currentRules.chinese"),
+        snapshot.completed().mainSummary(bundle));
   }
 
   @Test
@@ -93,6 +95,25 @@ class MatchRulesSnapshotTest {
     assertFalse(summary.contains("QUERY_FAILED"));
     assertFalse(summary.contains("QUERY_REJECTED"));
     assertTrue(summary.contains(bundle.getString("MatchRules.reason.QUERY_REJECTED")));
+  }
+
+  @Test
+  void confirmedReadbackShowsRuleFamilyDuringAndAfterMatch() {
+    ResourceBundle bundle = Lizzie.resourceBundle;
+    for (String preset : java.util.List.of("korean", "bga")) {
+      KataGoRules target = KataGoRules.parse(preset).orElseThrow();
+      KataGoRules observed = KataGoRules.parse(target.toResponseLine()).orElseThrow();
+      MatchRulesSnapshot snapshot =
+          MatchRulesSnapshot.of(
+              MatchRulesSnapshot.Phase.PLAYING,
+              target,
+              confirmed(BLACK, observed),
+              confirmed(WHITE, observed),
+              MatchRulesAdmission.Outcome.ADMIT_CONFIRMED);
+      String key = preset.equals("korean") ? "japaneseKorean" : "agaBga";
+      assertEquals(bundle.getString("MatchRules.option." + key), snapshot.mainSummary(bundle));
+      assertEquals(snapshot.mainSummary(bundle), snapshot.completed().mainSummary(bundle));
+    }
   }
 
   private static MatchRulesAdmission.SideResult confirmed(
