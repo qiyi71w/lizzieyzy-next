@@ -123,6 +123,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
   }
 
   private final Policy policy;
+  private final PeDependencyScanner.Limits peLimits;
   private final Consumer<EngineStartupDiagnostic> publisher;
   private final ThreadPoolExecutor workers;
   private final ScheduledThreadPoolExecutor deadlines;
@@ -132,6 +133,12 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
   private int historyBytes;
 
   public EngineStartupDiagnostics(Policy policy, Consumer<EngineStartupDiagnostic> publisher) {
+    this(policy, publisher, PeDependencyScanner.Limits.production());
+  }
+
+  EngineStartupDiagnostics(Policy policy, Consumer<EngineStartupDiagnostic> publisher,
+      PeDependencyScanner.Limits peLimits) {
+    this.peLimits = peLimits;
     this.policy = policy;
     this.publisher = publisher;
     workers =
@@ -184,6 +191,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
     private int findingBytes = 2;
     private Evidence preflightEvidence;
     private Collector runtimeCollector;
+    private Collector peCollector;
     private boolean outputEvidenceDirty = true;
     private List<Finding> outputFindings = List.of();
     private final Map<String, Job> jobs = new LinkedHashMap<>();
@@ -286,6 +294,14 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
           Path resolved = (target.isAbsolute() ? target : cwd.resolve(target)).normalize();
           runtimeCollector = () -> runtimeEvidence(
               KataGoRuntimeHelper.inspectStartupRuntime(resolved, cwd, path), "post-failure-final-environment");
+          Path frozenExecutable = resolved;
+          Path frozenCwd = cwd;
+          String frozenPath = path;
+          String frozenSystemRoot = builder.environment().entrySet().stream()
+              .filter(e -> e.getKey().equalsIgnoreCase("SystemRoot"))
+              .map(Map.Entry::getValue).findFirst().orElse(null);
+          peCollector = () -> PeDependencyScanner.scan(frozenExecutable, frozenCwd,
+              frozenPath, frozenSystemRoot, peLimits);
           sources.put("runtime", state("applicable", "queued", "", "Frozen final environment; check pending"));
         }
       } else {
@@ -295,17 +311,18 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
       launch.put(
           "searchContext",
           new JSONObject()
-              .put("systemRoot", limited(builder.environment().get("SystemRoot"), 4096))
-              .put(
-                  "architecture", limited(builder.environment().get("PROCESSOR_ARCHITECTURE"), 128))
-              .put("checkedScope", "captured launch environment; no static scan"));
-      sources.put(
-          "pe-import-scan",
-          state(
-              "not-applicable",
-              "not-applicable",
-              applicability,
-              "No static dependency scan evidence"));
+              .put("systemRoot", limited(builder.environment().entrySet().stream()
+                  .filter(e -> e.getKey().equalsIgnoreCase("SystemRoot"))
+                  .map(Map.Entry::getValue).findFirst().orElse(null), 4096))
+              .put("architecture", limited(builder.environment().get("PROCESSOR_ARCHITECTURE"), 128))
+              .put("checkedScope", peCollector == null ? "static scan not applicable"
+                  : "Frozen executable, cwd, and effective PATH; scan pending"));
+      sources.put("pe-import-scan", peCollector == null
+          ? state("not-applicable", "not-applicable",
+              "not-collected".equals(applicability)
+                  ? launchTruncated ? "context-truncated" : "target-unavailable" : applicability,
+              "Static dependency scan unavailable for this launch")
+          : state("applicable", "queued", "", "Frozen static dependency scan pending"));
     }
 
     private String launchText(String value, int maxBytes) {
@@ -381,6 +398,9 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
       failedAt = Instant.now();
       deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(policy.deadlineMillis());
       observeExit();
+      if ("not-formed".equals(launch.getString("environmentState")))
+        sources.put("pe-import-scan", state("not-applicable", "not-applicable",
+            "environment-not-formed", "Final launch search environment was not formed"));
       if (preflightEvidence != null && !appendFindings(preflightEvidence))
         sources.put("runtime-preflight", state("applicable", "partial", "result-limit",
             preflightEvidence.checkedScope()));
@@ -392,6 +412,7 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
               process == null ? "no-process" : "",
               "Original process exit and bounded stdout/stderr DLL error evidence; no static scan"));
       publish();
+      if (peCollector != null) collect("pe-import-scan", peCollector);
       if (runtimeCollector != null) collect("runtime", runtimeCollector);
       if (process != null)
         collect(
@@ -468,6 +489,26 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
         collectionState = "failed";
         reason = "read-error";
       }
+      if (evidence != null && "pe-import-scan".equals(job.source)) {
+        if (evidence.findings().stream().anyMatch(f -> "not-applicable".equals(f.completeness()))) {
+          collectionState = "not-applicable";
+          reason = evidence.findings().stream()
+              .filter(f -> "not-applicable".equals(f.completeness()))
+              .findFirst().orElseThrow().outcome();
+        } else {
+          Finding partial = evidence.findings().stream()
+              .filter(f -> "partial".equals(f.completeness())).findFirst().orElse(null);
+          if (partial != null && "completed".equals(collectionState)) {
+            collectionState = "partial";
+            reason = partial.outcome();
+          }
+        }
+          if ("completed".equals(collectionState)
+              && evidence.checkedScope().contains("; partial-reason=result-limit")) {
+            collectionState = "partial";
+            reason = "result-limit";
+          }
+      }
       if (!"completed".equals(collectionState)) {
         job.task.cancel(true);
         workers.remove(job.task);
@@ -476,10 +517,11 @@ public final class EngineStartupDiagnostics implements AutoCloseable {
         collectionState = "partial";
         reason = "result-limit";
       }
-      boolean applicable = evidence == null || evidence.findings().stream().anyMatch(
-          finding -> !finding.outcome().equals("runtime-backend-unmatched")
-              && !finding.outcome().equals("runtime-not-applicable"));
-      if (evidence != null && evidence.findings().isEmpty()) applicable = true;
+      boolean applicable = evidence == null || evidence.findings().isEmpty()
+          || evidence.findings().stream().anyMatch(f -> !"runtime-backend-unmatched".equals(f.outcome())
+              && !"runtime-not-applicable".equals(f.outcome())
+              && !"non-native-pe".equals(f.outcome())
+              && !"target-unavailable".equals(f.outcome()));
       sources.put(
           job.source,
           state(
