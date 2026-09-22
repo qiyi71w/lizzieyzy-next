@@ -2132,9 +2132,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     SetupSnapshot source = snapshot;
     catalogRefreshSource = source;
     long requestId = ++catalogRefreshRequestId;
-    btnUseWeight.setEnabled(false);
-    btnDownloadWeight.setEnabled(false);
-    weightCatalogList.setEnabled(false);
+    setRefreshDependentControlsEnabled(false);
     catalogRefreshWorker =
         createUiBackgroundWorker(
             source::scanWeightCatalog,
@@ -2160,6 +2158,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                 return;
               lblStatus.setText(error.getMessage());
               lblStatus.setForeground(ERROR_COLOR);
+              refreshIdleControls();
             });
     catalogRefreshWorker.execute();
   }
