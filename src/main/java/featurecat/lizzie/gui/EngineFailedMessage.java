@@ -73,7 +73,7 @@ public class EngineFailedMessage extends JDialog {
   private boolean tensorRtRepairInvoked;
   private final String originalMessage;
   private final String originalCommand;
-  private final JPanel diagnosticPanel;
+  private final JDialog diagnosticWindow;
   private final JTextArea summaryArea;
   private final JScrollPane detailsPane;
   private final JTextArea detailsArea;
@@ -280,12 +280,8 @@ public class EngineFailedMessage extends JDialog {
     commandPane.getAccessibleContext().setAccessibleName(lblEngineCmd.getText());
     commandPanel.add(commandPane, BorderLayout.CENTER);
 
-    JPanel centerPanel = new JPanel(new BorderLayout(0, 8));
-    centerPanel.add(commandPanel, BorderLayout.NORTH);
-
-    diagnosticPanel = new JPanel(new BorderLayout(0, 4));
-    diagnosticPanel.setName("EngineFailedMessage.diagnosticPanel");
-    diagnosticPanel.setVisible(false);
+    JPanel diagnosticPanel = new JPanel(new BorderLayout(0, 8));
+    diagnosticPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
     summaryArea = new JTextArea();
     summaryArea.setName("EngineFailedMessage.diagnosticSummary");
@@ -315,7 +311,6 @@ public class EngineFailedMessage extends JDialog {
     detailsPane = createScrollableText("", textFont);
     detailsPane.setName("EngineFailedMessage.detailsPane");
     detailsPane.setPreferredSize(new Dimension(1, 140));
-    detailsPane.setVisible(false);
     detailsPane
         .getAccessibleContext()
         .setAccessibleName(Lizzie.resourceBundle.getString("EngineFailedMessage.details"));
@@ -323,10 +318,15 @@ public class EngineFailedMessage extends JDialog {
     detailsArea.setName("EngineFailedMessage.detailsArea");
     diagnosticPanel.add(detailsPane, BorderLayout.SOUTH);
 
-    centerPanel.add(diagnosticPanel, BorderLayout.CENTER);
-    root.add(centerPanel, BorderLayout.CENTER);
+    root.add(commandPanel, BorderLayout.CENTER);
+    diagnosticWindow = new JDialog(this, Lizzie.resourceBundle.getString("EngineFailedMessage.details"));
+    diagnosticWindow.setName("EngineFailedMessage.diagnosticWindow");
+    diagnosticWindow.setDefaultCloseOperation(JDialog.HIDE_ON_CLOSE);
+    JPanel diagnosticContent = new JPanel(new BorderLayout(0, 8));
+    diagnosticContent.add(diagnosticPanel, BorderLayout.CENTER);
+    diagnosticWindow.setContentPane(diagnosticContent);
 
-    JPanel footer = new JPanel(new BorderLayout(0, 6));
+    JPanel footer = new JPanel(new BorderLayout(8, 0));
     JPanel legacyRow = new JPanel(new BorderLayout(8, 0));
 
     if (restartContribute) {
@@ -432,7 +432,7 @@ public class EngineFailedMessage extends JDialog {
     this.repairContext = repairContext;
     this.tensorRtRepairButton = repairButton;
 
-    footer.add(legacyRow, BorderLayout.NORTH);
+    footer.add(legacyRow, BorderLayout.CENTER);
 
     JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
     copyStatusLabel = new JFontLabel("");
@@ -443,7 +443,7 @@ public class EngineFailedMessage extends JDialog {
     btnDetails
         .getAccessibleContext()
         .setAccessibleName(Lizzie.resourceBundle.getString("EngineFailedMessage.details"));
-    btnDetails.addActionListener(e -> toggleDetails());
+    btnDetails.addActionListener(e -> showDetails());
 
     btnCopy = new JFontButton(Lizzie.resourceBundle.getString("EngineFailedMessage.copyError"));
     btnCopy.setName("EngineFailedMessage.copyError");
@@ -461,18 +461,18 @@ public class EngineFailedMessage extends JDialog {
             Lizzie.resourceBundle.getString("EngineFailedMessage.exportDiagnostics"));
     btnExport.addActionListener(e -> exportDiagnosticsAction());
     actionRow.add(copyStatusLabel);
-    actionRow.add(btnDetails);
     actionRow.add(btnCopy);
     actionRow.add(btnExport);
 
-    footer.add(actionRow, BorderLayout.SOUTH);
+    diagnosticContent.add(actionRow, BorderLayout.SOUTH);
+    footer.add(btnDetails, BorderLayout.EAST);
     root.add(footer, BorderLayout.SOUTH);
     setContentPane(root);
     int minimumWidth =
         (Lizzie.config != null && Lizzie.config.isFrameFontSmall())
             ? 580
             : ((Lizzie.config != null && Lizzie.config.isFrameFontMiddle()) ? 660 : 730);
-    int preferredHeight = canUseCmdDignostic ? 380 : restartContribute ? 360 : 340;
+    int preferredHeight = canUseCmdDignostic ? 360 : restartContribute ? 340 : 320;
     Rectangle usableScreenBounds = usableScreenBounds();
     Dimension dialogSize =
         calculateDialogSize(
@@ -485,6 +485,13 @@ public class EngineFailedMessage extends JDialog {
     setSize(dialogSize);
     setMinimumSize(
         new Dimension(Math.min(dialogSize.width, 480), Math.min(dialogSize.height, 260)));
+    diagnosticWindow.setSize(
+        Math.min(dialogSize.width, usableScreenBounds.width - SCREEN_MARGIN),
+        Math.min(540, usableScreenBounds.height - SCREEN_MARGIN));
+    diagnosticWindow.setMinimumSize(
+        new Dimension(Math.min(diagnosticWindow.getWidth(), 480),
+            Math.min(diagnosticWindow.getHeight(), 320)));
+    setDisplayedDiagnostic(null);
 
     addWindowListener(
         new WindowAdapter() {
@@ -582,11 +589,9 @@ public class EngineFailedMessage extends JDialog {
   private void setDisplayedDiagnostic(EngineStartupDiagnostic diagnostic) {
     this.displayedDiagnostic = diagnostic;
     if (diagnostic != null) {
-      diagnosticPanel.setVisible(true);
       summaryArea.setText(formatSummaryText(diagnostic));
       detailsArea.setText(diagnostic.shareText());
     } else {
-      diagnosticPanel.setVisible(detailsPane.isVisible());
       summaryArea.setText("");
       detailsArea.setText(
           redactSensitiveText(
@@ -613,18 +618,14 @@ public class EngineFailedMessage extends JDialog {
     super.dispose();
   }
 
-  private void toggleDetails() {
-    boolean show = !detailsPane.isVisible();
-    detailsPane.setVisible(show);
-    diagnosticPanel.setVisible(show || displayedDiagnostic != null);
-    Dimension cur = getSize();
-    Rectangle usable = usableScreenBounds();
-    int targetHeight = show ? cur.height + 150 : Math.max(260, cur.height - 150);
-    targetHeight = Math.min(usable.height - SCREEN_MARGIN, targetHeight);
-    setSize(cur.width, targetHeight);
-    revalidate();
-    repaint();
-    setBounds(clampDialogBounds(getBounds(), usable));
+  private void showDetails() {
+    if (!diagnosticWindow.isVisible()) {
+      diagnosticWindow.setLocationRelativeTo(this);
+      diagnosticWindow.setBounds(
+          clampDialogBounds(diagnosticWindow.getBounds(), usableScreenBounds()));
+      diagnosticWindow.setVisible(true);
+    }
+    diagnosticWindow.toFront();
   }
 
   private void copyErrorAction() {
@@ -652,7 +653,7 @@ public class EngineFailedMessage extends JDialog {
   private void exportDiagnosticsAction() {
     EngineStartupDiagnostic failure = this.displayedDiagnostic;
     LoggingRuntime.current()
-        .ifPresent(runtime -> DiagnosticsDialog.open(this, runtime, Lizzie.config, failure));
+        .ifPresent(runtime -> DiagnosticsDialog.open(diagnosticWindow, runtime, Lizzie.config, failure));
   }
 
   static String formatSummaryText(EngineStartupDiagnostic diagnostic) {
@@ -684,11 +685,11 @@ public class EngineFailedMessage extends JDialog {
     String sourcesLine = formatSourcesText(json.optJSONObject("sources"));
     String findingsText = formatFindingsText(json.optJSONArray("findings"));
     StringBuilder rendered = new StringBuilder(summaryLine);
-    if (!sourcesLine.isEmpty()) {
-      rendered.append('\n').append(sourcesLine);
-    }
     if (!findingsText.isEmpty()) {
-      rendered.append('\n').append(findingsText);
+      rendered.append("\n\n").append(findingsText);
+    }
+    if (!sourcesLine.isEmpty()) {
+      rendered.append("\n\n").append(sourcesLine);
     }
     return rendered.toString();
   }
@@ -729,19 +730,15 @@ public class EngineFailedMessage extends JDialog {
       if (finding == null) {
         continue;
       }
-      rendered.append('\n').append(index + 1).append(". ");
-      appendFindingField(
-          rendered,
-          "EngineFailedMessage.finding.source",
-          localizeFindingEvidence(safeFindingText(finding.optString("evidence"), sanitizer)));
-      appendFindingField(
-          rendered,
-          "EngineFailedMessage.finding.outcome",
-          localizeFindingOutcome(safeFindingText(finding.optString("outcome"), sanitizer)));
+      rendered.append("\n\n").append(index + 1).append(". ");
       appendFindingField(
           rendered,
           "EngineFailedMessage.finding.dll",
           safeDllName(finding.optString("dll"), sanitizer));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.outcome",
+          localizeFindingOutcome(safeFindingText(finding.optString("outcome"), sanitizer)));
       appendFindingField(
           rendered,
           "EngineFailedMessage.finding.importer",
@@ -750,6 +747,10 @@ public class EngineFailedMessage extends JDialog {
           rendered,
           "EngineFailedMessage.finding.chain",
           safeChain(finding.optJSONArray("chain"), sanitizer));
+      appendFindingField(
+          rendered,
+          "EngineFailedMessage.finding.source",
+          localizeFindingEvidence(safeFindingText(finding.optString("evidence"), sanitizer)));
       appendFindingField(
           rendered,
           "EngineFailedMessage.finding.completeness",
@@ -780,7 +781,7 @@ public class EngineFailedMessage extends JDialog {
       return;
     }
     if (rendered.charAt(rendered.length() - 1) != ' ') {
-      rendered.append(" · ");
+      rendered.append("\n   ");
     }
     rendered.append(Lizzie.resourceBundle.getString(labelKey)).append(": ").append(value);
   }

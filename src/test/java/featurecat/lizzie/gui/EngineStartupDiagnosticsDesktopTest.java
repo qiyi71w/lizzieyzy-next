@@ -464,16 +464,27 @@ public class EngineStartupDiagnosticsDesktopTest {
     Path collapsedScreenshot = result.getParent().resolve("startup-failure-collapsed.png");
     ImageIO.write(
         new Robot().createScreenCapture(dialog.getBounds()), "png", collapsedScreenshot.toFile());
+    java.awt.Rectangle originalBounds = dialog.getBounds();
+    SwingUtilities.invokeAndWait(() -> button(dialog, "EngineFailedMessage.details").doClick());
+    Window detailsWindow = dialog.getOwnedWindows()[0];
+    new Robot().waitForIdle();
+    assertTrue(detailsWindow.isShowing());
+    assertEquals(originalBounds, dialog.getBounds());
     if (outputFixture || !windows || expectedDll != null) {
       String target = expectedDll == null ? "cudnn64_9.dll" : expectedDll;
-      SwingUtilities.invokeAndWait(() -> scrollSummaryToFindings(dialog, target));
+      SwingUtilities.invokeAndWait(() -> scrollSummaryToFindings(detailsWindow, target));
       new Robot().waitForIdle();
-      ImageIO.write(new Robot().createScreenCapture(dialog.getBounds()), "png",
+      ImageIO.write(new Robot().createScreenCapture(detailsWindow.getBounds()), "png",
           result.getParent().resolve("startup-failure-findings.png").toFile());
     }
+    SwingUtilities.invokeAndWait(() -> detailsWindow.setVisible(false));
     SwingUtilities.invokeAndWait(() -> button(dialog, "EngineFailedMessage.details").doClick());
+    new Robot().waitForIdle();
+    Toolkit.getDefaultToolkit().sync();
+    assertTrue(detailsWindow.isShowing());
+    assertEquals(originalBounds, dialog.getBounds());
     Path screenshot = result.getParent().resolve("startup-failure-details.png");
-    ImageIO.write(new Robot().createScreenCapture(dialog.getBounds()), "png", screenshot.toFile());
+    ImageIO.write(new Robot().createScreenCapture(detailsWindow.getBounds()), "png", screenshot.toFile());
     SwingUtilities.invokeAndWait(() -> button(dialog, "EngineFailedMessage.copyError").doClick());
     String copied =
         (String) Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
@@ -919,6 +930,12 @@ public class EngineStartupDiagnosticsDesktopTest {
         if (found != null) return found;
       }
     }
+    if (parent instanceof Window window) {
+      for (Window owned : window.getOwnedWindows()) {
+        JButton found = button(owned, name);
+        if (found != null) return found;
+      }
+    }
     return null;
   }
 
@@ -948,6 +965,9 @@ public class EngineStartupDiagnosticsDesktopTest {
     for (Component component : parent.getComponents()) {
       if (component instanceof JTextArea area) text.append(area.getText());
       if (component instanceof Container child) text.append(componentText(child));
+    }
+    if (parent instanceof Window window) {
+      for (Window owned : window.getOwnedWindows()) text.append(componentText(owned));
     }
     return text.toString();
   }

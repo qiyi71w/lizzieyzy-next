@@ -546,7 +546,7 @@ class EngineFailedMessageLayoutTest {
   }
 
   @Test
-  void detailsButtonTogglesDetailsPane() {
+  void detailsWindowReopensWithoutResizingFailureWindow() {
     assumeTrue(Lizzie.config != null);
     assumeTrue(!GraphicsEnvironment.isHeadless());
     try (EngineStartupDiagnostics diagnostics =
@@ -562,24 +562,24 @@ class EngineFailedMessageLayoutTest {
 
       JButton detailsButton =
           findComponentByName(dialog, "EngineFailedMessage.details", JButton.class);
-      JScrollPane detailsPane =
-          findComponentByName(dialog, "EngineFailedMessage.detailsPane", JScrollPane.class);
-
+      java.awt.Window detailsWindow = dialog.getOwnedWindows()[0];
+      Rectangle bounds = dialog.getBounds();
       assertNotNull(detailsButton);
-      assertNotNull(detailsPane);
-      assertFalse(detailsPane.isVisible());
+      assertFalse(detailsWindow.isVisible());
 
       detailsButton.doClick();
-      assertTrue(detailsPane.isVisible());
-
+      assertTrue(detailsWindow.isVisible());
+      assertEquals(bounds, dialog.getBounds());
+      detailsWindow.setVisible(false);
       detailsButton.doClick();
-      assertFalse(detailsPane.isVisible());
+      assertTrue(detailsWindow.isVisible());
+      assertEquals(bounds, dialog.getBounds());
       dialog.dispose();
     }
   }
 
   @Test
-  void lastSummaryLineIsAccessibleViaScrollingWithoutOpeningDetails() throws Exception {
+  void lastSummaryLineAndActionsAreAccessibleInDetailsWindow() throws Exception {
     assumeTrue(Lizzie.config != null);
     assumeTrue(!GraphicsEnvironment.isHeadless());
     try (EngineStartupDiagnostics diagnostics =
@@ -600,10 +600,8 @@ class EngineFailedMessageLayoutTest {
               dialog.setVisible(true);
               dialog.validate();
 
-              JScrollPane detailsPane =
-                  findComponentByName(dialog, "EngineFailedMessage.detailsPane", JScrollPane.class);
-              assertNotNull(detailsPane);
-              assertFalse(detailsPane.isVisible());
+              findComponentByName(dialog, "EngineFailedMessage.details", JButton.class).doClick();
+              assertTrue(dialog.getOwnedWindows()[0].isShowing());
 
               JTextArea summaryArea =
                   findComponentByName(dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
@@ -664,6 +662,12 @@ class EngineFailedMessageLayoutTest {
         if (found != null) {
           return found;
         }
+      }
+    }
+    if (root instanceof java.awt.Window window) {
+      for (java.awt.Window owned : window.getOwnedWindows()) {
+        T found = findComponentByName(owned, name, type);
+        if (found != null) return found;
       }
     }
     return null;

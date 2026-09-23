@@ -8,6 +8,7 @@ All notable maintenance updates to this fork are documented here.
 - Explain explicit engine DLL errors and KataGo runtime findings in startup diagnostics, preserving stdout/stderr sources, frozen launch search paths, manifest evidence, and verified static-zlib provenance across UI, logs, and diagnostic bundles (#535).
 - Trace bounded native Windows PE import chains after engine startup failure, distinguishing missing DLLs, first-candidate image or architecture errors, KnownDLL and API Set scope, and optional delay imports in the failure window, WARN log, copied evidence, and diagnostic ZIP (#535).
 - Diagnose independent engine launchers and internal probes through the same bounded startup attempt history, WARN events, and diagnostic ZIP without forcing probe dialogs (#535).
+- Keep the startup error and command in the failure window, with DLL evidence, copy, and export actions in a separate details window (#535).
 - Simplify engine-game rule selection to Chinese, Japanese/Korean, AGA/BGA, New Zealand, Tromp-Taylor, and custom rules; use matching rule-family names during games and preserve saved preset parameters until explicitly changed (#516).
 - Keep komi controls, game-info editing, and score-graph rendering usable after engine startup failure; cover the no-engine desktop paths in required regression tests.
 - Apply current-game komi changes through both engine participants, wait for acknowledgements before committing, preserve pause intent, and end the batch safely if synchronization fails (#518).
