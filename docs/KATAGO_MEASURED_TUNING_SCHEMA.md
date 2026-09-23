@@ -58,13 +58,15 @@ For `scene: "whole-game"`, both parameter maps contain exactly
 `rootVisitsByTurn` as an array of that length instead of `observedRootVisits`;
 every position must reach `budget`. `firstResultSeconds` is omitted. In the live
 scene `responseSeconds` is pause acknowledgment latency; in the whole-game scene
-it is cancellation acknowledgment latency. `seconds` is fixed-budget completion
+it is cancellation-to-production-worker-process-exit latency after active search
+has been observed, not a JSON termination acknowledgment. `seconds` is fixed-budget completion
 time for the application, and `edtP95Seconds` is measured application event-loop
 latency. Engine-only benchmark output cannot substitute for these application
 measurements.
 
-`maxMemoryMiB` measures peak total GPU memory in MiB (`metricScope: "totalGpu"`),
-not per-process VRAM. The machine, driver, background workload and engine-process
+`maxMemoryMiB` is the maximum sampled total GPU memory in MiB across the process
+lifetime (`metricScope: "totalGpu"`), not a continuous peak or per-process VRAM.
+The machine, driver, background workload and engine-process
 count must be controlled; each accepted run records exactly one KataGo process.
 `configIncludes` contains ordered SHA-256 hashes of additional command-line
 configuration files and recursively included files. An unavailable or unsupported
@@ -95,11 +97,18 @@ fingerprint verification. They do not disable local live-scene reports.
 Every candidate pair must complete faster than its control, and the median
 paired speed ratio must be at least 1.03. For three rounds, a timing coefficient
 of variation over 10% requires five rounds; five-round variation over 15% is
-rejected. For first result, pause/cancel and event-loop latency, the candidate
+rejected. For live first result, pause/cancel and event-loop latency, the candidate
 median must not exceed control median × 1.10 + 5 ms. The corresponding maximum
 must not exceed control maximum × 1.25 + 20 ms, so an isolated large stall cannot
 be hidden by the median. Peak total GPU memory must stay within control peak ×
 1.15 + 256 MiB and leave at least 10% physical GPU memory free.
+
+The automatic memory gate covers sampled total GPU memory only. Version 1 does
+not establish bounded Java/native RAM use: the runner's end-of-run used-heap
+snapshot is neither an allocation profile, a peak, nor an RSS measurement. An
+unresolved RAM regression prevents an unconditional recommendation even when the
+numeric report passes. Keep such evidence experimental and retain the original
+configuration until controlled memory measurements resolve it.
 
 These are conservative admission rules, not guarantees of a particular speedup
 on other positions or machines. The original commands, model, visit budgets,

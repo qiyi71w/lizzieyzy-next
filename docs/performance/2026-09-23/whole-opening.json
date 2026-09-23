@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "scene": "whole-game",
+  "measurementMode": "application",
+  "fingerprint": {
+    "engineSha256": "9a87f2e40233bb5694332546f9cad0a6248f4593341ccafb29225fbf025a6ef6",
+    "modelSha256": "73f6454eba62d2f6d099af8ce66d8c3fde6225e223c55817da0627590e98b0ae",
+    "configSha256": "96e484242c1d4010a11efd6c15291bbc6c682faea5e37f9b25c0f5dcab498d39",
+    "gpuName": "NVIDIA GeForce RTX 5090",
+    "driverVersion": "591.86",
+    "memoryMiB": 32607,
+    "configIncludes": [],
+    "commandSemantics": {
+      "logToStderr": "true",
+      "analysisPVLen": "100"
+    }
+  },
+  "fixtureSha256": "8096bd727ee61bec3a5a69f7876b57b4be2ac0680ebf275ba6aa11a57698971e",
+  "budget": 5000,
+  "positions": 9,
+  "metricScope": "totalGpu",
+  "baselineParameters": {
+    "numAnalysisThreads": 8,
+    "numSearchThreadsPerAnalysisThread": 2,
+    "nnMaxBatchSize": 16
+  },
+  "candidateParameters": {
+    "numAnalysisThreads": 12,
+    "numSearchThreadsPerAnalysisThread": 2,
+    "nnMaxBatchSize": 32
+  },
+  "runs": [
+    {
+      "profile": "candidate",
+      "round": 1,
+      "phase": "warm",
+      "seconds": 25.1875827,
+      "responseSeconds": 0.005265599,
+      "edtP95Seconds": 0.000066099,
+      "maxMemoryMiB": 3189,
+      "maxEngineProcesses": 1,
+      "rootVisitsByTurn": [
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001
+      ]
+    },
+    {
+      "profile": "baseline",
+      "round": 1,
+      "phase": "warm",
+      "seconds": 33.789657301,
+      "responseSeconds": 0.0040792,
+      "edtP95Seconds": 0.0000623,
+      "maxMemoryMiB": 3104,
+      "maxEngineProcesses": 1,
+      "rootVisitsByTurn": [
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001
+      ]
+    },
+    {
+      "profile": "baseline",
+      "round": 2,
+      "phase": "warm",
+      "seconds": 32.5005387,
+      "responseSeconds": 0.0054832,
+      "edtP95Seconds": 0.000064499,
+      "maxMemoryMiB": 3168,
+      "maxEngineProcesses": 1,
+      "rootVisitsByTurn": [
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001
+      ]
+    },
+    {
+      "profile": "candidate",
+      "round": 2,
+      "phase": "warm",
+      "seconds": 24.940976301,
+      "responseSeconds": 0.004093,
+      "edtP95Seconds": 0.000078101,
+      "maxMemoryMiB": 3157,
+      "maxEngineProcesses": 1,
+      "rootVisitsByTurn": [
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001
+      ]
+    },
+    {
+      "profile": "candidate",
+      "round": 3,
+      "phase": "warm",
+      "seconds": 26.4706568,
+      "responseSeconds": 0.0055157,
+      "edtP95Seconds": 0.000073,
+      "maxMemoryMiB": 3192,
+      "maxEngineProcesses": 1,
+      "rootVisitsByTurn": [
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001
+      ]
+    },
+    {
+      "profile": "baseline",
+      "round": 3,
+      "phase": "warm",
+      "seconds": 32.6924803,
+      "responseSeconds": 0.015128901,
+      "edtP95Seconds": 0.0000638,
+      "maxMemoryMiB": 3110,
+      "maxEngineProcesses": 1,
+      "rootVisitsByTurn": [
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001,
+        5001
+      ]
+    }
+  ]
+}

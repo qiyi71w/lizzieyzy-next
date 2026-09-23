@@ -90,6 +90,11 @@ would identify the measured GPU unambiguously.
   lifetime, including startup, warm-up, search and cancellation. It is not a
   continuously observed or per-process peak, nor a search-window-only figure.
   The summary includes sample count/gaps and utilization to make that visible.
+- A numeric memory-gate pass addresses GPU memory, not Java/native RAM. The
+  probe's end-of-run used-heap snapshot cannot prove a peak, retained heap, RSS,
+  or the cause of a difference between runs. Disclose divergent heap snapshots
+  and withhold an unconditional recommendation until controlled follow-up;
+  do not treat export success as evidence of no RAM regression.
 - Engine count is the maximum visible KataGo process count in NVIDIA telemetry.
   Zero at startup/shutdown is normal. Permission-hidden processes are unknown,
   not inferred KataGo processes. Independent process/workload control is still
