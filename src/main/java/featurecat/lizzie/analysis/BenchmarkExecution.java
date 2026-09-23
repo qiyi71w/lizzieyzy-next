@@ -2,7 +2,6 @@ package featurecat.lizzie.analysis;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.logging.EngineObservation;
 import featurecat.lizzie.util.CommandLaunchHelper;
 import featurecat.lizzie.util.KataGoRuntimeHelper;
 import featurecat.lizzie.util.Utils;
@@ -48,8 +47,6 @@ public final class BenchmarkExecution {
   private Process process;
   private boolean cancelled;
   private String failureDetail;
-  private EngineStartupDiagnostics.Attempt diagnosticAttempt;
-  private boolean launchCaptured;
 
   BenchmarkExecution(Leelaz owner, int engineIndex, boolean main, String engineCommand) {
     this.owner = owner;
@@ -87,10 +84,7 @@ public final class BenchmarkExecution {
       cancelled = true;
       running = process;
     }
-    if (running != null) {
-      if (diagnosticAttempt != null) diagnosticAttempt.beforeTermination();
-      running.destroyForcibly();
-    }
+    if (running != null) running.destroyForcibly();
   }
 
   long invocationId() {
@@ -122,8 +116,6 @@ public final class BenchmarkExecution {
       }
       CommandLaunchHelper.LaunchSpec launch = CommandLaunchHelper.prepare(tokens);
       List<String> argv = launch.getCommandParts();
-      diagnosticAttempt = EngineStartupDiagnostics.getDefault().begin(
-          EngineObservation.restartInstance(this, "BENCHMARK"), "BENCHMARK", argv, true);
       Path executable = KataGoRuntimeHelper.resolveCommandExecutable(argv);
       boolean bundled = Config.isBundledKataGoCommand(engineCommand);
       if (bundled) {
@@ -135,16 +127,11 @@ public final class BenchmarkExecution {
       ProcessBuilder builder = new ProcessBuilder(argv);
       CommandLaunchHelper.configureProcessBuilder(builder, launch);
       if (bundled) KataGoRuntimeHelper.configureBundledProcessBuilder(builder, executable);
-      diagnosticAttempt.capture(builder);
-      launchCaptured = true;
       created = builder.start();
-      diagnosticAttempt.attachProcess(created);
       synchronized (lock) {
         process = created;
-        if (cancelled) {
-          diagnosticAttempt.beforeTermination();
-          created.destroyForcibly();
-        } else state = State.RUNNING;
+        if (cancelled) created.destroyForcibly();
+        else state = State.RUNNING;
       }
       // A CLI owns no protocol input. Closing stdin is EOF, never a synthetic GTP quit.
       created.getOutputStream().close();
@@ -155,10 +142,7 @@ public final class BenchmarkExecution {
       recordFailure(failure);
     } finally {
       if (created != null) {
-        if (created.isAlive()) {
-          if (diagnosticAttempt != null) diagnosticAttempt.beforeTermination();
-          created.destroyForcibly();
-        }
+        if (created.isAlive()) created.destroyForcibly();
         exitCode = awaitExit(created);
         joinReader(stdout);
         joinReader(stderr);
@@ -191,13 +175,13 @@ public final class BenchmarkExecution {
 
   private Thread startReader(InputStream stream, String streamName) {
     Thread thread =
-        new Thread(() -> readStream(stream, streamName), "lizzie-benchmark-" + streamName + "-" + invocationId);
+        new Thread(() -> readStream(stream), "lizzie-benchmark-" + streamName + "-" + invocationId);
     thread.setDaemon(true);
     thread.start();
     return thread;
   }
 
-  private void readStream(InputStream stream, String streamName) {
+  private void readStream(InputStream stream) {
     try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
       // Console events have independent UTF-8 byte and line limits. Keep each event below
       // those bounds rather than allowing a burst of CLI output to be truncated downstream.
@@ -208,7 +192,6 @@ public final class BenchmarkExecution {
           int next = reader.read();
           if (next != -1) buffer[count++] = (char) next;
         }
-        if (diagnosticAttempt != null) diagnosticAttempt.output(streamName, new String(buffer, 0, count));
         int start = 0;
         for (int i = 0; i < count; i++) {
           if (buffer[i] == '\n' || buffer[i] == '\r') {
@@ -221,9 +204,6 @@ public final class BenchmarkExecution {
       }
     } catch (Throwable failure) {
       recordFailure(failure);
-    }
-    finally {
-      if (diagnosticAttempt != null) diagnosticAttempt.streamEnded(streamName, null);
     }
   }
 
@@ -246,10 +226,7 @@ public final class BenchmarkExecution {
       running = process;
     }
     // A failed reader cannot leave a writer blocked on its full pipe.
-    if (running != null && running.isAlive()) {
-      if (diagnosticAttempt != null) diagnosticAttempt.beforeTermination();
-      running.destroyForcibly();
-    }
+    if (running != null && running.isAlive()) running.destroyForcibly();
   }
 
   private int awaitExit(Process running) {
@@ -305,14 +282,6 @@ public final class BenchmarkExecution {
       result = new Snapshot(state, exitCode, failureDetail, tail.toString());
       terminal = result;
     }
-    if (diagnosticAttempt != null) {
-      if (result.state() == State.FAILED)
-        diagnosticAttempt.fail(!launchCaptured ? "runtime-preflight" : process == null
-            ? "process-create" : "startup-exit", result.detail());
-      else if (result.state() == State.SUCCEEDED) diagnosticAttempt.ready();
-      else diagnosticAttempt.cancel();
-    }
-    EngineObservation.ensureStopped(this, "benchmark-" + result.state().name().toLowerCase());
     owner.onBenchmarkTerminal(this);
     reaped.countDown();
     completion.complete(result);

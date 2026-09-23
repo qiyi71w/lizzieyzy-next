@@ -1,9 +1,7 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
-import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.util.CommandLaunchHelper;
-import featurecat.lizzie.logging.EngineObservation;
 import java.awt.Component;
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -222,59 +220,33 @@ public class GetEngineLine {
     ProcessBuilder processBuilder = new ProcessBuilder(launchSpec.getCommandParts());
     CommandLaunchHelper.configureProcessBuilder(processBuilder, launchSpec);
     processBuilder.redirectErrorStream(true);
-    Object probeOwner = new Object();
-    EngineStartupDiagnostics.Attempt attempt = EngineStartupDiagnostics.getDefault().begin(
-        EngineObservation.ensureStarted(probeOwner, "ENGINE_HELP_PROBE"),
-        "ENGINE_HELP_PROBE", processBuilder.command(), true);
-    attempt.capture(processBuilder);
     try {
       Process process = processBuilder.start();
-      attempt.attachProcess(process);
       ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-      executor.execute(() -> {
-        try {
-          read(new BufferedInputStream(process.getInputStream()), process, attempt);
-        } finally {
-          executor.shutdown();
-          EngineObservation.ensureStopped(probeOwner, "help-probe-finished");
-        }
-      });
+      executor.execute(
+          () -> {
+            try {
+              read(new BufferedInputStream(process.getInputStream()));
+            } finally {
+              executor.shutdown();
+            }
+          });
     } catch (IOException e) {
-      attempt.fail("process-create", e.toString());
-      EngineObservation.ensureStopped(probeOwner, "help-probe-failed");
       e.printStackTrace();
     }
   }
 
-  private void read(BufferedInputStream inputStream, Process process,
-      EngineStartupDiagnostics.Attempt attempt) {
+  private void read(BufferedInputStream inputStream) {
     try {
       int c;
       StringBuilder line = new StringBuilder();
       while ((c = inputStream.read()) != -1) {
         line.append((char) c);
-        if (line.length() % 512 == 0) attempt.output("merged", line.substring(line.length() - 512));
       }
-      if (line.length() % 512 != 0)
-        attempt.output("merged", line.substring(line.length() - line.length() % 512));
       commandHelp = line.toString();
-      attempt.streamEnded("stdout", null);
-      attempt.streamEnded("stderr", null);
-      try {
-        if (process.waitFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-          if (process.exitValue() == 0) attempt.ready();
-          else attempt.fail("startup-exit", "Engine help exit " + process.exitValue());
-        } else attempt.fail("startup-timeout", "Engine help process did not exit");
-      } catch (InterruptedException interrupted) {
-        Thread.currentThread().interrupt();
-        attempt.fail("startup-timeout", interrupted.toString());
-      }
       if (ep != null) ep.txtParams.setText(commandHelp);
     } catch (IOException e) {
       e.printStackTrace();
-      attempt.streamEnded("stdout", e.toString());
-      attempt.streamEnded("stderr", null);
-      attempt.fail("startup-handshake", e.toString());
     }
   }
 }

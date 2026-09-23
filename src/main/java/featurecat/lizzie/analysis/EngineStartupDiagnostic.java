@@ -7,12 +7,11 @@ import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** One published revision. JSON is stored as text so callers cannot mutate retained evidence. */
+/** Immutable information for one failure window, its log entry and exported attachment. */
 public final class EngineStartupDiagnostic {
   private final String json;
   private final String attemptId;
   private final String engineId;
-  private final long revision;
   private final int sizeBytes;
 
   EngineStartupDiagnostic(JSONObject value, int maxBytes) {
@@ -48,7 +47,6 @@ public final class EngineStartupDiagnostic {
     json = bounded.toString();
     attemptId = bounded.getString("attemptId");
     engineId = bounded.getString("engineId");
-    revision = bounded.getLong("diagnosticRevision");
     sizeBytes = bytes(json);
   }
 
@@ -58,10 +56,6 @@ public final class EngineStartupDiagnostic {
 
   public String engineId() {
     return engineId;
-  }
-
-  public long revision() {
-    return revision;
   }
 
   public JSONObject toJson() {

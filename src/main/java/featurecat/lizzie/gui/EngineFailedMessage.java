@@ -4,8 +4,8 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineStartupDiagnostic;
 import featurecat.lizzie.analysis.EngineStartupDiagnostics;
-import featurecat.lizzie.logging.LoggingRuntime;
 import featurecat.lizzie.logging.ExportSanitizer;
+import featurecat.lizzie.logging.LoggingRuntime;
 import featurecat.lizzie.logging.ObservationText;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
 import java.awt.BorderLayout;
@@ -319,7 +319,8 @@ public class EngineFailedMessage extends JDialog {
     diagnosticPanel.add(detailsPane, BorderLayout.SOUTH);
 
     root.add(commandPanel, BorderLayout.CENTER);
-    diagnosticWindow = new JDialog(this, Lizzie.resourceBundle.getString("EngineFailedMessage.details"));
+    diagnosticWindow =
+        new JDialog(this, Lizzie.resourceBundle.getString("EngineFailedMessage.details"));
     diagnosticWindow.setName("EngineFailedMessage.diagnosticWindow");
     diagnosticWindow.setDefaultCloseOperation(JDialog.HIDE_ON_CLOSE);
     JPanel diagnosticContent = new JPanel(new BorderLayout(0, 8));
@@ -489,7 +490,8 @@ public class EngineFailedMessage extends JDialog {
         Math.min(dialogSize.width, usableScreenBounds.width - SCREEN_MARGIN),
         Math.min(540, usableScreenBounds.height - SCREEN_MARGIN));
     diagnosticWindow.setMinimumSize(
-        new Dimension(Math.min(diagnosticWindow.getWidth(), 480),
+        new Dimension(
+            Math.min(diagnosticWindow.getWidth(), 480),
             Math.min(diagnosticWindow.getHeight(), 320)));
     setDisplayedDiagnostic(null);
 
@@ -566,9 +568,10 @@ public class EngineFailedMessage extends JDialog {
     stopRefreshTimer();
     if (attempt != null) {
       setDisplayedDiagnostic(attempt.snapshot());
-      refreshTimer = new Timer(150, e -> refreshFromBoundAttempt());
-      refreshTimer.setRepeats(true);
-      refreshTimer.start();
+      if (attempt.collectingOutput()) {
+        refreshTimer = new Timer(150, e -> refreshFromBoundAttempt());
+        refreshTimer.start();
+      }
     } else {
       setDisplayedDiagnostic(null);
     }
@@ -580,10 +583,10 @@ public class EngineFailedMessage extends JDialog {
       return;
     }
     EngineStartupDiagnostic latest = boundAttempt.snapshot();
-    if (latest != null
-        && (displayedDiagnostic == null || latest.revision() != displayedDiagnostic.revision())) {
+    if (latest != null && latest != displayedDiagnostic) {
       setDisplayedDiagnostic(latest);
     }
+    if (!boundAttempt.collectingOutput()) stopRefreshTimer();
   }
 
   private void setDisplayedDiagnostic(EngineStartupDiagnostic diagnostic) {
@@ -653,7 +656,8 @@ public class EngineFailedMessage extends JDialog {
   private void exportDiagnosticsAction() {
     EngineStartupDiagnostic failure = this.displayedDiagnostic;
     LoggingRuntime.current()
-        .ifPresent(runtime -> DiagnosticsDialog.open(diagnosticWindow, runtime, Lizzie.config, failure));
+        .ifPresent(
+            runtime -> DiagnosticsDialog.open(diagnosticWindow, runtime, Lizzie.config, failure));
   }
 
   static String formatSummaryText(EngineStartupDiagnostic diagnostic) {
@@ -668,7 +672,6 @@ public class EngineFailedMessage extends JDialog {
     String status = localizeReason(json.optString("statusName", "unavailable"));
     String attemptId = diagnostic.attemptId();
     String engineId = diagnostic.engineId();
-    String revision = String.valueOf(diagnostic.revision());
     String rawOutcome = json.optString("outcome", "");
     String outcome = localizeOutcome(rawOutcome);
 
@@ -680,7 +683,6 @@ public class EngineFailedMessage extends JDialog {
             status,
             attemptId,
             engineId,
-            revision,
             outcome);
     String sourcesLine = formatSourcesText(json.optJSONObject("sources"));
     String findingsText = formatFindingsText(json.optJSONArray("findings"));
@@ -717,6 +719,7 @@ public class EngineFailedMessage extends JDialog {
     }
     return sb.toString();
   }
+
   static String formatFindingsText(JSONArray findings) {
     if (findings == null || findings.isEmpty()) {
       return "";
@@ -741,25 +744,8 @@ public class EngineFailedMessage extends JDialog {
           localizeFindingOutcome(safeFindingText(finding.optString("outcome"), sanitizer)));
       appendFindingField(
           rendered,
-          "EngineFailedMessage.finding.importer",
-          safeFindingText(finding.optString("importer"), sanitizer));
-      appendFindingField(
-          rendered,
-          "EngineFailedMessage.finding.chain",
-          safeChain(finding.optJSONArray("chain"), sanitizer));
-      appendFindingField(
-          rendered,
           "EngineFailedMessage.finding.source",
           localizeFindingEvidence(safeFindingText(finding.optString("evidence"), sanitizer)));
-      appendFindingField(
-          rendered,
-          "EngineFailedMessage.finding.completeness",
-          localizeFindingCompleteness(
-              safeFindingText(finding.optString("completeness"), sanitizer)));
-      appendFindingField(
-          rendered,
-          "EngineFailedMessage.finding.scope",
-          safeFindingText(finding.optString("checkedScope"), sanitizer));
       appendFindingField(
           rendered,
           "EngineFailedMessage.finding.detail",
@@ -786,24 +772,6 @@ public class EngineFailedMessage extends JDialog {
     rendered.append(Lizzie.resourceBundle.getString(labelKey)).append(": ").append(value);
   }
 
-  private static String safeChain(JSONArray chain, ExportSanitizer sanitizer) {
-    if (chain == null || chain.isEmpty()) {
-      return "";
-    }
-    StringBuilder rendered = new StringBuilder();
-    for (int index = 0; index < chain.length(); index++) {
-      String item = safeFindingText(chain.optString(index), sanitizer);
-      if (item.isEmpty() || "null".equalsIgnoreCase(item)) {
-        continue;
-      }
-      if (!rendered.isEmpty()) {
-        rendered.append(" -> ");
-      }
-      rendered.append(item);
-    }
-    return boundedSummaryField(rendered.toString());
-  }
-
   private static String safeDllName(String dll, ExportSanitizer sanitizer) {
     if (dll == null || dll.isEmpty() || "null".equalsIgnoreCase(dll)) {
       return "";
@@ -817,7 +785,8 @@ public class EngineFailedMessage extends JDialog {
     if (value == null || value.isEmpty()) {
       return "";
     }
-    return boundedSummaryField(CONTROL_CHARACTERS.matcher(sanitizer.sanitizeText(value)).replaceAll(" "));
+    return boundedSummaryField(
+        CONTROL_CHARACTERS.matcher(sanitizer.sanitizeText(value)).replaceAll(" "));
   }
 
   private static String boundedSummaryField(String value) {
@@ -838,18 +807,6 @@ public class EngineFailedMessage extends JDialog {
     }
     String key = "EngineFailedMessage.outcome." + outcome;
     return Lizzie.resourceBundle.containsKey(key) ? Lizzie.resourceBundle.getString(key) : outcome;
-  }
-  private static String localizeFindingCompleteness(String completeness) {
-    if (completeness == null || completeness.isEmpty()) {
-      return "";
-    }
-    return switch (completeness) {
-      case "complete" -> Lizzie.resourceBundle.getString("EngineFailedMessage.complete");
-      case "partial" -> Lizzie.resourceBundle.getString("EngineFailedMessage.partial");
-      case "not-applicable" ->
-          Lizzie.resourceBundle.getString("EngineFailedMessage.notApplicable");
-      default -> completeness;
-    };
   }
 
   private static String localizeOutcome(String outcome) {

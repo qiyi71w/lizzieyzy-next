@@ -192,20 +192,6 @@ class EngineManagerBenchmarkTest {
       assertEquals(7, failed.exitCode());
       assertTrue(failed.outputTail().contains("final stderr"));
       assertFalse(manager.isEngineSwitchActive(0, true));
-      await(() -> EngineStartupDiagnostics.getDefault().snapshot().failures().stream()
-          .anyMatch(d -> d.toJson().optJSONObject("launch") != null
-              && d.toJson().getJSONObject("launch").optString("configuredCommand")
-                  .contains(fixture.path.toString())
-              && d.toJson().optInt("exitCode", -1) == 7));
-      var exitDiagnostic = EngineStartupDiagnostics.getDefault().snapshot().failures().stream()
-          .filter(d -> d.toJson().optInt("exitCode", -1) == 7
-              && d.toJson().getJSONObject("launch").optString("configuredCommand")
-                  .contains(fixture.path.toString()))
-          .reduce((first, last) -> last).orElseThrow().toJson();
-      assertEquals("BENCHMARK", exitDiagnostic.getString("launchPurpose"));
-      assertEquals("startup-exit", exitDiagnostic.getString("phase"));
-      assertTrue(exitDiagnostic.getString("stdout").contains("final stdout"));
-      assertTrue(exitDiagnostic.getString("stderr").contains("final stderr"));
 
       Leelaz missing = new NamedEngine("\"" + directory.resolve("missing/katago") + "\" benchmark");
       manager = env.manager(missing);
@@ -214,13 +200,6 @@ class EngineManagerBenchmarkTest {
       assertEquals(BenchmarkExecution.State.FAILED, notStarted.state());
       assertTrue(notStarted.detail().contains("katago"));
       assertNull(notStarted.exitCode());
-      var createDiagnostic = EngineStartupDiagnostics.getDefault().snapshot().failures().stream()
-          .filter(d -> d.toJson().getJSONObject("launch").optString("configuredCommand")
-              .contains(directory.resolve("missing/katago").toString()))
-          .findFirst().orElseThrow().toJson();
-      assertEquals("process-create", createDiagnostic.getString("phase"));
-      assertTrue(createDiagnostic.isNull("exitCode"));
-      assertNotEquals(exitDiagnostic.getString("attemptId"), createDiagnostic.getString("attemptId"));
     }
   }
 
@@ -301,10 +280,14 @@ class EngineManagerBenchmarkTest {
       tool.awaitReady();
       BenchmarkExecution old = tool.engine.benchmarkExecution();
       assertTrue(manager.switchEngineIfAvailable(1, true));
-      try { await(() -> manager.isEngineSwitchActive(1, true)); }
-      catch (AssertionError failure) {
-        throw new AssertionError(Files.readString(gtp.path.resolve("stdin"))
-            + " failure=" + manager.engineSwitchUiSnapshot(true).failureDetail(), failure);
+      try {
+        await(() -> manager.isEngineSwitchActive(1, true));
+      } catch (AssertionError failure) {
+        throw new AssertionError(
+            Files.readString(gtp.path.resolve("stdin"))
+                + " failure="
+                + manager.engineSwitchUiSnapshot(true).failureDetail(),
+            failure);
       }
       assertFalse(tool.alive());
       assertEquals(BenchmarkExecution.State.CANCELLED, old.snapshot().state());

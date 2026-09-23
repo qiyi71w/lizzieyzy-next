@@ -465,31 +465,7 @@ public class DiagnosticsDialog extends JPanel {
         helper,
         Lizzie.nextVersion == null ? "unknown" : Lizzie.nextVersion,
         "unknown",
-        startupFailureSnapshot());
-  }
-
-  private featurecat.lizzie.analysis.EngineStartupDiagnostics.History startupFailureSnapshot() {
-    var history = featurecat.lizzie.analysis.EngineStartupDiagnostics.getDefault().snapshot();
-    if (pinnedStartupFailure == null) return history;
-    var records = new java.util.ArrayList<>(history.failures());
-    int pinnedIndex = -1;
-    for (int i = 0; i < records.size(); i++) {
-      if (records.get(i).attemptId().equals(pinnedStartupFailure.attemptId())) pinnedIndex = i;
-    }
-    if (pinnedIndex >= 0) records.set(pinnedIndex, pinnedStartupFailure);
-    else records.add(0, pinnedStartupFailure);
-    var policy = featurecat.lizzie.analysis.EngineStartupDiagnostics.Policy.production();
-    int bytes =
-        records.stream()
-            .mapToInt(featurecat.lizzie.analysis.EngineStartupDiagnostic::sizeBytes)
-            .sum();
-    long evicted = history.evicted();
-    while (records.size() > policy.historyCount() || bytes > policy.historyBytes()) {
-      int remove = records.get(0) == pinnedStartupFailure ? 1 : 0;
-      bytes -= records.remove(remove).sizeBytes();
-      evicted++;
-    }
-    return new featurecat.lizzie.analysis.EngineStartupDiagnostics.History(records, evicted);
+        pinnedStartupFailure);
   }
 
   String healthText() {

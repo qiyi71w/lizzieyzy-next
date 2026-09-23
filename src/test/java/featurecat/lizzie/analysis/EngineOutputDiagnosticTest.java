@@ -6,15 +6,15 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 class EngineOutputDiagnosticTest {
   @Test
   void independentFailureClausesKeepTheirOwnErrorCategory() {
-    var findings = EngineOutputDiagnostic.parse("stderr",
-        "Could not load library first.dll. Error code 126; Could not load library second.dll. Error code 193",
-        Instant.EPOCH);
+    var findings =
+        EngineOutputDiagnostic.parse(
+            "stderr",
+            "Could not load library first.dll. Error code 126; Could not load library second.dll. Error code 193",
+            Instant.EPOCH);
     assertEquals(2, findings.size());
     assertEquals("first.dll", findings.get(0).dll());
     assertEquals("dll-not-found", findings.get(0).outcome());
@@ -35,11 +35,7 @@ class EngineOutputDiagnosticTest {
 
     assertEquals("dll-not-found", finding.outcome());
     assertEquals("cudnn64_9.dll", finding.dll());
-    assertNull(finding.importer());
-    assertTrue(finding.chain().isEmpty());
     assertEquals("engine-stderr", finding.evidence());
-    assertEquals("complete", finding.completeness());
-    assertEquals("Process engine-stderr output; no static dependency scan", finding.checkedScope());
     assertEquals("Could not load library cudnn64_9.dll. Error code 126", finding.detail());
     assertEquals(checkedAt, finding.checkedAt());
   }
@@ -184,17 +180,11 @@ class EngineOutputDiagnosticTest {
         EngineOutputDiagnostic.parse("stdout", line, checkedAt);
     assertEquals(1, stdoutFindings.size());
     assertEquals("engine-stdout", stdoutFindings.get(0).evidence());
-    assertEquals(
-        "Process engine-stdout output; no static dependency scan",
-        stdoutFindings.get(0).checkedScope());
 
     List<EngineStartupDiagnostics.Finding> stderrFindings =
         EngineOutputDiagnostic.parse("stderr", line, checkedAt);
     assertEquals(1, stderrFindings.size());
     assertEquals("engine-stderr", stderrFindings.get(0).evidence());
-    assertEquals(
-        "Process engine-stderr output; no static dependency scan",
-        stderrFindings.get(0).checkedScope());
   }
 
   @Test
@@ -225,10 +215,10 @@ class EngineOutputDiagnosticTest {
         EngineOutputDiagnostic.parse("stderr", "cudnn64_9.dll is not missing", checkedAt)
             .isEmpty());
     assertTrue(
-        EngineOutputDiagnostic.parse("stderr", "Did not fail to load foo.dll", checkedAt).isEmpty());
+        EngineOutputDiagnostic.parse("stderr", "Did not fail to load foo.dll", checkedAt)
+            .isEmpty());
     assertTrue(
-        EngineOutputDiagnostic.parse(
-                "stderr", "No missing DLLs found (checked foo.dll)", checkedAt)
+        EngineOutputDiagnostic.parse("stderr", "No missing DLLs found (checked foo.dll)", checkedAt)
             .isEmpty());
     assertTrue(
         EngineOutputDiagnostic.parse("stderr", "foo.dll was found, not missing", checkedAt)
@@ -289,14 +279,14 @@ class EngineOutputDiagnosticTest {
 
     String massiveLine = "Could not load library cudnn64_9.dll. Error code 126" + "x".repeat(16000);
     List<EngineStartupDiagnostics.Finding> f1 =
-        org.junit.jupiter.api.Assertions.assertTimeout(java.time.Duration.ofSeconds(2),
+        org.junit.jupiter.api.Assertions.assertTimeout(
+            java.time.Duration.ofSeconds(2),
             () -> EngineOutputDiagnostic.parse("stderr", massiveLine, checkedAt));
     assertEquals(1, f1.size());
     assertEquals("cudnn64_9.dll", f1.get(0).dll());
     assertTrue(
         f1.get(0).detail().getBytes(StandardCharsets.UTF_8).length
             <= EngineOutputDiagnostic.MAX_DETAIL_BYTES);
-
 
     // Null or blank returns empty
     assertTrue(EngineOutputDiagnostic.parse("stderr", null, checkedAt).isEmpty());
@@ -364,9 +354,7 @@ class EngineOutputDiagnosticTest {
     Instant checkedAt = Instant.now();
     var findings =
         EngineOutputDiagnostic.parse(
-            "stderr",
-            "Config format error while reading C:\\models\\helper.dll",
-            checkedAt);
+            "stderr", "Config format error while reading C:\\models\\helper.dll", checkedAt);
     assertTrue(
         findings.isEmpty(),
         "Non-loader config format error mentioning DLL must not produce findings, but got: "
@@ -394,8 +382,7 @@ class EngineOutputDiagnosticTest {
     assertEquals("corrupt.dll", f2.get(0).dll());
 
     List<EngineStartupDiagnostics.Finding> f3 =
-        EngineOutputDiagnostic.parse(
-            "stderr", "invalid image format: bad_arch.dll", checkedAt);
+        EngineOutputDiagnostic.parse("stderr", "invalid image format: bad_arch.dll", checkedAt);
     assertEquals(1, f3.size());
     assertEquals("invalid-image-format", f3.get(0).outcome());
     assertEquals("bad_arch.dll", f3.get(0).dll());

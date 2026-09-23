@@ -1,6 +1,6 @@
 package featurecat.lizzie.logging;
 
-import featurecat.lizzie.analysis.EngineStartupDiagnostics;
+import featurecat.lizzie.analysis.EngineStartupDiagnostic;
 import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
 import featurecat.lizzie.analysis.SyncDiagnosticsExportSnapshot;
 import java.nio.file.Path;
@@ -24,7 +24,7 @@ public final class DiagnosticBundleRequest {
   private final ReadBoardLoggingSnapshot readBoardLogging;
   private final String appVersion;
   private final String readBoardVersion;
-  private final EngineStartupDiagnostics.History startupFailures;
+  private final EngineStartupDiagnostic startupFailure;
 
   public DiagnosticBundleRequest(
       LoggingRuntime runtime,
@@ -64,7 +64,7 @@ public final class DiagnosticBundleRequest {
         readBoardLogging,
         appVersion,
         readBoardVersion,
-        EngineStartupDiagnostics.getDefault().snapshot());
+        null);
   }
 
   public DiagnosticBundleRequest(
@@ -77,7 +77,7 @@ public final class DiagnosticBundleRequest {
       ReadBoardLoggingSnapshot readBoardLogging,
       String appVersion,
       String readBoardVersion,
-      EngineStartupDiagnostics.History startupFailures) {
+      EngineStartupDiagnostic startupFailure) {
     Objects.requireNonNull(runtime, "runtime");
     synchronized (runtime) {
       this.traceSession = runtime.traceSessionSnapshot();
@@ -98,10 +98,7 @@ public final class DiagnosticBundleRequest {
         readBoardLogging == null ? ReadBoardLoggingSnapshot.detached() : readBoardLogging;
     this.appVersion = appVersion == null ? "unknown" : appVersion;
     this.readBoardVersion = readBoardVersion == null ? "unknown" : readBoardVersion;
-    this.startupFailures =
-        startupFailures != null
-            ? startupFailures
-            : EngineStartupDiagnostics.getDefault().snapshot();
+    this.startupFailure = startupFailure;
   }
 
   public Path logsDirectory() {
@@ -156,7 +153,7 @@ public final class DiagnosticBundleRequest {
     return readBoardVersion;
   }
 
-  public EngineStartupDiagnostics.History startupFailures() {
-    return startupFailures;
+  public EngineStartupDiagnostic startupFailure() {
+    return startupFailure;
   }
 }

@@ -4,8 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.ConfigTestHelper;
@@ -395,8 +393,7 @@ class HumanSlAnalysisRunnerTest {
   @Test
   void deeperVerificationRejectsEmptyResultsWithoutInventingEvidence() {
     JSONObject previous =
-        new JSONObject()
-            .put("moveInfos", new JSONArray().put(new JSONObject().put("move", "B2")));
+        new JSONObject().put("moveInfos", new JSONArray().put(new JSONObject().put("move", "B2")));
     assertFalse(HumanSlAnalysisRunner.hasAtLeastVerificationEvidence(previous, new JSONObject()));
     assertTrue(HumanSlAnalysisRunner.hasAtLeastVerificationEvidence(previous, previous));
   }
@@ -436,7 +433,8 @@ class HumanSlAnalysisRunnerTest {
           new HumanSlAnalysisRunner(List.of("katago", "analysis"), ignored -> process)) {
         assertEquals(
             java.util.Optional.of("B2"),
-            runner.bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
+            runner.bestHumanMove(
+                history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
         assertEquals(3, process.sentRequests.size());
         assertTrue(process.isAlive());
         double policyTime =
@@ -488,8 +486,7 @@ class HumanSlAnalysisRunnerTest {
   }
 
   private static void assertWeightlessSearchResult(
-      int deeperRootVisits, int deeperChildVisits, String expectedMove)
-      throws Exception {
+      int deeperRootVisits, int deeperChildVisits, String expectedMove) throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
       boardWithHistory(history);
@@ -515,7 +512,8 @@ class HumanSlAnalysisRunnerTest {
           new HumanSlAnalysisRunner(List.of("katago", "analysis"), ignored -> process)) {
         assertEquals(
             java.util.Optional.of(expectedMove),
-            runner.bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
+            runner.bestHumanMove(
+                history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
         assertEquals(3, process.sentRequests.size());
         assertEquals(64, process.sentRequests.get(1).getInt("maxVisits"));
         assertTrue(process.sentRequests.get(2).getInt("maxVisits") > 64);
@@ -924,72 +922,6 @@ class HumanSlAnalysisRunnerTest {
 
     assertFalse(runner.start());
     assertEquals(1, launches.get());
-  }
-
-  @Test
-  void startupDiagnostic_recordsTimeoutOnReadinessFailureAndPreservesAcrossRetry()
-      throws Exception {
-    try (TestEnvironment env = TestEnvironment.open()) {
-      BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
-      boardWithHistory(history);
-      AtomicInteger launches = new AtomicInteger();
-      HumanSlAnalysisRunner runner =
-          new HumanSlAnalysisRunner(
-              List.of("katago", "analysis"),
-              ignored -> {
-                int launch = launches.incrementAndGet();
-                if (launch == 1) {
-                  return new FakeProcess(request -> null);
-                }
-                return new FakeProcess(
-                    request ->
-                        new JSONObject()
-                            .put("id", request.getString("id"))
-                            .put("humanPolicy", new JSONObject().put("A3", 1.0)));
-              });
-
-      assertFalse(
-          runner.verifyReady(history.getCurrentHistoryNode(), "rank_3k", Duration.ofMillis(40)));
-      EngineStartupDiagnostics.Attempt firstAttempt = runner.getStartupDiagnosticAttempt();
-      assertNotNull(firstAttempt);
-      EngineStartupDiagnostic firstDiagnostic = firstAttempt.snapshot();
-      assertNotNull(firstDiagnostic);
-      JSONObject firstJson = firstDiagnostic.toJson();
-      assertEquals("startup-timeout", firstJson.getString("phase"));
-      assertEquals("HUMAN_SL", firstJson.getString("launchPurpose"));
-      assertTrue(
-          firstJson.getJSONObject("launch").getString("configuredCommand").contains("katago"));
-
-      // Retry succeeds and produces a distinct, ready attempt without a failure snapshot
-      assertTrue(
-          runner.verifyReady(history.getCurrentHistoryNode(), "rank_3k", Duration.ofSeconds(1)));
-      EngineStartupDiagnostics.Attempt secondAttempt = runner.getStartupDiagnosticAttempt();
-      assertNotNull(secondAttempt);
-      assertNotEquals(firstAttempt.id(), secondAttempt.id());
-      assertNull(secondAttempt.snapshot());
-      assertEquals(firstDiagnostic.attemptId(), firstAttempt.snapshot().attemptId());
-      runner.close();
-    }
-  }
-
-  @Test
-  void startupDiagnostic_recordsProcessCreateFailureWhenProcessStarterThrows() {
-    HumanSlAnalysisRunner runner =
-        new HumanSlAnalysisRunner(
-            List.of("katago", "analysis"),
-            ignored -> {
-              throw new IOException("simulated process creation failure");
-            });
-
-    assertFalse(runner.start());
-    EngineStartupDiagnostics.Attempt attempt = runner.getStartupDiagnosticAttempt();
-    assertNotNull(attempt);
-    EngineStartupDiagnostic diagnostic = attempt.snapshot();
-    assertNotNull(diagnostic);
-    JSONObject json = diagnostic.toJson();
-    assertEquals("process-create", json.getString("phase"));
-    assertEquals("HUMAN_SL", json.getString("launchPurpose"));
-    assertTrue(json.getString("originalError").contains("simulated process creation failure"));
   }
 
   private static void waitForRequest(FakeProcess process, int expected, long timeout, TimeUnit unit)

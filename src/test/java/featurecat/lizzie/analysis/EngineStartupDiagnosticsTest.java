@@ -2,9 +2,7 @@ package featurecat.lizzie.analysis;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +21,7 @@ class EngineStartupDiagnosticsTest {
 
   @Test
   void preflightAndOversizedTailsRetainIdentityWithoutInventingProcess() {
-    var policy = new EngineStartupDiagnostics.Policy(1, 1, 150, 2, 128, 4096, 2, 8192);
+    var policy = new EngineStartupDiagnostics.Policy(1, 150, 2, 128, 4096);
     try (EngineStartupDiagnostics service = new EngineStartupDiagnostics(policy, null)) {
       var attempt =
           service.begin("eng-bounded", "MAIN_BOARD", List.of("engine", "x".repeat(50000)), true);
@@ -39,16 +37,15 @@ class EngineStartupDiagnosticsTest {
       assertTrue(json.isNull("exitCode"));
       assertFalse(json.getJSONObject("launch").has("pid"));
       assertEquals("not-formed", json.getJSONObject("launch").getString("environmentState"));
-      assertEquals("not-applicable", json.getString("outcome"));
+      assertEquals("no-specific-dll-identified", json.getString("outcome"));
       assertTrue(
           json.getString("stderr").getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 128);
-      assertEquals("no-process", reason(attempt, "process-tail"));
     }
   }
 
   @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.LINUX)
   @Test
-  void originalProcessTailRevisesFailureWithoutChangingCapturedEnvironment() throws Exception {
+  void originalProcessTailCompletesFailureWithoutChangingCapturedCommand() throws Exception {
     try (EngineStartupDiagnostics service =
         new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
       ProcessBuilder builder =
@@ -56,12 +53,10 @@ class EngineStartupDiagnosticsTest {
               "/bin/sh",
               "-c",
               "exec 1>&-; sleep 0.2; printf 'late original output\\n' >&2; exit 17");
-      builder.environment().put("PATH", "/original/runtime");
       var attempt = service.begin("eng-original", "MAIN_BOARD", builder.command(), true);
       attempt.capture(builder);
-      // Absolute executable is retained, regardless of later builder/config edits.
-      builder.environment().put("PATH", "/usr/bin:/bin");
       Process process = builder.start();
+      builder.command("replacement-engine");
       attempt.attach(process, 7);
       assertNull(
           new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))
@@ -77,9 +72,10 @@ class EngineStartupDiagnosticsTest {
       var last = awaitTerminal(attempt);
       assertEquals(17, last.toJson().getInt("exitCode"));
       assertEquals("late original output", last.toJson().getString("stderr"));
-      assertEquals(
-          "/original/runtime", last.toJson().getJSONObject("launch").getString("effectivePath"));
-      assertTrue(last.revision() > first.revision());
+      assertEquals("/bin/sh", last.toJson().getJSONObject("launch").getString("executable"));
+      assertEquals(first.attemptId(), last.attemptId());
+      assertEquals("collecting", first.toJson().getString("collectionState"));
+      assertEquals("completed", last.toJson().getString("collectionState"));
       assertTrue(first.toJson().isNull("exitCode"));
       assertEquals("no-specific-dll-identified", last.toJson().getString("outcome"));
     }
@@ -111,231 +107,48 @@ class EngineStartupDiagnosticsTest {
   }
 
   @Test
-  void queueRejectionAndSharedDeadlineCannotBeOverwrittenByLateSuccess() throws Exception {
-    var policy = new EngineStartupDiagnostics.Policy(1, 1, 150, 2, 128, 4096, 2, 8192);
-    CountDownLatch entered = new CountDownLatch(1);
-    CountDownLatch release = new CountDownLatch(1);
-    try (EngineStartupDiagnostics service = new EngineStartupDiagnostics(policy, null)) {
-      var first = service.begin("eng-1", "MAIN_BOARD", List.of("engine"), true);
-      first.fail("runtime-preflight", "missing runtime");
-      first.collect(
-          "runtime",
-          () -> {
-            entered.countDown();
-            while (true) {
-              try {
-                release.await();
-                break;
-              } catch (InterruptedException ignored) {
-              }
-            }
-            return new EngineStartupDiagnostics.Evidence(List.of(), "checked runtime");
-          });
-      assertTrue(entered.await(1, TimeUnit.SECONDS));
-      var queued = service.begin("eng-2", "MAIN_BOARD", List.of("engine"), true);
-      queued.fail("process-create", "cannot start");
-      queued.collect("runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "runtime"));
-      var rejected = service.begin("eng-3", "MAIN_BOARD", List.of("engine"), true);
-      rejected.fail("process-create", "cannot start");
-      rejected.collect(
-          "runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "runtime"));
-      assertEquals("queue-full", reason(rejected, "runtime"));
-      awaitTerminal(first);
-      awaitTerminal(queued);
-      long revision = first.snapshot().revision();
-      release.countDown();
-      Thread.sleep(50);
-      assertEquals("timeout", reason(first, "runtime"));
-      assertEquals("timeout", reason(queued, "runtime"));
-      assertEquals(revision, first.snapshot().revision());
-      assertEquals(2, service.snapshot().failures().size());
-      assertTrue(service.snapshot().evicted() >= 1);
-    } finally {
-      release.countDown();
+  void runtimeInformationDoesNotInventSpecificDll() {
+    try (var service =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      var attempt = service.begin("custom", "MAIN_BOARD", List.of("custom.exe"), true);
+      attempt.runtimePreflight(
+          featurecat.lizzie.util.KataGoRuntimeHelper.inspectNvidiaRuntime(
+              java.nio.file.Path.of("custom.exe")));
+      var failure = attempt.fail("process-create", "Cannot create process").toJson();
+      assertEquals("no-specific-dll-identified", failure.getString("outcome"));
+      assertTrue(failure.getJSONArray("findings").getJSONObject(0).isNull("dll"));
+      assertEquals("Cannot create process", failure.getString("originalError"));
     }
   }
 
+  @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.LINUX)
   @Test
-  void queuedTimeoutAndCancelReleasesSchedulerCapacity() throws Exception {
-    var policy = new EngineStartupDiagnostics.Policy(1, 1, 150, 2, 128, 4096, 5, 8192);
-    CountDownLatch occupierRunning = new CountDownLatch(1);
-    CountDownLatch releaseOccupier = new CountDownLatch(1);
-    try (EngineStartupDiagnostics service = new EngineStartupDiagnostics(policy, null)) {
-      var occupier = service.begin("eng-occ", "MAIN_BOARD", List.of("engine"), true);
-      occupier.fail("runtime-preflight", "busy");
-      occupier.collect(
-          "runtime",
-          () -> {
-            occupierRunning.countDown();
-            while (true) {
-              try {
-                releaseOccupier.await();
-                break;
-              } catch (InterruptedException ignored) {
-              }
-            }
-            return new EngineStartupDiagnostics.Evidence(List.of(), "done");
-          });
-      assertTrue(occupierRunning.await(1, TimeUnit.SECONDS));
-
-      // Worker is occupied. Queuing job 1 fills the single queue slot.
-      var queued1 = service.begin("eng-q1", "MAIN_BOARD", List.of("engine"), true);
-      queued1.fail("process-create", "fail-q1");
-      queued1.collect("runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "q1"));
-
-      // A new job when queue is full is rejected with queue-full.
-      var rejected = service.begin("eng-rej", "MAIN_BOARD", List.of("engine"), true);
-      rejected.fail("process-create", "fail-rej");
-      rejected.collect("runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "rej"));
-      assertEquals("queue-full", reason(rejected, "runtime"));
-
-      // Cancel queued1 -> releases queue capacity.
-      queued1.cancel();
-      assertEquals("cancelled", reason(queued1, "runtime"));
-
-      // A new job is now queued instead of rejected.
-      var queued2 = service.begin("eng-q2", "MAIN_BOARD", List.of("engine"), true);
-      queued2.fail("process-create", "fail-q2");
-      queued2.collect("runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "q2"));
-      assertEquals(
-          "queued",
-          queued2
-              .snapshot()
-              .toJson()
-              .getJSONObject("sources")
-              .getJSONObject("runtime")
-              .getString("collectionState"));
-
-      // Let queued2 time out -> releases queue capacity again.
-      awaitTerminal(queued2);
-      assertEquals("timeout", reason(queued2, "runtime"));
-
-      // A subsequent job can now be queued without rejection.
-      var queued3 = service.begin("eng-q3", "MAIN_BOARD", List.of("engine"), true);
-      queued3.fail("process-create", "fail-q3");
-      queued3.collect("runtime", () -> new EngineStartupDiagnostics.Evidence(List.of(), "q3"));
-      assertEquals(
-          "queued",
-          queued3
-              .snapshot()
-              .toJson()
-              .getJSONObject("sources")
-              .getJSONObject("runtime")
-              .getString("collectionState"));
-    } finally {
-      releaseOccupier.countDown();
-    }
-  }
-
-  @Test
-  void interruptIgnoringJobCannotReplaceTerminalStateOrFindings() throws Exception {
-    var policy = new EngineStartupDiagnostics.Policy(1, 1, 150, 2, 128, 4096, 2, 8192);
-    CountDownLatch running = new CountDownLatch(1);
-    CountDownLatch proceed = new CountDownLatch(1);
-    try (EngineStartupDiagnostics service = new EngineStartupDiagnostics(policy, null)) {
-      var attempt = service.begin("eng-interrupt", "MAIN_BOARD", List.of("engine"), true);
-      attempt.fail("startup-exit", "exit 1");
-      attempt.collect(
-          "runtime",
-          () -> {
-            running.countDown();
-            while (true) {
-              try {
-                proceed.await();
-                break;
-              } catch (InterruptedException ignored) {
-              }
-            }
-            return new EngineStartupDiagnostics.Evidence(
-                List.of(
-                    new EngineStartupDiagnostics.Finding(
-                        "missing-dll",
-                        "late.dll",
-                        "engine.exe",
-                        List.of("late.dll"),
-                        "pe-import-scan",
-                        "complete",
-                        "late-scope",
-                        "late-detail",
-                        Instant.now())),
-                "late-scope");
-          });
-      assertTrue(running.await(1, TimeUnit.SECONDS));
-
-      attempt.cancel();
-      assertEquals("cancelled", reason(attempt, "runtime"));
-      long revision = attempt.snapshot().revision();
-      assertTrue(attempt.snapshot().toJson().getJSONArray("findings").isEmpty());
-      assertEquals("partial", attempt.snapshot().toJson().getString("outcome"));
-
-      proceed.countDown();
-      Thread.sleep(50);
-
-      var current = attempt.snapshot();
-      assertEquals("cancelled", reason(attempt, "runtime"));
-      assertEquals(revision, current.revision());
-      assertTrue(current.toJson().getJSONArray("findings").isEmpty());
-      assertEquals("partial", current.toJson().getString("outcome"));
-    } finally {
-      proceed.countDown();
-    }
-  }
-
-  @Test
-  void multipleCollectorsShareOriginalFailureDeadline() throws Exception {
-    var policy = new EngineStartupDiagnostics.Policy(2, 2, 100, 2, 128, 4096, 5, 8192);
-    CountDownLatch bothRunning = new CountDownLatch(2);
-    CountDownLatch release = new CountDownLatch(1);
-    try (EngineStartupDiagnostics service = new EngineStartupDiagnostics(policy, null)) {
-      var attempt = service.begin("eng-shared", "MAIN_BOARD", List.of("engine"), true);
-      attempt.fail("startup-exit", "failed");
-
-      attempt.collect(
-          "runtime",
-          () -> {
-            bothRunning.countDown();
-            while (true) {
-              try {
-                release.await();
-                break;
-              } catch (InterruptedException ignored) {
-              }
-            }
-            return new EngineStartupDiagnostics.Evidence(List.of(), "runtime");
-          });
-
-      attempt.collect(
-          "pe-import-scan",
-          () -> {
-            bothRunning.countDown();
-            while (true) {
-              try {
-                release.await();
-                break;
-              } catch (InterruptedException ignored) {
-              }
-            }
-            return new EngineStartupDiagnostics.Evidence(List.of(), "pe");
-          });
-
-      assertTrue(bothRunning.await(1, TimeUnit.SECONDS));
-      awaitTerminal(attempt);
-
-      assertEquals("timeout", reason(attempt, "runtime"));
-      assertEquals("timeout", reason(attempt, "pe-import-scan"));
-      assertEquals("partial", attempt.snapshot().toJson().getString("outcome"));
-
-      attempt.collect(
-          "process-tail", () -> new EngineStartupDiagnostics.Evidence(List.of(), "tail"));
-      assertEquals("timeout", reason(attempt, "process-tail"));
-    } finally {
-      release.countDown();
+  void stalledTailSettlesWithoutInventingExitOrAcceptingLaterOutput() throws Exception {
+    try (var service =
+        new EngineStartupDiagnostics(
+            new EngineStartupDiagnostics.Policy(1, 100, 2, 128, 4096), null)) {
+      Process process = new ProcessBuilder("/bin/sh", "-c", "exec sleep 5").start();
+      try {
+        var attempt = service.begin("stalled", "MAIN_BOARD", List.of("engine"), true);
+        attempt.attachProcess(process);
+        attempt.fail("startup-exit", "stdout EOF before ready");
+        var failure = awaitTerminal(attempt);
+        assertEquals("timeout", reason(attempt, "process-tail"));
+        assertEquals("partial", failure.toJson().getString("collectionState"));
+        assertTrue(failure.toJson().isNull("exitCode"));
+        attempt.output("stderr", "late.dll was not found");
+        assertSame(failure, attempt.snapshot());
+        assertEquals("", failure.toJson().getString("stderr"));
+      } finally {
+        process.destroyForcibly();
+        process.waitFor();
+      }
     }
   }
 
   @Test
   void concurrentAttemptsMaintainStrictOutputIsolation() {
-    var policy = new EngineStartupDiagnostics.Policy(2, 4, 1000, 5, 512, 4096, 5, 8192);
+    var policy = new EngineStartupDiagnostics.Policy(4, 1000, 5, 512, 4096);
     try (EngineStartupDiagnostics service = new EngineStartupDiagnostics(policy, null)) {
       var attemptA = service.begin("eng-A", "MAIN_BOARD", List.of("engine-a"), true);
       var attemptB = service.begin("eng-B", "COMPARE", List.of("engine-b"), true);
@@ -390,7 +203,8 @@ class EngineStartupDiagnosticsTest {
       assertEquals("merged", result.getString("stdoutOrigin"));
       assertEquals(line, result.getString("stdout"));
       assertEquals("", result.getString("stderr"));
-      assertEquals("engine-merged", result.getJSONArray("findings").getJSONObject(0).getString("evidence"));
+      assertEquals(
+          "engine-merged", result.getJSONArray("findings").getJSONObject(0).getString("evidence"));
     }
   }
 

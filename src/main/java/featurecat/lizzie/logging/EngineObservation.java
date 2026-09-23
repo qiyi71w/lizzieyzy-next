@@ -200,12 +200,10 @@ public final class EngineObservation {
     summary.remove("launch");
     // Search directories belong to copy/export, not the ordinary WARN environment summary.
     org.json.JSONObject sources = summary.getJSONObject("sources");
-    for (String source : sources.keySet())
-      sources.getJSONObject(source).remove("checkedScope");
+    for (String source : sources.keySet()) sources.getJSONObject(source).remove("checkedScope");
     org.json.JSONArray findings = summary.getJSONArray("findings");
     for (int index = 0; index < findings.length(); index++) {
       org.json.JSONObject finding = findings.getJSONObject(index);
-      finding.remove("checkedScope");
       if ("runtime-requirements-satisfied".equals(finding.optString("outcome")))
         finding.remove("detail");
     }
@@ -214,7 +212,7 @@ public final class EngineObservation {
         java.util.List.of(
             "attemptId",
             "engineId",
-            "diagnosticRevision",
+            "collectionState",
             "exitCode",
             "exitHex",
             "statusName",
@@ -234,8 +232,7 @@ public final class EngineObservation {
         null,
         () ->
             ENGINE.warn(
-                "engine event={} diagnostic={} summary={}",
-                diagnostic.revision() == 1 ? "startup-failed" : "dependency-diagnostic",
+                "engine event=startup-failed diagnostic={} summary={}",
                 safeCore,
                 ObservationText.boundedUtf8(safe, 48 * 1024, 1)));
   }

@@ -11,13 +11,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parses process output (stdout/stderr) conservatively for explicit DLL loading, image,
- * entry point, or initialization errors.
+ * Parses process output (stdout/stderr) conservatively for explicit DLL loading, image, entry
+ * point, or initialization errors.
  */
 final class EngineOutputDiagnostic {
   static final int MAX_DETAIL_BYTES = 512;
 
-  // DLL token: either enclosed in quotes/brackets ([^...]+?.dll) or an unquoted path token ending in .dll
+  // DLL token: either enclosed in quotes/brackets ([^...]+?.dll) or an unquoted path token ending
+  // in .dll
   private static final String DLL_TOKEN =
       "(?:['\"‘“\\[<]([^'\"’”\\]>\\r\\n]+?(?i:\\.dll))['\"’”\\]>]|(?<![a-zA-Z0-9_.+~\\\\/-])([a-zA-Z0-9_.+~\\\\/:-]+?(?i:\\.dll)))";
 
@@ -69,7 +70,8 @@ final class EngineOutputDiagnostic {
                     + DLL_TOKEN),
             "dll-not-found"));
 
-    // Rule 5: Colon with module not found / cannot open (e.g. JNI / Java UnsatisfiedLinkError) -> dll-not-found
+    // Rule 5: Colon with module not found / cannot open (e.g. JNI / Java UnsatisfiedLinkError) ->
+    // dll-not-found
     RULES.add(
         new Rule(
             Pattern.compile(
@@ -81,8 +83,7 @@ final class EngineOutputDiagnostic {
     // Rule 6: Chinese Windows missing messages -> dll-not-found
     RULES.add(
         new Rule(
-            Pattern.compile(
-                "(?i)(?:由于找不到|计算机中丢失|丢失\\s*(?:dll)?)\\s*" + DLL_TOKEN),
+            Pattern.compile("(?i)(?:由于找不到|计算机中丢失|丢失\\s*(?:dll)?)\\s*" + DLL_TOKEN),
             "dll-not-found"));
 
     // Rule 7: Entrypoint not found -> entrypoint-not-found
@@ -96,8 +97,7 @@ final class EngineOutputDiagnostic {
     // Rule 8: Chinese entry point not found -> entrypoint-not-found
     RULES.add(
         new Rule(
-            Pattern.compile(
-                "(?i)(?:无法定位|无法找到)程序输入点.*?于动态链接库\\s*" + DLL_TOKEN),
+            Pattern.compile("(?i)(?:无法定位|无法找到)程序输入点.*?于动态链接库\\s*" + DLL_TOKEN),
             "entrypoint-not-found"));
 
     // Rule 9: Invalid image format (bad image / invalid image format) -> invalid-image-format
@@ -108,7 +108,8 @@ final class EngineOutputDiagnostic {
                     + DLL_TOKEN),
             "invalid-image-format"));
 
-    // Rule 10: DLL is not a valid Win32 application / not designed to run on Windows -> invalid-image-format
+    // Rule 10: DLL is not a valid Win32 application / not designed to run on Windows ->
+    // invalid-image-format
     RULES.add(
         new Rule(
             Pattern.compile(
@@ -117,7 +118,8 @@ final class EngineOutputDiagnostic {
                     + "\\s+(?:is\\s+either\\s+not\\s+designed\\s+to\\s+run\\s+on\\s+windows|is\\s+not\\s+a\\s+valid\\s+win32\\s+application)"),
             "invalid-image-format"));
 
-    // Rule 11: Colon with invalid format (e.g. JNI %1 is not a valid Win32 application) -> invalid-image-format
+    // Rule 11: Colon with invalid format (e.g. JNI %1 is not a valid Win32 application) ->
+    // invalid-image-format
     RULES.add(
         new Rule(
             Pattern.compile(
@@ -172,16 +174,12 @@ final class EngineOutputDiagnostic {
     // Rule 17: LoadLibrary failed -> resolved via error code or context
     RULES.add(
         new Rule(
-            Pattern.compile(
-                "(?i)loadlibrary(?:[a-w]*)?\\s+(?:failed|error).*?" + DLL_TOKEN),
+            Pattern.compile("(?i)loadlibrary(?:[a-w]*)?\\s+(?:failed|error).*?" + DLL_TOKEN),
             null));
 
     // Rule 18: Chinese load failure -> resolved via error code or context
     RULES.add(
-        new Rule(
-            Pattern.compile(
-                "(?i)(?:无法加载|加载失败|加载动态链接库失败)\\s*[:=-]?\\s*" + DLL_TOKEN),
-            null));
+        new Rule(Pattern.compile("(?i)(?:无法加载|加载失败|加载动态链接库失败)\\s*[:=-]?\\s*" + DLL_TOKEN), null));
   }
 
   private EngineOutputDiagnostic() {}
@@ -193,7 +191,6 @@ final class EngineOutputDiagnostic {
     }
 
     String evidence = resolveEvidence(stream);
-    String checkedScope = "Process " + evidence + " output; no static dependency scan";
     Instant timestamp = checkedAt != null ? checkedAt : Instant.now();
 
     List<EngineStartupDiagnostics.Finding> findings = new ArrayList<>();
@@ -237,16 +234,7 @@ final class EngineOutputDiagnostic {
                 detail = ObservationText.boundedUtf8(errorText, MAX_DETAIL_BYTES, 1);
               }
               findings.add(
-                  new EngineStartupDiagnostics.Finding(
-                      outcome,
-                      dll,
-                      null,
-                      List.of(),
-                      evidence,
-                      "complete",
-                      checkedScope,
-                      detail,
-                      timestamp));
+                  new EngineStartupDiagnostics.Finding(outcome, dll, evidence, detail, timestamp));
             }
             break; // found matching rule for this clause
           }

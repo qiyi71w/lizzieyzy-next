@@ -29,7 +29,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JButton;
-import javax.swing.JLabel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -79,6 +78,7 @@ class EngineFailedMessageLayoutTest {
     assertEquals(0, area.getCaretPosition());
     assertSame(font, area.getFont());
   }
+
   @Test
   void findingSummaryShowsDistinctEvidenceAndSafeBoundedDetails() {
     JSONArray findings =
@@ -87,11 +87,7 @@ class EngineFailedMessageLayoutTest {
                 new JSONObject()
                     .put("outcome", "dll-not-found")
                     .put("dll", "C:\\Users\\alice\\engine\\cudnn64_9.dll")
-                    .put("importer", "katago.exe")
-                    .put("chain", new JSONArray(List.of("katago.exe", "cudnn64_9.dll")))
                     .put("evidence", "engine-stderr")
-                    .put("completeness", "complete")
-                    .put("checkedScope", "captured stderr")
                     .put(
                         "detail",
                         "Load failed under C:\\Users\\alice\\engine token=do-not-display "
@@ -100,29 +96,25 @@ class EngineFailedMessageLayoutTest {
                 new JSONObject()
                     .put("outcome", "runtime-requirements-satisfied")
                     .put("dll", JSONObject.NULL)
-                    .put("importer", JSONObject.NULL)
-                    .put("chain", new JSONArray())
                     .put("evidence", "runtime-preflight")
-                    .put("completeness", "complete")
-                    .put("checkedScope", "frozen runtime search scope")
                     .put("detail", "Runtime files were present"));
 
     String summary = EngineFailedMessage.formatFindingsText(findings);
 
     assertTrue(
-        summary.contains(Lizzie.resourceBundle.getString("EngineFailedMessage.evidence.engine-stderr")));
+        summary.contains(
+            Lizzie.resourceBundle.getString("EngineFailedMessage.evidence.engine-stderr")));
     assertTrue(
         summary.contains(
             Lizzie.resourceBundle.getString("EngineFailedMessage.evidence.runtime-preflight")));
     assertTrue(
-        summary.contains(Lizzie.resourceBundle.getString("EngineFailedMessage.outcome.dll-not-found")));
+        summary.contains(
+            Lizzie.resourceBundle.getString("EngineFailedMessage.outcome.dll-not-found")));
     assertTrue(
         summary.contains(
             Lizzie.resourceBundle.getString(
                 "EngineFailedMessage.outcome.runtime-requirements-satisfied")));
     assertTrue(summary.contains("cudnn64_9.dll"));
-    assertTrue(summary.contains("katago.exe -> cudnn64_9.dll"));
-    assertTrue(summary.contains("captured stderr"));
     assertFalse(summary.contains("do-not-display"));
     assertFalse(summary.contains("C:\\Users\\alice"));
     assertTrue(summary.length() < 5_000);
@@ -493,7 +485,6 @@ class EngineFailedMessageLayoutTest {
       assertTrue(summaryArea.getText().contains(attempt1.id()));
       assertTrue(detailsArea.getText().contains("engine-test-1"));
       assertTrue(detailsArea.getText().contains(attempt1.id()));
-      assertTrue(detailsArea.getText().contains("diagnosticRevision"));
 
       // Attempt 2 fails independently
       EngineStartupDiagnostics.Attempt attempt2 =
@@ -505,42 +496,6 @@ class EngineFailedMessageLayoutTest {
       assertFalse(summaryArea.getText().contains("engine-test-2"));
       assertTrue(detailsArea.getText().contains("engine-test-1"));
       assertFalse(detailsArea.getText().contains("engine-test-2"));
-      dialog.dispose();
-    }
-  }
-
-  @Test
-  void copyErrorConsumesDisplayedRevisionWithoutReRead() {
-    assumeTrue(Lizzie.config != null);
-    assumeTrue(!GraphicsEnvironment.isHeadless());
-    try (EngineStartupDiagnostics diagnostics =
-        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
-      EngineStartupDiagnostics.Attempt attempt =
-          diagnostics.begin("copy-engine", "analysis", List.of("engine.exe"), true);
-      attempt.fail("startup", "simulated exit");
-
-      EngineFailedMessage dialog =
-          new EngineFailedMessage(
-              List.of("engine.exe"), "engine.exe", "error msg", false, false, false);
-      dialog.bindStartupDiagnostic(attempt);
-
-      JButton copyButton =
-          findComponentByName(dialog, "EngineFailedMessage.copyError", JButton.class);
-      assertNotNull(copyButton);
-
-      copyButton.doClick();
-
-      JLabel copyStatus =
-          findComponentByName(dialog, "EngineFailedMessage.copyStatus", JLabel.class);
-      assertNotNull(copyStatus);
-      assertEquals(
-          Lizzie.resourceBundle.getString("EngineFailedMessage.copied"), copyStatus.getText());
-
-      JTextArea detailsArea =
-          findComponentByName(dialog, "EngineFailedMessage.detailsArea", JTextArea.class);
-      assertNotNull(detailsArea);
-      assertTrue(detailsArea.getText().contains(attempt.id()));
-      assertTrue(detailsArea.getText().contains("\"diagnosticRevision\": 1"));
       dialog.dispose();
     }
   }
@@ -595,7 +550,12 @@ class EngineFailedMessageLayoutTest {
             try {
               dialog =
                   new EngineFailedMessage(
-                      List.of("engine.exe"), "engine.exe", "Runtime unavailable", true, true, false);
+                      List.of("engine.exe"),
+                      "engine.exe",
+                      "Runtime unavailable",
+                      true,
+                      true,
+                      false);
               dialog.bindStartupDiagnostic(attempt);
               dialog.setVisible(true);
               dialog.validate();
@@ -604,7 +564,8 @@ class EngineFailedMessageLayoutTest {
               assertTrue(dialog.getOwnedWindows()[0].isShowing());
 
               JTextArea summaryArea =
-                  findComponentByName(dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
+                  findComponentByName(
+                      dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
               assertNotNull(summaryArea);
 
               Rectangle end =
@@ -612,7 +573,11 @@ class EngineFailedMessageLayoutTest {
               summaryArea.scrollRectToVisible(end);
               assertTrue(
                   summaryArea.getVisibleRect().contains(end),
-                  () -> "Expected visibleRect " + summaryArea.getVisibleRect() + " to contain " + end);
+                  () ->
+                      "Expected visibleRect "
+                          + summaryArea.getVisibleRect()
+                          + " to contain "
+                          + end);
 
               JButton detailsButton =
                   findComponentByName(dialog, "EngineFailedMessage.details", JButton.class);
@@ -627,7 +592,8 @@ class EngineFailedMessageLayoutTest {
               assertTrue(copyButton.isEnabled());
 
               JButton exportButton =
-                  findComponentByName(dialog, "EngineFailedMessage.exportDiagnostics", JButton.class);
+                  findComponentByName(
+                      dialog, "EngineFailedMessage.exportDiagnostics", JButton.class);
               assertNotNull(exportButton);
               assertTrue(exportButton.isVisible());
               assertTrue(exportButton.isEnabled());

@@ -1,6 +1,5 @@
 package featurecat.lizzie.logging;
 
-import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.analysis.ReadBoardLoggingProtocol;
 import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
 import featurecat.lizzie.analysis.SyncDiagnosticsExportSnapshot;
@@ -820,7 +819,7 @@ public final class DiagnosticBundleExporter {
         NS_SNAPSHOTS + "readboard-observed.json",
         renderObserved(request.readBoardLogging(), sanitizer).toString(2));
     writeThreadSnapshot(out, sanitizer, sources, hostSession);
-    writeEngineStartupFailuresSnapshot(out, request, sanitizer, sources, hostSession);
+    writeEngineStartupFailureSnapshot(out, request, sanitizer, sources, hostSession);
     SyncDiagnosticsExportSnapshot snapshot =
         request.snapshot() == null
             ? new SyncDiagnosticsExportSnapshot(
@@ -906,16 +905,19 @@ public final class DiagnosticBundleExporter {
     }
   }
 
-  private void writeEngineStartupFailuresSnapshot(
+  private void writeEngineStartupFailureSnapshot(
       ZipOutputStream out,
       DiagnosticBundleRequest request,
       ExportSanitizer sanitizer,
       JSONObject sources,
       String hostSession)
       throws IOException {
-    EngineStartupDiagnostics.History history = request.startupFailures();
-    String text = sanitizer.sanitizeJsonObject(history.toJson()).toString(2);
-    writeTextEntry(out, NS_SNAPSHOTS + "engine-startup-failures.json", text);
+    var failure = request.startupFailure();
+    JSONObject snapshot =
+        new JSONObject().put("status", failure == null ? "no-failure" : "available");
+    if (failure != null) snapshot.put("failure", failure.toJson());
+    String text = sanitizer.sanitizeJsonObject(snapshot).toString(2);
+    writeTextEntry(out, NS_SNAPSHOTS + "engine-startup-failure.json", text);
     JSONObject source =
         sourceRecord(
             true,
@@ -927,9 +929,7 @@ public final class DiagnosticBundleExporter {
             hostSession,
             "",
             false);
-    source.put("count", history.failures().size());
-    source.put("evicted", history.evicted());
-    sources.put("engine-startup-failures", source);
+    sources.put("engine-startup-failure", source);
   }
 
   private static CaptureEventSet listCurrentCaptureEvents(

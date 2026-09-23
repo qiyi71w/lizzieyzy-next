@@ -3,9 +3,7 @@ package featurecat.lizzie.util;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
-import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.gui.EngineData;
-import featurecat.lizzie.logging.EngineObservation;
 import featurecat.lizzie.logging.MaintenanceObservation;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
@@ -99,8 +97,7 @@ public final class KataGoAutoSetupHelper {
   public static final String LEGACY_DEFAULT_WEIGHT_MODEL = "kata1-zhizi-b28c512nbt-muonfd2";
   public static final String TRANSFORMER_MINIMUM_KATAGO_VERSION =
       ASSET_CATALOG.defaultModel().minimumKataGoVersion();
-  private static final String TRANSFORMER_LIGHTWEIGHT_MODEL =
-      TRANSFORMER_LIGHTWEIGHT.modelName();
+  private static final String TRANSFORMER_LIGHTWEIGHT_MODEL = TRANSFORMER_LIGHTWEIGHT.modelName();
   private static final String TRANSFORMER_BALANCED_MODEL = TRANSFORMER_BALANCED.modelName();
   private static final String TRANSFORMER_STRONGEST_MODEL = TRANSFORMER_STRONGEST.modelName();
   public static final String DEFAULT_TRANSFORMER_MODEL = ASSET_CATALOG.defaultModel().modelName();
@@ -114,14 +111,12 @@ public final class KataGoAutoSetupHelper {
       ASSET_CATALOG.modelDownloadUrl(TRANSFORMER_LIGHTWEIGHT);
   public static final long QUICK_ANALYSIS_MODEL_SIZE_BYTES = TRANSFORMER_LIGHTWEIGHT.sizeBytes();
   public static final String QUICK_ANALYSIS_MODEL_SHA256 = TRANSFORMER_LIGHTWEIGHT.sha256();
-  private static final String QUICK_ANALYSIS_MODEL_URL_PROPERTY =
-      "lizzie.quick-analysis.model.url";
+  private static final String QUICK_ANALYSIS_MODEL_URL_PROPERTY = "lizzie.quick-analysis.model.url";
   private static final String QUICK_ANALYSIS_MODEL_SHA256_PROPERTY =
       "lizzie.quick-analysis.model.sha256";
   private static final String QUICK_ANALYSIS_MODEL_SIZE_PROPERTY =
       "lizzie.quick-analysis.model.size";
-  private static final String QUICK_ANALYSIS_MODEL_CONFIG_KEY =
-      "katago-quick-analysis-model-path";
+  private static final String QUICK_ANALYSIS_MODEL_CONFIG_KEY = "katago-quick-analysis-model-path";
   private static final String QUICK_ANALYSIS_MODEL_DIR_NAME = "quick-analysis-models";
   private static volatile Path quickAnalysisValidationPath;
   private static volatile long quickAnalysisValidationSize = -1L;
@@ -131,8 +126,7 @@ public final class KataGoAutoSetupHelper {
   private static final Pattern KATAGO_VERSION_PATTERN =
       Pattern.compile("\\bKataGo\\s+v(\\d+)\\.(\\d+)(?:\\.(\\d+))?\\b", Pattern.CASE_INSENSITIVE);
   private static final Pattern KATAGO_MANIFEST_VERSION_PATTERN =
-      Pattern.compile(
-          "(?im)^KataGo release:\\s*v?(\\d+)\\.(\\d+)(?:\\.(\\d+))?\\s*$");
+      Pattern.compile("(?im)^KataGo release:\\s*v?(\\d+)\\.(\\d+)(?:\\.(\\d+))?\\s*$");
   private static final String BUNDLED_2026_06_28B_MODEL =
       "kata1-b28c512nbt-s13255194368-d5935380940";
   private static final String BUNDLED_2026_06_28B_DISPLAY_NAME = "28B 2026-06";
@@ -793,10 +787,6 @@ public final class KataGoAutoSetupHelper {
     Process process = null;
     ByteArrayOutputStream output = new ByteArrayOutputStream();
     Thread outputPump = null;
-    Object probeOwner = new Object();
-    EngineStartupDiagnostics.Attempt attempt = EngineStartupDiagnostics.getDefault().begin(
-        EngineObservation.ensureStarted(probeOwner, "AUTO_SETUP_VERSION_PROBE"),
-        "AUTO_SETUP_VERSION_PROBE", List.of(enginePath.toString(), "version"), true);
     try {
       ProcessBuilder builder = new ProcessBuilder(enginePath.toString(), "version");
       Path parent = enginePath.toAbsolutePath().normalize().getParent();
@@ -805,9 +795,7 @@ public final class KataGoAutoSetupHelper {
       }
       KataGoRuntimeHelper.configureBundledProcessBuilder(builder, enginePath);
       builder.redirectErrorStream(true);
-      attempt.capture(builder);
       process = builder.start();
-      attempt.attachProcess(process);
       final Process runningProcess = process;
       outputPump =
           new Thread(
@@ -817,12 +805,8 @@ public final class KataGoAutoSetupHelper {
                   int read;
                   while ((read = input.read(buffer)) >= 0 && output.size() < 64 * 1024) {
                     output.write(buffer, 0, Math.min(read, 64 * 1024 - output.size()));
-                    attempt.output("merged", new String(buffer, 0, read, StandardCharsets.UTF_8));
                   }
                 } catch (IOException ignored) {
-                } finally {
-                  attempt.streamEnded("stdout", null);
-                  attempt.streamEnded("stderr", null);
                 }
               },
               "katago-version-output");
@@ -830,8 +814,6 @@ public final class KataGoAutoSetupHelper {
       outputPump.start();
       long effectiveTimeout = Math.max(2L, timeoutSeconds);
       if (!process.waitFor(effectiveTimeout, TimeUnit.SECONDS)) {
-        attempt.fail("startup-timeout", "KataGo version check timed out.");
-        attempt.beforeTermination();
         process.destroyForcibly();
         return new EngineValidationResult(
             EngineValidationStatus.TIMED_OUT, "KataGo version check timed out.");
@@ -839,23 +821,17 @@ public final class KataGoAutoSetupHelper {
       outputPump.join(1000L);
       String detail = output.toString(StandardCharsets.UTF_8.name()).trim();
       if (process.exitValue() == 0) {
-        attempt.ready();
         return new EngineValidationResult(EngineValidationStatus.VALID, detail);
       }
-      attempt.fail("startup-exit", detail);
       return classifyValidationFailure(detail, null);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      attempt.fail("startup-timeout", "KataGo version check was interrupted.");
       return new EngineValidationResult(
           EngineValidationStatus.TIMED_OUT, "KataGo version check was interrupted.");
     } catch (IOException e) {
-      attempt.fail(process == null ? "process-create" : "startup-handshake", e.toString());
       return classifyValidationFailure("", e);
     } finally {
-      EngineObservation.ensureStopped(probeOwner, "version-probe-finished");
       if (process != null && process.isAlive()) {
-        attempt.beforeTermination();
         process.destroyForcibly();
       }
     }
@@ -868,8 +844,7 @@ public final class KataGoAutoSetupHelper {
             && Lizzie.leelaz.isStarted()
             && Lizzie.leelaz.isLoaded()
             && !Lizzie.leelaz.isProcessDead();
-    String currentEngineCommand =
-        Lizzie.leelaz == null ? "" : Lizzie.leelaz.getEngineCommand();
+    String currentEngineCommand = Lizzie.leelaz == null ? "" : Lizzie.leelaz.getEngineCommand();
     return validateEngineWithActiveSession(
         enginePath, timeoutSeconds, currentEngineCommand, currentEngineReady);
   }
@@ -900,8 +875,7 @@ public final class KataGoAutoSetupHelper {
     if (Utils.isBlank(command) || expectedEnginePath == null) {
       return false;
     }
-    Path commandEngine =
-        KataGoRuntimeHelper.resolveCommandExecutable(Utils.splitCommand(command));
+    Path commandEngine = KataGoRuntimeHelper.resolveCommandExecutable(Utils.splitCommand(command));
     if (commandEngine == null) {
       return false;
     }
@@ -1397,8 +1371,8 @@ public final class KataGoAutoSetupHelper {
     }
   }
 
-  public static Path downloadQuickAnalysisModel(
-      ProgressListener listener, DownloadSession session) throws IOException {
+  public static Path downloadQuickAnalysisModel(ProgressListener listener, DownloadSession session)
+      throws IOException {
     SetupSnapshot snapshot = inspectLocalSetup();
     Path modelsDir = quickAnalysisModelsDir(snapshot.workingDir);
     RemoteWeightInfo info = quickAnalysisDownloadInfo();
@@ -1436,10 +1410,7 @@ public final class KataGoAutoSetupHelper {
   }
 
   private static Path downloadWeightToDirectory(
-      RemoteWeightInfo info,
-      Path weightsDir,
-      ProgressListener listener,
-      DownloadSession session)
+      RemoteWeightInfo info, Path weightsDir, ProgressListener listener, DownloadSession session)
       throws IOException {
     if (info == null || weightsDir == null) {
       throw new IOException(resource("AutoSetup.noRemoteWeights", "No downloadable weight found."));
@@ -1780,9 +1751,7 @@ public final class KataGoAutoSetupHelper {
     SetupSnapshot resolvedSnapshot = snapshot == null ? inspectLocalSetup() : snapshot;
     Path configured =
         configuredWeightPath(
-            QUICK_ANALYSIS_MODEL_CONFIG_KEY,
-            resolvedSnapshot.workingDir,
-            resolvedSnapshot.appRoot);
+            QUICK_ANALYSIS_MODEL_CONFIG_KEY, resolvedSnapshot.workingDir, resolvedSnapshot.appRoot);
     if (isValidQuickAnalysisModelFile(configured)) {
       return new QuickAnalysisModelStatus(configured);
     }
@@ -1882,7 +1851,6 @@ public final class KataGoAutoSetupHelper {
         || normalized.contains("tflrs");
   }
 
-
   public static SetupResult applyAutoSetup(SetupSnapshot snapshot) throws IOException {
     return applyAutoSetup(snapshot, true);
   }
@@ -1928,11 +1896,9 @@ public final class KataGoAutoSetupHelper {
       SetupSnapshot snapshot, String engineName, boolean makeDefault) throws IOException {
     return applyEngineProfile(snapshot, engineName, makeDefault, -1);
   }
+
   static SetupResult applyEngineProfile(
-      SetupSnapshot snapshot,
-      String engineName,
-      boolean makeDefault,
-      Path preferredExecutable)
+      SetupSnapshot snapshot, String engineName, boolean makeDefault, Path preferredExecutable)
       throws IOException {
     ArrayList<EngineData> engines = Utils.getEngineData();
     if (snapshot == null) snapshot = inspectLocalSetup();
@@ -2084,7 +2050,9 @@ public final class KataGoAutoSetupHelper {
   }
 
   private static String experimentalBackendOverrides(SetupSnapshot snapshot) {
-    if (snapshot == null || snapshot.enginePath == null || snapshot.enginePath.getParent() == null) {
+    if (snapshot == null
+        || snapshot.enginePath == null
+        || snapshot.enginePath.getParent() == null) {
       return "";
     }
     return experimentalBackendOverrides(snapshot.enginePath, snapshot.workingDir);
@@ -2094,8 +2062,7 @@ public final class KataGoAutoSetupHelper {
     if (enginePath == null || enginePath.getParent() == null) {
       return "";
     }
-    Path marker =
-        enginePath.getParent().resolve("lizzieyzy-next-engine-backend.txt");
+    Path marker = enginePath.getParent().resolve("lizzieyzy-next-engine-backend.txt");
     String backend;
     try {
       backend = Files.readString(marker, StandardCharsets.UTF_8).trim().toLowerCase(Locale.ROOT);
@@ -2109,10 +2076,7 @@ public final class KataGoAutoSetupHelper {
       Path cacheRoot =
           Lizzie.config == null
               ? workingDir.resolve("runtime").resolve("katago-openvino-cache")
-              : Lizzie.config
-                  .getRuntimeWorkDirectory()
-                  .toPath()
-                  .resolve("katago-openvino-cache");
+              : Lizzie.config.getRuntimeWorkDirectory().toPath().resolve("katago-openvino-cache");
       StringBuilder override =
           new StringBuilder("onnxProvider=openvino,onnxOpenVINOCacheDir=")
               .append(cacheRoot.toAbsolutePath().normalize());
@@ -2131,7 +2095,6 @@ public final class KataGoAutoSetupHelper {
   public static String getAutoSetupEngineName() {
     return AUTO_SETUP_ENGINE_NAME;
   }
-
 
   private static Path humanSlModelsDir(Path workingDir) {
     return workingDir.resolve(HUMAN_SL_MODEL_DIR_NAME).toAbsolutePath().normalize();
@@ -3339,10 +3302,7 @@ public final class KataGoAutoSetupHelper {
     String normalized =
         value == null
             ? ""
-            : value
-                .toLowerCase(Locale.ROOT)
-                .replace('\\', '/')
-                .replaceAll("[\\s._]+", "-");
+            : value.toLowerCase(Locale.ROOT).replace('\\', '/').replaceAll("[\\s._]+", "-");
     if (normalized.contains("without.engine") || normalized.contains("without-engine")) {
       return PackageFlavor.WITHOUT_ENGINE;
     }
@@ -3991,7 +3951,6 @@ public final class KataGoAutoSetupHelper {
         || !hasUsableJarTarget(commandParts);
   }
 
-
   private static boolean hasUsableJarTarget(List<String> commandParts) {
     for (int i = 0; i < commandParts.size() - 1; i++) {
       if ("-jar".equals(commandParts.get(i))) {
@@ -4005,7 +3964,6 @@ public final class KataGoAutoSetupHelper {
     }
     return true;
   }
-
 
   private static boolean shouldRepairAuxCommand(
       String command, Path expectedEnginePath, Path expectedConfigPath, Path expectedWeightPath) {

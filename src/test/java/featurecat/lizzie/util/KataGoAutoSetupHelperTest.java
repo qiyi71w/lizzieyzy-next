@@ -582,7 +582,7 @@ public class KataGoAutoSetupHelperTest {
   }
 
   @Test
-  void versionProbeFailureRetainsItsOwnExitAndLaunchEnvironment() throws Exception {
+  void versionProbeFailurePreservesErrorOutput() throws Exception {
     assumeFalse(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"));
     Path root = Files.createTempDirectory("katago-version-failure");
     Path engine = root.resolve("katago");
@@ -591,20 +591,7 @@ public class KataGoAutoSetupHelperTest {
 
     var result = KataGoAutoSetupHelper.validateLocalEngine(engine, 8L);
     assertFalse(result.isValid());
-    var record = featurecat.lizzie.analysis.EngineStartupDiagnostics.getDefault().snapshot()
-        .failures().stream()
-        .filter(f -> f.toJson().getJSONObject("launch").optString("configuredCommand")
-            .contains(engine.toString()))
-        .findFirst().orElseThrow().toJson();
-    assertEquals("AUTO_SETUP_VERSION_PROBE", record.getString("launchPurpose"));
-    assertEquals("startup-exit", record.getString("phase"));
-    assertEquals(7, record.getInt("exitCode"));
-    assertEquals(root.toString(), record.getJSONObject("launch").getString("cwd"));
-    assertEquals(System.getenv("PATH"), record.getJSONObject("launch").getString("effectivePath"));
-    assertTrue(record.getString("stdout").contains("fixture.dll"));
-    assertEquals("merged", record.getString("stdoutOrigin"));
-    assertEquals(
-        "engine-merged", record.getJSONArray("findings").getJSONObject(0).getString("evidence"));
+    assertTrue(result.detail.contains("fixture.dll"));
   }
 
   @Test
@@ -737,20 +724,16 @@ public class KataGoAutoSetupHelperTest {
     KataGoAutoSetupHelper.RemoteWeightInfo lightweight =
         KataGoAutoSetupHelper.officialTransformerWeights().stream()
             .filter(
-                info ->
-                    info.transformerTier
-                        == KataGoAutoSetupHelper.TransformerTier.LIGHTWEIGHT)
+                info -> info.transformerTier == KataGoAutoSetupHelper.TransformerTier.LIGHTWEIGHT)
             .findFirst()
             .orElseThrow();
 
     assertEquals(
         KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_FILE_NAME.replace(".bin.gz", ""),
         lightweight.modelName);
-    assertEquals(
-        KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_SIZE_BYTES, lightweight.sizeBytes);
+    assertEquals(KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_SIZE_BYTES, lightweight.sizeBytes);
     assertEquals(KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_SHA256, lightweight.sha256);
-    assertEquals(
-        KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_DOWNLOAD_URL, lightweight.downloadUrl);
+    assertEquals(KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_DOWNLOAD_URL, lightweight.downloadUrl);
   }
 
   @Test
@@ -760,13 +743,11 @@ public class KataGoAutoSetupHelperTest {
     assertEquals("", KataGoAutoSetupHelper.parseKataGoVersion("unknown engine"));
   }
 
-
   @Test
   void recognizesTrainedTransformersWithoutRelabelingOldModels() {
     assertTrue(
         KataGoAutoSetupHelper.isTransformerWeight("kata1-tf3-b11c768-s11500M-d6163M.bin.gz"));
-    assertTrue(
-        KataGoAutoSetupHelper.isTransformerWeight("b11c768h12nbt3tflrs-fson-silu.bin.gz"));
+    assertTrue(KataGoAutoSetupHelper.isTransformerWeight("b11c768h12nbt3tflrs-fson-silu.bin.gz"));
     assertFalse(
         KataGoAutoSetupHelper.isTransformerWeight(
             "kata1-b28c512nbt-s12763923712-d5805955894.bin.gz"));
@@ -792,10 +773,7 @@ public class KataGoAutoSetupHelperTest {
             KataGoAutoSetupHelper.fetchOfficialWeights();
         assertEquals(3, weights.size());
         KataGoAutoSetupHelper.RemoteWeightInfo b11 =
-            weights.stream()
-                .filter(info -> info.modelName.equals(model))
-                .findFirst()
-                .orElseThrow();
+            weights.stream().filter(info -> info.modelName.equals(model)).findFirst().orElseThrow();
         assertEquals("14545.3 Elo", b11.eloRating);
         assertEquals(KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_SHA256, b11.sha256);
         assertEquals(KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_SIZE_BYTES, b11.sizeBytes);
@@ -1158,14 +1136,12 @@ public class KataGoAutoSetupHelperTest {
     Path activeWeight = touch(root.resolve("weights").resolve("main.bin.gz"));
     Path quickModel =
         writeModel(
-            root
-                .resolve("quick-analysis-models")
+            root.resolve("quick-analysis-models")
                 .resolve(KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_FILE_NAME),
             modelBytes);
 
     withQuickAnalysisDownloadProperties(
-        "http://127.0.0.1/not-used/"
-            + KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_FILE_NAME,
+        "http://127.0.0.1/not-used/" + KataGoAutoSetupHelper.QUICK_ANALYSIS_MODEL_FILE_NAME,
         sha256(modelBytes),
         modelBytes.length,
         () ->
@@ -1191,8 +1167,7 @@ public class KataGoAutoSetupHelperTest {
                   assertEquals(configured.commands, Utils.getEngineData().get(0).commands);
 
                   Lizzie.config.analysisReuseCurrentEngine = true;
-                  assertTrue(
-                      KataGoAutoSetupHelper.resolveQuickAnalysisEngineCommand().isEmpty());
+                  assertTrue(KataGoAutoSetupHelper.resolveQuickAnalysisEngineCommand().isEmpty());
                 }));
   }
 
@@ -1960,17 +1935,14 @@ public class KataGoAutoSetupHelperTest {
         () -> {
           EngineData existing =
               engineData(
-                  KataGoAutoSetupHelper.getAutoSetupEngineName(),
-                  engine,
-                  gtpConfig,
-                  weight,
-                  false);
+                  KataGoAutoSetupHelper.getAutoSetupEngineName(), engine, gtpConfig, weight, false);
           Utils.saveEngineSettings(new ArrayList<>(List.of(existing)));
           Lizzie.config.uiConfig.remove("autoload-default");
           Lizzie.config.uiConfig.remove("autoload-empty");
           Lizzie.config.uiConfig.remove("autoload-last");
           Lizzie.config.uiConfig.put("default-engine", -1);
-          Lizzie.config.config
+          Lizzie.config
+              .config
               .put("ui", Lizzie.config.uiConfig)
               .put("leelaz", Lizzie.config.leelazConfig);
 
@@ -2016,8 +1988,7 @@ public class KataGoAutoSetupHelperTest {
                   .resolve(detectTestPlatformDir())
                   .resolve(testKataGoBinaryName()));
       Path configDir =
-          Files.createDirectories(
-              tempRoot.resolve("engines").resolve("katago").resolve("configs"));
+          Files.createDirectories(tempRoot.resolve("engines").resolve("katago").resolve("configs"));
       Path gtpConfig = touch(configDir.resolve("gtp.cfg"));
       touch(configDir.resolve("analysis.cfg"));
       Path weight = touch(tempRoot.resolve("weights").resolve("default.bin.gz"));
@@ -2025,16 +1996,14 @@ public class KataGoAutoSetupHelperTest {
       withUserDirAndConfig(
           tempRoot,
           () -> {
-            EngineData existing =
-                engineData("Custom default", engine, gtpConfig, weight, true);
+            EngineData existing = engineData("Custom default", engine, gtpConfig, weight, true);
             Lizzie.config.uiConfig.put("autoload-default", mode[0]);
             Lizzie.config.uiConfig.put("autoload-empty", mode[1]);
             Lizzie.config.uiConfig.put("autoload-last", mode[2]);
             Lizzie.config.uiConfig.put("default-engine", 0);
             Utils.saveEngineSettings(new ArrayList<>(List.of(existing)));
 
-            KataGoAutoSetupHelper.applyAutoSetup(
-                KataGoAutoSetupHelper.inspectLocalSetup(), false);
+            KataGoAutoSetupHelper.applyAutoSetup(KataGoAutoSetupHelper.inspectLocalSetup(), false);
 
             assertEquals(mode[0], Lizzie.config.uiConfig.optBoolean("autoload-default"));
             assertEquals(mode[1], Lizzie.config.uiConfig.optBoolean("autoload-empty"));
