@@ -73,6 +73,23 @@ $measurementClasspath = (Join-Path $PWD 'target/test-classes') + ';' + `
 
 验收比较每轮及中位数，而非单次最好数字；同时看首结果、暂停/取消、EDT 的 p95/p99、显存峰值和预算完整性。只有多个实际棋谱上稳定收益且无明显延迟/内存回退才推荐参数；没有足够证据继续使用原配置。
 
+### 版本 2 探针验证记录（2026-09-23）
+
+本次正式测量的代码版本为 `b7ba99e579044961e417ea9681565017cf8bafdc`，manifest 的 `sourceCommit` 保留该值。随后补充本节的提交仅修改文档，不改变已测量的代码或参数。
+
+Windows 11、Java 21、RTX 5090 真机中，`ProcessHandle.Info` 没有提供完整 argv。探针按其自有引擎 PID 从 `Win32_Process.CommandLine` 捕获实际命令，报告记录 `commandEvidenceSource: Win32_Process.CommandLine`；`effectiveCommandArgs: []` 表示此平台未提供 argv，不从请求命令伪造数组。
+
+启动与搜索耗时分别记录：实时场景的 `startupSeconds` 覆盖应用窗口与主引擎就绪；整盘场景的 `startupSeconds` 仅覆盖应用窗口，`engineStartupSeconds` 单列专用引擎启动至清缓存确认的时间。这些准备耗时不混入固定 visits 的搜索耗时。冷样本独立记录，不参与热态调优收益计算。
+
+- Java 探针单测 8 项通过：普通历史队列先完成、随后确认当前局面，恢复失败时不继续，停止成功后才清缓存，拒绝错误或缺失的 ACK，禁止在 EDT 阻塞等待。
+- Python 测量脚本单测 7 项通过；行尾、Markdown 本地链接与差异空白检查通过。
+- 真实引擎功能冒烟 6 场通过：8 手开局的两组参数各测实时与整盘，共 4 场；80 手中盘的两组参数各测实时，共 2 场。每场为独立冷进程、每局面 512 visits、无热态重复，仅验证功能和预算完整性，不证明性能提升。
+- 开局实时原始日志确认恢复命令及其确认均早于最后一次成功的 `stop`、`clear_cache`，之后才发送最终 `play W F3` 和 `kata-analyze`；测量区间未出现额外恢复命令。日志未保存流式 rootInfo 全文，因此这不是逐条结果载荷审计。整盘样本通过正 visits 搜索中报告确认取消工作已开始，并等待实际进程退出。
+
+旧 `app-final-opening` 样本保留用于排查准备时序问题，没有版本 2 测量契约，不作为推荐依据，也不导入调优配置。正式性能数字与跨 PR 验收结果另行汇总，不与上述功能冒烟混用。
+
+### 可选运行诊断
+
 复制一份 Windows 启动器旁的 `app\LizzieYzy Next*.cfg`，只在测试副本的 `[JavaOptions]` 末尾加入：
 
 ```text
