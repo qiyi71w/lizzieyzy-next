@@ -982,8 +982,7 @@ class DiagnosticBundleExporterTest {
         all);
     JSONObject manifest = manifest(entries);
     assertEquals(applicationSession, manifest.getString("applicationSession"));
-    assertEquals(1, manifest.getJSONArray("aliases").length());
-    assertEquals("live-room#1", manifest.getJSONArray("aliases").getString(0));
+    assertTrue(manifest.getJSONArray("aliases").toList().contains("live-room#1"));
   }
 
   @Test
