@@ -12,6 +12,7 @@ All notable maintenance updates to this fork are documented here.
 - Keep diagnostics actions visible after asynchronous size estimates, constrain long metadata to the available width, and fit initial dialog bounds to the current monitor work area (#536).
 - Explain engine startup failures with Windows status codes, explicit DLL errors, existing KataGo runtime checks, and bounded process output; preserve the error and command layout with separate details, copy, and diagnostic export actions (#535).
 - Record startup errors and late process output in ordinary WARN logs under the original engine and launch identity, and attach the displayed failure to diagnostic bundles (#535).
+- Review measured live/whole-game KataGo recommendations separately, bind them to engine/model/config/GPU identity, and apply or restore scene-specific settings only after explicit confirmation.
 - Simplify engine-game rule selection to Chinese, Japanese/Korean, AGA/BGA, New Zealand, Tromp-Taylor, and custom rules; use matching rule-family names during games and preserve saved preset parameters until explicitly changed (#516).
 - Keep komi controls, game-info editing, and score-graph rendering usable after engine startup failure; cover the no-engine desktop paths in required regression tests.
 - Apply current-game komi changes through both engine participants, wait for acknowledgements before committing, preserve pause intent, and end the batch safely if synchronization fails (#518).
