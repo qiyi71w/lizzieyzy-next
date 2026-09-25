@@ -129,11 +129,11 @@ jobs:
           grep -Fqx "Linux bundle: $(python3 scripts/katago_asset_catalog.py get assets.linux-cpu.assetName)" "$manifest"
           grep -Fqx "Linux OpenCL bundle: $(python3 scripts/katago_asset_catalog.py get assets.linux-opencl.assetName)" "$manifest"
           grep -Fqx "Linux NVIDIA bundle: $(python3 scripts/katago_asset_catalog.py get assets.linux-nvidia.assetName)" "$manifest"
-          grep -qx "Model source: kata1-tf3-b11c768-s11500M-d6163M.bin.gz" "$manifest"
+          grep -qx "Model source: kata1-tf3-b11c768-s11750M-d6216M.bin.gz" "$manifest"
           grep -qx "Model architecture: transformer" "$manifest"
           grep -qx "Minimum KataGo version: 1.17.0" "$manifest"
           test "$(sha256sum "dist/stage/${RELEASE_DATE_TAG}-linux64.with-katago/Lizzieyzy/weights/default.bin.gz" | awk '{print $1}')" = \
-            "73f6454eba62d2f6d099af8ce66d8c3fde6225e223c55817da0627590e98b0ae"
+            "5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b"
           cpu_version="$("dist/stage/${RELEASE_DATE_TAG}-linux64.with-katago/Lizzieyzy/engines/katago/linux-x64/katago" version 2>&1)"
           echo "$cpu_version"
           echo "$cpu_version" | grep -Fq "KataGo $(python3 scripts/katago_asset_catalog.py get katagoReleaseTag)"

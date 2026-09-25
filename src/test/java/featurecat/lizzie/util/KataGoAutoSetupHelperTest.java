@@ -695,7 +695,7 @@ public class KataGoAutoSetupHelperTest {
             .orElseThrow()
             .recommended);
     assertTrue(weights.stream().allMatch(KataGoAutoSetupHelper.RemoteWeightInfo::isTransformer));
-    assertEquals("2026-09-07", strongest.uploadedAt);
+    assertEquals("2026-09-12", strongest.uploadedAt);
     assertEquals(
         "https://media.katagotraining.org/uploaded/networks/models/kata1/"
             + KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_FILE_NAME,
@@ -739,6 +739,11 @@ public class KataGoAutoSetupHelperTest {
   void recognizesTrainedTransformersWithoutRelabelingOldModels() {
     assertTrue(
         KataGoAutoSetupHelper.isTransformerWeight("kata1-tf3-b11c768-s11500M-d6163M.bin.gz"));
+    assertFalse(
+        KataGoAutoSetupHelper.resolveWeightDisplayName("kata1-tf3-b11c768-s11500M-d6163M.bin.gz")
+            .contains("2026-09-12"));
+    assertTrue(
+        KataGoAutoSetupHelper.isTransformerWeight("kata1-tf3-b11c768-s11750M-d6216M.bin.gz"));
     assertTrue(
         KataGoAutoSetupHelper.isTransformerWeight("b11c768h12nbt3tflrs-fson-silu.bin.gz"));
     assertFalse(
@@ -746,7 +751,7 @@ public class KataGoAutoSetupHelperTest {
             "kata1-b28c512nbt-s12763923712-d5805955894.bin.gz"));
     assertFalse(
         KataGoAutoSetupHelper.resolveWeightDisplayName("b11c768h12nbt3tflrs-fson-silu.bin.gz")
-            .contains("2026-09-07"));
+            .contains("2026-09-12"));
   }
 
   @Test
@@ -755,7 +760,7 @@ public class KataGoAutoSetupHelperTest {
     String html =
         "<table class=\"table mt-3\"><tr><td>"
             + model
-            + "</td><td>2026-09-07</td><td>14545.3 Elo</td><td>"
+            + "</td><td>2026-09-12</td><td>14545.3 Elo</td><td>"
             + officialLink(model)
             + "</td></tr></table>";
     try (FixtureServer server = FixtureServer.start(html.getBytes(StandardCharsets.UTF_8))) {
