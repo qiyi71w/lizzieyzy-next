@@ -183,9 +183,9 @@ python3 scripts/generate_app_icons.py
 当前默认：
 
 - KataGo 版本输出：`v1.18.2`；15 个目标必须全都来自官方已合并提交 `47aadc08518b3e121f22539796c911002f699584` 的项目自编译产物，来源不得混用
-- 默认模型：`kata1-tf3-b11c768-s11500M-d6163M.bin.gz`
-- 默认模型 SHA-256：`73f6454eba62d2f6d099af8ce66d8c3fde6225e223c55817da0627590e98b0ae`
-- 默认模型大小：`211,568,937` 字节；架构：`transformer`；最低 KataGo：`1.17.0`
+- 默认模型：`kata1-tf3-b11c768-s11750M-d6216M.bin.gz`
+- 默认模型 SHA-256：`5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b`
+- 默认模型大小：`211,575,408` 字节；架构：`transformer`；最低 KataGo：`1.17.0`
 - Windows NVIDIA 包：自编译 `cuda12.8-cudnn9.8.0` 引擎，运行库和 GPU 架构范围不变
 - Linux NVIDIA 包：自编译 CUDA `12.1` 引擎，必须通过既有 ABI 上限与 Ubuntu 22.04/24.04 加载审计
 - Windows TensorRT：不内嵌到普通 Windows 主推荐包；按需安装也使用同一批自编译 `trt10.9.0-cuda12.8` 引擎，运行库不变。RTX 30/40/50 优先使用 CUDA；TensorRT 是 RTX 20、GTX 16 的可选项。预发布仍强制生成离线 TensorRT 分卷及其 README、manifest、SHA-256 文件，缺少任一项不能公开

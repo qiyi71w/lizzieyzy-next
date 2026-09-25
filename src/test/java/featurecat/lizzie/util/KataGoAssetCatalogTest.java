@@ -74,14 +74,14 @@ class KataGoAssetCatalogTest {
     assertEquals("v1.18.2", catalog.katagoReleaseTag());
     assertEquals(
         "katago-source-47aadc08518b-windows-cpu.zip", catalog.asset("windows-cpu").assetName());
-    assertEquals("kata1-tf3-b11c768-s11500M-d6163M.bin.gz", model.fileName());
-    assertEquals(211_568_937L, model.sizeBytes());
+    assertEquals("kata1-tf3-b11c768-s11750M-d6216M.bin.gz", model.fileName());
+    assertEquals(211_575_408L, model.sizeBytes());
     assertEquals(
-        "73f6454eba62d2f6d099af8ce66d8c3fde6225e223c55817da0627590e98b0ae",
+        "5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b",
         model.sha256());
     assertTrue(model.bundled());
     assertFalse(catalog.model("b10-balanced").bundled());
-    assertEquals("2026-09-07", model.publishedAt());
+    assertEquals("2026-09-12", model.publishedAt());
     assertEquals(
         "https://media.katagotraining.org/uploaded/networks/models/kata1/" + model.fileName(),
         catalog.modelDownloadUrl(model));

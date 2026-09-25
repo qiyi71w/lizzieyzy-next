@@ -75,7 +75,7 @@ class GenerateReleaseNotesTest(unittest.TestCase):
 
         self.assertEqual("v1.18.2", metadata["katago_version"])
         self.assertEqual(
-            "kata1-tf3-b11c768-s11500M-d6163M.bin.gz", metadata["model_source"]
+            "kata1-tf3-b11c768-s11750M-d6216M.bin.gz", metadata["model_source"]
         )
         self.assertEqual(
             "katago-source-47aadc08518b-windows-nvidia.zip",

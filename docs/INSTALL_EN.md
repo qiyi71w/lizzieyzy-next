@@ -212,7 +212,7 @@ Notes:
 Current bundled defaults:
 
 - KataGo reports `v1.18.2`, built by this project from merged upstream commit `47aadc08518b3e121f22539796c911002f699584`, not an official release binary. Full packages include same-tree focus support; core updates contain no engine
-- Weight: official flagship B11 Transformer `kata1-tf3-b11c768-s11500M-d6163M.bin.gz` (shown as “Transformer B11 · 2026-09-07”, `211,568,937` bytes, about 202 MiB)
+- Weight: official flagship B11 Transformer `kata1-tf3-b11c768-s11750M-d6216M.bin.gz` (shown as “Transformer B11 · 2026-09-12”, `211,575,408` bytes, about 202 MiB)
 - B11 makes stronger individual evaluations and handles complex positions better, but search can be slower; users who prioritize throughput can download and switch to B10 in `KataGo Auto Setup`
 - Upgrading an older full bundle requires the latest full package; `core-update.zip` does not contain the new engine or weight
 
