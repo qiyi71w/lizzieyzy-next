@@ -23,6 +23,7 @@ import featurecat.lizzie.util.Utils;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dialog;
+import java.awt.FileDialog;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Robot;
@@ -75,6 +76,7 @@ import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
+import javax.swing.JTextField;
 import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -82,7 +84,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
-/** Linux/Xvfb acceptance for the production SGF open, navigate, analyze, save, and reopen flow. */
+/** Desktop acceptance for the production SGF open, navigate, analyze, save, and reopen flow. */
 public final class SgfUiAcceptanceIT {
   private static final String FIXTURE =
       "src/test/resources/featurecat/lizzie/gui/d3-sgf-ui-roundtrip-中文.sgf";
@@ -383,6 +385,15 @@ public final class SgfUiAcceptanceIT {
       throw new AssertionError("File -> Exit did not terminate the application within 30 seconds");
     } catch (Throwable failure) {
       if (result != null) {
+        try {
+          javax.imageio.ImageIO.write(
+              new Robot()
+                  .createScreenCapture(new Rectangle(Toolkit.getDefaultToolkit().getScreenSize())),
+              "png",
+              result.getParent().resolve("failure.png").toFile());
+        } catch (Exception captureFailure) {
+          failure.addSuppressed(captureFailure);
+        }
         Files.writeString(
             result,
             "failure.class="
@@ -664,6 +675,10 @@ public final class SgfUiAcceptanceIT {
   private static void openViaChooser(Robot robot, Path file, Path result) throws Exception {
     AtomicReference<JFileChooser> chooserRef = new AtomicReference<>();
     clickMenuAction(robot, "files.open", Duration.ofSeconds(15));
+    if (System.getProperty("os.name", "").startsWith("Windows")) {
+      openViaWindowsChooser(robot, file, result);
+      return;
+    }
     await(
         () -> {
           JFileChooser chooser = visibleChooser();
@@ -701,9 +716,52 @@ public final class SgfUiAcceptanceIT {
     DesktopProbeProcess.phase(result, "file-open-approved");
   }
 
+  private static void openViaWindowsChooser(Robot robot, Path file, Path result) throws Exception {
+    AtomicReference<FileDialog> chooser = new AtomicReference<>();
+    await(
+        () ->
+            edt(
+                () -> {
+                  for (Window window : Window.getWindows()) {
+                    if (window instanceof FileDialog dialog
+                      && dialog.isShowing()) {
+                      chooser.set(dialog);
+                      return true;
+                    }
+                  }
+                  return false;
+                }),
+        Deadline.after(Duration.ofSeconds(15)),
+        "visible Windows native open dialog");
+    // The Windows common file dialog exposes Alt+N for its filename field.
+    Toolkit.getDefaultToolkit()
+        .getSystemClipboard()
+        .setContents(new StringSelection(file.toAbsolutePath().toString()), null);
+    robot.keyPress(KeyEvent.VK_ALT);
+    press(robot, KeyEvent.VK_N);
+    robot.keyRelease(KeyEvent.VK_ALT);
+    robot.keyPress(KeyEvent.VK_CONTROL);
+    press(robot, KeyEvent.VK_A);
+    press(robot, KeyEvent.VK_V);
+    robot.keyRelease(KeyEvent.VK_CONTROL);
+    press(robot, KeyEvent.VK_ENTER);
+    await(
+        () -> !edt(chooser.get()::isShowing),
+        Deadline.after(Duration.ofSeconds(15)),
+        "Windows open approval");
+    assertEquals(
+        file.toAbsolutePath().normalize(),
+        edt(
+            () ->
+                Path.of(chooser.get().getDirectory(), chooser.get().getFile())
+                    .toAbsolutePath()
+                    .normalize()));
+    DesktopProbeProcess.phase(result, "file-open-approved");
+  }
+
   private static void saveAsViaChooser(Robot robot, Path file, Path result) throws Exception {
     JFileChooser chooser = openSaveChooser(robot);
-    pasteFileName(robot, chooser, file);
+    JTextField filename = pasteFileName(robot, chooser, file);
     press(robot, KeyEvent.VK_ENTER);
     try {
       await(
@@ -712,9 +770,7 @@ public final class SgfUiAcceptanceIT {
           "save chooser approval");
     } catch (AssertionError failure) {
       String state =
-          edt(
-              () ->
-                  "selected=" + chooser.getSelectedFile() + ",field=" + LizzieFrame.text.getText());
+          edt(() -> "selected=" + chooser.getSelectedFile() + ",field=" + filename.getText());
       throw new AssertionError(failure.getMessage() + "; " + state, failure);
     }
     DesktopProbeProcess.phase(result, "file-save-approved");
@@ -757,30 +813,55 @@ public final class SgfUiAcceptanceIT {
     return chooserRef.get();
   }
 
-  private static void pasteFileName(Robot robot, JFileChooser chooser, Path file) throws Exception {
+  private static JTextField pasteFileName(Robot robot, JFileChooser chooser, Path file)
+      throws Exception {
+    AtomicReference<JTextField> filenameRef = new AtomicReference<>();
     await(
         () ->
             edt(
-                () ->
-                    LizzieFrame.text != null
-                        && LizzieFrame.text.isShowing()
-                        && LizzieFrame.text.isEnabled()
-                        && SwingUtilities.isDescendingFrom(LizzieFrame.text, chooser)),
+                () -> {
+                  JTextField filename = saveFileNameField(chooser);
+                  filenameRef.set(filename);
+                  return filename != null;
+                }),
         Deadline.after(Duration.ofSeconds(15)),
         "enabled visible save filename field");
+    JTextField filename = filenameRef.get();
     Toolkit.getDefaultToolkit()
         .getSystemClipboard()
         .setContents(new StringSelection(file.toAbsolutePath().toString()), null);
-    clickComponent(robot, LizzieFrame.text);
+    clickComponent(robot, filename);
     robot.keyPress(KeyEvent.VK_CONTROL);
     press(robot, KeyEvent.VK_A);
     press(robot, KeyEvent.VK_V);
     robot.keyRelease(KeyEvent.VK_CONTROL);
     robot.delay(100);
     await(
-        () -> edt(() -> LizzieFrame.text.getText().equals(file.toAbsolutePath().toString())),
+        () -> edt(() -> filename.getText().equals(file.toAbsolutePath().toString())),
         Deadline.after(Duration.ofSeconds(5)),
         "pasted save filename");
+    return filename;
+  }
+
+  // The standard chooser owns its input; the removed custom save dialog's static field is stale.
+  // Match the visible preset filename instead of assuming a look-and-feel-specific widget name.
+  // Ambiguous or hidden inputs must fail, never silently switch to programmatic file selection.
+  static JTextField saveFileNameField(JFileChooser chooser) {
+    java.io.File selected = chooser.getSelectedFile();
+    if (selected == null) return null;
+    List<JTextField> matching =
+        descendants(chooser).stream()
+            .filter(JTextField.class::isInstance)
+            .map(JTextField.class::cast)
+            .filter(Component::isShowing)
+            .filter(JTextField::isEnabled)
+            .filter(JTextField::isEditable)
+            .filter(
+                field ->
+                    selected.getName().equals(field.getText())
+                        || selected.getAbsolutePath().equals(field.getText()))
+            .toList();
+    return matching.size() == 1 ? matching.get(0) : null;
   }
 
   private static void clickChooserFile(Robot robot, JFileChooser chooser, String fileName)
@@ -890,6 +971,18 @@ public final class SgfUiAcceptanceIT {
   private static void clickMenuAction(Robot robot, String action, Duration timeout)
       throws Exception {
     Deadline deadline = Deadline.after(timeout);
+    edt(
+        () -> {
+          // Keep physical input on this isolated probe when a prior diagnostics test opened
+          // Explorer.
+          if (System.getProperty("os.name", "").startsWith("Windows")) {
+            Lizzie.frame.setAlwaysOnTop(true);
+          }
+          Lizzie.frame.toFront();
+          Lizzie.frame.requestFocus();
+          return null;
+        });
+    await(() -> edt(Lizzie.frame::isActive), deadline, "active application for " + action);
     JMenuItem item = edt(() -> findMenuAction(action));
     JMenu parent = edt(() -> topLevelMenuContaining(item));
     AtomicReference<Component> invokerRef = new AtomicReference<>();
@@ -907,12 +1000,9 @@ public final class SgfUiAcceptanceIT {
   }
 
   private static Component visibleMenuInvoker(JMenu menu) {
-    if (menu.isShowing()) {
-      return menu;
-    }
     WindowMenuStrip strip = Lizzie.frame == null ? null : Lizzie.frame.windowMenuStrip;
     if (strip == null || !strip.isShowing()) {
-      return null;
+      return menu.isShowing() && menu.getWidth() > 0 && menu.getHeight() > 0 ? menu : null;
     }
     String text = menu.getText();
     return descendants(strip).stream()
@@ -1126,12 +1216,19 @@ public final class SgfUiAcceptanceIT {
   }
 
   private static void assertPlatformRuntime(Map<String, String> records) {
-    assertTrue(records.get("platform.os").startsWith("Linux"));
+    assertTrue(records.get("platform.os").startsWith(System.getProperty("os.name")));
     assertFalse(records.get("platform.arch").isBlank());
     assertFalse(records.get("runtime.java").isBlank());
-    assertTrue(records.get("display.surface").contains("DISPLAY="));
     assertTrue(records.get("display.surface").contains("JFileChooser"));
-    assertFalse(records.get("display.surface").contains("DISPLAY=null"));
+    if (System.getProperty("os.name", "").startsWith("Windows")) {
+      assertTrue(records.get("display.surface").contains("windows-native"));
+      assertTrue(records.get("display.surface").contains("FileDialog(open)"));
+      assertTrue(records.get("display.surface").contains("WToolkit"));
+    } else {
+      assertTrue(records.get("platform.os").startsWith("Linux"));
+      assertTrue(records.get("display.surface").contains("DISPLAY="));
+      assertFalse(records.get("display.surface").contains("DISPLAY=null"));
+    }
   }
 
   private static void assertRulesConfirmedBeforePosition(Path commandsPath) throws IOException {
@@ -1556,8 +1653,9 @@ public final class SgfUiAcceptanceIT {
             + System.getProperty("java.runtime.version", "unknown"));
     records.put(
         "display.surface",
-        "DISPLAY="
-            + System.getenv("DISPLAY")
+        (System.getProperty("os.name", "").startsWith("Windows")
+                ? "windows-native;chooser=FileDialog(open)"
+                : "DISPLAY=" + System.getenv("DISPLAY"))
             + ";toolkit="
             + Toolkit.getDefaultToolkit().getClass().getName()
             + ";chooser=JFileChooser");

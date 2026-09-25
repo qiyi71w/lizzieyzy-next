@@ -79,6 +79,11 @@ public final class AnalysisResourceCoordinator {
 
   public static void processStarted(
       Object owner, Purpose purpose, String command, Process process) {
+    processStarted(owner, purpose, command, process, false);
+  }
+
+  static void processStarted(
+      Object owner, Purpose purpose, String command, Process process, boolean startupObserved) {
     if (process != null) {
       synchronized (ACTIVE_LOCAL_COMPUTE_PROCESSES) {
         ACTIVE_LOCAL_COMPUTE_PROCESSES.add(process);
@@ -111,7 +116,10 @@ public final class AnalysisResourceCoordinator {
     }
     try {
       EngineBootstrapFacts facts = EngineStartupBootstrap.factsFor(command, purposeName);
-      String engineId = EngineObservation.restartInstance(owner, purposeName, facts);
+      String engineId =
+          startupObserved
+              ? EngineObservation.ensureStarted(owner, purposeName, facts)
+              : EngineObservation.restartInstance(owner, purposeName, facts);
       EngineObservation.markStartupStage(engineId, EngineObservation.STAGE_PROCESS_STARTED);
       if (EngineObservation.engineDiagnosticsEnabled()) {
         EngineObservation.recordProcessDetails(
@@ -174,8 +182,7 @@ public final class AnalysisResourceCoordinator {
       String purposeName = normalizedPurpose(purpose).name();
       String engineId =
           identityAlreadyClaimed ? claimedEngineId : EngineObservation.identityFor(owner);
-      EngineObservation.recordProcessDetails(
-          engineId, "process-stopped", purposeName, -1L, null);
+      EngineObservation.recordProcessDetails(engineId, "process-stopped", purposeName, -1L, null);
       if (!identityAlreadyClaimed) {
         EngineObservation.ensureStopped(owner, "stopped");
       }
@@ -433,7 +440,6 @@ public final class AnalysisResourceCoordinator {
     return purpose == null ? Purpose.OTHER : purpose;
   }
 
-
   private static long processId(Process process) {
     try {
       return process == null ? -1L : process.pid();
@@ -466,7 +472,6 @@ public final class AnalysisResourceCoordinator {
         ? value.substring(1, value.length() - 1)
         : value;
   }
-
 
   private static final class Sample {
     private final int playouts;

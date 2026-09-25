@@ -97,8 +97,7 @@ public final class KataGoAutoSetupHelper {
   public static final String LEGACY_DEFAULT_WEIGHT_MODEL = "kata1-zhizi-b28c512nbt-muonfd2";
   public static final String TRANSFORMER_MINIMUM_KATAGO_VERSION =
       ASSET_CATALOG.defaultModel().minimumKataGoVersion();
-  private static final String TRANSFORMER_LIGHTWEIGHT_MODEL =
-      TRANSFORMER_LIGHTWEIGHT.modelName();
+  private static final String TRANSFORMER_LIGHTWEIGHT_MODEL = TRANSFORMER_LIGHTWEIGHT.modelName();
   private static final String TRANSFORMER_BALANCED_MODEL = TRANSFORMER_BALANCED.modelName();
   private static final String TRANSFORMER_STRONGEST_MODEL = TRANSFORMER_STRONGEST.modelName();
   public static final String DEFAULT_TRANSFORMER_MODEL = ASSET_CATALOG.defaultModel().modelName();
@@ -112,14 +111,12 @@ public final class KataGoAutoSetupHelper {
       ASSET_CATALOG.modelDownloadUrl(TRANSFORMER_LIGHTWEIGHT);
   public static final long QUICK_ANALYSIS_MODEL_SIZE_BYTES = TRANSFORMER_LIGHTWEIGHT.sizeBytes();
   public static final String QUICK_ANALYSIS_MODEL_SHA256 = TRANSFORMER_LIGHTWEIGHT.sha256();
-  private static final String QUICK_ANALYSIS_MODEL_URL_PROPERTY =
-      "lizzie.quick-analysis.model.url";
+  private static final String QUICK_ANALYSIS_MODEL_URL_PROPERTY = "lizzie.quick-analysis.model.url";
   private static final String QUICK_ANALYSIS_MODEL_SHA256_PROPERTY =
       "lizzie.quick-analysis.model.sha256";
   private static final String QUICK_ANALYSIS_MODEL_SIZE_PROPERTY =
       "lizzie.quick-analysis.model.size";
-  private static final String QUICK_ANALYSIS_MODEL_CONFIG_KEY =
-      "katago-quick-analysis-model-path";
+  private static final String QUICK_ANALYSIS_MODEL_CONFIG_KEY = "katago-quick-analysis-model-path";
   private static final String QUICK_ANALYSIS_MODEL_DIR_NAME = "quick-analysis-models";
   private static volatile Path quickAnalysisValidationPath;
   private static volatile long quickAnalysisValidationSize = -1L;
@@ -129,8 +126,7 @@ public final class KataGoAutoSetupHelper {
   private static final Pattern KATAGO_VERSION_PATTERN =
       Pattern.compile("\\bKataGo\\s+v(\\d+)\\.(\\d+)(?:\\.(\\d+))?\\b", Pattern.CASE_INSENSITIVE);
   private static final Pattern KATAGO_MANIFEST_VERSION_PATTERN =
-      Pattern.compile(
-          "(?im)^KataGo release:\\s*v?(\\d+)\\.(\\d+)(?:\\.(\\d+))?\\s*$");
+      Pattern.compile("(?im)^KataGo release:\\s*v?(\\d+)\\.(\\d+)(?:\\.(\\d+))?\\s*$");
   private static final String BUNDLED_2026_06_28B_MODEL =
       "kata1-b28c512nbt-s13255194368-d5935380940";
   private static final String BUNDLED_2026_06_28B_DISPLAY_NAME = "28B 2026-06";
@@ -360,6 +356,9 @@ public final class KataGoAutoSetupHelper {
     public final String savedEntryId;
     public final Path executionDirectory;
     public final List<String> sourceArguments;
+    public final WeightCatalogSnapshot weightCatalog;
+    public final HumanSlModelStatus humanSlModelStatus;
+    public final QuickAnalysisModelStatus quickAnalysisModelStatus;
 
     private SetupSnapshot(
         Path workingDir,
@@ -389,6 +388,32 @@ public final class KataGoAutoSetupHelper {
         Path activeWeightPath,
         List<Path> weightCandidates,
         LocalKataGoDiscoveryResult discovery) {
+      this(
+          workingDir,
+          appRoot,
+          enginePath,
+          gtpConfigPath,
+          analysisConfigPath,
+          activeWeightPath,
+          weightCandidates,
+          discovery,
+          null,
+          null,
+          null);
+    }
+
+    private SetupSnapshot(
+        Path workingDir,
+        Path appRoot,
+        Path enginePath,
+        Path gtpConfigPath,
+        Path analysisConfigPath,
+        Path activeWeightPath,
+        List<Path> weightCandidates,
+        LocalKataGoDiscoveryResult discovery,
+        WeightCatalogSnapshot weightCatalog,
+        HumanSlModelStatus humanSlModelStatus,
+        QuickAnalysisModelStatus quickAnalysisModelStatus) {
       this.workingDir = workingDir;
       this.appRoot = appRoot;
       this.enginePath = enginePath;
@@ -397,6 +422,9 @@ public final class KataGoAutoSetupHelper {
       this.activeWeightPath = activeWeightPath;
       this.weightCandidates = Collections.unmodifiableList(new ArrayList<>(weightCandidates));
       this.discovery = discovery;
+      this.weightCatalog = weightCatalog;
+      this.humanSlModelStatus = humanSlModelStatus;
+      this.quickAnalysisModelStatus = quickAnalysisModelStatus;
       this.savedEntryId = discovery == null ? "" : discovery.savedEntryId;
       this.sourceArguments = discovery == null ? List.of() : discovery.launchArguments;
       this.executionDirectory =
@@ -419,7 +447,27 @@ public final class KataGoAutoSetupHelper {
     }
 
     public boolean hasWeight() {
+      if (weightCatalog != null) {
+        WeightCatalogSnapshot.Entry entry = weightCatalog.entry(activeWeightPath);
+        return entry != null && entry.regularFile();
+      }
       return activeWeightPath != null && Files.isRegularFile(activeWeightPath);
+    }
+
+    /** Explicit rescan, including same-size/same-mtime replacements. Call off the UI thread. */
+    public SetupSnapshot scanWeightCatalog() {
+      return new SetupSnapshot(
+          workingDir,
+          appRoot,
+          enginePath,
+          gtpConfigPath,
+          analysisConfigPath,
+          activeWeightPath,
+          weightCandidates,
+          discovery,
+          WeightCatalogSnapshot.scan(activeWeightPath, weightCandidates),
+          inspectHumanSlModel(this),
+          inspectQuickAnalysisModel(this));
     }
 
     public SetupSnapshot withActiveWeight(Path weightPath) {
@@ -442,7 +490,13 @@ public final class KataGoAutoSetupHelper {
           analysisConfigPath,
           weightPath == null ? activeWeightPath : weightPath.toAbsolutePath().normalize(),
           new ArrayList<>(dedup),
-          discovery);
+          discovery,
+          weightCatalog != null
+                  && (weightPath == null || weightCatalog.entry(weightPath) != null)
+              ? weightCatalog
+              : null,
+          humanSlModelStatus,
+          quickAnalysisModelStatus);
     }
 
     public SetupSnapshot withEnginePath(Path enginePath) {
@@ -454,7 +508,10 @@ public final class KataGoAutoSetupHelper {
           analysisConfigPath,
           activeWeightPath,
           weightCandidates,
-          discovery);
+          discovery,
+          weightCatalog,
+          humanSlModelStatus,
+          quickAnalysisModelStatus);
     }
   }
 
@@ -544,31 +601,39 @@ public final class KataGoAutoSetupHelper {
       this.engineName = engineName;
       this.createdEngine = createdEngine;
     }
+
+    public SetupResult scanWeightCatalog() {
+      return new SetupResult(snapshot.scanWeightCatalog(), engineIndex, engineName, createdEngine);
+    }
   }
 
   public static final class HumanSlModelStatus {
     public final Path modelPath;
     public final List<Path> candidates;
+    private final boolean installed;
 
     private HumanSlModelStatus(Path modelPath, List<Path> candidates) {
       this.modelPath = modelPath == null ? null : modelPath.toAbsolutePath().normalize();
       this.candidates = Collections.unmodifiableList(new ArrayList<>(candidates));
+      this.installed = isValidHumanSlModelFile(this.modelPath);
     }
 
     public boolean isInstalled() {
-      return isValidHumanSlModelFile(modelPath);
+      return installed;
     }
   }
 
   public static final class QuickAnalysisModelStatus {
     public final Path modelPath;
+    private final boolean installed;
 
     private QuickAnalysisModelStatus(Path modelPath) {
       this.modelPath = modelPath == null ? null : modelPath.toAbsolutePath().normalize();
+      this.installed = isValidQuickAnalysisModelFile(this.modelPath);
     }
 
     public boolean isInstalled() {
-      return isValidQuickAnalysisModelFile(modelPath);
+      return installed;
     }
 
     public boolean isEnabled() {
@@ -749,7 +814,9 @@ public final class KataGoAutoSetupHelper {
             gtpConfig,
             siblingFile(gtpConfig, "analysis.cfg"),
             model,
-            model == null ? List.of() : List.of(model),
+            // Keep the local catalog when this snapshot is published after a weight switch.
+            // Discovery adds candidates only; the selected entry still owns every launch input.
+            prependUnique(model, collectWeightCandidates(currentWorkingDir(), appRoot)),
             DiscoverySource.MANUAL_SELECTION,
             entry.name,
             entry.commands,
@@ -848,8 +915,7 @@ public final class KataGoAutoSetupHelper {
             && Lizzie.leelaz.isStarted()
             && Lizzie.leelaz.isLoaded()
             && !Lizzie.leelaz.isProcessDead();
-    String currentEngineCommand =
-        Lizzie.leelaz == null ? "" : Lizzie.leelaz.getEngineCommand();
+    String currentEngineCommand = Lizzie.leelaz == null ? "" : Lizzie.leelaz.getEngineCommand();
     return validateEngineWithActiveSession(
         enginePath, timeoutSeconds, currentEngineCommand, currentEngineReady);
   }
@@ -880,8 +946,7 @@ public final class KataGoAutoSetupHelper {
     if (Utils.isBlank(command) || expectedEnginePath == null) {
       return false;
     }
-    Path commandEngine =
-        KataGoRuntimeHelper.resolveCommandExecutable(Utils.splitCommand(command));
+    Path commandEngine = KataGoRuntimeHelper.resolveCommandExecutable(Utils.splitCommand(command));
     if (commandEngine == null) {
       return false;
     }
@@ -1377,8 +1442,8 @@ public final class KataGoAutoSetupHelper {
     }
   }
 
-  public static Path downloadQuickAnalysisModel(
-      ProgressListener listener, DownloadSession session) throws IOException {
+  public static Path downloadQuickAnalysisModel(ProgressListener listener, DownloadSession session)
+      throws IOException {
     SetupSnapshot snapshot = inspectLocalSetup();
     Path modelsDir = quickAnalysisModelsDir(snapshot.workingDir);
     RemoteWeightInfo info = quickAnalysisDownloadInfo();
@@ -1416,10 +1481,7 @@ public final class KataGoAutoSetupHelper {
   }
 
   private static Path downloadWeightToDirectory(
-      RemoteWeightInfo info,
-      Path weightsDir,
-      ProgressListener listener,
-      DownloadSession session)
+      RemoteWeightInfo info, Path weightsDir, ProgressListener listener, DownloadSession session)
       throws IOException {
     if (info == null || weightsDir == null) {
       throw new IOException(resource("AutoSetup.noRemoteWeights", "No downloadable weight found."));
@@ -1760,9 +1822,7 @@ public final class KataGoAutoSetupHelper {
     SetupSnapshot resolvedSnapshot = snapshot == null ? inspectLocalSetup() : snapshot;
     Path configured =
         configuredWeightPath(
-            QUICK_ANALYSIS_MODEL_CONFIG_KEY,
-            resolvedSnapshot.workingDir,
-            resolvedSnapshot.appRoot);
+            QUICK_ANALYSIS_MODEL_CONFIG_KEY, resolvedSnapshot.workingDir, resolvedSnapshot.appRoot);
     if (isValidQuickAnalysisModelFile(configured)) {
       return new QuickAnalysisModelStatus(configured);
     }
@@ -1862,7 +1922,6 @@ public final class KataGoAutoSetupHelper {
         || normalized.contains("tflrs");
   }
 
-
   public static SetupResult applyAutoSetup(SetupSnapshot snapshot) throws IOException {
     return applyAutoSetup(snapshot, true);
   }
@@ -1908,11 +1967,9 @@ public final class KataGoAutoSetupHelper {
       SetupSnapshot snapshot, String engineName, boolean makeDefault) throws IOException {
     return applyEngineProfile(snapshot, engineName, makeDefault, -1);
   }
+
   static SetupResult applyEngineProfile(
-      SetupSnapshot snapshot,
-      String engineName,
-      boolean makeDefault,
-      Path preferredExecutable)
+      SetupSnapshot snapshot, String engineName, boolean makeDefault, Path preferredExecutable)
       throws IOException {
     ArrayList<EngineData> engines = Utils.getEngineData();
     if (snapshot == null) snapshot = inspectLocalSetup();
@@ -1937,7 +1994,8 @@ public final class KataGoAutoSetupHelper {
       throw new IOException(
           resource("AutoSetup.missingConfig", "No KataGo config file was found."));
     }
-    if (!snapshot.hasWeight()) {
+    // A display snapshot is not authorization to launch a file deleted since that scan.
+    if (snapshot.activeWeightPath == null || !Files.isRegularFile(snapshot.activeWeightPath)) {
       throw new IOException(
           resource("AutoSetup.missingWeight", "No KataGo weight file was found."));
     }
@@ -2064,7 +2122,9 @@ public final class KataGoAutoSetupHelper {
   }
 
   private static String experimentalBackendOverrides(SetupSnapshot snapshot) {
-    if (snapshot == null || snapshot.enginePath == null || snapshot.enginePath.getParent() == null) {
+    if (snapshot == null
+        || snapshot.enginePath == null
+        || snapshot.enginePath.getParent() == null) {
       return "";
     }
     return experimentalBackendOverrides(snapshot.enginePath, snapshot.workingDir);
@@ -2074,8 +2134,7 @@ public final class KataGoAutoSetupHelper {
     if (enginePath == null || enginePath.getParent() == null) {
       return "";
     }
-    Path marker =
-        enginePath.getParent().resolve("lizzieyzy-next-engine-backend.txt");
+    Path marker = enginePath.getParent().resolve("lizzieyzy-next-engine-backend.txt");
     String backend;
     try {
       backend = Files.readString(marker, StandardCharsets.UTF_8).trim().toLowerCase(Locale.ROOT);
@@ -2089,10 +2148,7 @@ public final class KataGoAutoSetupHelper {
       Path cacheRoot =
           Lizzie.config == null
               ? workingDir.resolve("runtime").resolve("katago-openvino-cache")
-              : Lizzie.config
-                  .getRuntimeWorkDirectory()
-                  .toPath()
-                  .resolve("katago-openvino-cache");
+              : Lizzie.config.getRuntimeWorkDirectory().toPath().resolve("katago-openvino-cache");
       StringBuilder override =
           new StringBuilder("onnxProvider=openvino,onnxOpenVINOCacheDir=")
               .append(cacheRoot.toAbsolutePath().normalize());
@@ -2111,7 +2167,6 @@ public final class KataGoAutoSetupHelper {
   public static String getAutoSetupEngineName() {
     return AUTO_SETUP_ENGINE_NAME;
   }
-
 
   private static Path humanSlModelsDir(Path workingDir) {
     return workingDir.resolve(HUMAN_SL_MODEL_DIR_NAME).toAbsolutePath().normalize();
@@ -3319,10 +3374,7 @@ public final class KataGoAutoSetupHelper {
     String normalized =
         value == null
             ? ""
-            : value
-                .toLowerCase(Locale.ROOT)
-                .replace('\\', '/')
-                .replaceAll("[\\s._]+", "-");
+            : value.toLowerCase(Locale.ROOT).replace('\\', '/').replaceAll("[\\s._]+", "-");
     if (normalized.contains("without.engine") || normalized.contains("without-engine")) {
       return PackageFlavor.WITHOUT_ENGINE;
     }
@@ -3761,6 +3813,7 @@ public final class KataGoAutoSetupHelper {
   }
 
   private static Path configuredWeightPath(String key, Path workingDir, Path appRoot) {
+    if (Lizzie.config == null || Lizzie.config.uiConfig == null) return null;
     String value = Lizzie.config.uiConfig.optString(key, "").trim();
     return resolveConfiguredPath(value, workingDir, appRoot);
   }
@@ -3971,7 +4024,6 @@ public final class KataGoAutoSetupHelper {
         || !hasUsableJarTarget(commandParts);
   }
 
-
   private static boolean hasUsableJarTarget(List<String> commandParts) {
     for (int i = 0; i < commandParts.size() - 1; i++) {
       if ("-jar".equals(commandParts.get(i))) {
@@ -3985,7 +4037,6 @@ public final class KataGoAutoSetupHelper {
     }
     return true;
   }
-
 
   private static boolean shouldRepairAuxCommand(
       String command, Path expectedEnginePath, Path expectedConfigPath, Path expectedWeightPath) {

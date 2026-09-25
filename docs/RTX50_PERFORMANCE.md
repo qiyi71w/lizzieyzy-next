@@ -36,6 +36,60 @@ powershell -ExecutionPolicy Bypass -File scripts\windows_rtx50_analysis_benchmar
 
 ## Next 运行诊断
 
+### 同局面、固定预算的实时与整盘对照
+
+`scripts/measure_analysis.py` 在独立目录启动真实引擎，不读写日常应用设置。固定引擎、模型、配置、局面、规则、贴目、visits 预算和输出内容；仅允许比较搜索线程、并行局面、每局面线程、批大小。输出保存输入 SHA-256、每次最终覆盖参数、原始日志、冷启动时间、GPU/驱动/显存及可见 KataGo 进程数。
+
+```powershell
+python scripts/measure_analysis.py --engine "D:\KataGo\katago.exe" `
+  --model "D:\KataGo\b11.bin.gz" --config "D:\KataGo\gtp.cfg" `
+  --fixture scripts/fixtures/performance-opening.json `
+  --profiles scripts/fixtures/performance-profiles.json `
+  --output "D:\measurement\engine" --source-commit "<measured-commit>" `
+  --visits 5000 --rounds 3
+```
+
+示例 fixture 为 8 手开局、整盘场景包含空盘在内的 9 个局面，只能证明该样本的结果。正式推荐应再加入用户常用棋谱和中盘局面；示例 profiles 是待比较参数，不是推荐或默认值。固定预算使用相同配置；配置含 `include` 时还必须归档并核对所有被包含文件。并发搜索可能略微超出目标 visits，原始 root visits 会保留。
+
+每组先记录独立缓存目录的冷进程结果，然后按 A/B、B/A 交替至少三轮。热轮在同一进程内先完成一次同预算预热，再清除搜索/神经网络缓存进行计时；驱动的全局缓存不在脚本控制范围内，不能把这里的冷进程等同首次安装。`--rounds 0` 仅用于冒烟验证，不是调优依据；波动较大时用新的输出目录运行 `--rounds 5`。
+
+实时场景测最后落子到首次有效 rootInfo、达到固定 visits 的耗时以及带编号的 stop 回执。整盘场景核对每个局面预算完成，另外提交高预算请求并等待全部取消回执，不能把“收到 terminate ACK”当成搜索已经停止。
+
+应用内对照复用生产 Swing 窗口、`Leelaz` 和 `AnalysisEngine`，不修改生产分析入口：
+
+```powershell
+mvn -DskipTests test-compile dependency:build-classpath -Dmdep.outputFile=target/performance-classpath.txt
+$measurementClasspath = (Join-Path $PWD 'target/test-classes') + ';' + `
+  (Join-Path $PWD 'target/classes') + ';' + (Get-Content target/performance-classpath.txt -Raw).Trim()
+# 在同一上方命令中改用新的 --output，并追加：
+# --app-classpath $measurementClasspath --java "$env:JAVA_HOME\bin\java.exe"
+```
+
+应用探针额外保存 EDT 事件延迟样本、Java 堆使用量和实际子进程最终命令（优先 OS argv，Windows 必要时按本次引擎 PID 读取 CIM command line，绝不以配置中的原始命令代替）。实时测量先等待生产棋盘恢复的确认 Future，再等 stop 和 clear_cache 回执，最后才从实际落子开始计时；只等“载入完成”界面标志或随意插入 GTP 回执不能证明异步恢复队列已清空。修正后的报告标记 `measurementContractVersion: 2`；无此标记的旧应用测量仅保留作诊断，不能作为推荐依据。
+
+整盘单独记录专用引擎启动时间，取消测试必须先观察到该请求的正 visits 搜索中报告，再走生产关闭专用引擎流程并等待真实进程退出。清缓存 ACK 与取消测试的中间报告由测试探针识别，预算测量仍使用生产请求及最终结果解析器。应用进程退出与裸 JSON 引擎的终止回执属于不同取消机制，不直接混算。引擎侧和应用侧须使用相同 manifest 输入；不能用不同局面的官方 benchmark 来计算应用开销。`--scene realtime` 或 `--scene whole-game` 可单独复测；`performance-midgame.json` 提供另一组 80 手中盘 fixture。
+
+运行期间不要并行运行其他引擎、编译或桌面验收。Windows WDDM 的进程显存可能显示 `N/A`；此时总 GPU 显存不能冒充单进程显存，其他桌面程序的占用也应记录为限制。样本失败立即停止，原始失败日志保留；不要混入成功样本，也不要覆盖旧输出目录。
+
+验收比较每轮及中位数，而非单次最好数字；同时看首结果、暂停/取消、EDT 的 p95/p99、显存峰值和预算完整性。只有多个实际棋谱上稳定收益且无明显延迟/内存回退才推荐参数；没有足够证据继续使用原配置。
+
+### 版本 2 探针验证记录（2026-09-23）
+
+本次正式测量的代码版本为 `b7ba99e579044961e417ea9681565017cf8bafdc`，manifest 的 `sourceCommit` 保留该值。随后补充本节的提交仅修改文档，不改变已测量的代码或参数。
+
+Windows 11、Java 21、RTX 5090 真机中，`ProcessHandle.Info` 没有提供完整 argv。探针按其自有引擎 PID 从 `Win32_Process.CommandLine` 捕获实际命令，报告记录 `commandEvidenceSource: Win32_Process.CommandLine`；`effectiveCommandArgs: []` 表示此平台未提供 argv，不从请求命令伪造数组。
+
+启动与搜索耗时分别记录：实时场景的 `startupSeconds` 覆盖应用窗口与主引擎就绪；整盘场景的 `startupSeconds` 仅覆盖应用窗口，`engineStartupSeconds` 单列专用引擎启动至清缓存确认的时间。这些准备耗时不混入固定 visits 的搜索耗时。冷样本独立记录，不参与热态调优收益计算。
+
+- Java 探针单测 8 项通过：普通历史队列先完成、随后确认当前局面，恢复失败时不继续，停止成功后才清缓存，拒绝错误或缺失的 ACK，禁止在 EDT 阻塞等待。
+- Python 测量脚本单测 7 项通过；行尾、Markdown 本地链接与差异空白检查通过。
+- 真实引擎功能冒烟 6 场通过：8 手开局的两组参数各测实时与整盘，共 4 场；80 手中盘的两组参数各测实时，共 2 场。每场为独立冷进程、每局面 512 visits、无热态重复，仅验证功能和预算完整性，不证明性能提升。
+- 开局实时原始日志确认恢复命令及其确认均早于最后一次成功的 `stop`、`clear_cache`，之后才发送最终 `play W F3` 和 `kata-analyze`；测量区间未出现额外恢复命令。日志未保存流式 rootInfo 全文，因此这不是逐条结果载荷审计。整盘样本通过正 visits 搜索中报告确认取消工作已开始，并等待实际进程退出。
+
+旧 `app-final-opening` 样本保留用于排查准备时序问题，没有版本 2 测量契约，不作为推荐依据，也不导入调优配置。正式性能数字与跨 PR 验收结果另行汇总，不与上述功能冒烟混用。
+
+### 可选运行诊断
+
 复制一份 Windows 启动器旁的 `app\LizzieYzy Next*.cfg`，只在测试副本的 `[JavaOptions]` 末尾加入：
 
 ```text

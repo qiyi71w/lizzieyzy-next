@@ -12,6 +12,7 @@ import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.util.CommandLaunchHelper;
 import featurecat.lizzie.util.KataGoRuntimeHelper;
 import featurecat.lizzie.util.Utils;
+import featurecat.lizzie.logging.EngineObservation;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
@@ -48,6 +49,9 @@ public class ContributeEngine {
   private ScheduledExecutorService executor;
   private ScheduledExecutorService executorErr;
   private List<String> commands;
+
+  private volatile EngineStartupDiagnostics.Attempt currentAttempt;
+  private EngineStartupDiagnostics.Attempt presentedAttempt;
 
   private boolean useJavaSSH = false;
   private ContributeSSHController javaSSH;
@@ -143,6 +147,16 @@ public class ContributeEngine {
     CommandLaunchHelper.LaunchSpec launchSpec =
         CommandLaunchHelper.prepare(Utils.splitCommand(engineCommand));
     commands = launchSpec.getCommandParts();
+    if (!this.useJavaSSH && KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
+      return;
+    }
+    String engineId =
+        EngineObservation.restartInstance(
+            this, "CONTRIBUTE", EngineStartupBootstrap.factsFor(engineCommand, "CONTRIBUTE"));
+    EngineStartupDiagnostics.Attempt attempt =
+        EngineStartupDiagnostics.getDefault()
+            .begin(engineId, "CONTRIBUTE", commands, !this.useJavaSSH);
+    this.currentAttempt = attempt;
     if (this.useJavaSSH) {
       this.javaSSH = new ContributeSSHController(this, this.ip, this.port);
       boolean loginStatus = false;
@@ -162,81 +176,78 @@ public class ContributeEngine {
         javaSSHClosed = false;
       } else {
         javaSSHClosed = true;
+        attempt.fail("process-create", "SSH login failed");
         return;
       }
     } else {
-      if (KataGoRuntimeHelper.isBenchmarkEngineSyncSuppressed()) {
-        return;
-      }
-      //      boolean started = false;
-      //      if (Lizzie.config.contributeUseSlowShutdown && OS.isWindows()) {
-      //        File handler = new File("SubProcessHandler.exe");
-      //        if (!handler.exists()) {
-      //          Utils.copySubProcessHandler();
-      //        }
-      //        try {
-      //          process = Runtime.getRuntime().exec("SubProcessHandler.exe " + engineCommand);
-      //          started = true;
-      //          useProcessHandler = true;
-      //        } catch (IOException e) {
-      //          e.printStackTrace();
-      //          started = false;
-      //          useProcessHandler = false;
-      //        }
-      //        initializeStreams(true);
-      //      }
-
-      // if (!started) {
       ProcessBuilder processBuilder = new ProcessBuilder(commands);
       CommandLaunchHelper.configureProcessBuilder(processBuilder, launchSpec);
       processBuilder.redirectErrorStream(false);
+      attempt.capture(processBuilder);
       try {
         process = processBuilder.start();
+        attempt.attachProcess(process);
         AnalysisResourceCoordinator.processStarted(
-            this, AnalysisResourceCoordinator.Purpose.OTHER, engineCommand, process);
+            this, AnalysisResourceCoordinator.Purpose.OTHER, engineCommand, process, true);
       } catch (IOException e) {
+        attempt.fail("process-create", e.toString());
         tryToDignostic(
             Lizzie.resourceBundle.getString("Leelaz.engineFailed")
                 + ": "
-                + e.getLocalizedMessage());
+                + e.getLocalizedMessage(),
+            attempt);
         return;
       }
       initializeStreams();
-      //      if (Lizzie.frame.contributeView != null)
-      //        Lizzie.frame.contributeView.setSlowShutdownButton(false);
     }
+    BufferedReader readerInput = inputStream;
+    BufferedReader readerError = errorStream;
     executor = Executors.newSingleThreadScheduledExecutor();
-    executor.execute(this::read);
+    executor.execute(() -> read(attempt, readerInput));
     executorErr = Executors.newSingleThreadScheduledExecutor();
-    executorErr.execute(this::readError);
+    executorErr.execute(() -> readError(attempt, readerError));
     isNormalEnd = false;
     setTip(Lizzie.resourceBundle.getString("ContributeView.lblTip"));
   }
 
   // }
 
-  private void readError() {
+  private void readError(
+      final EngineStartupDiagnostics.Attempt launchAttempt, BufferedReader readerError) {
     String line = "";
-
+    String error = null;
     try {
-      while ((line = errorStream.readLine()) != null) {
+      while ((line = readerError.readLine()) != null) {
+        if (launchAttempt != null) {
+          launchAttempt.output("stderr", line);
+        }
         try {
-          parseLineForError(line);
+          parseLineForError(line, launchAttempt);
         } catch (Exception e) {
           e.printStackTrace();
         }
       }
     } catch (IOException e) {
+      error = e.getMessage();
       e.printStackTrace();
+    } finally {
+      if (launchAttempt != null) {
+        launchAttempt.streamEnded("stderr", error);
+      }
     }
   }
 
-  private void read() {
+  private void read(
+      final EngineStartupDiagnostics.Attempt launchAttempt, BufferedReader readerInput) {
+    String error = null;
     try {
       String line = "";
-      while ((line = inputStream.readLine()) != null) {
+      while ((line = readerInput.readLine()) != null) {
+        if (launchAttempt != null) {
+          launchAttempt.output("stdout", line);
+        }
         try {
-          if (!isNormalEnd) parseLine(line.toString());
+          if (!isNormalEnd) parseLine(line.toString(), launchAttempt);
         } catch (Exception ex) {
           ex.printStackTrace();
         }
@@ -247,36 +258,49 @@ public class ContributeEngine {
       // Do no exit for switching weights
       // System.exit(-1);
     } catch (IOException e) {
+      error = e.getMessage();
+    } finally {
+      if (launchAttempt != null) {
+        launchAttempt.streamEnded("stdout", error);
+      }
     }
-    shutdown();
-    if (this.useJavaSSH) javaSSHClosed = true;
-    if (!isNormalEnd) {
+    boolean abnormal = !isNormalEnd && !isSlowQuiting;
+    if (abnormal) {
+      String failMessage =
+          errorTips.length() > 0
+              ? errorTips
+              : Lizzie.resourceBundle.getString("Leelaz.engineEndUnormalHint");
+      if (launchAttempt != null) {
+        launchAttempt.fail("startup-exit", failMessage);
+        launchAttempt.beforeTermination();
+      }
+      shutdown();
+      if (this.useJavaSSH) javaSSHClosed = true;
       if (errorTimes < 3) {
         errorTimes++;
         Lizzie.frame.isContributing = true;
         startEngine();
-      } else
-        tryToDignostic(
-            errorTips.length() > 0
-                ? errorTips
-                : Lizzie.resourceBundle.getString("Leelaz.engineEndUnormalHint"));
+      } else {
+        tryToDignostic(failMessage, launchAttempt);
+      }
+    } else {
+      if (launchAttempt != null) {
+        launchAttempt.beforeTermination();
+      }
+      shutdown();
+      if (this.useJavaSSH) javaSSHClosed = true;
     }
     // process = null;
     return;
   }
 
-  private void parseLineForError(String line) {
+  private void parseLineForError(
+      String line, EngineStartupDiagnostics.Attempt launchAttempt) {
     Lizzie.frame.addContributeLine(line, false);
-    //    if (useProcessHandler) {
-    //      if (line.equals("exited")) {
-    //        if (isSlowQuiting) normalQuit();
-    //        else process.destroy();
-    //      }
-    //    }
-    parseTips(line);
+    parseTips(line, launchAttempt);
   }
 
-  private void parseLine(String line) {
+  private void parseLine(String line, EngineStartupDiagnostics.Attempt launchAttempt) {
     // TODO Auto-generated method stub
     // 2022-03-14 09:00:41+0800: KataGo v1.10.0
     if (!getVersion && line.contains("KataGo")) {
@@ -303,6 +327,11 @@ public class ContributeEngine {
           }
           getVersion = true;
         }
+      }
+    }
+    if (line.contains("Starting game") || line.startsWith("{")) {
+      if (launchAttempt != null) {
+        launchAttempt.ready();
       }
     }
     if (line.startsWith("{")) {
@@ -350,7 +379,7 @@ public class ContributeEngine {
           }
         }
       }
-      parseTips(line);
+      parseTips(line, launchAttempt);
     }
   }
 
@@ -366,8 +395,16 @@ public class ContributeEngine {
   }
 
   private void parseTips(String line) {
+    parseTips(line, this.currentAttempt);
+  }
+
+  private void parseTips(
+      String line, EngineStartupDiagnostics.Attempt launchAttempt) {
     // TODO Auto-generated method stub
     if (line.contains("Starting game")) {
+      if (launchAttempt != null) {
+        launchAttempt.ready();
+      }
       setTip(Lizzie.resourceBundle.getString("Contribute.tips.startingNewGame")); // ("开始新的一局...");
     }
     if (line.toLowerCase().contains("predownload")) {
@@ -552,6 +589,9 @@ public class ContributeEngine {
 
   public void normalQuit() {
     isNormalEnd = true;
+    if (currentAttempt != null) {
+      currentAttempt.beforeTermination();
+    }
     AnalysisResourceCoordinator.processStopped(
         this, AnalysisResourceCoordinator.Purpose.OTHER, process);
     Lizzie.frame.isShowingContributeGame = false;
@@ -1112,14 +1152,31 @@ public class ContributeEngine {
   }
 
   public void tryToDignostic(String message) {
+    tryToDignostic(message, this.currentAttempt);
+  }
+
+  public void tryToDignostic(String message, EngineStartupDiagnostics.Attempt attempt) {
+    if (attempt != null && attempt != this.currentAttempt) {
+      return;
+    }
+    if (attempt != null && attempt.snapshot() == null) {
+      attempt.fail(process == null ? "process-create" : "startup-exit", message);
+    }
+    this.presentedAttempt = attempt;
     EngineFailedMessage.showDialog(
-        commands,
+        commands != null ? commands : Utils.splitCommand(engineCommand),
         engineCommand,
         message,
         !useJavaSSH && OS.isWindows(),
         false,
         true,
-        true);
+        true,
+        null,
+        dialog -> {
+          if (attempt != null && attempt == this.currentAttempt) {
+            dialog.bindStartupDiagnostic(attempt);
+          }
+        });
   }
 
   private void startWatchingGameThread() {

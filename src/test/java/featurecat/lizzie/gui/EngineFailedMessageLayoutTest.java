@@ -2,16 +2,20 @@ package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.gui.EngineFailedMessage.DiagnosticActionResult;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtFailureKind;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtInstallStatus;
 import featurecat.lizzie.util.KataGoRuntimeHelper.TensorRtRepairContext;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GraphicsEnvironment;
@@ -24,9 +28,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.JButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
 class EngineFailedMessageLayoutTest {
@@ -73,6 +80,47 @@ class EngineFailedMessageLayoutTest {
   }
 
   @Test
+  void findingSummaryShowsDistinctEvidenceAndSafeBoundedDetails() {
+    JSONArray findings =
+        new JSONArray()
+            .put(
+                new JSONObject()
+                    .put("outcome", "dll-not-found")
+                    .put("dll", "C:\\Users\\alice\\engine\\cudnn64_9.dll")
+                    .put("evidence", "engine-stderr")
+                    .put(
+                        "detail",
+                        "Load failed under C:\\Users\\alice\\engine token=do-not-display "
+                            + "raw failure ".repeat(1_000)))
+            .put(
+                new JSONObject()
+                    .put("outcome", "runtime-requirements-satisfied")
+                    .put("dll", JSONObject.NULL)
+                    .put("evidence", "runtime-preflight")
+                    .put("detail", "Runtime files were present"));
+
+    String summary = EngineFailedMessage.formatFindingsText(findings);
+
+    assertTrue(
+        summary.contains(
+            Lizzie.resourceBundle.getString("EngineFailedMessage.evidence.engine-stderr")));
+    assertTrue(
+        summary.contains(
+            Lizzie.resourceBundle.getString("EngineFailedMessage.evidence.runtime-preflight")));
+    assertTrue(
+        summary.contains(
+            Lizzie.resourceBundle.getString("EngineFailedMessage.outcome.dll-not-found")));
+    assertTrue(
+        summary.contains(
+            Lizzie.resourceBundle.getString(
+                "EngineFailedMessage.outcome.runtime-requirements-satisfied")));
+    assertTrue(summary.contains("cudnn64_9.dll"));
+    assertFalse(summary.contains("do-not-display"));
+    assertFalse(summary.contains("C:\\Users\\alice"));
+    assertTrue(summary.length() < 5_000);
+  }
+
+  @Test
   void sensitiveValuesNeverReachVisibleOrPersistedDiagnosticText() {
     String password = "qa-password-do-not-leak";
     String passwd = "qa-passwd-do-not-leak";
@@ -80,20 +128,9 @@ class EngineFailedMessageLayoutTest {
     String apiKey = "qa-api-key-do-not-leak";
     String secret = "qa-secret-do-not-leak";
     String message =
-        "Recent stderr: password="
-            + password
-            + " token:"
-            + token
-            + " --secret \""
-            + secret
-            + "\"";
+        "Recent stderr: password=" + password + " token:" + token + " --secret \"" + secret + "\"";
     String command =
-        "engine.exe --password "
-            + password
-            + " --token=\""
-            + token
-            + "\" api_key="
-            + apiKey;
+        "engine.exe --password " + password + " --token=\"" + token + "\" api_key=" + apiKey;
     String contributeCommand =
         "engine.exe -override-config \"username=qa\",\"password="
             + password
@@ -133,30 +170,14 @@ class EngineFailedMessageLayoutTest {
     List<SensitiveCase> cases =
         List.of(
             contributionCase(
-                '"',
-                "QaSpaceLeft42 QaSpaceRight42",
-                "QaSpaceLeft42",
-                "QaSpaceRight42"),
+                '"', "QaSpaceLeft42 QaSpaceRight42", "QaSpaceLeft42", "QaSpaceRight42"),
             contributionCase(
-                '"',
-                "QaCommaLeft42,QaCommaRight42",
-                "QaCommaLeft42",
-                "QaCommaRight42"),
+                '"', "QaCommaLeft42,QaCommaRight42", "QaCommaLeft42", "QaCommaRight42"),
+            contributionCase('"', "QaSemiLeft42;QaSemiRight42", "QaSemiLeft42", "QaSemiRight42"),
             contributionCase(
-                '"',
-                "QaSemiLeft42;QaSemiRight42",
-                "QaSemiLeft42",
-                "QaSemiRight42"),
+                '"', "QaDoubleLeft42\"QaDoubleRight42", "QaDoubleLeft42", "QaDoubleRight42"),
             contributionCase(
-                '"',
-                "QaDoubleLeft42\"QaDoubleRight42",
-                "QaDoubleLeft42",
-                "QaDoubleRight42"),
-            contributionCase(
-                '\'',
-                "QaSingleLeft42'QaSingleRight42",
-                "QaSingleLeft42",
-                "QaSingleRight42"),
+                '\'', "QaSingleLeft42'QaSingleRight42", "QaSingleLeft42", "QaSingleRight42"),
             contributionCase(
                 '"',
                 "QaInjectLead42\",\"token=QaInjectedToken42\",\"QaInjectTail42",
@@ -169,16 +190,8 @@ class EngineFailedMessageLayoutTest {
                 "QaSingleInjectLead42",
                 "QaInjectedSecret42",
                 "QaSingleInjectTail42"),
-            contributionCase(
-                '"',
-                "QaCrLeft42\rQaCrRight42",
-                "QaCrLeft42",
-                "QaCrRight42"),
-            contributionCase(
-                '\'',
-                "QaLfLeft42\nQaLfRight42",
-                "QaLfLeft42",
-                "QaLfRight42"),
+            contributionCase('"', "QaCrLeft42\rQaCrRight42", "QaCrLeft42", "QaCrRight42"),
+            contributionCase('\'', "QaLfLeft42\nQaLfRight42", "QaLfLeft42", "QaLfRight42"),
             contributionCase(
                 '"',
                 "QaMultilineLead42\r\n\",\"token=QaMultilineInjected42\",\"QaMultilineTail42",
@@ -193,10 +206,7 @@ class EngineFailedMessageLayoutTest {
                     "QaMessageLeft42 QaMessageRight42",
                     "--mode",
                     "gtp"),
-                List.of(
-                    "QaMessageLeft42 QaMessageRight42",
-                    "QaMessageLeft42",
-                    "QaMessageRight42")),
+                List.of("QaMessageLeft42 QaMessageRight42", "QaMessageLeft42", "QaMessageRight42")),
             new SensitiveCase(
                 "Recent stderr: token=QaMessageCrLeft42\r\nQaMessageCrRight42\nstatus=failed",
                 List.of(
@@ -211,10 +221,8 @@ class EngineFailedMessageLayoutTest {
                     "QaMessageCrRight42")),
             new SensitiveCase(
                 "engine.exe --api-key QaFlagLeft42 QaFlagRight42 --mode gtp",
-                List.of(
-                    "engine.exe", "--api-key", "QaFlagLeft42 QaFlagRight42", "--mode", "gtp"),
-                List.of(
-                    "QaFlagLeft42 QaFlagRight42", "QaFlagLeft42", "QaFlagRight42")));
+                List.of("engine.exe", "--api-key", "QaFlagLeft42 QaFlagRight42", "--mode", "gtp"),
+                List.of("QaFlagLeft42 QaFlagRight42", "QaFlagLeft42", "QaFlagRight42")));
 
     for (SensitiveCase sensitiveCase : cases) {
       JScrollPane pane =
@@ -283,8 +291,7 @@ class EngineFailedMessageLayoutTest {
     assertEquals(new Rectangle(-2560, -80, 2548, 1320), usable);
     assertEquals(
         new Rectangle(-2560, -80, 980, 360),
-        EngineFailedMessage.clampDialogBounds(
-            new Rectangle(-2700, -200, 980, 360), usable));
+        EngineFailedMessage.clampDialogBounds(new Rectangle(-2700, -200, 980, 360), usable));
     assertEquals(
         new Rectangle(-992, 880, 980, 360),
         EngineFailedMessage.clampDialogBounds(new Rectangle(-600, 1300, 980, 360), usable));
@@ -450,5 +457,185 @@ class EngineFailedMessageLayoutTest {
     assertTrue(dialog.recordTensorRtRepairInvoked());
     assertTrue(dialog.tensorRtRepairInvoked());
     assertTrue(DiagnosticActionResult.of(dialog).directedRepairOpened);
+  }
+
+  @Test
+  void boundAttemptDisplaysSummaryAndDetailsWithIsolation() {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    try (EngineStartupDiagnostics diagnostics =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      EngineStartupDiagnostics.Attempt attempt1 =
+          diagnostics.begin("engine-test-1", "play", List.of("katago.exe", "gtp"), true);
+      attempt1.fail("startup", "process failed to start");
+
+      EngineFailedMessage dialog =
+          new EngineFailedMessage(
+              List.of("katago.exe"), "katago.exe gtp", "failure", true, true, false);
+      dialog.bindStartupDiagnostic(attempt1);
+
+      JTextArea summaryArea =
+          findComponentByName(dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
+      JTextArea detailsArea =
+          findComponentByName(dialog, "EngineFailedMessage.detailsArea", JTextArea.class);
+
+      assertNotNull(summaryArea);
+      assertNotNull(detailsArea);
+      assertTrue(summaryArea.getText().contains("engine-test-1"));
+      assertTrue(summaryArea.getText().contains(attempt1.id()));
+      assertTrue(detailsArea.getText().contains("engine-test-1"));
+      assertTrue(detailsArea.getText().contains(attempt1.id()));
+
+      // Attempt 2 fails independently
+      EngineStartupDiagnostics.Attempt attempt2 =
+          diagnostics.begin("engine-test-2", "play", List.of("leelaz.exe"), true);
+      attempt2.fail("startup", "different failure");
+
+      // Dialog remains isolated to attempt 1
+      assertTrue(summaryArea.getText().contains("engine-test-1"));
+      assertFalse(summaryArea.getText().contains("engine-test-2"));
+      assertTrue(detailsArea.getText().contains("engine-test-1"));
+      assertFalse(detailsArea.getText().contains("engine-test-2"));
+      dialog.dispose();
+    }
+  }
+
+  @Test
+  void detailsWindowReopensWithoutResizingFailureWindow() {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    try (EngineStartupDiagnostics diagnostics =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      EngineStartupDiagnostics.Attempt attempt =
+          diagnostics.begin("toggle-engine", "play", List.of("engine.exe"), true);
+      attempt.fail("startup", "test toggle");
+
+      EngineFailedMessage dialog =
+          new EngineFailedMessage(
+              List.of("engine.exe"), "engine.exe", "error msg", false, false, false);
+      dialog.bindStartupDiagnostic(attempt);
+
+      JButton detailsButton =
+          findComponentByName(dialog, "EngineFailedMessage.details", JButton.class);
+      java.awt.Window detailsWindow = dialog.getOwnedWindows()[0];
+      Rectangle bounds = dialog.getBounds();
+      assertNotNull(detailsButton);
+      assertFalse(detailsWindow.isVisible());
+
+      detailsButton.doClick();
+      assertTrue(detailsWindow.isVisible());
+      assertEquals(bounds, dialog.getBounds());
+      detailsWindow.setVisible(false);
+      detailsButton.doClick();
+      assertTrue(detailsWindow.isVisible());
+      assertEquals(bounds, dialog.getBounds());
+      dialog.dispose();
+    }
+  }
+
+  @Test
+  void lastSummaryLineAndActionsAreAccessibleInDetailsWindow() throws Exception {
+    assumeTrue(Lizzie.config != null);
+    assumeTrue(!GraphicsEnvironment.isHeadless());
+    try (EngineStartupDiagnostics diagnostics =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      EngineStartupDiagnostics.Attempt attempt =
+          diagnostics.begin("eng-1-a893feda428170a", "MAIN_BOARD", List.of("engine.exe"), true);
+      attempt.fail("runtime-preflight", "Runtime unavailable");
+
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+      SwingUtilities.invokeAndWait(
+          () -> {
+            EngineFailedMessage dialog = null;
+            try {
+              dialog =
+                  new EngineFailedMessage(
+                      List.of("engine.exe"),
+                      "engine.exe",
+                      "Runtime unavailable",
+                      true,
+                      true,
+                      false);
+              dialog.bindStartupDiagnostic(attempt);
+              dialog.setVisible(true);
+              dialog.validate();
+
+              findComponentByName(dialog, "EngineFailedMessage.details", JButton.class).doClick();
+              assertTrue(dialog.getOwnedWindows()[0].isShowing());
+
+              JTextArea summaryArea =
+                  findComponentByName(
+                      dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
+              assertNotNull(summaryArea);
+
+              Rectangle end =
+                  summaryArea.modelToView2D(summaryArea.getDocument().getLength()).getBounds();
+              summaryArea.scrollRectToVisible(end);
+              assertTrue(
+                  summaryArea.getVisibleRect().contains(end),
+                  () ->
+                      "Expected visibleRect "
+                          + summaryArea.getVisibleRect()
+                          + " to contain "
+                          + end);
+
+              JButton detailsButton =
+                  findComponentByName(dialog, "EngineFailedMessage.details", JButton.class);
+              assertNotNull(detailsButton);
+              assertTrue(detailsButton.isVisible());
+              assertTrue(detailsButton.isEnabled());
+
+              JButton copyButton =
+                  findComponentByName(dialog, "EngineFailedMessage.copyError", JButton.class);
+              assertNotNull(copyButton);
+              assertTrue(copyButton.isVisible());
+              assertTrue(copyButton.isEnabled());
+
+              JButton exportButton =
+                  findComponentByName(
+                      dialog, "EngineFailedMessage.exportDiagnostics", JButton.class);
+              assertNotNull(exportButton);
+              assertTrue(exportButton.isVisible());
+              assertTrue(exportButton.isEnabled());
+
+            } catch (Throwable t) {
+              failure.set(t);
+            } finally {
+              if (dialog != null) dialog.dispose();
+            }
+          });
+      if (failure.get() != null) {
+        if (failure.get() instanceof AssertionError ae) {
+          throw ae;
+        }
+        throw new RuntimeException(failure.get());
+      }
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T extends Component> T findComponentByName(
+      Container root, String name, Class<T> type) {
+    if (root == null || name == null) {
+      return null;
+    }
+    for (Component c : root.getComponents()) {
+      if (name.equals(c.getName()) && type.isInstance(c)) {
+        return (T) c;
+      }
+      if (c instanceof Container) {
+        T found = findComponentByName((Container) c, name, type);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+    if (root instanceof java.awt.Window window) {
+      for (java.awt.Window owned : window.getOwnedWindows()) {
+        T found = findComponentByName(owned, name, type);
+        if (found != null) return found;
+      }
+    }
+    return null;
   }
 }

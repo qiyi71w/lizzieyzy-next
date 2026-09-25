@@ -150,6 +150,11 @@ function Assert-Administrator {
 }
 
 function Get-PythonInvocation {
+    if ($env:LIZZIE_PYTHON) {
+        $python = Get-Command $env:LIZZIE_PYTHON -CommandType Application -ErrorAction SilentlyContinue
+        if (-not $python) { throw "LIZZIE_PYTHON does not resolve to an executable." }
+        return [pscustomobject]@{ File = $python.Source; Prefix = @("-X", "utf8") }
+    }
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($py) {
         return [pscustomobject]@{ File = $py.Source; Prefix = @("-3", "-X", "utf8") }

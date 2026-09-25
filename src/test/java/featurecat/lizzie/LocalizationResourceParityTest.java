@@ -33,6 +33,18 @@ class LocalizationResourceParityTest {
   private static final Pattern HAN_CHARACTER = Pattern.compile("[\\p{IsHan}]");
 
   @Test
+  void measuredConfirmationSeparatesSampledGpuMemoryFromUnverifiedHostRamInEveryBundle()
+      throws IOException {
+    for (String name : FILES) {
+      String confirmation = read(ROOT.resolve(name)).values.get("MeasuredTuning.confirm");
+      assertTrue(confirmation.contains("\\n\\n"), name + " separates the memory qualification");
+      String qualification = confirmation.substring(confirmation.indexOf("\\n\\n") + 4);
+      assertTrue(qualification.contains("GPU"), name + " identifies sampled GPU memory");
+      assertTrue(qualification.contains("RAM"), name + " identifies unverified host memory");
+    }
+  }
+
+  @Test
   void allMaintainedBundlesHaveIdenticalKeysOrderAndPlaceholders() throws IOException {
     ResourceFile base = read(ROOT.resolve(FILES.get(0)));
     assertTrue(base.duplicates.isEmpty(), "duplicate base keys: " + base.duplicates);

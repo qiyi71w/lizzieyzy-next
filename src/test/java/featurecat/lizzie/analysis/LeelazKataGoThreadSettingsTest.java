@@ -125,7 +125,8 @@ class LeelazKataGoThreadSettingsTest {
 
   @Test
   @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.LINUX)
-  void benchmarkSourceAppliesSavedThreadsAndWideRootNoiseAtActualStartup() throws Exception {
+  void benchmarkSourceAppliesThreadsAtLaunchWithoutRewritingThemDuringGtpInitialization()
+      throws Exception {
     Path executable =
         Files.writeString(
             root.resolve("katago-saved-policy"),
@@ -153,12 +154,15 @@ class LeelazKataGoThreadSettingsTest {
       long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
       while ((!Files.exists(commandsLog)
               || !Files.readString(commandsLog).contains("analysisWideRootNoise 0.2")
-              || !Files.readString(commandsLog).contains("kata-set-param numSearchThreads 6"))
+              || !Files.readString(commandsLog).contains("kata-get-param analysisWideRootNoise"))
           && System.nanoTime() < deadline) Thread.sleep(10);
 
       String commands = Files.readString(commandsLog);
       assertTrue(commands.contains("analysisWideRootNoise 0.2"), commands);
-      assertTrue(commands.contains("kata-set-param numSearchThreads 6"), commands);
+      assertTrue(commands.contains("kata-get-param analysisWideRootNoise"), commands);
+      // Actual launch overrides are authoritative. Reapplying the legacy saved value over GTP
+      // could overwrite a separately accepted measured-scene thread override after startup.
+      assertFalse(commands.contains("kata-set-param numSearchThreads"), commands);
       assertTrue(
           Files.readString(root.resolve("saved-policy-launch-args"))
               .contains("numSearchThreads=6"));

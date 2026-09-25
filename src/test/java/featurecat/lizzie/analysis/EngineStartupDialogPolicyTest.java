@@ -97,14 +97,15 @@ class EngineStartupDialogPolicyTest {
       Method diagnostic =
           Leelaz.class.getDeclaredMethod(
               "showDiagnosticOnEventDispatchThread",
-              String.class, boolean.class, long.class, boolean.class, Object.class, boolean.class);
+              String.class, boolean.class, long.class, boolean.class, Object.class, boolean.class,
+              EngineStartupDiagnostics.Attempt.class);
       diagnostic.setAccessible(true);
       SwingUtilities.invokeAndWait(
           () -> {
             try {
               diagnostic.invoke(
                   oldPrimary, "old startup failure", false, capturedGeneration, true,
-                  capturedIncarnation, true);
+                  capturedIncarnation, true, null);
             } catch (ReflectiveOperationException failure) {
               throw new AssertionError(failure);
             }

@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 /** Detects and updates optional engine-owned configuration through an isolated GTP process. */
@@ -75,7 +76,7 @@ public final class GtpConfigurationProbe {
                   + schema.version());
         }
         return Inspection.supported(schema);
-      } catch (IllegalArgumentException error) {
+      } catch (IllegalArgumentException | JSONException error) {
         noteProbeFailed(session, "schema");
         throw new IOException("Invalid GTP configuration schema: " + error.getMessage(), error);
       }
@@ -133,7 +134,13 @@ public final class GtpConfigurationProbe {
           noteProbeFailed(session, "apply");
           throw protocolError(saveResponse);
         }
-        JSONObject payload = new JSONObject(saveResponse.payload());
+        JSONObject payload;
+        try {
+          payload = new JSONObject(saveResponse.payload());
+        } catch (JSONException error) {
+          noteProbeFailed(session, "apply");
+          throw new IOException("Invalid GTP configuration response: " + error.getMessage(), error);
+        }
         JSONObject savedProfile = payload.optJSONObject("profile");
         JSONObject state = payload.optJSONObject("state");
         if (savedProfile == null) {
@@ -143,9 +150,10 @@ public final class GtpConfigurationProbe {
         return new ApplyResult(
             new JSONObject(savedProfile.toString()),
             state == null ? new JSONObject() : new JSONObject(state.toString()));
-      } catch (IllegalArgumentException error) {
+      } catch (IllegalArgumentException | JSONException error) {
         noteProbeFailed(session, "schema");
-        throw new IOException("Invalid engine configuration response: " + error.getMessage(), error);
+        throw new IOException(
+            "Invalid engine configuration response: " + error.getMessage(), error);
       }
     }
   }
@@ -360,8 +368,7 @@ public final class GtpConfigurationProbe {
                 try (BufferedReader stderr =
                     new BufferedReader(
                         new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
-                  drainProbeStderr(
-                      stderr, stderrTail, () -> EngineObservation.identityFor(this));
+                  drainProbeStderr(stderr, stderrTail, () -> EngineObservation.identityFor(this));
                 } catch (IOException | RuntimeException ignored) {
                 }
               },
@@ -481,8 +488,7 @@ public final class GtpConfigurationProbe {
 
     private void recordCapabilityCheck(boolean success) {
       try {
-        EngineObservation.recordProbeCapabilityCheck(
-            EngineObservation.identityFor(this), success);
+        EngineObservation.recordProbeCapabilityCheck(EngineObservation.identityFor(this), success);
       } catch (RuntimeException ignored) {
       }
     }

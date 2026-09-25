@@ -819,6 +819,7 @@ public final class DiagnosticBundleExporter {
         NS_SNAPSHOTS + "readboard-observed.json",
         renderObserved(request.readBoardLogging(), sanitizer).toString(2));
     writeThreadSnapshot(out, sanitizer, sources, hostSession);
+    writeEngineStartupFailureSnapshot(out, request, sanitizer, sources, hostSession);
     SyncDiagnosticsExportSnapshot snapshot =
         request.snapshot() == null
             ? new SyncDiagnosticsExportSnapshot(
@@ -902,6 +903,33 @@ public final class DiagnosticBundleExporter {
           "threads",
           sourceRecord(true, "failed", 0, 0, 0, NS_SNAPSHOTS, hostSession, "unreadable", false));
     }
+  }
+
+  private void writeEngineStartupFailureSnapshot(
+      ZipOutputStream out,
+      DiagnosticBundleRequest request,
+      ExportSanitizer sanitizer,
+      JSONObject sources,
+      String hostSession)
+      throws IOException {
+    var failure = request.startupFailure();
+    JSONObject snapshot =
+        new JSONObject().put("status", failure == null ? "no-failure" : "available");
+    if (failure != null) snapshot.put("failure", failure.toJson());
+    String text = sanitizer.sanitizeJsonObject(snapshot).toString(2);
+    writeTextEntry(out, NS_SNAPSHOTS + "engine-startup-failure.json", text);
+    JSONObject source =
+        sourceRecord(
+            true,
+            "included",
+            text.getBytes(StandardCharsets.UTF_8).length,
+            0,
+            0,
+            NS_SNAPSHOTS,
+            hostSession,
+            "",
+            false);
+    sources.put("engine-startup-failure", source);
   }
 
   private static CaptureEventSet listCurrentCaptureEvents(

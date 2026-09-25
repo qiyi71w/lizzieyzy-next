@@ -1,5 +1,6 @@
 package featurecat.lizzie.logging;
 
+import featurecat.lizzie.analysis.EngineStartupDiagnostic;
 import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
 import featurecat.lizzie.analysis.SyncDiagnosticsExportSnapshot;
 import java.nio.file.Path;
@@ -23,6 +24,7 @@ public final class DiagnosticBundleRequest {
   private final ReadBoardLoggingSnapshot readBoardLogging;
   private final String appVersion;
   private final String readBoardVersion;
+  private final EngineStartupDiagnostic startupFailure;
 
   public DiagnosticBundleRequest(
       LoggingRuntime runtime,
@@ -52,6 +54,30 @@ public final class DiagnosticBundleRequest {
       ReadBoardLoggingSnapshot readBoardLogging,
       String appVersion,
       String readBoardVersion) {
+    this(
+        runtime,
+        rawScopes,
+        includeReadBoardTrace,
+        includeCapture,
+        config,
+        snapshot,
+        readBoardLogging,
+        appVersion,
+        readBoardVersion,
+        null);
+  }
+
+  public DiagnosticBundleRequest(
+      LoggingRuntime runtime,
+      Set<TraceScope> rawScopes,
+      boolean includeReadBoardTrace,
+      boolean includeCapture,
+      JSONObject config,
+      SyncDiagnosticsExportSnapshot snapshot,
+      ReadBoardLoggingSnapshot readBoardLogging,
+      String appVersion,
+      String readBoardVersion,
+      EngineStartupDiagnostic startupFailure) {
     Objects.requireNonNull(runtime, "runtime");
     synchronized (runtime) {
       this.traceSession = runtime.traceSessionSnapshot();
@@ -72,6 +98,7 @@ public final class DiagnosticBundleRequest {
         readBoardLogging == null ? ReadBoardLoggingSnapshot.detached() : readBoardLogging;
     this.appVersion = appVersion == null ? "unknown" : appVersion;
     this.readBoardVersion = readBoardVersion == null ? "unknown" : readBoardVersion;
+    this.startupFailure = startupFailure;
   }
 
   public Path logsDirectory() {
@@ -124,5 +151,9 @@ public final class DiagnosticBundleRequest {
 
   public String readBoardVersion() {
     return readBoardVersion;
+  }
+
+  public EngineStartupDiagnostic startupFailure() {
+    return startupFailure;
   }
 }

@@ -20,10 +20,13 @@ import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GraphicsConfiguration;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
 import java.awt.Window;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -70,12 +73,12 @@ public class DiagnosticsDialog extends JPanel {
   private final Consumer<Path> folderOpener;
   private final HelperLogging helperLogging;
   private final BooleanSupplier captureConfirmer;
-  private final JLabel hostSessionLabel = new JFontLabel("");
+  private final JLabel hostSessionLabel = new LayoutLabel();
   private final JLabel helperCapability = new JFontLabel("");
   private final JLabel helperPersistence = new JFontLabel("");
   private final JLabel helperDropCount = new JFontLabel("");
-  private final JLabel helperProcessSession = new JFontLabel("");
-  private final JLabel helperCaptureSummary = new JFontLabel("");
+  private final JLabel helperProcessSession = new LayoutLabel();
+  private final JLabel helperCaptureSummary = new LayoutLabel();
   private final JLabel helperDiagnosticsObserved = new JFontLabel("");
   private final JLabel helperTraceObserved = new JFontLabel("");
   private final JLabel helperCaptureObserved = new JFontLabel("");
@@ -101,12 +104,13 @@ public class DiagnosticsDialog extends JPanel {
   private final JTextArea statusArea = new JFontTextArea(2, 48);
   private final JLabel durationLabel = new JFontLabel("");
   private final JTextArea activeScopesLabel = new JFontTextArea(2, 48);
-  private final JLabel estimateLabel = new JFontLabel("");
-  private final JLabel logsPath = new JFontLabel("");
-  private final JLabel hostAppLog = new JFontLabel("");
-  private final JLabel hostCrashLog = new JFontLabel("");
+  private final JLabel estimateLabel = new LayoutLabel();
+  private final JLabel logsPath = new LayoutLabel();
+  private final JLabel hostAppLog = new LayoutLabel();
+  private final JLabel hostCrashLog = new LayoutLabel();
   private final JLabel persistenceLabel = new JFontLabel("");
   private final JPanel streamList = new JPanel();
+  private final JScrollPane scroll = new JScrollPane();
   private final AtomicBoolean cancelExport = new AtomicBoolean();
   private final Timer durationClock = new Timer(1000, event -> refreshDuration());
   private volatile Thread exportWorker;
@@ -115,8 +119,17 @@ public class DiagnosticsDialog extends JPanel {
   private DiagnosticBundleRequest pendingEstimate;
   private static JDialog openDialog;
   private static DiagnosticsDialog openPanel;
+  private featurecat.lizzie.analysis.EngineStartupDiagnostic pinnedStartupFailure;
 
   public static JDialog open(Window owner, LoggingRuntime runtime, Config config) {
+    return open(owner, runtime, config, null);
+  }
+
+  public static JDialog open(
+      Window owner,
+      LoggingRuntime runtime,
+      Config config,
+      featurecat.lizzie.analysis.EngineStartupDiagnostic startupFailure) {
     if (openDialog == null) {
       openPanel = new DiagnosticsDialog(runtime, config);
       openDialog = new JDialog(owner);
@@ -125,11 +138,37 @@ public class DiagnosticsDialog extends JPanel {
       openDialog.setDefaultCloseOperation(JDialog.HIDE_ON_CLOSE);
       openDialog.setContentPane(openPanel);
       openDialog.pack();
-      openDialog.setMinimumSize(new Dimension(820, 560));
+      GraphicsConfiguration graphics =
+          owner == null ? openDialog.getGraphicsConfiguration() : owner.getGraphicsConfiguration();
+      Rectangle bounds = graphics.getBounds();
+      Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(graphics);
+      Rectangle workArea =
+          new Rectangle(
+              bounds.x + insets.left,
+              bounds.y + insets.top,
+              Math.max(1, bounds.width - insets.left - insets.right),
+              Math.max(1, bounds.height - insets.top - insets.bottom));
+      Dimension initial = openDialog.getSize();
+      if (initial.height > workArea.height) {
+        initial.width += openPanel.scroll.getVerticalScrollBar().getPreferredSize().width;
+      }
+      if (initial.width > workArea.width) {
+        initial.height += openPanel.scroll.getHorizontalScrollBar().getPreferredSize().height;
+      }
+      openDialog.setMinimumSize(
+          new Dimension(Math.min(820, workArea.width), Math.min(560, workArea.height)));
+      openDialog.setSize(
+          Math.min(initial.width, workArea.width), Math.min(initial.height, workArea.height));
       openDialog.setLocationRelativeTo(owner);
-    } else {
-      openPanel.refreshFromRuntime();
+      openDialog.setLocation(
+          Math.max(
+              workArea.x,
+              Math.min(openDialog.getX(), workArea.x + workArea.width - openDialog.getWidth())),
+          Math.max(
+              workArea.y,
+              Math.min(openDialog.getY(), workArea.y + workArea.height - openDialog.getHeight())));
     }
+    openPanel.pinnedStartupFailure = startupFailure;
     openDialog.setVisible(true);
     openDialog.toFront();
     openPanel.refreshFromRuntime();
@@ -368,7 +407,7 @@ public class DiagnosticsDialog extends JPanel {
     page.add(processes, BorderLayout.CENTER);
     page.add(
         sectionCard(logs, buttonBar(openLogs, cancel, apply, exportDefault)), BorderLayout.SOUTH);
-    JScrollPane scroll = new JScrollPane(page);
+    scroll.setViewportView(page);
     scroll.setBorder(null);
     scroll.setOpaque(false);
     scroll.getViewport().setOpaque(false);
@@ -456,7 +495,8 @@ public class DiagnosticsDialog extends JPanel {
         SyncDiagnosticsRecorder.getDefault().exportSnapshot(),
         helper,
         Lizzie.nextVersion == null ? "unknown" : Lizzie.nextVersion,
-        "unknown");
+        "unknown",
+        pinnedStartupFailure);
   }
 
   String healthText() {
@@ -625,8 +665,6 @@ public class DiagnosticsDialog extends JPanel {
         text("DiagnosticsDialog.hostSession", "Host session")
             + ": "
             + runtime.applicationLogSessionId());
-    hostSessionLabel.setToolTipText(hostSessionLabel.getText());
-    logsPath.setToolTipText(logsPath.getText());
     LoggingStatus status = runtime.status();
     persistenceLabel.setText(
         format(
@@ -706,7 +744,6 @@ public class DiagnosticsDialog extends JPanel {
         snapshot.processSessionId().isEmpty()
             ? text("DiagnosticsDialog.capability.none", "none")
             : snapshot.processSessionId());
-    helperProcessSession.setToolTipText(helperProcessSession.getText());
     helperDiagnostics.setSelected(snapshot.desired().diagnostics);
     helperTrace.setSelected(snapshot.desired().trace);
     helperCapture.setSelected(snapshot.desired().capture);
@@ -1133,6 +1170,35 @@ public class DiagnosticsDialog extends JPanel {
     }
   }
 
+  /** Single-line metadata yields width to controls, retaining its full value in a tooltip. */
+  private static final class LayoutLabel extends JFontLabel {
+    private LayoutLabel() {
+      super("");
+    }
+
+    @Override
+    public void setText(String text) {
+      super.setText(text);
+      setToolTipText(text);
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+      Insets insets = getInsets();
+      return new Dimension(0, getFontMetrics(getFont()).getHeight() + insets.top + insets.bottom);
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+      return getPreferredSize();
+    }
+
+    @Override
+    public Dimension getMaximumSize() {
+      return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+    }
+  }
+
   private static JCheckBox box() {
     JCheckBox b = new JFontCheckBox("");
     b.setMargin(new Insets(0, 0, 0, 0));
@@ -1170,7 +1236,7 @@ public class DiagnosticsDialog extends JPanel {
     value.setHorizontalAlignment(JLabel.RIGHT);
     value.setBorder(new EmptyBorder(0, 0, 0, 4));
     row.add(label, BorderLayout.WEST);
-    row.add(value, BorderLayout.EAST);
+    row.add(value, BorderLayout.CENTER);
     return row;
   }
 

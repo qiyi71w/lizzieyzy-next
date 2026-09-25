@@ -5,6 +5,14 @@ All notable maintenance updates to this fork are documented here.
 ## Unreleased
 
 - Update the bundled default B11 Transformer to the official 2026-09-12 `kata1-tf3-b11c768-s11750M-d6216M.bin.gz`, with verified size and SHA-256 across Auto Setup and all release package checks; keep the pinned KataGo engine, optional B10/HumanSL models, and existing users' weights unchanged by core updates.
+- Capture SGF save snapshots on the event thread and write them safely in the background; unify save dialogs under the main window and preserve the full live variation tree when exporting the current branch.
+- Preserve all installed weight candidates after switching models, so bundled weights remain available without downloading again.
+- Keep ownership-display menus and SGF save dialogs usable without an engine; restore save modes and the original analysis state when saving is cancelled.
+- Resolve SGF extensions before overwrite confirmation in all save dialogs, preventing silent overwrites for names containing `sgf` and duplicate uppercase extensions.
+- Keep diagnostics actions visible after asynchronous size estimates, constrain long metadata to the available width, and fit initial dialog bounds to the current monitor work area (#536).
+- Explain engine startup failures with Windows status codes, explicit DLL errors, existing KataGo runtime checks, and bounded process output; preserve the error and command layout with separate details, copy, and diagnostic export actions (#535).
+- Record startup errors and late process output in ordinary WARN logs under the original engine and launch identity, and attach the displayed failure to diagnostic bundles (#535).
+- Review measured live/whole-game KataGo recommendations separately, bind them to engine/model/config/GPU identity, and apply or restore scene-specific settings only after explicit confirmation.
 - Simplify engine-game rule selection to Chinese, Japanese/Korean, AGA/BGA, New Zealand, Tromp-Taylor, and custom rules; use matching rule-family names during games and preserve saved preset parameters until explicitly changed (#516).
 - Keep komi controls, game-info editing, and score-graph rendering usable after engine startup failure; cover the no-engine desktop paths in required regression tests.
 - Apply current-game komi changes through both engine participants, wait for acknowledgements before committing, preserve pause intent, and end the batch safely if synchronization fails (#518).

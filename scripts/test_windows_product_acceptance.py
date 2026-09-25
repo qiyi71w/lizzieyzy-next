@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -1098,6 +1099,29 @@ if (-not $script:rolledBack -or $script:fixtureEntry) {{ throw 'owned installer 
 
 @unittest.skipUnless(shutil.which("pwsh.exe") or shutil.which("pwsh"), "requires PowerShell 7")
 class StartupEngineIdentityTest(unittest.TestCase):
+    def test_python_override_is_used_and_invalid_override_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="lizzie-python-override-") as directory:
+            driver = Path(directory) / "python.ps1"
+            script_path = str(SCRIPT.resolve()).replace("'", "''")
+            executable = sys.executable.replace("'", "''")
+            driver.write_text(
+                f". '{script_path}' -Command Prepare\n"
+                f"$env:LIZZIE_PYTHON = '{executable}'\n"
+                "$invocation = Get-PythonInvocation\n"
+                "if ($invocation.File -ne $env:LIZZIE_PYTHON) { throw 'override ignored' }\n"
+                "if (($invocation.Prefix -join ' ') -ne '-X utf8') { throw 'invalid arguments' }\n"
+                "$env:LIZZIE_PYTHON = Join-Path $PSScriptRoot 'missing-python.exe'\n"
+                "$rejected = $false\n"
+                "try { Get-PythonInvocation } catch { $rejected = $_.Exception.Message -match 'LIZZIE_PYTHON' }\n"
+                "if (-not $rejected) { throw 'invalid override silently fell back' }\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [shutil.which("pwsh.exe") or shutil.which("pwsh"), "-NoProfile", "-File", str(driver)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+            )
+            self.assertEqual(0, result.returncode, result.stderr or result.stdout)
+
     def test_startup_requires_exact_unique_owned_engine(self) -> None:
         with tempfile.TemporaryDirectory(prefix="lizzie-startup-identity-") as directory:
             driver = Path(directory) / "startup.ps1"

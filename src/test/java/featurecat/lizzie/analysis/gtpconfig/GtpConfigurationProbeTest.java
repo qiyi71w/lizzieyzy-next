@@ -279,6 +279,32 @@ class GtpConfigurationProbeTest {
   }
 
   @Test
+  void malformedSuccessfulGtpRepliesThrowIOException() throws Exception {
+    LoggingRuntime runtime = startProbeDiagnostics();
+    try {
+      GtpConfigurationProbe probe = new GtpConfigurationProbe();
+      IOException schema =
+          assertThrows(
+              IOException.class,
+              () -> probe.inspect(fakeEngineCommand("malformed-schema"), Duration.ofSeconds(2)));
+      assertTrue(
+          schema.getMessage().contains("Invalid GTP configuration schema"), schema.getMessage());
+      IOException save =
+          assertThrows(
+              IOException.class,
+              () ->
+                  probe.applyProfile(
+                      fakeEngineCommand("malformed-save"),
+                      new JSONObject().put("threads", 2),
+                      Duration.ofSeconds(2)));
+      assertTrue(
+          save.getMessage().contains("Invalid GTP configuration response"), save.getMessage());
+    } finally {
+      runtime.shutdown();
+    }
+  }
+
+  @Test
   void probeTimeoutStillThrowsAndRecordsStderrSummary() throws Exception {
     LoggingRuntime runtime = startProbeDiagnostics();
     try {
@@ -767,6 +793,8 @@ class GtpConfigurationProbeTest {
 
     public static void main(String[] args) throws Exception {
       boolean hangOnSchema = false;
+      boolean malformedSchema = false;
+      boolean malformedSave = false;
       boolean exitBeforeHandshake = false;
       Path schemaGate = null;
       int stderrLines = 0;
@@ -776,6 +804,10 @@ class GtpConfigurationProbeTest {
           hangOnSchema = true;
         } else if ("exit".equals(arg)) {
           exitBeforeHandshake = true;
+        } else if ("malformed-schema".equals(arg)) {
+          malformedSchema = true;
+        } else if ("malformed-save".equals(arg)) {
+          malformedSave = true;
         } else if ("stderr".equals(arg)) {
           stderrLines = Math.max(stderrLines, 4);
         } else if ("stderr-huge".equals(arg)) {
@@ -841,13 +873,14 @@ class GtpConfigurationProbeTest {
                   Thread.sleep(10L);
                 }
               }
-              respond(output, id, SCHEMA);
+              respond(output, id, malformedSchema ? "{bad" : SCHEMA);
             }
           } else if (command.startsWith("zengtp_config_set ")) {
             profile = command.substring("zengtp_config_set ".length());
             respond(output, id, "{\"operation\":\"set\"}");
           } else if ("zengtp_config_save".equals(command)) {
-            respond(output, id, "{\"profile\":" + profile + ",\"state\":{}}");
+            respond(
+                output, id, malformedSave ? "{bad" : "{\"profile\":" + profile + ",\"state\":{}}");
           } else {
             output.println("?" + id + " unknown command");
             output.println();
