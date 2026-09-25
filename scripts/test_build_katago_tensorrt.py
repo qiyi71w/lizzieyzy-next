@@ -52,14 +52,15 @@ class TensorRtSourceTest(unittest.TestCase):
             self.assertFalse((root / "build").exists())
 
     def test_configuration_uses_locked_headers_parser_and_cuda_without_cudnn_flags(self):
-        options = trt.engine_options(Path("/tmp/space Chinese/sdk"))
+        prefix = Path("/tmp/space Chinese/sdk").resolve()
+        options = trt.engine_options(prefix)
         self.assertTrue(any(option.endswith("nvinfer_10.lib") for option in options))
         self.assertTrue(any(option.endswith("nvonnxparser_10.lib") for option in options))
         self.assertTrue(any(option.startswith("-DCUDAToolkit_ROOT=") for option in options))
         self.assertFalse(any(option.startswith(("-DCUDNN_", "-DEIGEN3_INCLUDE_DIRS=")) for option in options))
         self.assertIn("-DProtobuf_USE_STATIC_LIBS=ON", options)
-        self.assertTrue(any(option.endswith("lib/libprotobuf.lib") for option in options))
-        self.assertTrue(any(option.endswith("bin/protoc.exe") for option in options))
+        self.assertIn(f"-DProtobuf_LIBRARY={prefix / 'lib/libprotobuf.lib'}", options)
+        self.assertIn(f"-DProtobuf_PROTOC_EXECUTABLE={prefix / 'bin/protoc.exe'}", options)
 
     def test_protobuf_uses_the_audited_existing_source_and_static_runtime(self):
         directml = json.loads(trt.LOCK_PATH.with_name("katago_directml_dependencies.json").read_text())

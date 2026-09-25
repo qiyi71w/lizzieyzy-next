@@ -308,9 +308,10 @@ class RunLocalCiTest(unittest.TestCase):
                 self.assertEqual(0, run_case(True))
 
     def test_syntax_gate_rejects_each_invalid_script_and_accepts_valid_selection(self):
-        bash = shutil.which("bash")
-        if not bash:
-            self.skipTest("bash is required for syntax execution")
+        try:
+            bash = run_local_ci.resolve_bash()
+        except RuntimeError as unavailable:
+            self.skipTest(str(unavailable))
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             scripts = [root / f"script {index}.sh" for index in range(3)]

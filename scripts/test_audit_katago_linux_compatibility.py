@@ -1,7 +1,9 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from audit_katago_linux_compatibility import (
@@ -61,9 +63,12 @@ class LinuxCompatibilityTest(unittest.TestCase):
                 zipped.writestr("katago", "fixture")
                 zipped.writestr("default_gtp.cfg", "unneeded")
             expected = dict(sizeBytes=archive.stat().st_size, sha256=digest(archive))
-            extract_baseline(archive, root / "baseline", expected)
+            with patch.object(Path, "chmod", autospec=True, side_effect=Path.chmod) as chmod:
+                extract_baseline(archive, root / "baseline", expected)
+            chmod.assert_called_once_with(root / "baseline/katago", 0o755)
             self.assertEqual(["katago"], [path.name for path in (root / "baseline").iterdir()])
-            self.assertTrue((root / "baseline/katago").stat().st_mode & 0o111)
+            if os.name != "nt":
+                self.assertTrue((root / "baseline/katago").stat().st_mode & 0o111)
             for change in ({"sizeBytes": 1}, {"sha256": "0" * 64}):
                 with self.assertRaisesRegex(ValueError, "mismatch"):
                     extract_baseline(archive, root / "bad", dict(expected, **change))
