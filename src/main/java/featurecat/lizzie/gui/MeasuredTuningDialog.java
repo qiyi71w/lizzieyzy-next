@@ -4,14 +4,20 @@ import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.util.EngineThreadPolicy;
 import featurecat.lizzie.util.MeasuredKataGoTuning;
 import featurecat.lizzie.util.katago.tuning.KataGoMeasuredReport.Scene;
+import java.awt.Dimension;
+import java.awt.Insets;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
 import java.awt.Window;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
+import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingWorker;
+import javax.swing.UIManager;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 /** Review and explicit confirmation for measurement-backed settings in the existing setup page. */
@@ -69,7 +75,7 @@ final class MeasuredTuningDialog {
                       + text("confirm");
               if (JOptionPane.showConfirmDialog(
                           owner,
-                          plainText(message),
+                          plainText(owner, message),
                           text("title"),
                           JOptionPane.OK_CANCEL_OPTION,
                           JOptionPane.QUESTION_MESSAGE)
@@ -105,7 +111,8 @@ final class MeasuredTuningDialog {
     long token = operation.begin(busy);
     if (JOptionPane.showConfirmDialog(
                 owner,
-                plainText(targetLabel(entry.name, entryId) + "\n\n" + text("restoreConfirm")),
+                plainText(
+                    owner, targetLabel(entry.name, entryId) + "\n\n" + text("restoreConfirm")),
                 text("title"),
                 JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.QUESTION_MESSAGE)
@@ -146,7 +153,7 @@ final class MeasuredTuningDialog {
               if (canDeliver(owner, token))
                 JOptionPane.showMessageDialog(
                     owner,
-                    plainText(text("saved")),
+                    plainText(owner, text("saved")),
                     text("title"),
                     JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception failure) {
@@ -164,18 +171,36 @@ final class MeasuredTuningDialog {
     Throwable cause = failure.getCause() == null ? failure : failure.getCause();
     JOptionPane.showMessageDialog(
         owner,
-        plainText(text("rejected") + "\n" + cause.getMessage()),
+        plainText(owner, text("rejected") + "\n" + cause.getMessage()),
         text("title"),
         JOptionPane.WARNING_MESSAGE);
   }
 
-  private static JTextArea plainText(String value) {
-    JTextArea area = new JTextArea(value, 0, 58);
+  private static JScrollPane plainText(Window owner, String value) {
+    JTextArea area = new JTextArea(value);
+    area.setFont(UIManager.getFont("Label.font"));
     area.setLineWrap(true);
     area.setWrapStyleWord(true);
     area.setEditable(false);
     area.setOpaque(false);
-    return area;
+    area.setCaretPosition(0);
+    area.getAccessibleContext().setAccessibleName(text("title"));
+    Rectangle screen = owner.getGraphicsConfiguration().getBounds();
+    Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(owner.getGraphicsConfiguration());
+    int width = Math.min(580, Math.max(1, (screen.width - insets.left - insets.right) * 2 / 3));
+    int maxHeight = Math.max(1, (screen.height - insets.top - insets.bottom) / 2);
+    // Fix the viewport before JOptionPane packs: wrapped text can otherwise grow after packing
+    // and push its confirmation buttons outside the native dialog on Windows HiDPI.
+    area.setSize(width - 24, Short.MAX_VALUE);
+    int height = Math.min(maxHeight, Math.min(320, area.getPreferredSize().height + 12));
+    JScrollPane scroll =
+        new JScrollPane(
+            area, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+    scroll.setBorder(null);
+    scroll.setOpaque(false);
+    scroll.getViewport().setOpaque(false);
+    scroll.setPreferredSize(new Dimension(width, height));
+    return scroll;
   }
 
   static String targetLabel(String entryName, String entryId) {
