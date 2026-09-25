@@ -5,6 +5,9 @@ All notable maintenance updates to this fork are documented here.
 ## Unreleased
 
 - Update the bundled default B11 Transformer to the official 2026-09-12 `kata1-tf3-b11c768-s11750M-d6216M.bin.gz`, with verified size and SHA-256 across Auto Setup and all release package checks; keep the pinned KataGo engine, optional B10/HumanSL models, and existing users' weights unchanged by core updates.
+- Preserve all installed weight candidates after switching models, so bundled weights remain available without downloading again.
+- Keep ownership-display menus and SGF save dialogs usable without an engine; restore save modes and the original analysis state when saving is cancelled.
+- Resolve SGF extensions before overwrite confirmation in all save dialogs, preventing silent overwrites for names containing `sgf` and duplicate uppercase extensions.
 - Simplify engine-game rule selection to Chinese, Japanese/Korean, AGA/BGA, New Zealand, Tromp-Taylor, and custom rules; use matching rule-family names during games and preserve saved preset parameters until explicitly changed (#516).
 - Keep komi controls, game-info editing, and score-graph rendering usable after engine startup failure; cover the no-engine desktop paths in required regression tests.
 - Apply current-game komi changes through both engine participants, wait for acknowledgements before committing, preserve pause intent, and end the batch safely if synchronization fails (#518).
