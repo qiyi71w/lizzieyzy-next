@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
@@ -23,6 +24,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -2782,6 +2784,358 @@ class ReadBoardSyncDecisionTest {
     }
   }
 
+  @Test
+  void producerTraceBridgeGenericResumeWithEngine() throws Exception {
+    runProducerTraceBridgeScenario(
+        "generic-resume.txt",
+        stones(
+            placement(0, 0, Stone.BLACK),
+            placement(1, 0, Stone.WHITE),
+            placement(0, 1, Stone.BLACK),
+            placement(1, 1, Stone.WHITE)),
+        2,
+        true,
+        true);
+  }
+
+  @Test
+  void producerTraceBridgeGenericResumeEngineUnavailable() throws Exception {
+    runProducerTraceBridgeScenario(
+        "generic-resume.txt",
+        stones(
+            placement(0, 0, Stone.BLACK),
+            placement(1, 0, Stone.WHITE),
+            placement(0, 1, Stone.BLACK),
+            placement(1, 1, Stone.WHITE)),
+        2,
+        true,
+        false);
+  }
+
+  @Test
+  void producerTraceBridgeFoxKnownWithEngine() throws Exception {
+    runProducerTraceBridgeScenario(
+        "fox-known.txt",
+        stones(
+            placement(0, 2, Stone.BLACK),
+            placement(1, 2, Stone.WHITE),
+            placement(2, 2, Stone.BLACK)),
+        3,
+        true,
+        true);
+  }
+
+  @Test
+  void producerTraceBridgeFoxKnownEngineUnavailable() throws Exception {
+    runProducerTraceBridgeScenario(
+        "fox-known.txt",
+        stones(
+            placement(0, 2, Stone.BLACK),
+            placement(1, 2, Stone.WHITE),
+            placement(2, 2, Stone.BLACK)),
+        3,
+        true,
+        false);
+  }
+
+  @Test
+  void producerTraceBridgeFoxUnknownWithEngine() throws Exception {
+    runProducerTraceBridgeScenario(
+        "fox-unknown.txt",
+        stones(
+            placement(0, 2, Stone.BLACK),
+            placement(1, 2, Stone.WHITE),
+            placement(2, 2, Stone.BLACK)),
+        2,
+        true,
+        true);
+  }
+
+  @Test
+  void producerTraceBridgeFoxUnknownEngineUnavailable() throws Exception {
+    runProducerTraceBridgeScenario(
+        "fox-unknown.txt",
+        stones(
+            placement(0, 2, Stone.BLACK),
+            placement(1, 2, Stone.WHITE),
+            placement(2, 2, Stone.BLACK)),
+        2,
+        true,
+        false);
+  }
+
+  @Test
+  void producerTraceBridgeRejectsTransientAndAlternatingConflicts() throws Exception {
+    List<String> lines =
+        Files.readAllLines(
+            resolveTraceFile(resolveSnapshotTraceDir(), "conflict-safety.txt"),
+            StandardCharsets.UTF_8);
+    Stone[] target =
+        stones(
+            placement(0, 0, Stone.BLACK),
+            placement(1, 0, Stone.WHITE),
+            placement(0, 1, Stone.BLACK),
+            placement(1, 1, Stone.WHITE));
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      buildHistory(harness.board, placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+      BoardHistoryNode original = harness.board.getHistory().getMainEnd();
+      Stone[] baseline = original.getData().stones.clone();
+      harness.readBoard.parseLine("syncPlatform generic");
+      harness.readBoard.parseLine("stopsync");
+      harness.board.resetCounters();
+      harness.leelaz.sentCommands = new ArrayList<>();
+      harness.leelaz.clearCount = 0;
+      int batches = 0;
+      int lastBatchStart = 0;
+      List<String> acceptedBatch = new ArrayList<>();
+      for (int i = 0; i < lines.size(); i++) {
+        harness.readBoard.parseLine(lines.get(i));
+        if (!"end".equals(lines.get(i))) {
+          continue;
+        }
+        harness.drainSync();
+        batches++;
+        if (batches < 6) {
+          assertSame(original, harness.board.getHistory().getMainEnd(), "batch " + batches);
+          assertSame(original, harness.board.getHistory().getCurrentHistoryNode());
+          assertArrayEquals(baseline, original.getData().stones);
+          assertEquals(0, harness.board.clearCount);
+          assertEquals(0, harness.leelaz.clearCount);
+          assertLoadSgfCommandCount(harness.leelaz, 0, "unconfirmed conflicts must not restore");
+          if (batches != 2) {
+            assertEquals(
+                "HOLD",
+                SyncDiagnosticsRecorder.getDefault().snapshot().getLatestDecisionTrace().getResult(),
+                "A, correct, A, B, A must not accumulate nonconsecutive confirmation");
+          }
+        } else {
+          assertEquals(6, batches, "the seventh identical sample must remain silent");
+          assertStaticSnapshotRootWithoutMarker(harness.board, target, 2, true);
+          assertArrayEquals(target, harness.leelaz.copyStones());
+          assertClearBoardCommandCount(harness.leelaz, 1, "only the final independent A converges");
+          assertLoadSgfCommandCount(harness.leelaz, 1, "exactly one engine restoration");
+          acceptedBatch = new ArrayList<>(lines.subList(lastBatchStart, i + 1));
+        }
+        lastBatchStart = i + 1;
+      }
+      harness.drainSync();
+      assertEquals(6, batches);
+      BoardHistoryNode accepted = harness.board.getHistory().getMainEnd();
+      int commandCount = harness.leelaz.sentCommands.size();
+      int ponderCount = harness.leelaz.ponderCount;
+      for (String line : acceptedBatch) {
+        harness.readBoard.parseLine(line);
+      }
+      harness.drainSync();
+      assertSame(accepted, harness.board.getHistory().getMainEnd());
+      assertSame(accepted, harness.board.getHistory().getCurrentHistoryNode());
+      assertEquals(commandCount, harness.leelaz.sentCommands.size());
+      assertEquals(ponderCount, harness.leelaz.ponderCount);
+    }
+  }
+
+  private static Path resolveSnapshotTraceDir() {
+    String traceDirProp = System.getProperty("readboard.snapshotTraceDir");
+    assumeTrue(
+        traceDirProp != null && !traceDirProp.trim().isEmpty(),
+        "readboard.snapshotTraceDir system property is absent; skipping trace-driven bridge tests.");
+    Path traceDir = Path.of(traceDirProp.trim());
+    assertTrue(
+        Files.isDirectory(traceDir),
+        "Explicit readboard.snapshotTraceDir was provided but directory does not exist: "
+            + traceDir.toAbsolutePath());
+    return traceDir;
+  }
+
+  private static Path resolveTraceFile(Path traceDir, String fileName) {
+    Path traceFile = traceDir.resolve(fileName);
+    assertTrue(
+        Files.isRegularFile(traceFile),
+        "Expected trace file does not exist: " + traceFile.toAbsolutePath());
+    return traceFile;
+  }
+
+  private void runProducerTraceBridgeScenario(
+      String fileName,
+      Stone[] expectedTarget,
+      int expectedMoveNumber,
+      boolean expectedBlackToPlay,
+      boolean engineAvailable)
+      throws Exception {
+    Path traceDir = resolveSnapshotTraceDir();
+    Path traceFile = resolveTraceFile(traceDir, fileName);
+
+    List<String> rawLines = Files.readAllLines(traceFile, StandardCharsets.UTF_8);
+    List<String> allLines = new ArrayList<>();
+    for (String line : rawLines) {
+      if (line != null && !line.trim().isEmpty()) {
+        allLines.add(line.trim());
+      }
+    }
+    assertFalse(allLines.isEmpty(), fileName + ": trace file must not be empty.");
+
+    List<Integer> endIndices = new ArrayList<>();
+    for (int i = 0; i < allLines.size(); i++) {
+      if ("end".equals(allLines.get(i))) {
+        endIndices.add(i);
+      }
+    }
+    assertTrue(
+        endIndices.size() >= 2,
+        fileName
+            + ": trace must contain at least two snapshot batches ending with 'end'. Found: "
+            + endIndices.size());
+    int firstEnd = endIndices.get(0);
+    int secondEnd = endIndices.get(1);
+    List<String> lastBatchLines = new ArrayList<>(allLines.subList(firstEnd + 1, secondEnd + 1));
+
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      if (!engineAvailable) {
+        harness.leelaz.started = false;
+      }
+
+      HistoryPath path =
+          buildHistory(harness.board, placement(0, 0, Stone.BLACK), placement(1, 0, Stone.WHITE));
+      BoardHistoryNode originalMainEnd = path.nodes.get(path.nodes.size() - 1);
+      Stone[] initialStones = originalMainEnd.getData().stones.clone();
+
+      harness.readBoard.parseLine("syncPlatform generic");
+      harness.readBoard.parseLine("stopsync");
+
+      harness.board.resetCounters();
+      harness.frame.refreshCount = 0;
+      harness.frame.renderVarTreeCount = 0;
+      harness.leelaz.clearCount = 0;
+      harness.leelaz.playedMoves = new ArrayList<>();
+      harness.leelaz.sentCommands = new ArrayList<>();
+
+      for (int i = 0; i <= firstEnd; i++) {
+        harness.readBoard.parseLine(allLines.get(i));
+      }
+      harness.drainSync();
+
+      if ("generic-resume.txt".equals(fileName) || "fox-unknown.txt".equals(fileName)) {
+        assertSame(
+            originalMainEnd,
+            harness.board.getHistory().getMainEnd(),
+            fileName + ": first conflicting frame must HOLD and preserve initial history node.");
+        assertSame(
+            originalMainEnd,
+            harness.board.getHistory().getCurrentHistoryNode(),
+            fileName + ": first conflicting frame must keep current node on initial history.");
+        assertArrayEquals(
+            initialStones,
+            harness.board.getHistory().getMainEnd().getData().stones,
+            fileName + ": first conflicting frame must preserve initial stones.");
+        assertEquals(
+            0,
+            harness.leelaz.clearCount,
+            fileName + ": first conflicting frame must not clear or rebuild engine.");
+      } else {
+        assertArrayEquals(
+            expectedTarget,
+            harness.board.getHistory().getMainEnd().getData().stones,
+            fileName + ": fox-known frame should accept target position.");
+      }
+
+      for (int i = firstEnd + 1; i <= secondEnd; i++) {
+        harness.readBoard.parseLine(allLines.get(i));
+      }
+      harness.drainSync();
+
+      assertStaticSnapshotRootWithoutMarker(
+          harness.board, expectedTarget, expectedMoveNumber, expectedBlackToPlay);
+
+      for (int i = secondEnd + 1; i < allLines.size(); i++) {
+        harness.readBoard.parseLine(allLines.get(i));
+      }
+      harness.drainSync();
+
+      assertStaticSnapshotRootWithoutMarker(
+          harness.board, expectedTarget, expectedMoveNumber, expectedBlackToPlay);
+
+      if (engineAvailable) {
+        assertArrayEquals(
+            expectedTarget,
+            harness.leelaz.copyStones(),
+            fileName + ": engine board must match target snapshot when engine is available.");
+        assertEquals(
+            expectedBlackToPlay,
+            harness.leelaz.isBlackToPlay(),
+            fileName + ": engine side to play must match target snapshot.");
+        assertTrue(
+            harness.leelaz.playedMoves.isEmpty(),
+            fileName + ": snapshot rebuild must avoid replaying static stones as play commands.");
+        assertClearBoardCommandCount(
+            harness.leelaz, 1, fileName + ": snapshot rebuild must clear the engine board once.");
+        assertLoadSgfCommandCount(
+            harness.leelaz, 1, fileName + ": snapshot rebuild must load the position via loadsgf once.");
+      } else {
+        assertLoadSgfCommandCount(harness.leelaz, 0, fileName + ": unavailable engine must not restore.");
+        assertTrue(harness.leelaz.playedMoves.isEmpty());
+        assertEquals(
+            0,
+            harness.leelaz.clearCount,
+            fileName + ": engine must not be cleared when unavailable.");
+      }
+
+      BoardHistoryNode convergedMainEnd = harness.board.getHistory().getMainEnd();
+      int engineClearBefore = harness.leelaz.clearCount;
+      int engineSentCommandsBefore = harness.leelaz.sentCommands.size();
+      int engineLoadSgfBefore = countCommandsStartingWith(harness.leelaz, "loadsgf ");
+      int enginePonderBefore = harness.leelaz.ponderCount;
+      int boardClearBefore = harness.board.clearCount;
+      int placeForSyncBefore = harness.board.placeForSyncCount;
+      int previousMoveBefore = harness.board.previousMoveCount;
+
+      for (String line : lastBatchLines) {
+        harness.readBoard.parseLine(line);
+      }
+      harness.drainSync();
+
+      assertSame(
+          convergedMainEnd,
+          harness.board.getHistory().getMainEnd(),
+          fileName + ": replaying accepted batch must not create new history nodes.");
+      assertSame(
+          convergedMainEnd,
+          harness.board.getHistory().getCurrentHistoryNode(),
+          fileName + ": replaying accepted batch must not move current history node.");
+      assertEquals(
+          boardClearBefore,
+          harness.board.clearCount,
+          fileName + ": replaying accepted batch must not clear board.");
+      assertEquals(
+          placeForSyncBefore,
+          harness.board.placeForSyncCount,
+          fileName + ": replaying accepted batch must not place stones.");
+      assertEquals(
+          previousMoveBefore,
+          harness.board.previousMoveCount,
+          fileName + ": replaying accepted batch must not navigate moves.");
+      if (engineAvailable) {
+        assertEquals(
+            engineClearBefore,
+            harness.leelaz.clearCount,
+            fileName + ": replaying accepted batch must not repeat engine clear.");
+        assertEquals(
+            engineSentCommandsBefore,
+            harness.leelaz.sentCommands.size(),
+            fileName + ": replaying accepted batch must not send new engine commands.");
+        assertEquals(
+            engineLoadSgfBefore,
+            countCommandsStartingWith(harness.leelaz, "loadsgf "),
+            fileName + ": replaying accepted batch must not repeat loadsgf.");
+        assertEquals(
+            enginePonderBefore,
+            harness.leelaz.ponderCount,
+            fileName + ": replaying accepted batch must not repeat ponder/analysis.");
+      } else {
+        assertEquals(engineSentCommandsBefore, harness.leelaz.sentCommands.size());
+      }
+    }
+  }
+
 
   private static void armFoxMoveNumber(ReadBoard readBoard, int moveNumber) {
     readBoard.parseLine("syncPlatform fox");
@@ -3341,6 +3695,10 @@ class ReadBoardSyncDecisionTest {
       }
       setField(readBoard, "tempcount", counts);
       invokeSyncBoardStones(readBoard);
+      drainSync();
+    }
+
+    private void drainSync() throws Exception {
       if (board.syncConfirmation != null) {
         board
             .syncConfirmation
@@ -3352,12 +3710,7 @@ class ReadBoardSyncDecisionTest {
     @Override
     public void close() {
       try {
-        if (board.syncConfirmation != null) {
-          board
-              .syncConfirmation
-              .handle((result, failure) -> null)
-              .get(3, java.util.concurrent.TimeUnit.SECONDS);
-        }
+        drainSync();
       } catch (Exception failure) {
         throw new AssertionError("sync worker did not finish before fixture teardown", failure);
       } finally {

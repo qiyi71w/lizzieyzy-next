@@ -974,7 +974,8 @@ class EngineGameModuleContractTest {
     manager.manualActivation = true;
     playAccepted(analysisBatchSpec(3));
     EngineGameTransaction firstTxn = Lizzie.engineGame.transaction();
-    Object firstOwner = firstTxn.lifecycle().ownerToken();
+    EngineManager.EngineGameOwnerTransaction firstOwner =
+        (EngineManager.EngineGameOwnerTransaction) firstTxn.lifecycle().ownerToken();
     activateOwner(firstTxn);
 
     assertTrue(Lizzie.engineGame.reviseKomi(8.5));
@@ -999,13 +1000,13 @@ class EngineGameModuleContractTest {
     assertEquals(0, Lizzie.engineGame.lastSummary().doublePassGames());
     assertInstanceOf(EngineGameSnapshot.Idle.class, Lizzie.engineGame.current());
 
-    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-    while (EngineManager.occupiesEngineGameAdmission() && System.nanoTime() < deadline) {
-      Thread.sleep(5L);
-    }
-    assertFalse(EngineManager.occupiesEngineGameAdmission());
     black.bindLiveRuntime();
     white.bindLiveRuntime();
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (!firstOwner.retirementFinishedForTest() && System.nanoTime() < deadline) {
+      Thread.sleep(5L);
+    }
+    assertTrue(firstOwner.retirementFinishedForTest(), "previous owner must finish retirement");
     playAccepted(analysisBatchSpec(3));
     EngineGameTransaction secondTxn = Lizzie.engineGame.transaction();
     assertNotSame(firstTxn, secondTxn);
