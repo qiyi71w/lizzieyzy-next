@@ -22,7 +22,6 @@ public class GetEngineLine {
   public String weightPath = "";
   public String configPath = "";
   public String commandHelp = "";
-  private BufferedInputStream inputStream;
   private Path curPath;
   private final ResourceBundle resourceBundle = Lizzie.resourceBundle;
   private EngineParameter ep;
@@ -223,15 +222,21 @@ public class GetEngineLine {
     processBuilder.redirectErrorStream(true);
     try {
       Process process = processBuilder.start();
-      inputStream = new BufferedInputStream(process.getInputStream());
       ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-      executor.execute(this::read);
+      executor.execute(
+          () -> {
+            try {
+              read(new BufferedInputStream(process.getInputStream()));
+            } finally {
+              executor.shutdown();
+            }
+          });
     } catch (IOException e) {
       e.printStackTrace();
     }
   }
 
-  private void read() {
+  private void read(BufferedInputStream inputStream) {
     try {
       int c;
       StringBuilder line = new StringBuilder();

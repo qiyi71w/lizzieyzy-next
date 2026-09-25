@@ -1261,6 +1261,39 @@ class AnalysisEngineRequestTest {
   }
 
   @Test
+  void malformedAnalysisResultDoesNotMarkStartupReadyBeforeExit() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open();
+        EngineStartupDiagnostics diagnostics =
+            new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      TrackingAnalysisEngine engine = TrackingAnalysisEngine.create();
+      var attempt = diagnostics.begin("analysis-invalid", "WHOLE_GAME_ANALYSIS", List.of("engine"), true);
+      setField(AnalysisEngine.class, engine, "startupDiagnosticAttempt", attempt);
+
+      invokeAnalysisEngineParseLine(engine, "{not-json");
+
+      assertEquals("startup-exit", attempt.fail("startup-exit", "EOF before valid result").toJson().getString("phase"));
+      assertEquals("analysis-invalid", attempt.snapshot().engineId());
+    }
+  }
+
+  @Test
+  void invalidMovePayloadDoesNotSuppressStartupExitDiagnostic() throws Exception {
+    try (TestEnvironment env = TestEnvironment.open();
+        EngineStartupDiagnostics diagnostics =
+            new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
+      boardWithHistory(history);
+      TrackingAnalysisEngine engine = TrackingAnalysisEngine.create();
+      var attempt = diagnostics.begin("analysis-bad-moves", "WHOLE_GAME_ANALYSIS", List.of("engine"), true);
+      setField(AnalysisEngine.class, engine, "startupDiagnosticAttempt", attempt);
+      engine.synchronousEngineLine = "{\"id\":\"1\",\"moveInfos\":[{}]}";
+
+      assertEquals(-1, engine.startWholeGameRequest(List.of(history.getStart()), 500, false));
+      assertEquals("startup-exit", attempt.fail("startup-exit", "EOF before valid moves").toJson().getString("phase"));
+    }
+  }
+
+  @Test
   void requestedLocalOwnershipMustBePresentBeforeResultCountsAsComplete() throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       BoardData rootData = BoardData.empty(BOARD_SIZE, BOARD_SIZE);

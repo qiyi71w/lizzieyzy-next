@@ -866,7 +866,8 @@ public class HumanSlAnalysisRunner implements AutoCloseable {
   static double engineSearchSeconds(Duration timeout) {
     long remainingNanos = Math.max(0L, timeout.toNanos());
     long reserveNanos =
-        Math.min(TimeUnit.MILLISECONDS.toNanos(ADAPTIVE_RETURN_RESERVE_MILLIS), remainingNanos / 2L);
+        Math.min(
+            TimeUnit.MILLISECONDS.toNanos(ADAPTIVE_RETURN_RESERVE_MILLIS), remainingNanos / 2L);
     return (remainingNanos - reserveNanos) / 1_000_000_000.0 * ADAPTIVE_TIME_USE_RATIO;
   }
 

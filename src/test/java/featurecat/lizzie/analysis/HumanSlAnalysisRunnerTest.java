@@ -393,8 +393,7 @@ class HumanSlAnalysisRunnerTest {
   @Test
   void deeperVerificationRejectsEmptyResultsWithoutInventingEvidence() {
     JSONObject previous =
-        new JSONObject()
-            .put("moveInfos", new JSONArray().put(new JSONObject().put("move", "B2")));
+        new JSONObject().put("moveInfos", new JSONArray().put(new JSONObject().put("move", "B2")));
     assertFalse(HumanSlAnalysisRunner.hasAtLeastVerificationEvidence(previous, new JSONObject()));
     assertTrue(HumanSlAnalysisRunner.hasAtLeastVerificationEvidence(previous, previous));
   }
@@ -434,7 +433,8 @@ class HumanSlAnalysisRunnerTest {
           new HumanSlAnalysisRunner(List.of("katago", "analysis"), ignored -> process)) {
         assertEquals(
             java.util.Optional.of("B2"),
-            runner.bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
+            runner.bestHumanMove(
+                history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
         assertEquals(3, process.sentRequests.size());
         assertTrue(process.isAlive());
         double policyTime =
@@ -486,8 +486,7 @@ class HumanSlAnalysisRunnerTest {
   }
 
   private static void assertWeightlessSearchResult(
-      int deeperRootVisits, int deeperChildVisits, String expectedMove)
-      throws Exception {
+      int deeperRootVisits, int deeperChildVisits, String expectedMove) throws Exception {
     try (TestEnvironment env = TestEnvironment.open()) {
       BoardHistoryList history = new BoardHistoryList(BoardData.empty(BOARD_SIZE, BOARD_SIZE));
       boardWithHistory(history);
@@ -513,7 +512,8 @@ class HumanSlAnalysisRunnerTest {
           new HumanSlAnalysisRunner(List.of("katago", "analysis"), ignored -> process)) {
         assertEquals(
             java.util.Optional.of(expectedMove),
-            runner.bestHumanMove(history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
+            runner.bestHumanMove(
+                history.getCurrentHistoryNode(), "rank_7d", Duration.ofSeconds(10)));
         assertEquals(3, process.sentRequests.size());
         assertEquals(64, process.sentRequests.get(1).getInt("maxVisits"));
         assertTrue(process.sentRequests.get(2).getInt("maxVisits") > 64);

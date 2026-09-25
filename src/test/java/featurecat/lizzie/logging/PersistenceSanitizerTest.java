@@ -26,6 +26,8 @@ class PersistenceSanitizerTest {
           "CANARY_PERCENT_OVERDEPTH_KEY_14",
           "CANARY_PERCENT_OVERDEPTH_MIXED_HEX_15",
           "CANARY_PERCENT_OVERDEPTH_HEADER_16",
+          "CANARY_CLI_API_KEY",
+          "CANARY_CLI_QUOTED_KEY",
           "CANARY_PERCENT_OVERDEPTH_BOUNDARY_17");
 
   private static final List<String> PAYLOADS =
@@ -46,6 +48,8 @@ class PersistenceSanitizerTest {
           "body=%2525252570assword=CANARY_PERCENT_OVERDEPTH_KEY_14",
           "body=passw%254Frd%252525253dCANARY_PERCENT_OVERDEPTH_MIXED_HEX_15",
           "Authorization%252525253A Bearer CANARY_PERCENT_OVERDEPTH_HEADER_16",
+          "engine.exe --api-key CANARY_CLI_API_KEY gtp",
+          "engine.exe --api-key 'CANARY_CLI_QUOTED_KEY with spaces' gtp",
           "body=opaque%2525252520token=CANARY_PERCENT_OVERDEPTH_BOUNDARY_17");
 
   @Test

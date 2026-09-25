@@ -6006,6 +6006,7 @@ class BoardNodeKindHistoryPipelineTest {
     private final Leelaz previousLeelaz;
     private final Config previousConfig;
     private final boolean previousEngineEmpty;
+    private final boolean previousCanGoAfterload = LizzieFrame.canGoAfterload;
 
     private TestEnvironment(
         int previousBoardWidth,
@@ -6073,6 +6074,7 @@ class BoardNodeKindHistoryPipelineTest {
 
     @Override
     public void close() {
+      if (Lizzie.frame != null) Lizzie.frame.shutdownKifuEngineSyncCoordinator();
       Board.boardWidth = previousBoardWidth;
       Board.boardHeight = previousBoardHeight;
       Zobrist.init();
@@ -6083,6 +6085,7 @@ class BoardNodeKindHistoryPipelineTest {
       Lizzie.setPrimaryEngine(previousLeelaz);
       Lizzie.config = previousConfig;
       EngineManager.isEmpty = previousEngineEmpty;
+      LizzieFrame.canGoAfterload = previousCanGoAfterload;
     }
   }
 

@@ -141,7 +141,12 @@ public final class ExportSanitizer {
     if (value instanceof JSONArray array) {
       JSONArray sanitized = new JSONArray();
       for (int i = 0; i < array.length(); i++) {
-        Object rewritten = sanitizeJsonValue(array.get(i), key);
+        boolean secretArgument =
+            "arguments".equals(key)
+                && i > 0
+                && array.opt(i - 1) instanceof String previous
+                && isSecretArgumentFlag(previous);
+        Object rewritten = secretArgument ? "<redacted>" : sanitizeJsonValue(array.get(i), key);
         if (rewritten != OMIT) {
           sanitized.put(rewritten);
         }
@@ -180,9 +185,7 @@ public final class ExportSanitizer {
   }
 
   private boolean isSafeJsonFieldName(String field) {
-    if (field == null
-        || !SAFE_JSON_FIELD_NAME.matcher(field).matches()
-        || isSecretKey(field)) {
+    if (field == null || !SAFE_JSON_FIELD_NAME.matcher(field).matches() || isSecretKey(field)) {
       return false;
     }
     return field.equals(sanitizeText(field));
@@ -255,7 +258,9 @@ public final class ExportSanitizer {
       if (normalized.contains("session")) {
         return alias("session", text);
       }
-      if (normalized.contains("path") || normalized.contains("file") || normalized.contains("dir")) {
+      if (normalized.contains("path")
+          || normalized.contains("file")
+          || normalized.contains("dir")) {
         return alias("path", text);
       }
       if (normalized.contains("url")) {
@@ -273,7 +278,9 @@ public final class ExportSanitizer {
     StringBuffer rewritten = new StringBuffer();
     while (matcher.find()) {
       matcher.appendReplacement(
-          rewritten, Matcher.quoteReplacement(matcher.group().replace(matcher.group(1), alias("nickname", matcher.group(1)))));
+          rewritten,
+          Matcher.quoteReplacement(
+              matcher.group().replace(matcher.group(1), alias("nickname", matcher.group(1)))));
     }
     matcher.appendTail(rewritten);
     return rewritten.toString();
@@ -306,6 +313,33 @@ public final class ExportSanitizer {
         || normalized.contains("authorization")
         || normalized.contains("credential")
         || normalized.contains("machinekey");
+  }
+
+  private static boolean isSecretArgumentFlag(String argument) {
+    if (argument == null || argument.isEmpty()) {
+      return false;
+    }
+    if (argument.indexOf('=') >= 0 || argument.indexOf(':') >= 0) {
+      return false;
+    }
+    if (!argument.startsWith("-") && !argument.startsWith("/")) {
+      return false;
+    }
+    int start = 0;
+    while (start < argument.length()
+        && (argument.charAt(start) == '-' || argument.charAt(start) == '/')) {
+      start++;
+    }
+    if (start == 0 || start == argument.length()) {
+      return false;
+    }
+    String name = argument.substring(start);
+    if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+      return false;
+    }
+    return PersistenceSanitizer.isCredentialName(name)
+        || isSecretKey(name)
+        || isSecretKey(argument);
   }
 
   private static final Object OMIT = new Object();

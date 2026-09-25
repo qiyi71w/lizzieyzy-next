@@ -119,8 +119,17 @@ public class DiagnosticsDialog extends JPanel {
   private DiagnosticBundleRequest pendingEstimate;
   private static JDialog openDialog;
   private static DiagnosticsDialog openPanel;
+  private featurecat.lizzie.analysis.EngineStartupDiagnostic pinnedStartupFailure;
 
   public static JDialog open(Window owner, LoggingRuntime runtime, Config config) {
+    return open(owner, runtime, config, null);
+  }
+
+  public static JDialog open(
+      Window owner,
+      LoggingRuntime runtime,
+      Config config,
+      featurecat.lizzie.analysis.EngineStartupDiagnostic startupFailure) {
     if (openDialog == null) {
       openPanel = new DiagnosticsDialog(runtime, config);
       openDialog = new JDialog(owner);
@@ -158,9 +167,8 @@ public class DiagnosticsDialog extends JPanel {
           Math.max(
               workArea.y,
               Math.min(openDialog.getY(), workArea.y + workArea.height - openDialog.getHeight())));
-    } else {
-      openPanel.refreshFromRuntime();
     }
+    openPanel.pinnedStartupFailure = startupFailure;
     openDialog.setVisible(true);
     openDialog.toFront();
     openPanel.refreshFromRuntime();
@@ -487,7 +495,8 @@ public class DiagnosticsDialog extends JPanel {
         SyncDiagnosticsRecorder.getDefault().exportSnapshot(),
         helper,
         Lizzie.nextVersion == null ? "unknown" : Lizzie.nextVersion,
-        "unknown");
+        "unknown",
+        pinnedStartupFailure);
   }
 
   String healthText() {

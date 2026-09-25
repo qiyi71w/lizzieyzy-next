@@ -21,15 +21,23 @@ public class PersistenceSanitizer {
       Pattern.compile("(?i)^" + CREDENTIAL_NAME + "$");
   private static final Pattern EXACT_SENSITIVE_HEADER_NAME =
       Pattern.compile("(?i)^(?:proxy-authorization|authorization|set-cookie|cookie)$");
+
+  static boolean isCredentialName(String name) {
+    if (name == null || name.isEmpty()) {
+      return false;
+    }
+    return EXACT_CREDENTIAL_NAME.matcher(name).matches()
+        || EXACT_SENSITIVE_HEADER_NAME.matcher(name).matches();
+  }
   private static final Pattern QUOTED_CREDENTIAL_PARAMETER =
       Pattern.compile(
-          "(?i)((?<![A-Za-z0-9_-])[\\\"']?"
+          "(?i)((?<![A-Za-z0-9_-])(?:--?|/)?[\\\"']?"
               + CREDENTIAL_NAME
               + "[\\\"']?(?![A-Za-z0-9_-])\\s*(?:[=:]\\s*|\\s+))"
               + "([\\\"'])(?>(?:\\\\[\\s\\S])|(?!\\2)[\\s\\S])*(?:\\2|$)");
   private static final Pattern CREDENTIAL_PARAMETER =
       Pattern.compile(
-          "(?i)((?<![A-Za-z0-9_-])[\\\"']?"
+          "(?i)((?<![A-Za-z0-9_-])(?:--?|/)?[\\\"']?"
               + CREDENTIAL_NAME
               + "[\\\"']?(?![A-Za-z0-9_-])\\s*(?:[=:]\\s*|\\s+))([^\\\"'\\s,;}&]+)");
   private static final Pattern URL_SECRET =

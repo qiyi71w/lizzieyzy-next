@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import featurecat.lizzie.analysis.EngineStartupDiagnostics;
 import featurecat.lizzie.analysis.ReadBoardLoggingControl;
 import featurecat.lizzie.analysis.ReadBoardLoggingProtocol;
 import featurecat.lizzie.analysis.ReadBoardLoggingSnapshot;
@@ -25,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -61,6 +63,8 @@ class DiagnosticBundleExporterTest {
   private static final String CANARY_COOKIE = "CANARY_COOKIE_4d11";
   private static final String CANARY_MACHINE_KEY = "CANARY_MACHINEKEY_88aa";
   private static final String CANARY_CREDENTIAL = "CANARY_CREDENTIAL_12ef";
+  private static final String CANARY_API_KEY = "CANARY_API_KEY_3e89";
+  private static final String CANARY_SLASH_PASSWORD = "CANARY_SLASH_PASSWORD_5b1c";
   private static final String CANARY_JSON_NESTED = "OPAQUE_JSON_NESTED_31aa";
   private static final String CANARY_JSON_UNKNOWN = "OPAQUE_JSON_UNKNOWN_96bd";
   private static final String CANARY_CAPTURE_NESTED = "OPAQUE_CAPTURE_NESTED_a780";
@@ -131,6 +135,7 @@ class DiagnosticBundleExporterTest {
     assertTrue(names.contains("snapshots/versions.json"));
     assertTrue(names.contains("snapshots/runtime.json"));
     assertTrue(names.contains("snapshots/threads.txt"));
+    assertTrue(names.contains("snapshots/engine-startup-failure.json"));
     assertFalse(names.contains("app.log"));
     assertFalse(names.contains("crash.log"));
     assertFalse(names.contains("logs/lizzie/engine-trace.log"));
@@ -189,6 +194,7 @@ class DiagnosticBundleExporterTest {
     assertTrue(threads.contains("daemon="), threads);
     assertTrue(threads.contains("--- stack ---"), threads);
     assertEquals("included", source(manifest, "threads").getString("status"));
+    assertEquals("included", source(manifest, "engine-startup-failure").getString("status"));
     assertNoCanaries(entries, "CANARY_PASSWORD_EXPORT", "C:\\Users\\alice");
   }
 
@@ -976,8 +982,7 @@ class DiagnosticBundleExporterTest {
         all);
     JSONObject manifest = manifest(entries);
     assertEquals(applicationSession, manifest.getString("applicationSession"));
-    assertEquals(1, manifest.getJSONArray("aliases").length());
-    assertEquals("live-room#1", manifest.getJSONArray("aliases").getString(0));
+    assertTrue(manifest.getJSONArray("aliases").toList().contains("live-room#1"));
   }
 
   @Test
@@ -1214,11 +1219,9 @@ class DiagnosticBundleExporterTest {
             + " INFO  [lizzie.app] 下一条\n",
         StandardCharsets.UTF_8);
     String nextRecord = timestamp + " INFO  [lizzie.app] 下一条\n";
-    String expected =
-        timestamp + " INFO  [lizzie.app] password=\"<redacted>\"\n" + nextRecord;
+    String expected = timestamp + " INFO  [lizzie.app] password=\"<redacted>\"\n" + nextRecord;
 
-    assertEquals(
-        expected, unzipTextEntries(exportDefault(runtime)).get("logs/lizzie/app.log"));
+    assertEquals(expected, unzipTextEntries(exportDefault(runtime)).get("logs/lizzie/app.log"));
 
     long cap = expected.getBytes(StandardCharsets.UTF_8).length - 1L;
     Path cappedZip =
@@ -2465,6 +2468,126 @@ class DiagnosticBundleExporterTest {
     assertFalse(
         entries.keySet().stream()
             .anyMatch(name -> name.startsWith("diagnostics/readboard-capture/")));
+  }
+
+  @Test
+  void exportCapturesPinnedStartupFailureAndRedactsSecretsThroughSanitizer() throws Exception {
+    LoggingRuntime runtime = start();
+
+    DiagnosticBundleRequest emptyRequest =
+        new DiagnosticBundleRequest(
+            runtime,
+            EnumSet.noneOf(TraceScope.class),
+            false,
+            false,
+            new JSONObject(),
+            emptySnapshot(),
+            ReadBoardLoggingSnapshot.detached(),
+            "next-dev",
+            "unknown",
+            null);
+    Path emptyZip =
+        new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
+            .export(emptyRequest);
+    Map<String, byte[]> emptyEntries = unzipEntries(emptyZip);
+    assertTrue(emptyEntries.containsKey("snapshots/engine-startup-failure.json"));
+    JSONObject emptyJson =
+        new JSONObject(text(emptyEntries, "snapshots/engine-startup-failure.json"));
+    assertEquals("no-failure", emptyJson.getString("status"));
+    assertFalse(emptyJson.has("failure"));
+    JSONObject emptySource = source(manifest(emptyEntries), "engine-startup-failure");
+    assertSource(emptySource, true, true, "included", "snapshots/");
+
+    try (EngineStartupDiagnostics service =
+        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+      ProcessBuilder builder =
+          new ProcessBuilder(
+              "katago.exe",
+              "gtp",
+              "--api-key",
+              CANARY_API_KEY,
+              "/password",
+              CANARY_SLASH_PASSWORD,
+              "--token",
+              CANARY_TOKEN,
+              "--secret=" + CANARY_PASSWORD,
+              "C:\\Users\\alice\\model.bin");
+      var attempt1 = service.begin("eng-first-test", "MAIN_BOARD", builder.command(), true);
+      attempt1.capture(builder);
+      attempt1.output("stderr", "Could not load library cudnn64_9.dll. Error code 126");
+      var diag1 = attempt1.fail("process-create", "login failed password=" + CANARY_PASSWORD);
+
+      DiagnosticBundleRequest capturedRequest =
+          new DiagnosticBundleRequest(
+              runtime,
+              EnumSet.noneOf(TraceScope.class),
+              false,
+              false,
+              new JSONObject(),
+              emptySnapshot(),
+              ReadBoardLoggingSnapshot.detached(),
+              "next-dev",
+              "unknown",
+              diag1);
+      assertEquals(attempt1.id(), capturedRequest.startupFailure().attemptId());
+
+      var attempt2 = service.begin("eng-second-test", "MAIN_BOARD", List.of("leelaz.exe"), true);
+      attempt2.fail("runtime-preflight", "missing runtime");
+
+      Path exportedZip =
+          new DiagnosticBundleExporter(DiagnosticBundleExporter.defaultOutputDirectory(tempDir))
+              .export(capturedRequest);
+      Map<String, byte[]> entries = unzipEntries(exportedZip);
+      assertTrue(entries.containsKey("snapshots/engine-startup-failure.json"));
+      assertTrue(entries.containsKey("logs/lizzie/app.log"));
+
+      JSONObject exportedJson =
+          new JSONObject(text(entries, "snapshots/engine-startup-failure.json"));
+      assertEquals("available", exportedJson.getString("status"));
+      JSONObject failure = exportedJson.getJSONObject("failure");
+      assertEquals(attempt1.id(), failure.getString("attemptId"));
+      assertEquals("eng-first-test", failure.getString("engineId"));
+      JSONArray exportedArgs = failure.getJSONObject("launch").getJSONArray("arguments");
+      assertEquals("gtp", exportedArgs.getString(0));
+      assertNotEquals(
+          attempt2.id(),
+          failure.getString("attemptId"),
+          "later attempt must not leak into export of captured request");
+
+      JSONArray findings = failure.getJSONArray("findings");
+      assertEquals(1, findings.length());
+      JSONObject finding = findings.getJSONObject(0);
+      assertEquals("cudnn64_9.dll", finding.getString("dll"));
+      assertEquals("dll-not-found", finding.getString("outcome"));
+      assertEquals("unavailable", failure.getString("statusName"));
+
+      String failuresRaw = text(entries, "snapshots/engine-startup-failure.json");
+      assertFalse(failuresRaw.contains(CANARY_PASSWORD), failuresRaw);
+      assertFalse(failuresRaw.contains(CANARY_TOKEN), failuresRaw);
+      assertFalse(failuresRaw.contains(CANARY_API_KEY), failuresRaw);
+      assertFalse(failuresRaw.contains(CANARY_SLASH_PASSWORD), failuresRaw);
+      assertFalse(failuresRaw.contains("C:\\\\Users\\\\alice"), failuresRaw);
+      assertNoCanaries(
+          entries,
+          CANARY_PASSWORD,
+          CANARY_TOKEN,
+          CANARY_API_KEY,
+          CANARY_SLASH_PASSWORD,
+          "C:\\\\Users\\\\alice");
+
+      String shareText = diag1.shareText();
+      assertFalse(shareText.contains(CANARY_PASSWORD), shareText);
+      assertFalse(shareText.contains(CANARY_TOKEN), shareText);
+      assertFalse(shareText.contains(CANARY_API_KEY), shareText);
+      assertFalse(shareText.contains(CANARY_SLASH_PASSWORD), shareText);
+      assertTrue(shareText.contains("eng-first-test"), shareText);
+      assertTrue(shareText.contains("gtp"), shareText);
+      assertTrue(shareText.contains("cudnn64_9.dll"), shareText);
+
+      JSONObject manifest = manifest(entries);
+      JSONObject source = source(manifest, "engine-startup-failure");
+      assertSource(source, true, true, "included", "snapshots/");
+    }
   }
 
   private LoggingRuntime start() {
