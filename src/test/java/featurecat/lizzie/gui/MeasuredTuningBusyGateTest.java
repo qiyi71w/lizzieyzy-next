@@ -68,6 +68,16 @@ class MeasuredTuningBusyGateTest {
               null
             },
             {"activeDownloadSession", new DownloadSession(), null},
+            {
+              "catalogRefreshWorker",
+              new SwingWorker<Void, Void>() {
+                @Override
+                protected Void doInBackground() {
+                  return null;
+                }
+              },
+              null
+            },
             {"activeWorkerThread", new Thread(), null},
             {"pendingWeightSwitchTimer", new Timer(1000, ignored -> {}), null}
           }) {

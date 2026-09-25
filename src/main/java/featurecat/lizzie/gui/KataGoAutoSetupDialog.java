@@ -838,6 +838,9 @@ public class KataGoAutoSetupDialog extends JDialog {
         btnOptimizePerformance
             .getFont()
             .deriveFont(Font.BOLD, btnOptimizePerformance.getFont().getSize2D() + 1f));
+    updateBenchmarkOptimizeButton(BenchmarkDisplayState.EMPTY);
+    styleButton(btnImportMeasuredTuning, false);
+    styleButton(btnRestoreMeasuredTuning, false);
     btnExperimentalPerformance.setFont(
         btnExperimentalPerformance
             .getFont()
@@ -3320,8 +3323,11 @@ public class KataGoAutoSetupDialog extends JDialog {
       btnOptimizePerformance.setText(buttonText);
     }
     Dimension preferred = localizedButtonSize(btnOptimizePerformance, 204, 46);
-    btnOptimizePerformance.setPreferredSize(preferred);
-    btnOptimizePerformance.setMinimumSize(preferred);
+    if (!preferred.equals(btnOptimizePerformance.getPreferredSize())) {
+      btnOptimizePerformance.setPreferredSize(preferred);
+      btnOptimizePerformance.setMinimumSize(preferred);
+      btnOptimizePerformance.revalidate();
+    }
   }
 
   private void renderBenchmarkMetric(

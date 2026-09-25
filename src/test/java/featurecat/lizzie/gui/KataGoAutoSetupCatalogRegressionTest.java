@@ -68,6 +68,17 @@ class KataGoAutoSetupCatalogRegressionTest {
       }
       assertTrue(sidebar.isEnabled(), "normal setup navigation must still be restored");
     });
+    set(dialog, "measuredTuningBusy", true);
+    SwingUtilities.invokeAndWait(() -> {
+      try {
+        complete.invoke(dialog, false);
+      } catch (ReflectiveOperationException failure) {
+        throw new AssertionError(failure);
+      }
+      assertFalse(refresh.isEnabled(), "late refresh must preserve measured-review exclusion");
+      assertFalse(sidebar.isEnabled());
+      assertTrue(close.isEnabled(), "closing must remain possible during review");
+    });
   }
 
   @Test
