@@ -50,6 +50,28 @@ jobs:
           import re
           import subprocess
 
+          def select_archive_tag(releases, preferred, name, size, sha):
+              if not isinstance(releases, list):
+                  raise SystemExit('Invalid release inventory')
+              exact_tags = []
+              for release in releases:
+                  tag = release.get('tag_name', '')
+                  if not re.fullmatch(r'next-\d{4}-\d{2}-\d{2}\.[1-9]\d*', tag):
+                      continue
+                  rows = [row for row in release.get('assets', []) if row.get('name') == name]
+                  exact = (len(rows) == 1 and rows[0].get('state') == 'uploaded'
+                           and rows[0].get('size') == size
+                           and rows[0].get('digest') == 'sha256:' + sha)
+                  if tag == preferred and rows and not exact:
+                      raise SystemExit('Requested release contains a mismatched source archive')
+                  if exact and (tag == preferred or release.get('draft') is False):
+                      exact_tags.append(tag)
+              if preferred in exact_tags:
+                  return preferred
+              if exact_tags:
+                  return exact_tags[0]
+              raise SystemExit('No release contains the exact pinned source archive')
+
           catalog = json.loads(Path('src/main/resources/katago-assets.json').read_text())
           is_source = catalog.get('origin') == 'project-source-build'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
@@ -67,9 +89,16 @@ jobs:
                       or not re.fullmatch(r'[0-9a-f]{64}', sha)
                       or type(size) is not int or not 0 < size < 100_000_000):
                   raise SystemExit('Invalid source archive identity')
+              # A release-request PR precedes its new Draft tag. The CI-only
+              # bootstrap may use identical bytes from an already public release,
+              # never a different engine. Release packaging still requires its own tag.
+              inventory = subprocess.run(
+                  ['gh', 'api', f'repos/{repository}/releases?per_page=100'],
+                  check=True, capture_output=True, text=True, timeout=120)
+              source_tag = select_archive_tag(json.loads(inventory.stdout), tag, name, size, sha)
               destination = Path(os.environ['RUNNER_TEMP']) / 'verified-cpu-archive'
               destination.mkdir()
-              subprocess.run(['gh', 'release', 'download', tag, '--repo', repository,
+              subprocess.run(['gh', 'release', 'download', source_tag, '--repo', repository,
                               '--pattern', name, '--dir', str(destination)],
                              check=True, capture_output=True, timeout=480)
               archive = destination / name
@@ -77,7 +106,7 @@ jobs:
                   digest = hashlib.file_digest(source, 'sha256').hexdigest()
               if archive.stat().st_size != size or digest != sha:
                   raise SystemExit('Source archive size or SHA-256 mismatch')
-              print('Verified source CPU archive; no executable was run')
+              print(f'Verified identical source CPU archive from {source_tag}; no executable was run')
           PY
       - uses: actions/upload-artifact@v6
         if: steps.archive.outputs.has_source == 'true'
