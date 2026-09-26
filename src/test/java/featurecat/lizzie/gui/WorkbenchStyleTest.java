@@ -340,6 +340,100 @@ class WorkbenchStyleTest {
   }
 
   @Test
+  void setupSidebarExposesRenderedSectionNames() throws Exception {
+    Class<?> type = Class.forName("featurecat.lizzie.gui.KataGoAutoSetupDialog$SidebarNavRenderer");
+    java.lang.reflect.Constructor<?> constructor = type.getDeclaredConstructor();
+    constructor.setAccessible(true);
+    SwingUtilities.invokeAndWait(
+        () -> {
+          try {
+            @SuppressWarnings("unchecked")
+            javax.swing.ListCellRenderer<String> renderer =
+                (javax.swing.ListCellRenderer<String>) constructor.newInstance();
+            javax.swing.JList<String> list = new javax.swing.JList<>();
+            for (String name : new String[] {"Overview", "Weights", "Performance", "NVIDIA"}) {
+              java.awt.Component cell =
+                  renderer.getListCellRendererComponent(list, name, 0, true, true);
+              assertEquals(name, cell.getAccessibleContext().getAccessibleName());
+              assertEquals(
+                  javax.accessibility.AccessibleRole.LABEL,
+                  cell.getAccessibleContext().getAccessibleRole());
+            }
+          } catch (ReflectiveOperationException error) {
+            throw new AssertionError(error);
+          }
+        });
+  }
+
+  @Test
+  void weightButtonsMeasureTextAfterTheirFinalBorderIsInstalled() throws Exception {
+    Class<?> style = Class.forName("featurecat.lizzie.gui.KataGoAutoSetupDialog$WeightButtonStyle");
+    java.lang.reflect.Method method =
+        KataGoAutoSetupDialog.class.getDeclaredMethod(
+            "styleWeightButton", JFontButton.class, style);
+    method.setAccessible(true);
+    SwingUtilities.invokeAndWait(
+        () -> {
+          try {
+            for (String tag : new String[] {"zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "th-TH"}) {
+              String caption =
+                  java.util.ResourceBundle.getBundle(
+                          "l10n.DisplayStrings", java.util.Locale.forLanguageTag(tag))
+                      .getString("AutoSetup.downloadOnDemand");
+              JFontButton button = new JFontButton(caption);
+              button.setIcon(javax.swing.UIManager.getIcon("OptionPane.informationIcon"));
+              button.setPreferredSize(new Dimension(90, 32));
+              method.invoke(null, button, style.getEnumConstants()[0]);
+              int contentWidth =
+                  button.getFontMetrics(button.getFont()).stringWidth(caption)
+                      + button.getIcon().getIconWidth()
+                      + button.getIconTextGap()
+                      + button.getInsets().left
+                      + button.getInsets().right;
+              assertTrue(button.getPreferredSize().width >= contentWidth, tag);
+            }
+          } catch (ReflectiveOperationException error) {
+            throw new AssertionError(error);
+          }
+        });
+  }
+
+  @Test
+  void trainingFieldsExposeTheirVisibleLabelsToScreenReaders() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          JComboBox<String> mode = new JComboBox<>(new String[] {"Review after game"});
+          javax.swing.JComponent row = NewHumanSlGameDialog.field("Training mode", mode);
+          javax.swing.JLabel label = (javax.swing.JLabel) row.getComponent(0);
+          assertSame(mode, label.getLabelFor());
+          assertEquals("Training mode", mode.getAccessibleContext().getAccessibleName());
+        });
+  }
+
+  @Test
+  void paintedPreviewRetainsItsExplicitHeightInResponsiveRows() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          WorkbenchFormRow row = new WorkbenchFormRow();
+          JPanel labels = new JPanel(new BorderLayout());
+          labels.add(new JTextArea("Board preview"));
+          JPanel preview = new JPanel();
+          preview.setPreferredSize(new Dimension(220, 180));
+          WorkbenchFormRow.prepareControls(preview);
+          row.add(labels);
+          row.add(preview);
+          for (int width : new int[] {360, 720, 1100}) {
+            row.setSize(width, 400);
+            row.setSize(width, row.getPreferredSize().height);
+            layoutTree(row);
+            assertEquals(180, preview.getHeight());
+            assertFalse(labels.getBounds().intersects(preview.getBounds()));
+            assertChildrenFit(row);
+          }
+        });
+  }
+
+  @Test
   void nestedControlGroupsWrapAndRemainInsideTheRow() throws Exception {
     SwingUtilities.invokeAndWait(
         () -> {

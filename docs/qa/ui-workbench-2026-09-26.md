@@ -1,234 +1,192 @@
-# Swing Workbench UI Candidate - 2026-09-26
+# Swing Workbench UI Acceptance - 2026-09-26
 
-## Acceptance Status
+## Conclusion And Scope
 
-**INCOMPLETE: do not mark this candidate fully accepted or release it.**
+**PASS for the recorded Windows UI and automated scenarios below.** Deferred
+keyboard and NVDA checks were completed independently; no user-assisted keyboard
+gate remains. This is not an exhaustive all-languages/all-dialogs/all-DPI cross
+product or a cross-platform release certification.
 
-The implementation and automated checks are available in the isolated
-`ui/unified-analysis-workbench` worktree. No merge or release is authorized.
-The user explicitly accepted deferring actual screen-reader speech and complete
-child-dialog keyboard workflows. Submit a draft UI PR with these gates visible;
-do not claim unconditional acceptance or merge it.
+UI PR #551 is stacked on refresh-icon PR #550, targeting
+`fix/remote-model-refresh-icon`. Neither was merged and no release was created.
+Retarget and recheck after #550 is merged.
 
-- Latest checked `origin/main`: `50898233f5cce7d952b37cdb9ee005f780ea948f`.
-- Candidate base also includes `ee774cac8df2150c5349492059f83a99327d9ab2`, the
-  refresh-icon change in open PR #550. That PR has not been merged by this task.
-- Windows 11 Pro 23H2, build 22631; NVIDIA RTX 3070.
-- Build JDK: 21.0.2. Portable runtime: Eclipse Adoptium 21.0.12.1+1-LTS.
-- Portable: `target/ui-qa/portable/LizzieYzy Next NVIDIA.exe`.
-- Final shaded JAR SHA-256:
-  `f06ea80ae4eda702ba663f99d404f928f3cfc2f4b6d59e65d8d58eb50ad9eb07`.
-- Only isolated portable configuration, weights and caches were used. The
-  original dirty workspace and real user configuration were not changed.
+- Last checked main: `50898233f5cce7d952b37cdb9ee005f780ea948f`.
+- Dependency/base: `ee774cac8df2150c5349492059f83a99327d9ab2`.
+- Windows 11 Pro 23H2, build 22631.6199; NVIDIA RTX 3070.
+- Build JDK 21.0.2; portable runtime Eclipse Adoptium 21.0.12.1+1-LTS.
+- Real EXE: `target/ui-qa/portable/LizzieYzy Next NVIDIA.exe`.
+- Final built and EXE JAR SHA-256:
+  `aa924941eec11708e6c351364ebb9ce5e71c89a5a0483e929bdceef764462c25`.
+- Only isolated portable configuration and caches were used. The original dirty
+  checkout and real user configuration, weights and caches were not changed.
 
 ## Implemented Scope
 
-- Shared light/dark surfaces, semantic text colors, teal actions, font selection
-  and focus treatment in `AppleStyleSupport`.
-- Neutral default main background, themed analysis table and restrained sidebar
-  chrome. Explicit wallpaper, theme, font, curve colors and layout remain intact.
-- Compact general settings navigation, adjacent label/control rows, wrapping
-  descriptions and a persistent save/cancel footer. Navigation uses real buttons
-  with names, Enter/Space activation and a visible focus ring.
-- Remote compute typography and surfaces, full model-name tooltips, preserved
-  refresh icon and a dark-safe combo box painter.
-- Setup overview with readiness/model information first, expandable technical
-  paths and copy action, one existing weight catalog instead of duplicate
-  recommendation cards. Download, apply, import and B11 notices remain separate.
-- AI training and commentary share the palette and form styling. Training
-  behavior, engine protocols, connection/account handling and task lifecycle were
-  not changed. No configuration migration was introduced.
+Shared light/dark surfaces, semantic text colors, teal actions, user fonts and
+visible focus extend AppleStyleSupport. Wooden board, explicit themes, wallpaper,
+curve colors, layout and existing commands remain available. General settings
+use compact navigation, adjacent form labels, wrapping content and a fixed footer.
+Remote compute keeps its flows, refresh icon and model-name tooltips. Setup
+prioritizes readiness/model status, folds technical paths and retains a single
+catalog with separate download/apply/import actions. Training and commentary
+share styling without changes to engine protocols, account storage, networking,
+model strategy or analysis lifecycle.
 
-## Automated Checks
+## Problems Fixed And Retested
 
-Commands use the repository's Maven configuration with formatter auto-edits
-disabled. Formatting was restricted to the UI files changed in this task.
+| Problem | Root cause and fix | Verification |
+| --- | --- | --- |
+| Settings focus/clicks lost | Unowned modal; give it the main-window owner | Production regression and EXE keyboard/mouse |
+| Settings rows outside viewport | Fixed sizing and nested FlowLayout assumptions | Responsive viewport/row regressions and real navigation |
+| Theme opens at bottom | Deferred reconstruction and read-only label caret scrolling | Independent navigation token, suppress label-only caret scrolling; production test and EXE |
+| Board preview collapsed | Empty painted FlowLayout measured as 10px, not declared 180px | Respect explicit height; regression failed before fix |
+| Dark combos/bottom bar unreadable | Native painter and toolbar branch retained light surfaces | Shared theme painting, contrast tests, actual 200% Thai/dark |
+| Status/description styles inconsistent | Light-only colors and generic style overrides | Semantic colors and component tests |
+| Setup sections not announced | JPanel list renderer lacked standard Java Access Bridge label semantics | JLabel renderer; NVDA arrow navigation speaks each name and position |
+| Training mode unnamed | Visual-only form label | labelFor association and actual NVDA |
+| Commentary range fields unnamed | Spinner model replacement recreated editors | Copy parent accessibility metadata; actual NVDA |
+| English Whole game clipped | Fixed mode-button/rail width | Font-measured uniform width; six-language regression and EXE |
+| AI button disappeared in narrow window | Long engine caption wrapped Windows proxy commands below visible strip | Abbreviate only engine captions, keep tooltip/name; width regression and EXE |
+| Download on demand clipped | Final border wider than cached preferred size | Measure text/icon/insets after styling; six-language regression and EXE |
+
+Temporary tracing was removed. Unrelated Menu.java formatter changes were
+removed; its additional change only identifies the two engine menus.
+
+## Final Automated Results
+
+| Command/lane | Exact result |
+| --- | --- |
+| `mvn -B -Djava.awt.headless=true -Dfmt.skip=true verify` | BUILD SUCCESS, 4m59s; 4,408 unit tests, 0 failures, 0 errors, 92 skipped |
+| Integration tests in verify | 7 tests, 0 failures, 0 errors, 6 skipped; LoggingProviderSmokeIT executed against shaded JAR |
+| Non-headless desktop package lane | BUILD SUCCESS, 1m14s; 103 tests, 0 failures, 0 errors, 0 skipped |
+| `python scripts/test_windows_launcher_packaging.py` | Passed |
+| `python scripts/check_line_endings.py` | Passed |
+| `python scripts/check_markdown_links.py` | Local links passed |
+| `git diff --check` | Passed |
+| LauncherOnly + OpenAutoSetup + PreserveConfig | Passed with bundled JVM; no Failed to launch JVM |
+
+Desktop command:
 
 ```text
-mvn -B -Djava.awt.headless=true -Dfmt.skip=true verify
-python scripts/test_windows_launcher_packaging.py
-python scripts/check_line_endings.py
-git diff --check
+mvn -B -Djava.awt.headless=false -Dfmt.skip=true -Dtest=ConfigDialog2NavigationTest,WorkbenchStyleTest,AccessibilitySupportTest,RemoteComputeDialogLayoutTest,RemoteComputeRefreshButtonTest,KataGoAutoSetupDialogLayoutTest,MenuAiFeatureButtonLayoutTest,TeacherDialogViewTest,WindowMenuStripTest package
 ```
 
-Final full rerun: **BUILD SUCCESS**, 5 minutes 52 seconds. Unit tests: **4,402**,
-failures **0**, errors **0**, skipped **92**. Integration tests: **7**, failures
-**0**, errors **0**, skipped **6**. `LoggingProviderSmokeIT` executed successfully
-against the shaded JAR. All three crash-barrier tests also passed in this full
-rerun. Log: `target/ui-verify-dark-toolbar-final.log`.
+Launcher command:
 
-The non-headless desktop/component lane originally failed: 87 tests, one failure,
-zero errors/skips. Production settings navigation found the target and focused
-it, but its row extended outside the viewport. Settings pages now track viewport
-width and recalculate height, including wrapped nested control groups. The
-subsequent 88-test desktop rerun passed with zero failures/errors/skips. After
-adding the bottom-toolbar contrast regression, the final desktop lane passed:
-**89 tests, 0 failures, 0 errors, 0 skipped**, in **25.911 seconds**. Log:
-`target/ui-desktop-components-accepted.log`. This lane starts the production
-Swing application in an isolated JVM, but is not a manual screen-reader or EXE
-acceptance substitute.
-
-```text
-mvn -B -Djava.awt.headless=false -Dfmt.skip=true -Dtest=ConfigDialog2NavigationTest,WorkbenchStyleTest,AccessibilitySupportTest,RemoteComputeDialogLayoutTest,RemoteComputeRefreshButtonTest,KataGoAutoSetupDialogLayoutTest,MenuAiFeatureButtonLayoutTest test
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/windows_smoke_test.ps1 -AppExe "<isolated portable>\LizzieYzy Next NVIDIA.exe" -ConfigDir "<isolated portable>\user-data" -LauncherOnly -OpenAutoSetup -PreserveConfig
 ```
 
-Earlier complete candidate: 4,399 unit tests, zero failures/errors, 92 skipped;
-7 integration tests, zero failures/errors, 6 skipped. `LoggingProviderSmokeIT`
-actually executed against the shaded JAR. `verify` included packaging.
+Logs: `target/ui-accepted-verify.log`,
+`target/ui-accepted-desktop-package.log`, `target/ui-accepted-launcher.log`.
+Maven calls ran sequentially; packaging is included. Skipped cases are not
+counted as executed. Tested normal/secondary/status text pairs meet 4.5:1 in
+both themes; that is not a claim about every application pixel.
 
-After adding the settings navigation regression, one full run reported 4,400
-unit tests with one failure in the existing
-`CrashPersistenceBarrierTest.fatalBarrierWaitsThroughDequeueHandoff`: the 3-second
-handoff latch timed out. No logging source was changed. Isolated rerun of that
-class and `WorkbenchStyleTest` passed (14 tests, zero failures/errors/skips),
-including all three crash-barrier cases. Keep the failed run as evidence rather
-than treating the isolated rerun alone as a full-suite pass.
+An early full run hit the existing 3-second CrashPersistenceBarrierTest handoff
+latch. Its isolated rerun and later complete runs passed. No unrelated logging
+fix was made. Interrupted builds were discarded, not counted as passes.
 
-Launcher packaging guards, line-ending checks and `git diff --check` passed.
-Real launcher smoke with `-LauncherOnly -OpenAutoSetup -PreserveConfig` passed
-using the portable runtime, with no failed-JVM dialog. `-PreserveConfig` is
-mandatory for this fixture. Final launcher log:
-`target/ui-launcher-smoke-final-accepted.log`.
+## Real Windows Scenarios
 
-New component tests cover light/dark text contrast (at least 4.5:1 for tested
-normal/secondary/status text), opaque combo surfaces, custom theme retention,
-wrapped labels, user fonts, stable button bounds/focus, analysis table styling,
-six-language row boundaries and accessible navigation buttons. These tests are
-not a substitute for a screen reader or physical system-DPI testing.
+| Scenario | Actual result |
+| --- | --- |
+| Launch/relaunch | Bundled Java and local CUDA/B11 produce positive visits; no system Java dependency |
+| Ordinary SGF open | Double-clicked quick-curve-50.sgf in ordinary file picker; automatic curve completed, not a placeholder line |
+| Suggested moves | Two consecutive pointer selections placed stones and resumed analysis; small-board PV retained |
+| Main commands | Lightning, shape judgement, small board, training and commentary retained |
+| Settings | Sidebar clicks, wrapped forms, full preview, fixed footer, keyboard and save succeeded |
+| Save/restart | Show quick actions persisted across locale restarts; final save returned to live analysis |
+| Setup | Readiness, technical details, weights, performance, NVIDIA and vertical scrolling inspected |
+| Remote | Logged-out/self-hosted UI, URL label, model ellipsis/tooltip and refresh inspected; no credentials submitted |
+| Training | Modes, More, labels and close inspected; no HumanSL download/game started in this UI pass |
+| Commentary | Mode rail, range fields, empty state, input and close inspected; no paid API request |
+| Exit | Previews closed normally; launcher cleanup completed |
 
-## Actual Windows UI Observations
+One earlier preview closed unexpectedly during overlapping desktop-test/UI work.
+No crash exception or hs_err file was found; cause is unestablished. Final runs
+separated visible desktop tests from manual EXE operation. Save, restart and
+repeated dialog entry did not reproduce it. Retain this as a diagnostic risk.
 
-| Scenario | Observed result | Scope |
+The native file picker can lose focus when the helper activates the main HWND.
+Final loading used the visible SGF row's double-click, not a scripted loading hook.
+
+## Languages And Scaling
+
+Original Windows: 150%, 2560 x 1600. Actual scaling was changed with the EXE closed,
+then restarted with no JVM scale override; restored to **150%** afterward.
+
+| Actual scale | Locale/theme | Real windows checked |
 | --- | --- | --- |
-| Portable EXE | Starts with bundled Java | Real EXE, not `java -jar` |
-| Local CUDA/B11 | Model loads and returns real analysis, roughly 260-400 visits/s observed | RTX 3070 only; not a benchmark |
-| SGF and quick curve | Opened the existing 50-move QA SGF through the ordinary toolbar/file-picker path; curve appeared and completed | Final JAR, actual 150% Windows scale |
-| Recommended moves | Two consecutive suggested moves were placed; analysis resumed and small-board PV remained visible | Real pointer input |
-| Main chrome | Lightning analysis, KataGo ownership and small-board entry points retained | Normal and maximized preview |
-| General settings | Compact sidebar, wrapping content, persistent footer visible | Visual checks; full interaction acceptance pending |
-| Setup overview/weights | Readiness and models readable, technical detail actions retained | Chinese and Thai dark previews |
-| Setup performance/NVIDIA | Vertical content scroll reaches lower actions; no whole-page horizontal scroll observed | Thai high-scale preview; final dark combo rechecked |
-| Remote compute | Dark combo text and refresh control visible after fix | Logged-out UI only; no credentials entered |
-| AI training/commentary | Forms/input controls retain structure and use shared styling | UI preview only; no model download or paid API calls |
+| 100% | Simplified Chinese/light | Main/B11, settings, remote, training/More, commentary |
+| 150% | Simplified Chinese/light | Main, settings, setup pages, remote, training, commentary, keyboard/NVDA, final SGF/curve/moves |
+| 150% | English/light | Main normal/max, settings/save, all setup pages, remote, training/More, commentary; final long-label fixes |
+| 150% | Japanese/light | Main, all setup pages, remote, training/More, commentary |
+| 150% | Korean/light | Main, settings/theme preview, setup overview/weights, remote, training/More, commentary |
+| 150% | Traditional Chinese/light | Main, setup overview/weights, remote, training/More, commentary |
+| 200% | Thai/dark | Main/B11, settings, all setup pages/scrolling, remote, training, commentary; toolbar retest |
 
-### Locale And Scaling Matrix
+Earlier JVM-only samples: Chinese 1.5; Traditional Chinese 2.0 main/settings/theme;
+Japanese 1.0 main/settings/training; Korean 1.5 main/settings; Thai 2.0 dark.
+Those are not physical scaling results. Final label fixes also have six-language
+text-width/row-boundary regressions. This is a risk-based matrix, not all
+combinations. Captures resample thin glyph/grid strokes; they are not a native
+glyph-quality certification. Translation naturalness was not exhaustively audited.
 
-The first matrix used **JVM scale overrides**, not changes to Windows display
-scaling. It is a sample matrix, not all six languages multiplied by every screen
-and scale. Native Windows scaling was subsequently inspected: the original value
-was 150%, at 2560 x 1600 resolution.
+## Independent Keyboard And NVDA
 
-| Locale | JVM scale | Windows inspected |
-| --- | --- | --- |
-| Simplified Chinese | 1.5 and native/no override | Main, settings, setup, training, commentary, remote; real SGF/engine |
-| Traditional Chinese | 2.0 | Main, settings, theme section |
-| English | native/no override | Main, settings |
-| Japanese | 1.0 | Main, settings, training |
-| Korean | 1.5 | Main, settings |
-| Thai | 2.0, dark theme | Main, settings, setup pages, remote |
+Official NVDA 2026.2 portable was SHA-256 checked and Authenticode verified.
+It ran isolated with add-ons disabled, without system installation/startup/global
+Java accessibility changes, and was stopped afterward. Evidence is actual NVDA
+speech-engine output after native EXE focus events, not just component metadata.
+Voice pronunciation/audio-device quality was not rated. Raw logs are private.
 
-Actual Windows display scaling was also changed in Settings, with the EXE closed
-and restarted each time and **no JVM scale override**:
+| Flow | Native result |
+| --- | --- |
+| Main | F6/Shift+F6 across board/sidebar/toolbars/menu; board, last-move, remote and commentary announced by purpose |
+| Remote | Enter opens; Tab to self-hosted, Space selects, Tab to named URL/ws-wss guidance; Esc closes |
+| Training | Enter expands More, Tab to mode, Shift+Tab returns, Space collapses, Esc closes; mode/value announced |
+| Commentary | Space opens, Tab/Shift+Tab through range; from/to names and values announced after editor replacement; Esc closes |
+| Setup | Tab/Shift+Tab through sections/actions, Down switches pages; NVDA speaks weights 2 of 4, performance 3 of 4, NVIDIA 4 of 4; Esc closes |
+| Settings | Pointer, Tab/Shift+Tab, Enter/Space sidebar and Esc work after ownership fix |
 
-| System scale | Locale/theme | Observed windows |
-| --- | --- | --- |
-| 100% | Simplified Chinese/light | Main with B11, general settings, remote, training including More, commentary |
-| 150% | Simplified Chinese/light | Final EXE, ordinary SGF load, completed quick curve, two recommended moves and resumed analysis |
-| 200% | Thai/dark | Main with B11, general settings, setup overview/weights/performance/NVIDIA, remote, training, commentary |
+Focus is visible. Selected/disabled/engine status use text/control state as well
+as color. Not every icon or asynchronous announcement was spoken in every language.
 
-Windows display scaling was restored to its original **150%** before the final
-EXE/SGF check. The final launcher configuration has no JVM scale override.
-`Ctrl+O` intentionally opens the existing load-and-analyze settings flow; the
-ordinary folder toolbar entry was used to verify automatic quick-curve loading.
+## Reviewed Screenshots
 
-Setup page selection and vertical scrolling were exercised with pointer input.
-Esc closed general settings, remote, training and commentary in sampled runs;
-this does not prove the full keyboard traversal requirement. General-settings
-sidebar pointer activation was not reliably exercised by the window-control
-tool and remains a manual gate; production navigation and component hit-surface
-tests passed.
+Unedited captures; settings before/after differ in size/scale and compare
+structure, not identical pixels.
 
-Screenshots from this Windows capture tool can lose thin glyph/grid strokes
-when resampled. They must not be used alone to diagnose missing board lines or
-to claim that every font glyph was checked at native resolution.
+![Settings before](images/ui-workbench-20260926/settings-before.png)
 
-## Issues Found During This Pass
+![Settings at actual 100%](images/ui-workbench-20260926/settings-after-system-100.png)
 
-- Windows native combo painting left white backgrounds under light text in dark
-  mode. Replaced the affected combo delegates with shared BasicComboBoxUI
-  styling; added an opaque-background/contrast regression and rechecked remotely
-  visible controls without signing in.
-- Setup status colors and weight-row surfaces were light-theme-only. Added
-  semantic light/dark colors and rechecked the Thai dark preview.
-- Generic text styling made wrapping descriptions look like editable fields;
-  generic button styling could override the save action. Preserved custom styles
-  and added component regressions.
-- Settings navigation was a non-focusable JPanel. It is now a named button with
-  one hit surface and keyboard actions. Component checks pass. The final manual
-  navigation pass remains open because of the input-tool limitation below.
-- Production settings navigation failed because a fixed-width panel did not
-  track the viewport. Corrected scroll sizing and multi-control row wrapping;
-  the real desktop navigation probe and new nested-control boundary tests pass.
-- Actual 200% dark-theme inspection revealed a light bottom-toolbar background
-  beneath light button text when Morandi colors were disabled. The bottom bar
-  now uses the shared theme painter; a contrast regression covers both themes.
-  Rechecked with the final JAR at actual Windows 200% in Thai/dark mode.
+![Thai dark toolbar at actual 200%](images/ui-workbench-20260926/dark-toolbar-after-system-200.png)
 
-## Selected Visual Evidence
+![Theme navigation and preview fixed](images/ui-workbench-20260926/theme-navigation-fixed.png)
 
-These are unedited captures from this acceptance task, not mockups. The initial
-settings comparison has different window sizes/scales, so it demonstrates
-structure and spacing rather than a pixel-identical baseline comparison.
+![English narrow menu actions](images/ui-workbench-20260926/menu-actions-en-fixed.png)
 
-1. General settings before: distant labels/controls and decorative background.
+![English commentary modes](images/ui-workbench-20260926/commentary-en-fixed.png)
 
-   ![Settings before](images/ui-workbench-20260926/settings-before.png)
+![English download labels](images/ui-workbench-20260926/weights-en-fixed.png)
 
-2. General settings after: adjacent controls, compact navigation and persistent
-   footer at actual Windows 100%. Full manual navigation remains a pending gate.
+![Final curve, actual 150%](images/ui-workbench-20260926/sgf-curve-final-system-150.png)
 
-   ![Settings after](images/ui-workbench-20260926/settings-after-system-100.png)
-
-3. Dark toolbar before and after the contrast fix, actual Windows 200%, Thai.
-
-   ![Dark toolbar before](images/ui-workbench-20260926/dark-toolbar-before-system-200.png)
-
-   ![Dark toolbar after](images/ui-workbench-20260926/dark-toolbar-after-system-200.png)
-
-4. Final real B11 analysis and completed SGF curve at actual Windows 150%.
-
-   ![Final SGF quick curve](images/ui-workbench-20260926/sgf-curve-final-system-150.png)
-
-## Remaining Acceptance Gates
-
-- Real Tab/Shift+Tab, Enter/Space/Esc workflows across all target dialogs and
-  actual NVDA or Narrator output. The available Windows tool exposes only the
-  main HWND, activates/restores that window before sending input, and can pull
-  focus away from owned Swing dialogs. Do not call this a keyboard/reader pass.
-- Complete six-language coverage of all final dialogs, including long model
-  names while connected, theme-save/reopen and keyboard-only operation.
-- macOS and Linux hardware acceptance. Windows results do not cover them.
-- Monitor the pre-existing crash-barrier timing failure seen once during the
-  full suite. Its isolated rerun passed; no unrelated logging fix is included.
-
-## Evidence Locations
-
-All paths below are local to the Windows test machine.
+## Evidence And Limits
 
 - Worktree: `C:\Users\kk\.codex\worktrees\unified-workbench-ui\lizzieyzynext`.
-- Before screenshots: `C:\ailearn3\lizzieyzynext\.worktrees\remote-model-refresh-icon\target\design-audit-20260926`.
-- After screenshots: `C:\ailearn3\lizzieyzynext\.qa\ui-workbench-20260926\screenshots`.
-- Final SGF/quick-curve screenshot: `46-final-sgf-curve-system-150.png`.
-- Final consecutive-move screenshot: `47-final-recommended-moves-system-150.png`.
-- Restored original Windows scale: `45-system-scale-restored-150.png`.
-- Settings final dark screenshot: `23-settings-dark-sidebar-final-native.png`.
-- Settings final light screenshot: `25-settings-light-final-native.png`.
-- Dark NVIDIA combo recheck: `22-nvidia-dark-final-native.png`.
-- Logs under worktree `target`: `ui-full-verify-final.log`,
-  `ui-verify-sidebar-final.log` (one failure), `ui-recheck-concurrency.log`,
-  `ui-verify-accepted-candidate.log`, `ui-verify-dark-toolbar-final.log`,
-  `ui-desktop-components-accepted.log`,
-  `ui-launcher-smoke-final-accepted.log` (final JAR, passed).
+- Screenshots: `C:\ailearn3\lizzieyzynext\.qa\ui-workbench-20260926\screenshots`.
+- Final curve/moves: `80-final-sgf-curve.png`, `81-final-recommended-moves.png`.
+- Theme: `52-theme-top-and-preview-final.png`, `74-settings-ko-theme.png`.
+- NVDA-visible setup: `55-setup-nvidia-nvda-final.png`.
+- Locale continuation: screenshots 57 through 79.
+- Scale restore: `45-system-scale-restored-150.png`.
+- NVDA logs remain private in the isolated QA directory.
 
-Do not publish test user-data, runtime caches, engine binaries or account data
-with a future UI pull request. Attach reviewed screenshots and this report only.
+macOS/Linux hardware, logged-in remote sessions, paid AI responses, HumanSL
+training games and unlisted language/DPI combinations were not verified in this
+UI-only pass. GitHub checks must be reviewed on the pushed PR head. Do not publish
+user-data, caches, engine binaries, raw reader logs or account information.

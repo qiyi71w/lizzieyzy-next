@@ -5676,6 +5676,7 @@ public class Menu extends JMenuBar {
         });
 
     engineMenu = new JFontMenu(resourceBundle.getString("Menu.noEngine"));
+    engineMenu.putClientProperty("lizzie.engineMenu", Boolean.TRUE);
     engineMenu.setForeground(MorandiPalette.MENU_ITEM_TEXT);
     // headFont = new Font(Config.sysDefaultFontName, Font.BOLD,
     // Math.max(Lizzie.config.frameFontSize, 15));
@@ -5684,6 +5685,7 @@ public class Menu extends JMenuBar {
     this.add(engineMenu);
 
     engineMenu2 = new JFontMenu(resourceBundle.getString("Menu.noEngine"));
+    engineMenu2.putClientProperty("lizzie.engineMenu", Boolean.TRUE);
     engineMenu2.setForeground(MorandiPalette.MENU_ITEM_TEXT);
     engineMenu2.setFont(
         new Font(Config.sysDefaultFontName, Font.BOLD, Math.max(Config.frameFontSize, 15)));

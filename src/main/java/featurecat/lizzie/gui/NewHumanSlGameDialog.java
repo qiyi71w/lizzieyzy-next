@@ -399,11 +399,12 @@ public final class NewHumanSlGameDialog extends JDialog {
     return container;
   }
 
-  private JComponent field(String label, JComponent control) {
+  static JComponent field(String label, JComponent control) {
     JPanel panel = new JPanel();
     panel.setOpaque(false);
     panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
     JLabel title = new JFontLabel(label);
+    AccessibilitySupport.labelFor(title, control, label);
     title.setForeground(HumanSlTrainingStyle.TEXT());
     title.setFont(
         HumanSlTrainingStyle.fontForText(label, Font.BOLD, Math.max(12, Config.frameFontSize - 1)));

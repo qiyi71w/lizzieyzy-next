@@ -93,7 +93,9 @@ final class WorkbenchFormRow extends JPanel {
         x += childWidth;
         rowHeight = Math.max(rowHeight, childHeight);
       }
-      return height + rowHeight;
+      // Painted previews have no children but still need their declared drawing area.
+      int preferredHeight = panel.isPreferredSizeSet() ? panel.getPreferredSize().height : 0;
+      return Math.max(height + rowHeight, preferredHeight);
     }
     if (component instanceof JPanel panel
         && panel.getLayout() instanceof java.awt.BorderLayout

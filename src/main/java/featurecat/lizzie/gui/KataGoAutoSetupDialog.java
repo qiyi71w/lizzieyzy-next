@@ -1068,7 +1068,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     button.setMaximumSize(size);
   }
 
-  private void styleWeightButton(JFontButton button, WeightButtonStyle style) {
+  private static void styleWeightButton(JFontButton button, WeightButtonStyle style) {
     button.setUI(new WeightButtonUI(style));
     int horizontalPadding = style == WeightButtonStyle.ICON ? 0 : 14;
     button.setBorder(BorderFactory.createEmptyBorder(0, horizontalPadding, 0, horizontalPadding));
@@ -1082,7 +1082,10 @@ public class KataGoAutoSetupDialog extends JDialog {
             : TEXT_PRIMARY());
     int height = style == WeightButtonStyle.ICON ? 42 : 40;
     int width = style == WeightButtonStyle.ICON ? 42 : button.getPreferredSize().width;
-    Dimension size = new Dimension(width, height);
+    Dimension size =
+        style == WeightButtonStyle.ICON
+            ? new Dimension(width, height)
+            : localizedButtonSize(button, width, height);
     button.setPreferredSize(size);
     button.setMinimumSize(size);
     if (style == WeightButtonStyle.ICON) {
@@ -7609,17 +7612,15 @@ public class KataGoAutoSetupDialog extends JDialog {
         SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, widestText + SIDEBAR_TEXT_CHROME_WIDTH));
   }
 
-  private static final class SidebarNavRenderer extends JPanel implements ListCellRenderer<String> {
-    private final JFontLabel label = new JFontLabel();
+  private static final class SidebarNavRenderer extends JFontLabel
+      implements ListCellRenderer<String> {
     private boolean selected;
     private boolean focused;
 
     private SidebarNavRenderer() {
-      super(new BorderLayout());
       setOpaque(false);
       setBorder(BorderFactory.createEmptyBorder(0, 14, 0, 10));
-      label.setIconTextGap(15);
-      add(label, BorderLayout.CENTER);
+      setIconTextGap(15);
     }
 
     @Override
@@ -7631,10 +7632,10 @@ public class KataGoAutoSetupDialog extends JDialog {
         boolean cellHasFocus) {
       selected = isSelected;
       focused = cellHasFocus;
-      label.setText(value);
-      label.setIcon(new NavIcon(index, isSelected));
-      label.setForeground(isSelected ? ACCENT_TEAL() : SIDEBAR_TEXT());
-      label.setFont(deriveSidebarNavFont(list.getFont(), label.getFont(), isSelected));
+      setText(value);
+      setIcon(new NavIcon(index, isSelected));
+      setForeground(isSelected ? ACCENT_TEAL() : SIDEBAR_TEXT());
+      setFont(deriveSidebarNavFont(list.getFont(), getFont(), isSelected));
       return this;
     }
 
@@ -7650,7 +7651,7 @@ public class KataGoAutoSetupDialog extends JDialog {
           g2.fillRoundRect(2, 8, 5, getHeight() - 16, 5, 5);
         }
         if (focused) {
-          g2.setColor(new Color(242, 210, 148, 120));
+          g2.setColor(AppleStyleSupport.workspaceAccent());
           g2.drawRoundRect(3, 4, getWidth() - 7, getHeight() - 9, 12, 12);
         }
       } finally {

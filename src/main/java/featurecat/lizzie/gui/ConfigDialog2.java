@@ -201,6 +201,7 @@ public class ConfigDialog2 extends JDialog {
   private int activeModernNavIndex = 0;
   private long settingsNavigationGeneration;
   private int pendingSettingNavigationPasses;
+  private long sectionSelectionGeneration;
   private String pendingSettingTargetId;
   private JComponent highlightedSettingRow;
   private Border highlightedSettingOriginalBorder;
@@ -385,6 +386,7 @@ public class ConfigDialog2 extends JDialog {
   private static BufferedImage settingsPaperTexture;
 
   public ConfigDialog2() {
+    super(Lizzie.frame);
     setAlwaysOnTop(Lizzie.frame.isAlwaysOnTop());
     setTitle(resourceBundle.getString("LizzieConfig.title.config"));
     setModalityType(ModalityType.APPLICATION_MODAL);
@@ -2049,6 +2051,7 @@ public class ConfigDialog2 extends JDialog {
       return true;
     }
     pendingSettingTargetId = targetId;
+    sectionSelectionGeneration++;
     pendingSettingNavigationPasses = 0;
     if (settingNavigationLayoutTimer != null) settingNavigationLayoutTimer.stop();
     settingNavigationLayoutTimer = null;
@@ -2076,6 +2079,7 @@ public class ConfigDialog2 extends JDialog {
   }
 
   private void cancelSettingNavigation() {
+    sectionSelectionGeneration++;
     pendingSettingTargetId = null;
     pendingSettingNavigationPasses = 0;
     if (settingNavigationLayoutTimer != null) settingNavigationLayoutTimer.stop();
@@ -2537,16 +2541,18 @@ public class ConfigDialog2 extends JDialog {
       settingsNavigationGeneration++;
     }
     tabbedPane.setSelectedIndex(targetTabIndex);
-    long selectionGeneration = settingsNavigationGeneration;
+    long selectionGeneration = sectionSelectionGeneration;
     SwingUtilities.invokeLater(
         () -> {
           if (disposed
-              || selectionGeneration != settingsNavigationGeneration
+              || selectionGeneration != sectionSelectionGeneration
               || activeModernNavIndex != navIndex
               || tabbedPane.getSelectedIndex() != targetTabIndex) return;
           Component selected = tabbedPane.getSelectedComponent();
           if (selected instanceof JScrollPane) {
             JScrollPane scrollPane = (JScrollPane) selected;
+            // Theme controls are rebuilt in a queued task before this navigation runs.
+            validate();
             JComponent anchor =
                 scrollY < 0 && targetTabIndex != 0 ? modernSectionAnchors.get(navIndex) : null;
             if (anchor != null && anchor.getParent() != null) {
@@ -3647,6 +3653,13 @@ public class ConfigDialog2 extends JDialog {
 
   private JTextArea createSettingText(String value, boolean secondary) {
     JTextArea text = new JTextArea(value);
+    text.setCaret(
+        new javax.swing.text.DefaultCaret() {
+          @Override
+          protected void adjustVisibility(Rectangle location) {
+            // This is a wrapping label; its caret must never scroll the settings page.
+          }
+        });
     text.setEditable(false);
     text.setFocusable(false);
     text.setOpaque(false);

@@ -153,10 +153,6 @@ final class TeacherDialogView extends JPanel {
     rail.setOpaque(true);
     rail.setBackground(TeacherDialogStyle.railSurface());
     rail.setBorder(new TeacherDialogStyle.RoundedBorder(TeacherDialogStyle.border(), 8));
-    Dimension railSize = new Dimension(94, 10);
-    rail.setPreferredSize(railSize);
-    rail.setMinimumSize(railSize);
-
     ButtonGroup modes = new ButtonGroup();
     configureModeButton(
         explainNext,
@@ -186,6 +182,19 @@ final class TeacherDialogView extends JPanel {
     rail.add(explainRange);
     rail.add(explainWhole);
     rail.add(Box.createVerticalGlue());
+    int width =
+        Math.max(
+            explainNext.getPreferredSize().width,
+            Math.max(explainRange.getPreferredSize().width, explainWhole.getPreferredSize().width));
+    for (JToggleButton button : new JToggleButton[] {explainNext, explainRange, explainWhole}) {
+      Dimension size = new Dimension(width, button.getPreferredSize().height);
+      button.setPreferredSize(size);
+      button.setMinimumSize(size);
+      button.setMaximumSize(size);
+    }
+    Dimension railSize = new Dimension(width + 2, 10);
+    rail.setPreferredSize(railSize);
+    rail.setMinimumSize(railSize);
     return rail;
   }
 
