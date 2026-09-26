@@ -7,6 +7,7 @@ import java.util.ResourceBundle;
 /** Product choices for match setup, independent of KataGo's full preset registry. */
 public enum MatchRuleOption {
   CHINESE("chinese", "LizzieFrame.currentRules.chinese"),
+  CHINESE_ANCIENT("stone-scoring", "LizzieFrame.currentRules.chn-ancient"),
   JAPANESE_KOREAN("japanese", "MatchRules.option.japaneseKorean"),
   AGA_BGA("aga", "MatchRules.option.agaBga"),
   NEW_ZEALAND("new-zealand", "MatchRules.option.newZealand"),

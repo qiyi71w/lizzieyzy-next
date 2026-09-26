@@ -89,16 +89,17 @@ class MatchRulesPickerTest {
     Config config =
         ConfigTestHelper.createForTests(Files.createTempDirectory("match-rules-picker"));
     Lizzie.config = config;
-    List<String> presets = List.of("chinese", "japanese", "aga", "new-zealand", "tromp-taylor");
+    List<String> presets =
+        List.of("chinese", "stone-scoring", "japanese", "aga", "new-zealand", "tromp-taylor");
     List<String> labelKeys =
         List.of(
             "LizzieFrame.currentRules.chinese",
+            "LizzieFrame.currentRules.chn-ancient",
             "MatchRules.option.japaneseKorean",
             "MatchRules.option.agaBga",
             "MatchRules.option.newZealand",
             "MatchRules.option.trompTaylor");
     MatchRulesPicker picker = new MatchRulesPicker();
-    assertEquals(6, picker.component().getItemCount());
     Set<String> names = new HashSet<>();
     for (int i = 0; i < presets.size(); i++) {
       picker.component().setSelectedIndex(i);
@@ -114,7 +115,7 @@ class MatchRulesPickerTest {
     }
     assertEquals(
         Lizzie.resourceBundle.getString("NewEngineGameDialog.matchRules.custom"),
-        String.valueOf(picker.component().getItemAt(5)));
+        String.valueOf(picker.component().getItemAt(picker.component().getItemCount() - 1)));
   }
 
   @Test
@@ -137,6 +138,56 @@ class MatchRulesPickerTest {
         EngineGameMatchRulesSelection.persist(config, picker.selected());
         assertEquals(saved, config.engineGameMatchRules);
       }
+    }
+  }
+
+  @Test
+  void ancientPresetAndJsonReopenAsStandardWithoutRewritingSavedValues() throws Exception {
+    Config config =
+        ConfigTestHelper.createForTests(Files.createTempDirectory("match-rules-picker"));
+    Lizzie.config = config;
+    KataGoRules ancient = KataGoRules.parse("stone-scoring").orElseThrow();
+    String label = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
+    for (String saved : List.of("stone-scoring", ancient.toJson().toString(2))) {
+      config.engineGameMatchRules = saved;
+      MatchRulesPicker picker = new MatchRulesPicker();
+      assertEquals(label, picker.component().getSelectedItem().toString());
+      assertTrue(picker.selected().semanticallyEquals(ancient));
+      assertEquals(label, MatchRulesSnapshot.ruleName(picker.selected(), Lizzie.resourceBundle));
+      EngineGameMatchRulesSelection.persist(config, picker.selected());
+      assertEquals(saved, config.engineGameMatchRules);
+      assertEquals(label, new MatchRulesPicker().component().getSelectedItem().toString());
+    }
+  }
+
+  @Test
+  void nonEquivalentAncientRulesStayCustomUntilExplicitStandardSelection() throws Exception {
+    Config config =
+        ConfigTestHelper.createForTests(Files.createTempDirectory("match-rules-picker"));
+    Lizzie.config = config;
+    KataGoRules ancient = KataGoRules.parse("stone-scoring").orElseThrow();
+    for (KataGoRules custom :
+        List.of(
+            ancient.overlayEditor("AREA", "POSITIONAL", false, "ALL", "N", false),
+            KataGoRules.fromJson(ancient.toJson().put("futureRule", "keep-me")))) {
+      String saved = custom.toJson().toString(2);
+      config.engineGameMatchRules = saved;
+      MatchRulesPicker picker = new MatchRulesPicker();
+      assertEquals(
+          Lizzie.resourceBundle.getString("NewEngineGameDialog.matchRules.custom"),
+          picker.component().getSelectedItem().toString());
+      EngineGameMatchRulesSelection.persist(config, picker.selected());
+      assertEquals(saved, config.engineGameMatchRules);
+      String ancientLabel = Lizzie.resourceBundle.getString("LizzieFrame.currentRules.chn-ancient");
+      for (int index = 0; index < picker.component().getItemCount(); index++) {
+        if (ancientLabel.equals(String.valueOf(picker.component().getItemAt(index)))) {
+          picker.component().setSelectedIndex(index);
+          break;
+        }
+      }
+      EngineGameMatchRulesSelection.persist(config, picker.selected());
+      assertTrue(EngineGameMatchRulesSelection.stored(config).orElseThrow().semanticallyEquals(ancient));
+      assertEquals(ancientLabel, new MatchRulesPicker().component().getSelectedItem().toString());
     }
   }
 
