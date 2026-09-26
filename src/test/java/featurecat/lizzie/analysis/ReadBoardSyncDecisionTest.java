@@ -660,6 +660,64 @@ class ReadBoardSyncDecisionTest {
   }
 
   @Test
+  void acknowledgedFoxMoveSurvivesLaggingTitleWithoutLosingHistory() throws Exception {
+    try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
+      HistoryPath path =
+          buildHistory(
+              harness.board,
+              placement(1, 1, Stone.BLACK),
+              placement(0, 0, Stone.WHITE),
+              placement(2, 2, Stone.BLACK));
+      BoardHistoryNode previous = path.nodes.get(1);
+      BoardHistoryNode accepted = path.nodes.get(2);
+      BoardHistoryNode root = harness.board.getHistory().getStart();
+      harness.readBoard.parseLine("syncPlatform fox");
+      harness.readBoard.parseLine("roomToken test-room");
+      harness.readBoard.parseLine("liveTitleMove 2");
+      harness.readBoard.parseLine("foxMoveNumber 2");
+      harness.frame.bothSync = true;
+      harness.frame.syncBoard = true;
+      harness.readBoard.process = new ReadBoardEngineResumeTest.AliveProcess();
+      setField(harness.readBoard, "usePipe", true);
+      setField(
+          harness.readBoard, "outputStream", new BufferedOutputStream(new ByteArrayOutputStream()));
+      setField(
+          harness.readBoard, "placeCommandDispatcher", (java.util.concurrent.Executor) Runnable::run);
+      harness.readBoard.sendCommand("place 2 2");
+      assertTrue(harness.readBoard.isPendingLocalMoveAwaitingReadBoard());
+      harness.sync(snapshot(accepted.getData().stones, accepted.getData().lastMove, Stone.BLACK));
+      harness.readBoard.parseLine("placeComplete");
+      assertFalse(harness.readBoard.isPendingLocalMoveAwaitingReadBoard());
+
+      for (Stone marker : new Stone[] {Stone.BLACK, Stone.WHITE, Stone.EMPTY}) {
+        harness.sync(
+            snapshot(
+                accepted.getData().stones,
+                marker == Stone.EMPTY ? Optional.empty() : accepted.getData().lastMove,
+                marker));
+        assertSame(accepted, harness.board.getHistory().getCurrentHistoryNode());
+        assertSame(accepted, harness.board.getHistory().getMainEnd());
+        assertSame(root, harness.board.getHistory().getStart());
+        assertEquals(3, accepted.getData().moveNumber);
+        assertTrue(accepted.getData().isMoveNode());
+        assertArrayEquals(accepted.getData().stones, harness.board.getHistory().getStones());
+      }
+
+      harness.readBoard.parseLine("liveTitleMove 3");
+      harness.readBoard.parseLine("foxMoveNumber 3");
+      harness.sync(snapshot(accepted.getData().stones, accepted.getData().lastMove, Stone.BLACK));
+      assertSame(accepted, harness.board.getHistory().getCurrentHistoryNode());
+
+      harness.readBoard.parseLine("liveTitleMove 2");
+      harness.readBoard.parseLine("foxMoveNumber 2");
+      harness.sync(snapshot(previous.getData().stones, previous.getData().lastMove, Stone.WHITE));
+      assertSame(previous, harness.board.getHistory().getCurrentHistoryNode());
+      assertSame(accepted, harness.board.getHistory().getMainEnd());
+      assertSame(root, harness.board.getHistory().getStart());
+    }
+  }
+
+  @Test
   void foxLiveForwardToExistingNextNodeNavigatesInsteadOfRestoringOldView() throws Exception {
     try (SyncHarness harness = SyncHarness.create(false, emptyHistory())) {
       HistoryPath path =

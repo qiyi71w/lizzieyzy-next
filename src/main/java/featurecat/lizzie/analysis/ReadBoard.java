@@ -2153,6 +2153,21 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
               + pendingLocalMoveState());
       return CompleteSnapshotRecoveryDecision.hold();
     }
+    // The live title can lag the board image by one move after snapshot acknowledgement.
+    // Keep only the already accepted, fully matching MOVE; do not weaken history navigation
+    // or let a metadata-only conflict flatten that proven history into a SNAPSHOT.
+    if (!awaitingFirstSyncFrame
+        && resumeState != null
+        && resumeState.node == currentNode
+        && currentNode == syncStartNode
+        && currentNode.getData().isMoveNode()
+        && remoteContext.supportsFoxRecovery()
+        && remoteContext.windowKind == SyncRemoteContext.WindowKind.LIVE_ROOM
+        && remoteContext.recoveryMoveNumber().getAsInt() == currentNode.getData().moveNumber - 1
+        && rebuildPolicy().matchesStones(currentNode.getData().stones, snapshotCodes, remoteContext)) {
+      return CompleteSnapshotRecoveryDecision.noChange(
+          currentNode, false, "snapshot_matches_accepted_move_with_lagging_title");
+    }
 
     Optional<BoardHistoryNode> matchingNode =
         remoteContext != null && remoteContext.supportsFoxRecovery()

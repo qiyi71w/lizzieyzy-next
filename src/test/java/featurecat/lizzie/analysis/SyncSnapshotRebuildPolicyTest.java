@@ -211,6 +211,34 @@ public class SyncSnapshotRebuildPolicyTest {
   }
 
   @Test
+  void foxMarkerCannotMatchAnEmptyPointInAnEarlierNode() {
+    SyncSnapshotRebuildPolicy policy = new SyncSnapshotRebuildPolicy(BOARD_WIDTH);
+    for (Stone color : new Stone[] {Stone.BLACK, Stone.WHITE}) {
+      Stone previousColor = color == Stone.BLACK ? Stone.WHITE : Stone.BLACK;
+      BoardHistoryNode previous =
+          createMoveHistoryNode(
+              stones(placement(1, 1, previousColor)),
+              new int[] {1, 1}, previousColor, color == Stone.BLACK, 1);
+      BoardHistoryNode current =
+          previous.add(
+              createMoveHistoryNode(
+                  stones(placement(1, 1, previousColor), placement(0, 0, color)),
+                  new int[] {0, 0}, color, color == Stone.WHITE, 2));
+      int[] marked =
+          snapshot(current.getData().stones, Optional.of(new int[] {0, 0}), color == Stone.BLACK ? 3 : 4);
+
+      assertFalse(
+          policy.findMatchingNodeInMainlineWindow(current, current, marked, foxLiveContext(1, "room"))
+              .isPresent(),
+          "a lagging title must not match an ancestor missing the marked stone");
+      assertSame(
+          current,
+          policy.findMatchingNodeInMainlineWindow(current, current, marked, foxLiveContext(2, "room"))
+              .orElseThrow());
+    }
+  }
+
+  @Test
   void foxLiveConflictKeyIgnoresMarkerColorJitter() {
     SyncSnapshotRebuildPolicy policy = new SyncSnapshotRebuildPolicy(BOARD_WIDTH);
     Stone[] stones = stones(placement(1, 1, Stone.BLACK), placement(0, 0, Stone.WHITE));

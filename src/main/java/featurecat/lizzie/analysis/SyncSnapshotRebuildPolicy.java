@@ -159,8 +159,7 @@ final class SyncSnapshotRebuildPolicy {
     return true;
   }
 
-  private boolean matchesStones(
-      Stone[] stones, int[] snapshotCodes, SyncRemoteContext remoteContext) {
+  boolean matchesStones(Stone[] stones, int[] snapshotCodes, SyncRemoteContext remoteContext) {
     if (stones.length != snapshotCodes.length || snapshotCodes.length % boardWidth != 0) {
       return false;
     }
@@ -168,12 +167,16 @@ final class SyncSnapshotRebuildPolicy {
     int boardHeight = snapshotCodes.length / boardWidth;
     for (int snapshotIndex = 0; snapshotIndex < snapshotCodes.length; snapshotIndex++) {
       int code = snapshotCodes[snapshotIndex];
-      if (foxRecovery && (code == 3 || code == 4)) {
-        continue;
-      }
       int x = snapshotIndex % boardWidth;
       int y = snapshotIndex / boardWidth;
       int stoneIndex = x * boardHeight + y;
+      // Fox marker color can jitter, but a marker still proves that this point is occupied.
+      if (foxRecovery && (code == 3 || code == 4)) {
+        if (normalizeStone(stones[stoneIndex]) == 0) {
+          return false;
+        }
+        continue;
+      }
       if (normalizeSnapshot(code) != normalizeStone(stones[stoneIndex])) {
         return false;
       }
