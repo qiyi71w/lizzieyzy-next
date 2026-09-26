@@ -49,6 +49,7 @@ model strategy or analysis lifecycle.
 | English Whole game clipped | Fixed mode-button/rail width | Font-measured uniform width; six-language regression and EXE |
 | AI button disappeared in narrow window | Long engine caption wrapped Windows proxy commands below visible strip | Abbreviate only engine captions, keep tooltip/name; width regression and EXE |
 | Download on demand clipped | Final border wider than cached preferred size | Measure text/icon/insets after styling; six-language regression and EXE |
+| Order-dependent graph navigation tests | Four hit-test fixtures inherited the global loading gate | Save/initialize/restore it, plus four regression tests starting with a blocked caller; production loading protection unchanged |
 
 Temporary tracing was removed. Unrelated Menu.java formatter changes were
 removed; its additional change only identifies the two engine menus.
@@ -57,9 +58,10 @@ removed; its additional change only identifies the two engine menus.
 
 | Command/lane | Exact result |
 | --- | --- |
-| `mvn -B -Djava.awt.headless=true -Dfmt.skip=true verify` | BUILD SUCCESS, 4m59s; 4,408 unit tests, 0 failures, 0 errors, 92 skipped |
+| `mvn -B -Djava.awt.headless=true -Dfmt.skip=true verify` | BUILD SUCCESS, 4m43s; 4,412 unit tests, 0 failures, 0 errors, 92 skipped |
 | Integration tests in verify | 7 tests, 0 failures, 0 errors, 6 skipped; LoggingProviderSmokeIT executed against shaded JAR |
 | Non-headless desktop package lane | BUILD SUCCESS, 1m14s; 103 tests, 0 failures, 0 errors, 0 skipped |
+| Four winrate hit-test classes including isolation regressions | 81 tests, 0 failures, 0 errors, 0 skipped |
 | `python scripts/test_windows_launcher_packaging.py` | Passed |
 | `python scripts/check_line_endings.py` | Passed |
 | `python scripts/check_markdown_links.py` | Local links passed |
@@ -78,15 +80,29 @@ Launcher command:
 powershell -ExecutionPolicy Bypass -File scripts/windows_smoke_test.ps1 -AppExe "<isolated portable>\LizzieYzy Next NVIDIA.exe" -ConfigDir "<isolated portable>\user-data" -LauncherOnly -OpenAutoSetup -PreserveConfig
 ```
 
-Logs: `target/ui-accepted-verify.log`,
+Logs: `target/ui-accepted-final-verify.log`,
 `target/ui-accepted-desktop-package.log`, `target/ui-accepted-launcher.log`.
 Maven calls ran sequentially; packaging is included. Skipped cases are not
 counted as executed. Tested normal/secondary/status text pairs meet 4.5:1 in
 both themes; that is not a claim about every application pixel.
+The final test-only changes did not alter the built JAR hash; the desktop lane
+and real EXE evidence therefore exercise the identical application artifact.
 
 An early full run hit the existing 3-second CrashPersistenceBarrierTest handoff
 latch. Its isolated rerun and later complete runs passed. No unrelated logging
 fix was made. Interrupted builds were discarded, not counted as passes.
+
+The first pushed acceptance commit passed Windows/native-focus/desktop CI but
+failed Linux Java with 31 navigation assertions (11 engine-PK, 7 snapshot, 13
+variation). Starting those three classes with `canGoAfterload=false` reproduced
+the identical failure set locally; replaying Linux class order locally did not
+reproduce the upstream state leak. The fixtures now explicitly own a loaded
+board and restore the caller's gate. All 31 previously failing assertions pass
+under the same blocked initial state, and four additional tests guard isolation.
+No production navigation guard, assertion or CI requirement was removed. The
+specific earlier asynchronous writer in that Linux run was not identified.
+Diagnostic logs: `target/ui-blocked-graph-repro.log`,
+`target/ui-blocked-graph-retest.log`, `target/ui-navigation-isolation-test.log`.
 
 ## Real Windows Scenarios
 
@@ -95,6 +111,7 @@ fix was made. Interrupted builds were discarded, not counted as passes.
 | Launch/relaunch | Bundled Java and local CUDA/B11 produce positive visits; no system Java dependency |
 | Ordinary SGF open | Double-clicked quick-curve-50.sgf in ordinary file picker; automatic curve completed, not a placeholder line |
 | Suggested moves | Two consecutive pointer selections placed stones and resumed analysis; small-board PV retained |
+| Curve navigation | Reopened the real EXE and SGF; clicked to move 23, dragged back to move 10; board and positive-visit analysis updated |
 | Main commands | Lightning, shape judgement, small board, training and commentary retained |
 | Settings | Sidebar clicks, wrapped forms, full preview, fixed footer, keyboard and save succeeded |
 | Save/restart | Show quick actions persisted across locale restarts; final save returned to live analysis |
@@ -126,6 +143,7 @@ then restarted with no JVM scale override; restored to **150%** afterward.
 | 150% | Korean/light | Main, settings/theme preview, setup overview/weights, remote, training/More, commentary |
 | 150% | Traditional Chinese/light | Main, setup overview/weights, remote, training/More, commentary |
 | 200% | Thai/dark | Main/B11, settings, all setup pages/scrolling, remote, training, commentary; toolbar retest |
+| 200% | Thai/light, final label fixes | Main, commentary mode labels, weights and download buttons after vertical scrolling |
 
 Earlier JVM-only samples: Chinese 1.5; Traditional Chinese 2.0 main/settings/theme;
 Japanese 1.0 main/settings/training; Korean 1.5 main/settings; Thai 2.0 dark.
@@ -175,6 +193,8 @@ structure, not identical pixels.
 
 ![Final curve, actual 150%](images/ui-workbench-20260926/sgf-curve-final-system-150.png)
 
+![Final graph drag navigation, actual 150%](images/ui-workbench-20260926/graph-drag-navigation.png)
+
 ## Evidence And Limits
 
 - Worktree: `C:\Users\kk\.codex\worktrees\unified-workbench-ui\lizzieyzynext`.
@@ -183,7 +203,10 @@ structure, not identical pixels.
 - Theme: `52-theme-top-and-preview-final.png`, `74-settings-ko-theme.png`.
 - NVDA-visible setup: `55-setup-nvidia-nvda-final.png`.
 - Locale continuation: screenshots 57 through 79.
-- Scale restore: `45-system-scale-restored-150.png`.
+- Final Thai/200% labels: `82-final-thai-commentary-system-200.png`,
+  `83-final-thai-weights-system-200.png`.
+- Final scale restore: `84-final-system-scale-restored-150.png`.
+- Additional graph navigation: `85-final-graph-drag-navigation.png`.
 - NVDA logs remain private in the isolated QA directory.
 
 macOS/Linux hardware, logged-in remote sessions, paid AI responses, HumanSL
