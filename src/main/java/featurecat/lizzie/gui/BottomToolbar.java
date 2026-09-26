@@ -312,10 +312,9 @@ public class BottomToolbar extends JPanel {
   @Override
   protected void paintComponent(Graphics g) {
     super.paintComponent(g);
-    if (!Lizzie.config.useMorandiColors) {
+    if (AppleStyleSupport.isAppleStyleEnabled() || !Lizzie.config.useMorandiColors) {
       Graphics2D g2 = (Graphics2D) g.create();
-      g2.setColor(new Color(232, 232, 232));
-      g2.fillRect(0, 0, getWidth(), getHeight());
+      AppleStyleSupport.paintToolbarSurface(g2, getWidth(), getHeight(), false);
       g2.dispose();
       return;
     }
@@ -339,7 +338,7 @@ public class BottomToolbar extends JPanel {
 
   public void refreshComponentStyles() {
     setOpaque(false);
-    setForeground(Lizzie.config.useMorandiColors ? MorandiPalette.TOOLBAR_TEXT : Color.BLACK);
+    setForeground(AppleStyleSupport.dialogTextColor());
     if (buttonPane != null) {
       buttonPane.setOpaque(false);
       AppleStyleSupport.applyPanelStyle(buttonPane);

@@ -158,7 +158,7 @@ public final class NewHumanSlGameDialog extends JDialog {
     }
     JScrollPane contentScroll = new JScrollPane(buildContent());
     contentScroll.setBorder(null);
-    contentScroll.getViewport().setBackground(HumanSlTrainingStyle.BACKGROUND);
+    contentScroll.getViewport().setBackground(HumanSlTrainingStyle.BACKGROUND());
     contentScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
     contentScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
     setContentPane(contentScroll);
@@ -173,7 +173,7 @@ public final class NewHumanSlGameDialog extends JDialog {
     populateControls();
     JPanel root = new JPanel(new BorderLayout(0, 14));
     root.setName("humanSlTrainingSetup");
-    root.setBackground(HumanSlTrainingStyle.BACKGROUND);
+    root.setBackground(HumanSlTrainingStyle.BACKGROUND());
     root.setBorder(BorderFactory.createEmptyBorder(18, 22, 18, 22));
     root.add(buildHeader(), BorderLayout.NORTH);
     root.add(buildForm(), BorderLayout.CENTER);
@@ -197,7 +197,7 @@ public final class NewHumanSlGameDialog extends JDialog {
     title.setFont(
         HumanSlTrainingStyle.fontForText(
             titleText, Font.BOLD, Math.max(24, Config.frameFontSize + 8)));
-    title.setForeground(HumanSlTrainingStyle.TEXT);
+    title.setForeground(HumanSlTrainingStyle.TEXT());
     String subtitleText =
         text(
             "HumanSlTraining.subtitle",
@@ -206,7 +206,7 @@ public final class NewHumanSlGameDialog extends JDialog {
     subtitle.setFont(
         HumanSlTrainingStyle.fontForText(
             subtitleText, Font.PLAIN, Math.max(12, Config.frameFontSize - 1)));
-    subtitle.setForeground(HumanSlTrainingStyle.MUTED);
+    subtitle.setForeground(HumanSlTrainingStyle.MUTED());
     title.setAlignmentX(Component.LEFT_ALIGNMENT);
     subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
     copy.add(title);
@@ -221,7 +221,7 @@ public final class NewHumanSlGameDialog extends JDialog {
         HumanSlTrainingStyle.fontForText(
             fromCurrentBox.getText(), Font.PLAIN, Math.max(12, Config.frameFontSize - 1)));
     fromCurrentBox.setOpaque(false);
-    fromCurrentBox.setForeground(HumanSlTrainingStyle.TEXT);
+    fromCurrentBox.setForeground(HumanSlTrainingStyle.TEXT());
     fromCurrentBox.setEnabled(Lizzie.board.getHistory().getMoveNumber() > 0);
     actions.add(fromCurrentBox);
     actions.add(moreButton);
@@ -232,14 +232,14 @@ public final class NewHumanSlGameDialog extends JDialog {
   private JComponent buildForm() {
     HumanSlTrainingStyle.RoundedPanel card =
         new HumanSlTrainingStyle.RoundedPanel(
-            HumanSlTrainingStyle.CARD, HumanSlTrainingStyle.BORDER, 16);
+            HumanSlTrainingStyle.CARD(), HumanSlTrainingStyle.BORDER(), 16);
     card.setLayout(new GridBagLayout());
     card.setBorder(BorderFactory.createEmptyBorder(18, 18, 14, 18));
 
     GridBagConstraints constraints = new GridBagConstraints();
     constraints.gridy = 0;
     constraints.insets = new Insets(0, 0, 8, 14);
-    constraints.anchor = GridBagConstraints.WEST;
+    constraints.anchor = GridBagConstraints.NORTHWEST;
     constraints.fill = GridBagConstraints.HORIZONTAL;
 
     constraints.gridx = 0;
@@ -383,7 +383,7 @@ public final class NewHumanSlGameDialog extends JDialog {
     rankPanel.add(rankSpinner, BorderLayout.CENTER);
     String rangeText = text("HumanSlTraining.rank.range", "20 kyu - 9 dan");
     JLabel range = new JFontLabel(rangeText);
-    range.setForeground(HumanSlTrainingStyle.MUTED);
+    range.setForeground(HumanSlTrainingStyle.MUTED());
     range.setFont(
         HumanSlTrainingStyle.fontForText(
             rangeText, Font.PLAIN, Math.max(11, Config.frameFontSize - 2)));
@@ -404,10 +404,9 @@ public final class NewHumanSlGameDialog extends JDialog {
     panel.setOpaque(false);
     panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
     JLabel title = new JFontLabel(label);
-    title.setForeground(HumanSlTrainingStyle.TEXT);
+    title.setForeground(HumanSlTrainingStyle.TEXT());
     title.setFont(
-        HumanSlTrainingStyle.fontForText(
-            label, Font.BOLD, Math.max(12, Config.frameFontSize - 1)));
+        HumanSlTrainingStyle.fontForText(label, Font.BOLD, Math.max(12, Config.frameFontSize - 1)));
     title.setAlignmentX(Component.LEFT_ALIGNMENT);
     control.setAlignmentX(Component.LEFT_ALIGNMENT);
     panel.add(title);
@@ -421,14 +420,14 @@ public final class NewHumanSlGameDialog extends JDialog {
     row.setOpaque(false);
     row.setBorder(
         BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 0, 0, 0, HumanSlTrainingStyle.BORDER),
+            BorderFactory.createMatteBorder(1, 0, 0, 0, HumanSlTrainingStyle.BORDER()),
             BorderFactory.createEmptyBorder(10, 0, 0, 0)));
-    modelStatusLabel.setForeground(HumanSlTrainingStyle.ACCENT_DARK);
+    modelStatusLabel.setForeground(HumanSlTrainingStyle.ACCENT_DARK());
     modelStatusLabel.setFont(
         HumanSlTrainingStyle.fontForText(
             "HumanSL", Font.BOLD, Math.max(12, Config.frameFontSize - 1)));
     row.add(modelStatusLabel, BorderLayout.WEST);
-    statusLabel.setForeground(HumanSlTrainingStyle.MUTED);
+    statusLabel.setForeground(HumanSlTrainingStyle.MUTED());
     statusLabel.setHorizontalAlignment(JLabel.CENTER);
     row.add(statusLabel, BorderLayout.CENTER);
     return row;
@@ -454,7 +453,7 @@ public final class NewHumanSlGameDialog extends JDialog {
             "HumanSlTraining.moreHint",
             "Opponent era and variation are chosen automatically for the selected style.");
     JLabel tip = new JFontLabel(tipText);
-    tip.setForeground(HumanSlTrainingStyle.MUTED);
+    tip.setForeground(HumanSlTrainingStyle.MUTED());
     tip.setFont(
         HumanSlTrainingStyle.fontForText(
             tipText, Font.PLAIN, Math.max(11, Config.frameFontSize - 2)));
@@ -472,7 +471,7 @@ public final class NewHumanSlGameDialog extends JDialog {
     c.gridx = 0;
     downloadProgress.setStringPainted(true);
     downloadProgress.setForeground(HumanSlTrainingStyle.ACCENT);
-    downloadProgress.setBackground(HumanSlTrainingStyle.ACCENT_SOFT);
+    downloadProgress.setBackground(HumanSlTrainingStyle.ACCENT_SOFT());
     downloadProgress.setBorderPainted(false);
     downloadPanel.add(downloadProgress, c);
     c.gridx = 1;
@@ -497,7 +496,7 @@ public final class NewHumanSlGameDialog extends JDialog {
             "HumanSlTraining.footer",
             "The AI imitates the selected human style; the displayed rank is a style reference, not an official certification.");
     JLabel hint = new JFontLabel(hintText);
-    hint.setForeground(HumanSlTrainingStyle.MUTED);
+    hint.setForeground(HumanSlTrainingStyle.MUTED());
     hint.setFont(
         HumanSlTrainingStyle.fontForText(
             hintText, Font.PLAIN, Math.max(11, Config.frameFontSize - 2)));
@@ -592,7 +591,7 @@ public final class NewHumanSlGameDialog extends JDialog {
       Object selectedStyle = proStyleBox.getSelectedItem();
       opponent = selectedStyle == null ? "" : selectedStyle.toString();
     }
-    statusLabel.setForeground(HumanSlTrainingStyle.MUTED);
+    statusLabel.setForeground(HumanSlTrainingStyle.MUTED());
     setStatusText(
         MessageFormat.format(
             text(
@@ -1017,8 +1016,8 @@ public final class NewHumanSlGameDialog extends JDialog {
    * Stops the companion on a worker before dispatching state/UI restoration.
    *
    * <p>If the worker cannot be created, ownership remains with the caller and completion receives
-   * the dispatch failure. It may expose a retry action, but must never run blocking process teardown
-   * on the EDT.
+   * the dispatch failure. It may expose a retry action, but must never run blocking process
+   * teardown on the EDT.
    */
   static void closeRunnerBeforeCompletion(
       Runnable closeRunner,

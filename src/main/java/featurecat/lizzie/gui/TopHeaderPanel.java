@@ -1,7 +1,6 @@
 package featurecat.lizzie.gui;
 
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -162,7 +161,7 @@ public class TopHeaderPanel extends JPanel {
       int x = getWidth() / 2;
       int top = Math.max(2, getHeight() / 5);
       int bottom = Math.min(getHeight() - 2, getHeight() - top);
-      g2.setColor(new Color(255, 255, 255, 34));
+      g2.setColor(AppleStyleSupport.workspaceBorder());
       g2.drawLine(x, top, x, bottom);
       g2.dispose();
     }

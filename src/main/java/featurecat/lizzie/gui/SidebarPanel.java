@@ -128,7 +128,7 @@ public class SidebarPanel extends JPanel {
 
     int width = getWidth();
     int height = getHeight();
-    int cornerRadius = Math.max(14, glassCornerRadius() + 8);
+    int cornerRadius = Lizzie.config.isAppleStyle ? Math.max(14, glassCornerRadius() + 8) : 12;
     int shadowInset = 5;
     int panelX = 1;
     int panelY = 1;
@@ -139,14 +139,6 @@ public class SidebarPanel extends JPanel {
         resolveCommentPanelFillColor(
             Lizzie.config.commentBackgroundColor, Lizzie.config.isAppleStyle);
     if (!Lizzie.config.isAppleStyle) {
-      g2.setColor(new Color(0, 0, 0, 52));
-      g2.fillRoundRect(
-          panelX + shadowInset,
-          panelY + shadowInset,
-          panelW - shadowInset,
-          panelH - shadowInset,
-          cornerRadius,
-          cornerRadius);
       g2.setColor(commentFill);
       g2.fillRoundRect(panelX, panelY, panelW, panelH, cornerRadius, cornerRadius);
       g2.setColor(new Color(255, 255, 255, 18));

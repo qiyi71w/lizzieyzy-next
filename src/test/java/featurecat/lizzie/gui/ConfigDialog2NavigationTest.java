@@ -26,7 +26,6 @@ import org.junit.jupiter.api.Test;
 public final class ConfigDialog2NavigationTest {
   private static final String TARGET = "settings.black-winrate";
   private static final String THEME_TARGET = "config.theme.score-blunders";
-  private static final Color HIGHLIGHT_COLOR = new Color(239, 219, 170);
   private static final String TARGET_ROW_PROPERTY = "lizzie.config.settingTargetId";
 
   @Test
@@ -47,7 +46,8 @@ public final class ConfigDialog2NavigationTest {
     assertTrue(result.contains("rebound.focus=true"), result);
     assertTrue(result.contains("rebound.visible=true"), result);
     assertTrue(result.contains("value-preserved=true"), result);
-    assertTrue(result.contains("catalog.count=" + FunctionCatalog.configSettingTargets().size()), result);
+    assertTrue(
+        result.contains("catalog.count=" + FunctionCatalog.configSettingTargets().size()), result);
     assertTrue(result.contains("catalog.visible=true"), result);
     assertTrue(result.contains("catalog.focus=true"), result);
     assertTrue(result.contains("catalog.title=true"), result);
@@ -252,7 +252,7 @@ public final class ConfigDialog2NavigationTest {
     runOnEdt(
         () -> {
           JComponent row = targetRow(dialogRef.get(), THEME_TARGET);
-          if (rendersColor(row, HIGHLIGHT_COLOR)) {
+          if (rendersColor(row, AppleStyleSupport.workspaceSelection())) {
             throw new AssertionError("hidden dialog consumed its navigation highlight");
           }
         });
@@ -273,7 +273,8 @@ public final class ConfigDialog2NavigationTest {
                       boolean focused =
                           focus == row
                               || (focus != null && SwingUtilities.isDescendingFrom(focus, row));
-                      boolean highlighted = rendersColor(row, HIGHLIGHT_COLOR);
+                      boolean highlighted =
+                          rendersColor(row, AppleStyleSupport.workspaceSelection());
                       if (located && visible && focused && highlighted
                           || System.nanoTime() >= deadline) {
                         observation.set(
@@ -409,10 +410,7 @@ public final class ConfigDialog2NavigationTest {
                       if ((!visible || !focused) && System.nanoTime() < deadline) return;
                       observation.set(
                           new ModalObservation(
-                              control,
-                              visible,
-                              focused,
-                              Lizzie.config.winrateAlwaysBlack));
+                              control, visible, focused, Lizzie.config.winrateAlwaysBlack));
                     } catch (Throwable error) {
                       failure.set(error);
                     }
