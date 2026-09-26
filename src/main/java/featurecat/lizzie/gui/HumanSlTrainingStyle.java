@@ -32,15 +32,40 @@ final class HumanSlTrainingStyle {
   private static final String BUTTON_STYLE_SECONDARY = "secondary";
   private static final String BUTTON_STYLE_DANGER = "danger";
 
-  static final Color BACKGROUND = new Color(247, 245, 239);
-  static final Color CARD = new Color(255, 254, 250);
-  static final Color CARD_ALT = new Color(242, 247, 244);
-  static final Color BORDER = new Color(207, 207, 198);
-  static final Color TEXT = new Color(35, 42, 39);
-  static final Color MUTED = new Color(101, 108, 102);
+  static Color BACKGROUND() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  static Color CARD() {
+    return AppleStyleSupport.workspaceSurface();
+  }
+
+  static Color CARD_ALT() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  static Color BORDER() {
+    return AppleStyleSupport.workspaceBorder();
+  }
+
+  static Color TEXT() {
+    return AppleStyleSupport.dialogTextColor();
+  }
+
+  static Color MUTED() {
+    return AppleStyleSupport.workspaceMuted();
+  }
+
   static final Color ACCENT = new Color(15, 118, 110);
-  static final Color ACCENT_DARK = new Color(10, 91, 85);
-  static final Color ACCENT_SOFT = new Color(223, 241, 237);
+
+  static Color ACCENT_DARK() {
+    return AppleStyleSupport.workspaceAccent();
+  }
+
+  static Color ACCENT_SOFT() {
+    return AppleStyleSupport.workspaceSelection();
+  }
+
   static final Color WARNING = new Color(191, 75, 48);
   static final Color WARNING_SOFT = new Color(252, 238, 231);
   private static final Map<String, String> AVAILABLE_FONTS = availableFonts();
@@ -54,7 +79,7 @@ final class HumanSlTrainingStyle {
 
   static void styleSecondary(AbstractButton button) {
     button.putClientProperty(BUTTON_STYLE_ROLE, BUTTON_STYLE_SECONDARY);
-    styleButton(button, CARD, TEXT, BORDER, 12);
+    styleButton(button, CARD(), TEXT(), BORDER(), 12);
   }
 
   static void styleDanger(AbstractButton button) {
@@ -97,8 +122,7 @@ final class HumanSlTrainingStyle {
     button.setFont(fontForText(button.getText(), Font.BOLD, Math.max(12, Config.frameFontSize)));
     button.setBorder(
         BorderFactory.createCompoundBorder(
-            new RoundedBorder(border, radius),
-            BorderFactory.createEmptyBorder(7, 14, 7, 14)));
+            new RoundedBorder(border, radius), BorderFactory.createEmptyBorder(7, 14, 7, 14)));
   }
 
   /** Uses a physical UI font so mixed CJK, Latin and digits cannot disappear in Swing. */
@@ -110,12 +134,7 @@ final class HumanSlTrainingStyle {
     addCandidate(candidates, Lizzie.config == null ? null : Lizzie.config.fontName);
     if (containsThai(text)) {
       addCandidates(
-          candidates,
-          "Thonburi",
-          "Leelawadee UI",
-          "Noto Sans Thai",
-          "Tahoma",
-          "Arial Unicode MS");
+          candidates, "Thonburi", "Leelawadee UI", "Noto Sans Thai", "Tahoma", "Arial Unicode MS");
     } else if (containsHangul(text)) {
       addCandidates(
           candidates,
@@ -178,8 +197,7 @@ final class HumanSlTrainingStyle {
     return fonts;
   }
 
-  private static void addCandidates(
-      LinkedHashMap<String, Boolean> candidates, String... names) {
+  private static void addCandidates(LinkedHashMap<String, Boolean> candidates, String... names) {
     if (names == null) {
       return;
     }
@@ -245,7 +263,7 @@ final class HumanSlTrainingStyle {
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
       Color currentFill = fill;
       if (!button.isEnabled()) {
-        currentFill = blend(fill, BACKGROUND, 0.55f);
+        currentFill = blend(fill, BACKGROUND(), 0.55f);
       } else if (model.isPressed() || model.isSelected()) {
         currentFill = blend(fill, Color.BLACK, 0.12f);
       } else if (model.isRollover()) {
@@ -255,7 +273,17 @@ final class HumanSlTrainingStyle {
       g2.fillRoundRect(0, 0, component.getWidth(), component.getHeight(), radius, radius);
       g2.setColor(outline);
       g2.drawRoundRect(
-          0, 0, Math.max(0, component.getWidth() - 1), Math.max(0, component.getHeight() - 1), radius, radius);
+          0,
+          0,
+          Math.max(0, component.getWidth() - 1),
+          Math.max(0, component.getHeight() - 1),
+          radius,
+          radius);
+      if (button.hasFocus()) {
+        g2.setColor(button.getForeground());
+        g2.setStroke(new BasicStroke(2f));
+        g2.drawRoundRect(3, 3, component.getWidth() - 7, component.getHeight() - 7, radius, radius);
+      }
       g2.dispose();
       super.paint(graphics, component);
     }

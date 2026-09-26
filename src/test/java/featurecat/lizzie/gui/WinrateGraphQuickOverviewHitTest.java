@@ -29,6 +29,18 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class WinrateGraphQuickOverviewHitTest {
+  @Test
+  void navigationFixtureIsolatesAndRestoresAnExistingLoadGate() throws Exception {
+    boolean previous = LizzieFrame.canGoAfterload;
+    try {
+      LizzieFrame.canGoAfterload = false;
+      clickJumpsToVisibleVariationQuickOverviewPointWhileTrying();
+      assertFalse(LizzieFrame.canGoAfterload, "The fixture must restore the caller's load gate.");
+    } finally {
+      LizzieFrame.canGoAfterload = previous;
+    }
+  }
+
   private static final int BOARD_SIZE = 3;
   private static final int BOARD_AREA = BOARD_SIZE * BOARD_SIZE;
   private static final int ORIG_GRAPH_WIDTH = 240;
@@ -1120,6 +1132,7 @@ class WinrateGraphQuickOverviewHitTest {
     private final LizzieFrame previousFrame;
     private final WinrateGraph previousWinrateGraph;
     private final Leelaz previousLeelaz;
+    private final boolean previousCanGoAfterload = LizzieFrame.canGoAfterload;
 
     private TestEnvironment(
         int previousBoardWidth,
@@ -1160,6 +1173,8 @@ class WinrateGraphQuickOverviewHitTest {
       Lizzie.board = null;
       Lizzie.frame = null;
       LizzieFrame.winrateGraph = null;
+      // This fixture owns a fully loaded board, regardless of prior parser/coordinator tests.
+      LizzieFrame.canGoAfterload = true;
       return env;
     }
 
@@ -1173,6 +1188,7 @@ class WinrateGraphQuickOverviewHitTest {
       Lizzie.frame = previousFrame;
       LizzieFrame.winrateGraph = previousWinrateGraph;
       Lizzie.leelaz = previousLeelaz;
+      LizzieFrame.canGoAfterload = previousCanGoAfterload;
     }
   }
 

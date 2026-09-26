@@ -26,7 +26,6 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Frame;
-import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
@@ -79,16 +78,47 @@ public class RemoteComputeDialog extends JDialog {
   private static final String ZHIZI_OFFICIAL_URL = "http://www.zhizigo.cn/";
   private static final String CUSTOM_DEPLOYMENT_URL =
       "https://github.com/wimi321/katago-remote-one-click";
-  private static final Color BG_TOP = new Color(251, 247, 238);
-  private static final Color BG_BOTTOM = new Color(240, 248, 243);
-  private static final Color CARD = new Color(255, 253, 248);
-  private static final Color CARD_SOFT = new Color(248, 244, 234);
-  private static final Color BORDER = new Color(221, 211, 190);
-  private static final Color TEXT = new Color(43, 39, 31);
-  private static final Color MUTED = new Color(122, 113, 96);
-  private static final Color GREEN = new Color(43, 139, 90);
-  private static final Color GOLD = new Color(193, 132, 42);
-  private static final Color ERROR = new Color(190, 69, 56);
+
+  private static Color BG_TOP() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  private static Color BG_BOTTOM() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  private static Color CARD() {
+    return AppleStyleSupport.workspaceSurface();
+  }
+
+  private static Color CARD_SOFT() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  private static Color BORDER() {
+    return AppleStyleSupport.workspaceBorder();
+  }
+
+  private static Color TEXT() {
+    return AppleStyleSupport.dialogTextColor();
+  }
+
+  private static Color MUTED() {
+    return AppleStyleSupport.workspaceMuted();
+  }
+
+  private static Color GREEN() {
+    return AppleStyleSupport.workspaceAccent();
+  }
+
+  private static Color GOLD() {
+    return AppleStyleSupport.workspaceMuted();
+  }
+
+  private static Color ERROR() {
+    return AppleStyleSupport.workspaceError();
+  }
+
   private static final DateTimeFormatter ACCOUNT_DATE =
       DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault());
   private static final DateTimeFormatter ACCOUNT_TIME =
@@ -195,7 +225,7 @@ public class RemoteComputeDialog extends JDialog {
     accountService = new ZhiziAccountService(apiClient);
     catalogService = new ZhiziEngineCatalogService(apiClient);
     setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-    setMinimumSize(new Dimension(1040, 680));
+    setMinimumSize(new Dimension(900, 600));
     setPreferredSize(new Dimension(1120, 740));
     setContentPane(buildContent());
     AccessibilitySupport.installEscapeToClose(getRootPane(), this);
@@ -224,8 +254,8 @@ public class RemoteComputeDialog extends JDialog {
 
   private JPanel buildContent() {
     RemoteRootPanel root = new RemoteRootPanel();
-    root.setLayout(new BorderLayout(28, 22));
-    root.setBorder(new EmptyBorder(30, 34, 24, 34));
+    root.setLayout(new BorderLayout(16, 16));
+    root.setBorder(new EmptyBorder(20, 24, 16, 24));
     root.add(buildHeader(), BorderLayout.NORTH);
     pageCards.add(buildZhiziPage(), RemoteComputeConfig.PROVIDER_ZHIZI);
     pageCards.add(buildCustomPage(), RemoteComputeConfig.PROVIDER_CUSTOM);
@@ -238,14 +268,9 @@ public class RemoteComputeDialog extends JDialog {
     JPanel header = transparent(new BorderLayout(24, 0));
     JPanel titleBox = transparent();
     titleBox.setLayout(new BoxLayout(titleBox, BoxLayout.Y_AXIS));
-    JLabel eyebrow = new JLabel("REMOTE COMPUTE");
-    eyebrow.setForeground(GREEN);
-    eyebrow.setFont(eyebrow.getFont().deriveFont(Font.BOLD, 12F));
     JLabel title = new JLabel(text("RemoteCompute.title", "Remote Compute"));
-    title.setForeground(TEXT);
-    title.setFont(title.getFont().deriveFont(Font.BOLD, 36F));
-    titleBox.add(eyebrow);
-    titleBox.add(Box.createVerticalStrut(5));
+    title.setForeground(TEXT());
+    title.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 22F));
     titleBox.add(title);
     header.add(titleBox, BorderLayout.CENTER);
 
@@ -255,7 +280,7 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   static JPanel createLocalizedTabGroup(JButton... buttons) {
-    JPanel tabs = new RoundPanel(22, new Color(255, 253, 248, 230), BORDER);
+    JPanel tabs = new RoundPanel(22, CARD(), BORDER());
     tabs.setLayout(new GridBagLayout());
     tabs.setBorder(new EmptyBorder(6, 6, 6, 6));
     tabs.setPreferredSize(new Dimension(localizedButtonGroupWidth(292, 8, 12, buttons), 58));
@@ -341,13 +366,13 @@ public class RemoteComputeDialog extends JDialog {
     loginFormPanel.add(fullWidth(loginButton, 54));
     card.add(loginFormPanel);
 
-    loggedInPanel = new RoundPanel(24, new Color(242, 250, 245), new Color(193, 222, 203));
+    loggedInPanel = new RoundPanel(24, AppleStyleSupport.workspaceSelection(), BORDER());
     loggedInPanel.setLayout(new BoxLayout(loggedInPanel, BoxLayout.Y_AXIS));
     loggedInPanel.setBorder(new EmptyBorder(24, 24, 22, 24));
     loggedInPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
     JLabel loggedInTitle = new JLabel(text("RemoteCompute.loggedIn", "Account signed in"));
-    loggedInTitle.setForeground(GREEN);
-    loggedInTitle.setFont(loggedInTitle.getFont().deriveFont(Font.BOLD, 24F));
+    loggedInTitle.setForeground(GREEN());
+    loggedInTitle.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 18F));
     loggedInTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
     loggedInPanel.add(loggedInTitle);
     loggedInPanel.add(Box.createVerticalStrut(10));
@@ -375,7 +400,7 @@ public class RemoteComputeDialog extends JDialog {
     loggedInPanel.add(accountActivityLabel);
     loggedInPanel.add(Box.createVerticalStrut(4));
     accountUpdatedLabel = smallText(" ");
-    accountUpdatedLabel.setFont(accountUpdatedLabel.getFont().deriveFont(Font.PLAIN, 11.5F));
+    accountUpdatedLabel.setFont(AppleStyleSupport.workspaceFont(Font.PLAIN, 11.5F));
     accountUpdatedLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
     loggedInPanel.add(accountUpdatedLabel);
     loggedInPanel.add(Box.createVerticalStrut(8));
@@ -441,8 +466,8 @@ public class RemoteComputeDialog extends JDialog {
             text(
                 "RemoteCompute.qrHint",
                 "Import a QR code image to read its remote link automatically."));
-    hint.setForeground(MUTED);
-    hint.setFont(hint.getFont().deriveFont(Font.BOLD, 13F));
+    hint.setForeground(MUTED());
+    hint.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 13F));
     importRow.add(hint);
     card.add(importRow);
     card.add(Box.createVerticalStrut(22));
@@ -481,21 +506,21 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   private JPanel buildFooter() {
-    JPanel footer = new RoundPanel(20, new Color(255, 253, 248, 230), BORDER);
+    JPanel footer = new RoundPanel(20, CARD(), BORDER());
     footer.setLayout(new BorderLayout(14, 0));
     footer.setBorder(new EmptyBorder(12, 18, 12, 18));
     footer.add(statusDot, BorderLayout.WEST);
-    currentStatusLabel.setForeground(TEXT);
-    currentStatusLabel.setFont(currentStatusLabel.getFont().deriveFont(Font.BOLD, 15F));
+    currentStatusLabel.setForeground(TEXT());
+    currentStatusLabel.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 15F));
     footer.add(currentStatusLabel, BorderLayout.CENTER);
-    statusLabel.setForeground(MUTED);
-    statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD, 13F));
+    statusLabel.setForeground(MUTED());
+    statusLabel.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 13F));
     footer.add(statusLabel, BorderLayout.EAST);
     return footer;
   }
 
   private JPanel buildLoginSegments() {
-    JPanel panel = new RoundPanel(18, CARD_SOFT, BORDER);
+    JPanel panel = new RoundPanel(18, CARD_SOFT(), BORDER());
     panel.setLayout(new GridLayout(1, 2, 5, 0));
     panel.setBorder(new EmptyBorder(4, 4, 4, 4));
     panel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -544,7 +569,7 @@ public class RemoteComputeDialog extends JDialog {
     initPresetOptions();
     styleCombo(presetBox);
     styleWeightCombo();
-    JPanel panel = new RoundPanel(24, new Color(255, 250, 241), new Color(231, 213, 181));
+    JPanel panel = new RoundPanel(24, CARD_SOFT(), BORDER());
     panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
     panel.setBorder(new EmptyBorder(10, 16, 10, 16));
     panel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -553,8 +578,8 @@ public class RemoteComputeDialog extends JDialog {
         label,
         presetBox,
         text("RemoteCompute.connectionModeDescription", "Select a Zhizi compute plan"));
-    label.setForeground(MUTED);
-    label.setFont(label.getFont().deriveFont(Font.BOLD, 13F));
+    label.setForeground(MUTED());
+    label.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 13F));
     label.setAlignmentX(Component.LEFT_ALIGNMENT);
     panel.add(label);
     panel.add(Box.createVerticalStrut(6));
@@ -568,8 +593,8 @@ public class RemoteComputeDialog extends JDialog {
         text(
             "RemoteCompute.weightModelDescription",
             "Select a network weight currently offered by Zhizi"));
-    weightLabel.setForeground(MUTED);
-    weightLabel.setFont(weightLabel.getFont().deriveFont(Font.BOLD, 13F));
+    weightLabel.setForeground(MUTED());
+    weightLabel.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 13F));
     weightLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
     panel.add(weightLabel);
     panel.add(Box.createVerticalStrut(6));
@@ -592,14 +617,14 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   private JPanel infoBox(String title, String body) {
-    JPanel panel = new RoundPanel(22, new Color(248, 244, 234), new Color(231, 219, 197));
+    JPanel panel = new RoundPanel(22, CARD_SOFT(), BORDER());
     panel.setLayout(new BorderLayout(14, 0));
     panel.setBorder(new EmptyBorder(16, 16, 16, 16));
     panel.setAlignmentX(Component.LEFT_ALIGNMENT);
     JLabel icon = new JLabel("!");
     icon.setHorizontalAlignment(JLabel.CENTER);
-    icon.setForeground(GOLD);
-    icon.setFont(icon.getFont().deriveFont(Font.BOLD, 26F));
+    icon.setForeground(GOLD());
+    icon.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 26F));
     panel.add(icon, BorderLayout.WEST);
     JLabel text = smallText("<html><b>" + title + "</b><br>" + body + "</html>");
     panel.add(text, BorderLayout.CENTER);
@@ -614,7 +639,7 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   static JPanel createZhiziWebsiteCard(JButton websiteButton, String titleText, String urlText) {
-    JPanel panel = new RoundPanel(24, new Color(246, 252, 247), new Color(188, 222, 200));
+    JPanel panel = new RoundPanel(24, CARD_SOFT(), BORDER());
     panel.setLayout(new BorderLayout(12, 0));
     panel.setBorder(new EmptyBorder(8, 14, 8, 14));
     panel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -625,15 +650,15 @@ public class RemoteComputeDialog extends JDialog {
     copy.setAlignmentX(Component.LEFT_ALIGNMENT);
     JLabel title = new JLabel(titleText);
     title.setName("zhiziWebsiteTitle");
-    title.setForeground(TEXT);
-    title.setFont(title.getFont().deriveFont(Font.BOLD, 16F));
+    title.setForeground(TEXT());
+    title.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 16F));
     title.setAlignmentX(Component.LEFT_ALIGNMENT);
     copy.add(title);
     copy.add(Box.createVerticalStrut(3));
     JLabel url = new JLabel(urlText);
     url.setName("zhiziWebsiteUrl");
-    url.setForeground(GREEN);
-    url.setFont(url.getFont().deriveFont(Font.BOLD, 12.5F));
+    url.setForeground(GREEN());
+    url.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 12.5F));
     url.setAlignmentX(Component.LEFT_ALIGNMENT);
     copy.add(url);
     panel.add(copy, BorderLayout.CENTER);
@@ -662,7 +687,7 @@ public class RemoteComputeDialog extends JDialog {
 
   static JPanel createCustomDeploymentGuideCard(
       JButton guideButton, String titleText, String descriptionText) {
-    JPanel panel = new RoundPanel(22, new Color(246, 252, 247), new Color(188, 222, 200));
+    JPanel panel = new RoundPanel(22, CARD_SOFT(), BORDER());
     panel.setLayout(new BorderLayout(12, 10));
     panel.setBorder(new EmptyBorder(14, 15, 14, 15));
     panel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -676,8 +701,8 @@ public class RemoteComputeDialog extends JDialog {
     textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
     JLabel title = new JLabel(titleText);
     title.setName("customDeploymentTitle");
-    title.setForeground(TEXT);
-    title.setFont(title.getFont().deriveFont(Font.BOLD, 16F));
+    title.setForeground(TEXT());
+    title.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 16F));
     title.setAlignmentX(Component.LEFT_ALIGNMENT);
     textPanel.add(title);
     textPanel.add(Box.createVerticalStrut(4));
@@ -689,8 +714,8 @@ public class RemoteComputeDialog extends JDialog {
     description.setOpaque(false);
     description.setLineWrap(true);
     description.setWrapStyleWord(true);
-    description.setForeground(MUTED);
-    description.setFont(description.getFont().deriveFont(Font.BOLD, 12.5F));
+    description.setForeground(MUTED());
+    description.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 12.5F));
     description.setBorder(null);
     description.setAlignmentX(Component.LEFT_ALIGNMENT);
     textPanel.add(description);
@@ -997,10 +1022,10 @@ public class RemoteComputeDialog extends JDialog {
                     "Expires {0}",
                     ACCOUNT_DATE.format(account.membershipExpiresAt));
       }
-      membershipLabel.setForeground(GREEN);
+      membershipLabel.setForeground(GREEN());
     } else {
       membership = text("RemoteCompute.account.vipInactive", "VIP not active");
-      membershipLabel.setForeground(GOLD);
+      membershipLabel.setForeground(GOLD());
     }
     membershipLabel.setText(membership);
 
@@ -1011,7 +1036,7 @@ public class RemoteComputeDialog extends JDialog {
             "Balance {0} · Yesterday {1}",
             formatMoney(balance.remainingBalanceYuan),
             formatMoney(balance.yesterdayConsumptionYuan)));
-    balanceLabel.setForeground(TEXT);
+    balanceLabel.setForeground(TEXT());
 
     String recent = text("RemoteCompute.account.noRecentUsage", "No recent usage");
     if (!overview.recentUsage.items.isEmpty()) {
@@ -1860,7 +1885,7 @@ public class RemoteComputeDialog extends JDialog {
           text("RemoteCompute.current.zhizi", "Currently using: Zhizi Cloud"));
       currentStatusLabel.setToolTipText(
           format("RemoteCompute.currentValue", "Currently using: {0}", fullName));
-      statusDot.setColor(GREEN);
+      statusDot.setColor(GREEN());
     } else if (RemoteComputeConfig.PROVIDER_CUSTOM.equals(activeProvider)) {
       String fullName =
           RemoteComputeConfig.displayNameForCustomWebSocketUrl(state.customRemoteCode);
@@ -1868,13 +1893,13 @@ public class RemoteComputeDialog extends JDialog {
           text("RemoteCompute.current.custom", "Currently using: Custom compute"));
       currentStatusLabel.setToolTipText(
           format("RemoteCompute.currentValue", "Currently using: {0}", fullName));
-      statusDot.setColor(GREEN);
+      statusDot.setColor(GREEN());
     } else {
       currentStatusLabel.setText(
           text("RemoteCompute.current.local", "Currently using: Local engine"));
       currentStatusLabel.setToolTipText(
           text("RemoteCompute.current.local", "Currently using: Local engine"));
-      statusDot.setColor(GREEN);
+      statusDot.setColor(GREEN());
     }
     AccessibilitySupport.named(
         currentStatusLabel,
@@ -2017,8 +2042,8 @@ public class RemoteComputeDialog extends JDialog {
     String previous = statusLabel.getText();
     statusLabel.setText(message == null ? "" : message);
     statusLabel.setToolTipText(statusLabel.getText());
-    statusLabel.setForeground(ok ? new Color(77, 113, 82) : ERROR);
-    statusDot.setColor(ok ? GREEN : ERROR);
+    statusLabel.setForeground(ok ? AppleStyleSupport.workspaceSuccess() : ERROR());
+    statusDot.setColor(ok ? GREEN() : ERROR());
     updateStatusAccessibility(
         statusLabel,
         statusDot,
@@ -2217,12 +2242,12 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   private JPanel card(String title, String subtitle) {
-    JPanel card = new RoundPanel(30, CARD, BORDER);
+    JPanel card = new RoundPanel(30, CARD(), BORDER());
     card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-    card.setBorder(new EmptyBorder(28, 30, 28, 30));
+    card.setBorder(new EmptyBorder(16, 16, 16, 16));
     JLabel titleLabel = new JLabel(title);
-    titleLabel.setForeground(TEXT);
-    titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 28F));
+    titleLabel.setForeground(TEXT());
+    titleLabel.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 18F));
     titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
     card.add(titleLabel);
     if (subtitle != null && !subtitle.trim().isEmpty()) {
@@ -2238,12 +2263,12 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   private static JPanel compactActionCard(String title) {
-    JPanel card = new RoundPanel(30, CARD, BORDER);
+    JPanel card = new RoundPanel(30, CARD(), BORDER());
     card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-    card.setBorder(new EmptyBorder(16, 30, 16, 30));
+    card.setBorder(new EmptyBorder(16, 16, 16, 16));
     JLabel titleLabel = new JLabel(title);
-    titleLabel.setForeground(TEXT);
-    titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 24F));
+    titleLabel.setForeground(TEXT());
+    titleLabel.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 18F));
     titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
     card.add(titleLabel);
     card.add(Box.createVerticalStrut(10));
@@ -2257,8 +2282,8 @@ public class RemoteComputeDialog extends JDialog {
     row.setAlignmentX(Component.LEFT_ALIGNMENT);
     row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
     JLabel labelView = new JLabel(label);
-    labelView.setForeground(MUTED);
-    labelView.setFont(labelView.getFont().deriveFont(Font.BOLD, 14F));
+    labelView.setForeground(MUTED());
+    labelView.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 14F));
     labelView.setPreferredSize(
         new Dimension(Math.max(58, Math.min(128, labelView.getPreferredSize().width + 10)), 44));
     AccessibilitySupport.labelFor(labelView, field, placeholder);
@@ -2269,14 +2294,14 @@ public class RemoteComputeDialog extends JDialog {
 
   private JPanel passwordFieldRow(String label, JPasswordField field, String placeholder) {
     field.putClientProperty("placeholder", placeholder);
-    field.setForeground(TEXT);
-    field.setCaretColor(TEXT);
-    field.setBackground(new Color(255, 255, 252));
+    field.setForeground(TEXT());
+    field.setCaretColor(TEXT());
+    field.setBackground(CARD());
     field.setOpaque(false);
     field.setBorder(new EmptyBorder(10, 0, 10, 8));
-    field.setFont(field.getFont().deriveFont(Font.BOLD, 14F));
+    field.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 14F));
 
-    JPanel inputShell = new RoundPanel(16, new Color(255, 255, 252), BORDER);
+    JPanel inputShell = new RoundPanel(16, CARD(), BORDER());
     inputShell.setLayout(new BorderLayout(4, 0));
     inputShell.setBorder(new EmptyBorder(0, 12, 0, 6));
     inputShell.add(field, BorderLayout.CENTER);
@@ -2286,8 +2311,8 @@ public class RemoteComputeDialog extends JDialog {
     row.setAlignmentX(Component.LEFT_ALIGNMENT);
     row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
     JLabel labelView = new JLabel(label);
-    labelView.setForeground(MUTED);
-    labelView.setFont(labelView.getFont().deriveFont(Font.BOLD, 14F));
+    labelView.setForeground(MUTED());
+    labelView.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 14F));
     labelView.setPreferredSize(
         new Dimension(Math.max(58, Math.min(128, labelView.getPreferredSize().width + 10)), 44));
     AccessibilitySupport.labelFor(labelView, field, placeholder);
@@ -2297,21 +2322,22 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   private void styleTextField(JTextField field) {
-    field.setForeground(TEXT);
-    field.setCaretColor(TEXT);
-    field.setBackground(new Color(255, 255, 252));
+    field.setForeground(TEXT());
+    field.setCaretColor(TEXT());
+    field.setBackground(CARD());
     field.setBorder(
         BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(BORDER), new EmptyBorder(10, 12, 10, 12)));
-    field.setFont(field.getFont().deriveFont(Font.BOLD, 14F));
+            BorderFactory.createLineBorder(BORDER()), new EmptyBorder(10, 12, 10, 12)));
+    field.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 14F));
   }
 
   private void styleCombo(JComboBox<?> comboBox) {
+    AppleStyleSupport.installWorkspaceComboUi(comboBox);
     comboBox.setOpaque(true);
-    comboBox.setForeground(TEXT);
-    comboBox.setBackground(new Color(255, 255, 252));
-    comboBox.setBorder(BorderFactory.createLineBorder(BORDER));
-    comboBox.setFont(comboBox.getFont().deriveFont(Font.BOLD, 14F));
+    comboBox.setForeground(TEXT());
+    comboBox.setBackground(CARD());
+    comboBox.setBorder(BorderFactory.createLineBorder(BORDER()));
+    comboBox.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 14F));
     comboBox.setRenderer(
         new DefaultListCellRenderer() {
           @Override
@@ -2319,9 +2345,8 @@ public class RemoteComputeDialog extends JDialog {
               JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             Component component =
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            component.setForeground(TEXT);
-            component.setBackground(
-                isSelected ? new Color(228, 241, 232) : new Color(255, 255, 252));
+            component.setForeground(TEXT());
+            component.setBackground(isSelected ? AppleStyleSupport.workspaceSelection() : CARD());
             if (component instanceof JComponent) {
               ((JComponent) component).setBorder(new EmptyBorder(8, 10, 8, 10));
             }
@@ -2332,6 +2357,13 @@ public class RemoteComputeDialog extends JDialog {
 
   private void styleWeightCombo() {
     styleCombo(weightBox);
+    weightBox.addActionListener(
+        event -> {
+          Object selected = weightBox.getSelectedItem();
+          String detail = selected instanceof WeightItem ? ((WeightItem) selected).tooltip() : null;
+          weightBox.setToolTipText(detail);
+          weightBox.getAccessibleContext().setAccessibleDescription(detail);
+        });
     weightBox.setRenderer(
         new DefaultListCellRenderer() {
           @Override
@@ -2341,8 +2373,8 @@ public class RemoteComputeDialog extends JDialog {
                 (JLabel)
                     super.getListCellRendererComponent(
                         list, value, index, isSelected, cellHasFocus);
-            label.setForeground(TEXT);
-            label.setBackground(isSelected ? new Color(228, 241, 232) : new Color(255, 255, 252));
+            label.setForeground(TEXT());
+            label.setBackground(isSelected ? AppleStyleSupport.workspaceSelection() : CARD());
             label.setBorder(new EmptyBorder(8, 10, 8, 10));
             if (value instanceof WeightItem) {
               WeightItem item = (WeightItem) value;
@@ -2358,15 +2390,15 @@ public class RemoteComputeDialog extends JDialog {
 
   private JLabel smallText(String text) {
     JLabel label = new JLabel(text);
-    label.setForeground(MUTED);
-    label.setFont(label.getFont().deriveFont(Font.BOLD, 14F));
+    label.setForeground(MUTED());
+    label.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 14F));
     return label;
   }
 
   private JLabel accountValueLabel() {
     JLabel label = new JLabel(" ");
-    label.setForeground(TEXT);
-    label.setFont(label.getFont().deriveFont(Font.BOLD, 16F));
+    label.setForeground(TEXT());
+    label.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 16F));
     return label;
   }
 
@@ -2377,8 +2409,8 @@ public class RemoteComputeDialog extends JDialog {
     area.setOpaque(false);
     area.setLineWrap(true);
     area.setWrapStyleWord(true);
-    area.setForeground(MUTED);
-    area.setFont(area.getFont().deriveFont(Font.BOLD, 13F));
+    area.setForeground(MUTED());
+    area.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 13F));
     area.setBorder(null);
     area.setMaximumSize(new Dimension(Integer.MAX_VALUE, 52));
     return area;
@@ -2396,19 +2428,19 @@ public class RemoteComputeDialog extends JDialog {
     area.setOpaque(false);
     area.setLineWrap(true);
     area.setWrapStyleWord(true);
-    area.setForeground(MUTED);
-    area.setFont(area.getFont().deriveFont(Font.BOLD, 12.5F));
+    area.setForeground(MUTED());
+    area.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 12.5F));
     area.setBorder(null);
     area.setMaximumSize(new Dimension(Integer.MAX_VALUE, area.getPreferredSize().height));
     return area;
   }
 
   private JButton primaryButton(String text) {
-    return new RoundedButton(text, GREEN, new Color(34, 121, 77), Color.WHITE, 18);
+    return new RoundedButton(text, new Color(15, 118, 110), new Color(12, 98, 92), Color.WHITE, 12);
   }
 
   private JButton secondaryButton(String text) {
-    return new RoundedButton(text, new Color(255, 253, 248), BORDER, TEXT, 16);
+    return new RoundedButton(text, CARD(), BORDER(), TEXT(), 16);
   }
 
   private static JButton tabButton(String text) {
@@ -2420,7 +2452,7 @@ public class RemoteComputeDialog extends JDialog {
   private static JButton segmentButton(String text) {
     JButton button = new TabButton(text);
     button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-    button.setFont(button.getFont().deriveFont(Font.BOLD, 13F));
+    button.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 13F));
     return button;
   }
 
@@ -2430,9 +2462,9 @@ public class RemoteComputeDialog extends JDialog {
     button.setBorderPainted(false);
     button.setContentAreaFilled(false);
     button.setFocusPainted(true);
-    button.setForeground(GREEN);
+    button.setForeground(GREEN());
     button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-    button.setFont(button.getFont().deriveFont(Font.BOLD, 13F));
+    button.setFont(AppleStyleSupport.workspaceFont(Font.BOLD, 13F));
     return button;
   }
 
@@ -2603,19 +2635,8 @@ public class RemoteComputeDialog extends JDialog {
     protected void paintComponent(Graphics g) {
       Graphics2D g2 = (Graphics2D) g.create();
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-      g2.setPaint(new GradientPaint(0, 0, BG_TOP, 0, getHeight(), BG_BOTTOM));
+      g2.setColor(BG_TOP());
       g2.fillRect(0, 0, getWidth(), getHeight());
-      g2.setColor(new Color(205, 184, 138, 22));
-      for (int x = 20; x < getWidth(); x += 48) {
-        g2.drawLine(x, 0, x, getHeight());
-      }
-      for (int y = 20; y < getHeight(); y += 48) {
-        g2.drawLine(0, y, getWidth(), y);
-      }
-      g2.setColor(new Color(56, 140, 103, 22));
-      g2.fillOval(-130, getHeight() - 190, 360, 260);
-      g2.setColor(new Color(193, 132, 42, 18));
-      g2.fillOval(getWidth() - 300, -160, 460, 340);
       g2.dispose();
       super.paintComponent(g);
     }
@@ -2627,7 +2648,7 @@ public class RemoteComputeDialog extends JDialog {
     private final Color border;
 
     RoundPanel(int arc, Color fill, Color border) {
-      this.arc = arc;
+      this.arc = Math.min(12, arc);
       this.fill = fill;
       this.border = border;
       setOpaque(false);
@@ -2656,7 +2677,7 @@ public class RemoteComputeDialog extends JDialog {
       super(text);
       this.fill = fill;
       this.border = border;
-      this.arc = arc;
+      this.arc = Math.min(12, arc);
       setForeground(foreground);
       setBorder(new EmptyBorder(11, 20, 11, 20));
       setBorderPainted(false);
@@ -2671,7 +2692,7 @@ public class RemoteComputeDialog extends JDialog {
     protected void paintComponent(Graphics g) {
       Graphics2D g2 = (Graphics2D) g.create();
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-      Color paint = isEnabled() ? fill : new Color(224, 216, 202);
+      Color paint = isEnabled() ? fill : CARD_SOFT();
       if (isEnabled() && getModel().isPressed()) {
         paint = paint.darker();
       } else if (isEnabled() && getModel().isRollover()) {
@@ -2683,7 +2704,7 @@ public class RemoteComputeDialog extends JDialog {
       }
       g2.setColor(paint);
       g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
-      g2.setColor(isEnabled() ? border : new Color(204, 195, 178));
+      g2.setColor(isEnabled() ? border : BORDER());
       g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
       g2.dispose();
       super.paintComponent(g);
@@ -2698,7 +2719,7 @@ public class RemoteComputeDialog extends JDialog {
       setContentAreaFilled(false);
       setFocusPainted(true);
       setOpaque(false);
-      setForeground(TEXT);
+      setForeground(TEXT());
       setFont(getFont().deriveFont(Font.BOLD, 15F));
     }
 
@@ -2707,9 +2728,9 @@ public class RemoteComputeDialog extends JDialog {
       Graphics2D g2 = (Graphics2D) g.create();
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
       if (isSelected()) {
-        g2.setColor(new Color(255, 253, 248));
+        g2.setColor(CARD());
         g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 16, 16);
-        g2.setColor(new Color(228, 204, 163));
+        g2.setColor(GREEN());
         g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 16, 16);
       }
       g2.dispose();
@@ -2740,9 +2761,9 @@ public class RemoteComputeDialog extends JDialog {
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
       boolean active = isSelected();
       boolean hover = getModel().isRollover();
-      Color accent = active ? GREEN : MUTED;
+      Color accent = active ? GREEN() : MUTED();
       if (hover || active) {
-        Color fill = active ? new Color(222, 242, 229) : new Color(244, 238, 226);
+        Color fill = AppleStyleSupport.workspaceSelection();
         g2.setColor(fill);
         g2.fillRoundRect(3, 3, getWidth() - 6, getHeight() - 6, 16, 16);
       }
@@ -2824,15 +2845,15 @@ public class RemoteComputeDialog extends JDialog {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         Color fill =
             isEnabled() && getModel().isPressed() && getModel().isArmed()
-                ? new Color(216, 235, 223)
+                ? AppleStyleSupport.workspaceSelection().darker()
                 : isEnabled() && getModel().isRollover()
-                    ? new Color(233, 244, 236)
-                    : CARD;
+                    ? AppleStyleSupport.workspaceSelection()
+                    : CARD();
         RoundRectangle2D outline =
             new RoundRectangle2D.Double(1, 1, getWidth() - 2, getHeight() - 2, 14, 14);
         g2.setColor(fill);
         g2.fill(outline);
-        g2.setColor(hasFocus() ? GREEN : BORDER);
+        g2.setColor(hasFocus() ? GREEN() : BORDER());
         g2.setStroke(new BasicStroke(hasFocus() ? 1.8F : 1.1F));
         g2.draw(outline);
 
@@ -2876,7 +2897,7 @@ public class RemoteComputeDialog extends JDialog {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
         CatalogRefreshButton button = (CatalogRefreshButton) component;
-        g.setColor(button.isEnabled() || button.refreshing ? GREEN : new Color(139, 145, 135));
+        g.setColor(button.isEnabled() || button.refreshing ? GREEN() : new Color(139, 145, 135));
         g.setStroke(new BasicStroke(2F, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g.draw(HALF);
         g.rotate(Math.PI, 12, 12);
@@ -2923,13 +2944,9 @@ public class RemoteComputeDialog extends JDialog {
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
       boolean selected = isSelected();
       boolean hover = getModel().isRollover();
-      Color fill =
-          selected
-              ? new Color(226, 243, 232)
-              : hover ? new Color(249, 245, 236) : new Color(255, 253, 248);
-      Color border = selected ? new Color(140, 191, 159) : BORDER;
-      Color text =
-          isEnabled() ? (selected ? new Color(36, 107, 72) : MUTED) : new Color(166, 157, 142);
+      Color fill = selected || hover ? AppleStyleSupport.workspaceSelection() : CARD();
+      Color border = selected ? GREEN() : BORDER();
+      Color text = isEnabled() ? (selected ? GREEN() : MUTED()) : MUTED();
       g2.setColor(fill);
       g2.fillRoundRect(1, 1, getWidth() - 2, getHeight() - 2, 18, 18);
       g2.setColor(border);
@@ -2940,7 +2957,7 @@ public class RemoteComputeDialog extends JDialog {
       int dotX = 14;
       int dotY = (getHeight() - dotSize) / 2;
       if (selected) {
-        g2.setColor(GREEN);
+        g2.setColor(GREEN());
         g2.fillOval(dotX, dotY, dotSize, dotSize);
       } else {
         g2.setColor(new Color(174, 164, 145));
@@ -2972,13 +2989,13 @@ public class RemoteComputeDialog extends JDialog {
       int y = (getHeight() - size) / 2;
       g2.setColor(new Color(43, 139, 90, 34));
       g2.fillOval(x, y, size, size);
-      g2.setColor(GREEN);
+      g2.setColor(GREEN());
       g2.setStroke(new BasicStroke(2F, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
       g2.drawOval(x + 7, y + 7, size - 14, size - 14);
       g2.drawArc(x + 14, y + 7, size - 28, size - 14, 90, 180);
       g2.drawArc(x + 14, y + 7, size - 28, size - 14, -90, 180);
       g2.drawLine(x + 10, y + size / 2, x + size - 10, y + size / 2);
-      g2.setColor(GOLD);
+      g2.setColor(GOLD());
       g2.fillOval(x + size - 16, y + 8, 9, 9);
       g2.dispose();
     }
@@ -2996,7 +3013,7 @@ public class RemoteComputeDialog extends JDialog {
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
       g2.setColor(new Color(43, 139, 90, 30));
       g2.fillOval(0, 0, getWidth(), getHeight());
-      g2.setColor(GREEN);
+      g2.setColor(GREEN());
       g2.setStroke(new BasicStroke(2F, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
       int left = 9;
       int right = getWidth() - 9;
@@ -3004,7 +3021,7 @@ public class RemoteComputeDialog extends JDialog {
       g2.drawRoundRect(left, 25, right - left, 9, 4, 4);
       g2.fillOval(left + 4, 13, 3, 3);
       g2.fillOval(left + 4, 28, 3, 3);
-      g2.setColor(GOLD);
+      g2.setColor(GOLD());
       g2.drawLine(right - 8, 15, right - 3, 15);
       g2.drawLine(right - 8, 30, right - 3, 30);
       g2.dispose();
@@ -3012,7 +3029,7 @@ public class RemoteComputeDialog extends JDialog {
   }
 
   private static final class StatusDot extends JComponent {
-    private Color color = GREEN;
+    private Color color = GREEN();
 
     void setColor(Color color) {
       this.color = color;

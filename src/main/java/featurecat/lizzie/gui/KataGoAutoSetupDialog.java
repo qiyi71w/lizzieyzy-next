@@ -36,7 +36,6 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
-import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsConfiguration;
@@ -111,21 +110,66 @@ import javax.swing.plaf.basic.BasicButtonUI;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 
 public class KataGoAutoSetupDialog extends JDialog {
-  private static final Color OK_COLOR = new Color(28, 121, 82);
-  private static final Color WARN_COLOR = new Color(184, 110, 27);
-  private static final Color ERROR_COLOR = new Color(172, 56, 56);
-  private static final Color APP_BG = new Color(248, 245, 238);
-  private static final Color CARD_BG = new Color(255, 253, 248);
-  private static final Color INFO_BG = new Color(252, 249, 242);
-  private static final Color INFO_BORDER = new Color(224, 210, 184);
-  private static final Color SIDEBAR_BG = new Color(8, 61, 58);
-  private static final Color SIDEBAR_SELECTED_BG = new Color(20, 100, 94);
-  private static final Color SIDEBAR_TEXT = new Color(236, 241, 232);
-  private static final Color TEXT_PRIMARY = new Color(35, 39, 36);
-  private static final Color TEXT_SECONDARY = new Color(101, 106, 100);
-  private static final Color ACCENT_TEAL = new Color(10, 101, 94);
-  private static final Color ACCENT_TEAL_HOVER = new Color(13, 116, 107);
-  private static final Color ACCENT_GOLD = new Color(194, 139, 45);
+  private static Color OK_COLOR() {
+    return AppleStyleSupport.workspaceSuccess();
+  }
+
+  private static Color WARN_COLOR() {
+    return AppleStyleSupport.workspaceWarning();
+  }
+
+  private static Color ERROR_COLOR() {
+    return AppleStyleSupport.workspaceError();
+  }
+
+  private static Color APP_BG() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  private static Color CARD_BG() {
+    return AppleStyleSupport.workspaceSurface();
+  }
+
+  private static Color INFO_BG() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  private static Color INFO_BORDER() {
+    return AppleStyleSupport.workspaceBorder();
+  }
+
+  private static Color SIDEBAR_BG() {
+    return AppleStyleSupport.workspaceBackground();
+  }
+
+  private static Color SIDEBAR_SELECTED_BG() {
+    return AppleStyleSupport.workspaceSelection();
+  }
+
+  private static Color SIDEBAR_TEXT() {
+    return AppleStyleSupport.dialogTextColor();
+  }
+
+  private static Color TEXT_PRIMARY() {
+    return AppleStyleSupport.dialogTextColor();
+  }
+
+  private static Color TEXT_SECONDARY() {
+    return AppleStyleSupport.workspaceMuted();
+  }
+
+  private static Color ACCENT_TEAL() {
+    return AppleStyleSupport.workspaceAccent();
+  }
+
+  private static Color ACCENT_TEAL_HOVER() {
+    return AppleStyleSupport.workspaceAccent();
+  }
+
+  private static Color ACCENT_GOLD() {
+    return AppleStyleSupport.workspaceAccent();
+  }
+
   private static final String BENCHMARK_PROGRESS_KEY = "lizzie.benchmark.dialog.progress";
   private static final String WRAPPING_TEXT_KEY = "lizzie.autosetup.wrappingText";
   private static final String INFO_HTML_PREFIX = "<html><div style='width: 360px'>";
@@ -280,6 +324,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   private final JFontButton btnRestoreMeasuredTuning = new JFontButton();
   private final MeasuredTuningDialog measuredTuningDialog = new MeasuredTuningDialog();
   private boolean measuredTuningBusy;
+
   public static final class OpenRequest {
     public final TensorRtRepairContext context;
     public final int sectionIndex;
@@ -310,7 +355,6 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     return openRequestForRepair(pending);
   }
-
 
   private final JFontButton btnExperimentalPerformance = new JFontButton();
   private final JFontButton btnStopDownload = new JFontButton();
@@ -348,7 +392,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     configureButtons();
 
     JPanel content = new JPanel(new BorderLayout(0, 0));
-    content.setBackground(APP_BG);
+    content.setBackground(APP_BG());
     setContentPane(content);
 
     configureWeightCatalog();
@@ -543,7 +587,6 @@ public class KataGoAutoSetupDialog extends JDialog {
     directedTensorRtBanner.setVisible(true);
   }
 
-
   public void refreshState() {
     refreshState(null);
   }
@@ -596,7 +639,7 @@ public class KataGoAutoSetupDialog extends JDialog {
               btnClose.setEnabled(true);
               String detail = error == null || error.getMessage() == null ? "" : error.getMessage();
               lblStatus.setText(detail.trim().isEmpty() ? text("AutoSetup.failed") : detail);
-              lblStatus.setForeground(ERROR_COLOR);
+              lblStatus.setForeground(ERROR_COLOR());
               footerPanel.setVisible(true);
               revalidate();
               repaint();
@@ -673,9 +716,9 @@ public class KataGoAutoSetupDialog extends JDialog {
       String status = text("AutoSetup.validationChecking");
       String previousStatus = progressStatusLabel.getText();
       lblStatus.setText(status);
-      lblStatus.setForeground(WARN_COLOR);
+      lblStatus.setForeground(WARN_COLOR());
       progressStatusLabel.setText(status);
-      progressStatusLabel.setForeground(WARN_COLOR);
+      progressStatusLabel.setForeground(WARN_COLOR());
       progressPanel.setVisible(true);
       footerPanel.setVisible(true);
       progressBar.setIndeterminate(true);
@@ -810,7 +853,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     btnDownloadQuickAnalysisModel.setIcon(new WeightActionIcon(WeightActionIcon.DOWNLOAD));
     chkUseQuickAnalysisModel.setText(text("AutoSetup.quickAnalysisModelUse"));
     chkUseQuickAnalysisModel.setOpaque(false);
-    chkUseQuickAnalysisModel.setForeground(TEXT_PRIMARY);
+    chkUseQuickAnalysisModel.setForeground(TEXT_PRIMARY());
     chkUseQuickAnalysisModel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     btnInstallNvidiaRuntime.setText(text("AutoSetup.installNvidiaRuntime"));
     btnInstallTensorRt.setText(text("AutoSetup.repairTensorRt"));
@@ -819,6 +862,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     btnCleanTensorRtCache.setText(text("AutoSetup.cleanTensorRtCache"));
     btnInstallExperimentalBackend.setText(text("AutoSetup.installExperimentalBackend"));
     cmbExperimentalBackend.setPrototypeDisplayValue(Backend.ROCM_GFX110X);
+    AppleStyleSupport.installComboBoxStyle(cmbExperimentalBackend);
     cmbExperimentalBackend.setMaximumRowCount(Backend.values().length);
     btnOptimizePerformance.setText(text("AutoSetup.optimizePerformance"));
     btnImportMeasuredTuning.setText(text("MeasuredTuning.import"));
@@ -845,8 +889,7 @@ public class KataGoAutoSetupDialog extends JDialog {
         btnExperimentalPerformance
             .getFont()
             .deriveFont(Font.BOLD, btnExperimentalPerformance.getFont().getSize2D() + 1f));
-    Dimension experimentalBenchmarkSize =
-        localizedButtonSize(btnExperimentalPerformance, 184, 46);
+    Dimension experimentalBenchmarkSize = localizedButtonSize(btnExperimentalPerformance, 184, 46);
     btnExperimentalPerformance.setPreferredSize(experimentalBenchmarkSize);
     btnExperimentalPerformance.setMinimumSize(experimentalBenchmarkSize);
     styleButton(btnRefresh, false);
@@ -893,10 +936,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     weightCatalogList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     weightCatalogList.setFixedCellHeight(WEIGHT_CATALOG_ROW_HEIGHT);
     weightCatalogList.setVisibleRowCount(WEIGHT_CATALOG_VISIBLE_ROWS);
-    weightCatalogList.setBackground(CARD_BG);
-    weightCatalogList.setForeground(TEXT_PRIMARY);
-    weightCatalogList.setSelectionBackground(new Color(230, 244, 239));
-    weightCatalogList.setSelectionForeground(TEXT_PRIMARY);
+    weightCatalogList.setBackground(CARD_BG());
+    weightCatalogList.setForeground(TEXT_PRIMARY());
+    weightCatalogList.setSelectionBackground(AppleStyleSupport.workspaceSelection());
+    weightCatalogList.setSelectionForeground(TEXT_PRIMARY());
     weightCatalogList.setBorder(BorderFactory.createEmptyBorder());
     weightCatalogList.setCellRenderer(new WeightCatalogRenderer());
     weightCatalogList.addListSelectionListener(
@@ -1025,7 +1068,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     button.setMaximumSize(size);
   }
 
-  private void styleWeightButton(JFontButton button, WeightButtonStyle style) {
+  private static void styleWeightButton(JFontButton button, WeightButtonStyle style) {
     button.setUI(new WeightButtonUI(style));
     int horizontalPadding = style == WeightButtonStyle.ICON ? 0 : 14;
     button.setBorder(BorderFactory.createEmptyBorder(0, horizontalPadding, 0, horizontalPadding));
@@ -1036,10 +1079,13 @@ public class KataGoAutoSetupDialog extends JDialog {
     button.setForeground(
         style == WeightButtonStyle.PRIMARY || style == WeightButtonStyle.GOLD
             ? Color.WHITE
-            : TEXT_PRIMARY);
+            : TEXT_PRIMARY());
     int height = style == WeightButtonStyle.ICON ? 42 : 40;
     int width = style == WeightButtonStyle.ICON ? 42 : button.getPreferredSize().width;
-    Dimension size = new Dimension(width, height);
+    Dimension size =
+        style == WeightButtonStyle.ICON
+            ? new Dimension(width, height)
+            : localizedButtonSize(button, width, height);
     button.setPreferredSize(size);
     button.setMinimumSize(size);
     if (style == WeightButtonStyle.ICON) {
@@ -1055,23 +1101,23 @@ public class KataGoAutoSetupDialog extends JDialog {
     button.setFocusPainted(false);
     button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     button.setFont(button.getFont().deriveFont(Font.BOLD));
-    button.setForeground(TEXT_SECONDARY);
+    button.setForeground(TEXT_SECONDARY());
     button.setMargin(new Insets(0, 12, 0, 12));
     button.setPreferredSize(new Dimension(180, 34));
   }
 
   private JPanel createHeaderPanel() {
     JPanel header = new JPanel(new BorderLayout(12, 0));
-    header.setBackground(SIDEBAR_BG);
+    header.setBackground(SIDEBAR_BG());
     header.setBorder(BorderFactory.createEmptyBorder(10, isMacOs() ? 82 : 20, 10, 20));
-    header.setPreferredSize(new Dimension(10, 62));
+    header.setPreferredSize(new Dimension(10, 56));
 
     JFontLabel icon = new JFontLabel();
-    icon.setIcon(new WeightStoneIcon(42));
+    icon.setIcon(new WeightStoneIcon(28));
     header.add(icon, BorderLayout.WEST);
 
     JFontLabel title = new JFontLabel(text("AutoSetup.title"));
-    title.setForeground(new Color(243, 213, 158));
+    title.setForeground(TEXT_PRIMARY());
     title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 7f));
     header.add(title, BorderLayout.CENTER);
     return header;
@@ -1091,11 +1137,11 @@ public class KataGoAutoSetupDialog extends JDialog {
     sectionNav.setFont(new JFontLabel().getFont());
     sectionNav.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     sectionNav.setSelectedIndex(0);
-    sectionNav.setFixedCellHeight(58);
+    sectionNav.setFixedCellHeight(48);
     sectionNav.setVisibleRowCount(4);
     sectionNav.setOpaque(false);
     sectionNav.setBackground(new Color(0, 0, 0, 0));
-    sectionNav.setForeground(SIDEBAR_TEXT);
+    sectionNav.setForeground(SIDEBAR_TEXT());
     sectionNav.setBorder(null);
     sectionNav.setCellRenderer(new SidebarNavRenderer());
     sectionNav.addListSelectionListener(
@@ -1162,15 +1208,66 @@ public class KataGoAutoSetupDialog extends JDialog {
   private JPanel createOverviewSection() {
     JPanel rows = createRowsPanel();
     GridBagConstraints gbc = createRowConstraints();
-    addInfoRow(rows, gbc, text("AutoSetup.localEngine"), lblEngineValue);
-    addInfoRow(rows, gbc, text("AutoSetup.localWeight"), lblWeightValue);
     addInfoRow(rows, gbc, text("AutoSetup.localWeightModel"), lblWeightModelValue);
-    addInfoRow(rows, gbc, text("AutoSetup.gtpConfig"), lblGtpConfigValue);
-    addInfoRow(rows, gbc, text("AutoSetup.analysisConfig"), lblAnalysisConfigValue);
-    addInfoRow(rows, gbc, text("AutoSetup.discoverySource"), lblDiscoverySourceValue);
     addInfoRow(rows, gbc, text("AutoSetup.packageType"), lblPackageFlavorValue);
     addInfoRow(rows, gbc, text("AutoSetup.engineValidation"), lblEngineValidationValue);
 
+    JPanel details = createRowsPanel();
+    GridBagConstraints detailConstraints = createRowConstraints();
+    addInfoRow(details, detailConstraints, text("AutoSetup.localEngine"), lblEngineValue);
+    addInfoRow(details, detailConstraints, text("AutoSetup.localWeight"), lblWeightValue);
+    addInfoRow(details, detailConstraints, text("AutoSetup.gtpConfig"), lblGtpConfigValue);
+    addInfoRow(
+        details, detailConstraints, text("AutoSetup.analysisConfig"), lblAnalysisConfigValue);
+    addInfoRow(
+        details, detailConstraints, text("AutoSetup.discoverySource"), lblDiscoverySourceValue);
+    details.setVisible(false);
+    JToggleButton showDetails = new JToggleButton(text("AutoSetup.technicalDetails"));
+    AppleStyleSupport.installButtonStyle(showDetails);
+    showDetails.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+    showDetails.addActionListener(
+        event -> {
+          details.setVisible(showDetails.isSelected());
+          detailCards.revalidate();
+          detailCards.repaint();
+        });
+    JButton copy = new JFontButton(text("AutoSetup.copyPaths"));
+    copy.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+    copy.addActionListener(
+        event -> {
+          if (snapshot == null) return;
+          String paths =
+              text("AutoSetup.localEngine")
+                  + ": "
+                  + snapshot.enginePath
+                  + "\n"
+                  + text("AutoSetup.localWeight")
+                  + ": "
+                  + snapshot.activeWeightPath
+                  + "\n"
+                  + text("AutoSetup.gtpConfig")
+                  + ": "
+                  + lblGtpConfigValue.getToolTipText()
+                  + "\n"
+                  + text("AutoSetup.analysisConfig")
+                  + ": "
+                  + lblAnalysisConfigValue.getToolTipText();
+          try {
+            Toolkit.getDefaultToolkit()
+                .getSystemClipboard()
+                .setContents(new java.awt.datatransfer.StringSelection(paths), null);
+          } catch (IllegalStateException unavailable) {
+            Toolkit.getDefaultToolkit().beep();
+          }
+        });
+    JPanel summary = new JPanel(new BorderLayout(0, 16));
+    summary.setOpaque(false);
+    summary.add(rows, BorderLayout.NORTH);
+    JPanel disclosure = new JPanel(new BorderLayout(0, 12));
+    disclosure.setOpaque(false);
+    disclosure.add(createActionBar(FlowLayout.LEFT, showDetails, copy), BorderLayout.NORTH);
+    disclosure.add(details, BorderLayout.CENTER);
+    summary.add(disclosure, BorderLayout.CENTER);
     JPanel actions =
         createActionBar(
             FlowLayout.RIGHT,
@@ -1179,22 +1276,22 @@ public class KataGoAutoSetupDialog extends JDialog {
             btnOpenAppFolder,
             btnViewFullDownloads,
             btnRefresh);
-    JPanel page = new JPanel(new BorderLayout(0, 10));
+    JPanel page = new JPanel(new BorderLayout(0, 16));
     page.setOpaque(false);
     page.add(createB11DefaultNotice(), BorderLayout.NORTH);
     page.add(
         createSectionCard(
-            text("AutoSetup.overviewTitle"), text("AutoSetup.overviewSubtitle"), rows, actions),
+            text("AutoSetup.overviewTitle"), text("AutoSetup.overviewSubtitle"), summary, actions),
         BorderLayout.CENTER);
     return page;
   }
 
   private JPanel createB11DefaultNotice() {
-    JPanel notice = new RoundedSurfacePanel(new Color(245, 249, 247), new Color(178, 207, 194), 12, true);
+    JPanel notice = new RoundedSurfacePanel(INFO_BG(), INFO_BORDER(), 12, true);
     notice.setLayout(new BorderLayout(0, 4));
     notice.setBorder(BorderFactory.createEmptyBorder(11, 16, 11, 16));
     JFontLabel title = new JFontLabel(text("AutoSetup.b11DefaultNoticeTitle"));
-    title.setForeground(TEXT_PRIMARY);
+    title.setForeground(TEXT_PRIMARY());
     title.setFont(title.getFont().deriveFont(Font.BOLD));
     JTextArea detail = createHintText(text("AutoSetup.b11DefaultNoticeBody"));
     detail.getAccessibleContext().setAccessibleName(title.getText());
@@ -1242,7 +1339,7 @@ public class KataGoAutoSetupDialog extends JDialog {
 
     constraints.gridy++;
     constraints.insets = new Insets(8, 0, 0, 0);
-    content.add(createWeightRecommendations(), constraints);
+    content.add(createB11DefaultNotice(), constraints);
 
     constraints.gridy++;
     constraints.insets = new Insets(8, 0, 0, 0);
@@ -1267,7 +1364,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     JPanel section = new JPanel(new BorderLayout(0, 6));
     section.setOpaque(false);
     JFontLabel title = new JFontLabel(text("AutoSetup.recommendationTitle"));
-    title.setForeground(TEXT_PRIMARY);
+    title.setForeground(TEXT_PRIMARY());
     title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 2f));
     section.add(title, BorderLayout.NORTH);
 
@@ -1293,11 +1390,11 @@ public class KataGoAutoSetupDialog extends JDialog {
     JPanel heading = new JPanel(new BorderLayout(0, 4));
     heading.setOpaque(false);
     JFontLabel titleLabel = new JFontLabel(title);
-    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setForeground(TEXT_PRIMARY());
     titleLabel.setFont(
         titleLabel.getFont().deriveFont(Font.BOLD, titleLabel.getFont().getSize2D() + 8f));
     JFontLabel subtitleLabel = new JFontLabel(subtitle);
-    subtitleLabel.setForeground(TEXT_SECONDARY);
+    subtitleLabel.setForeground(TEXT_SECONDARY());
     subtitleLabel.setFont(
         subtitleLabel.getFont().deriveFont(subtitleLabel.getFont().getSize2D() + 1f));
     heading.add(titleLabel, BorderLayout.NORTH);
@@ -1306,7 +1403,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private JPanel createCurrentWeightBanner() {
-    JPanel banner = new RoundedSurfacePanel(CARD_BG, new Color(214, 190, 148), 16, true);
+    JPanel banner = new RoundedSurfacePanel(CARD_BG(), INFO_BORDER(), 16, true);
     banner.setLayout(new BorderLayout(16, 0));
     banner.setBorder(BorderFactory.createEmptyBorder(12, 18, 12, 18));
     banner.setPreferredSize(new Dimension(10, 72));
@@ -1316,9 +1413,9 @@ public class KataGoAutoSetupDialog extends JDialog {
     banner.add(icon, BorderLayout.WEST);
 
     JFontLabel caption = new JFontLabel(text("AutoSetup.currentWeight"));
-    caption.setForeground(new Color(160, 109, 31));
+    caption.setForeground(WARN_COLOR());
     caption.setFont(caption.getFont().deriveFont(caption.getFont().getSize2D() + 1f));
-    lblCurrentWeightName.setForeground(TEXT_PRIMARY);
+    lblCurrentWeightName.setForeground(TEXT_PRIMARY());
     lblCurrentWeightName.setFont(
         lblCurrentWeightName
             .getFont()
@@ -1330,7 +1427,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     banner.add(labels, BorderLayout.CENTER);
 
     lblCurrentWeightStatus.setHorizontalAlignment(SwingConstants.CENTER);
-    lblCurrentWeightStatus.setForeground(OK_COLOR);
+    lblCurrentWeightStatus.setForeground(OK_COLOR());
     lblCurrentWeightStatus.setFont(lblCurrentWeightStatus.getFont().deriveFont(Font.BOLD));
     lblCurrentWeightStatus.setBorder(BorderFactory.createEmptyBorder(8, 18, 8, 18));
     banner.add(lblCurrentWeightStatus, BorderLayout.EAST);
@@ -1341,11 +1438,11 @@ public class KataGoAutoSetupDialog extends JDialog {
     JPanel section = new JPanel(new BorderLayout(0, 5));
     section.setOpaque(false);
     JFontLabel title = new JFontLabel(text("AutoSetup.moreWeights"));
-    title.setForeground(TEXT_PRIMARY);
+    title.setForeground(TEXT_PRIMARY());
     title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 2f));
     section.add(title, BorderLayout.NORTH);
 
-    JPanel block = new RoundedSurfacePanel(CARD_BG, new Color(218, 205, 181), 13, false);
+    JPanel block = new RoundedSurfacePanel(CARD_BG(), INFO_BORDER(), 13, false);
     block.setLayout(new BorderLayout(0, 0));
     block.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
     block.add(createWeightCatalogTabs(), BorderLayout.NORTH);
@@ -1383,20 +1480,20 @@ public class KataGoAutoSetupDialog extends JDialog {
     table.add(createWeightCatalogColumnHeader(), BorderLayout.NORTH);
 
     weightCatalogScrollPane.setBorder(
-        BorderFactory.createMatteBorder(1, 0, 1, 0, new Color(225, 219, 207)));
+        BorderFactory.createMatteBorder(1, 0, 1, 0, AppleStyleSupport.workspaceBorder()));
     weightCatalogScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
     weightCatalogScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
     weightCatalogScrollPane.getVerticalScrollBar().setUnitIncrement(WEIGHT_CATALOG_ROW_HEIGHT);
     weightCatalogScrollPane.getVerticalScrollBar().setUI(new WeightCatalogScrollBarUI());
-    weightCatalogScrollPane.getViewport().setBackground(CARD_BG);
+    weightCatalogScrollPane.getViewport().setBackground(CARD_BG());
     weightCatalogScrollPane.setPreferredSize(
         new Dimension(10, weightCatalogVisibleHeight(WEIGHT_CATALOG_VISIBLE_ROWS)));
 
     lblWeightCatalogEmpty.setHorizontalAlignment(SwingConstants.CENTER);
-    lblWeightCatalogEmpty.setForeground(TEXT_SECONDARY);
+    lblWeightCatalogEmpty.setForeground(TEXT_SECONDARY());
     lblWeightCatalogEmpty.setBorder(BorderFactory.createEmptyBorder(18, 12, 18, 12));
     JPanel empty = new JPanel(new BorderLayout());
-    empty.setBackground(CARD_BG);
+    empty.setBackground(CARD_BG());
     empty.add(lblWeightCatalogEmpty, BorderLayout.CENTER);
 
     weightCatalogContentCards.setOpaque(false);
@@ -1421,23 +1518,22 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   private JFontLabel createWeightCatalogHeaderLabel(String value) {
     JFontLabel label = new JFontLabel(value);
-    label.setForeground(new Color(123, 121, 113));
+    label.setForeground(TEXT_SECONDARY());
     label.setFont(label.getFont().deriveFont(label.getFont().getSize2D() - 1f));
     return label;
   }
 
   private JPanel createSelectedWeightDetailBar() {
-    JPanel detail =
-        new RoundedSurfacePanel(new Color(253, 249, 241), new Color(225, 210, 184), 11, false);
+    JPanel detail = new RoundedSurfacePanel(CARD_BG(), INFO_BORDER(), 11, false);
     detail.setLayout(new BorderLayout(10, 0));
     detail.setBorder(BorderFactory.createEmptyBorder(7, 12, 7, 8));
     JFontLabel icon = new JFontLabel();
     icon.setIcon(new WeightStoneIcon(38, true));
     detail.add(icon, BorderLayout.WEST);
 
-    lblSelectedWeightName.setForeground(TEXT_PRIMARY);
+    lblSelectedWeightName.setForeground(TEXT_PRIMARY());
     lblSelectedWeightName.setFont(lblSelectedWeightName.getFont().deriveFont(Font.BOLD));
-    lblSelectedWeightMeta.setForeground(TEXT_SECONDARY);
+    lblSelectedWeightMeta.setForeground(TEXT_SECONDARY());
     lblSelectedWeightMeta.setFont(
         lblSelectedWeightMeta
             .getFont()
@@ -1461,9 +1557,9 @@ public class KataGoAutoSetupDialog extends JDialog {
     icon.setIcon(new HumanSlIcon());
     block.add(icon, BorderLayout.WEST);
     JFontLabel title = new JFontLabel(text("AutoSetup.humanSlModel"));
-    title.setForeground(TEXT_PRIMARY);
+    title.setForeground(TEXT_PRIMARY());
     title.setFont(title.getFont().deriveFont(Font.BOLD));
-    lblHumanSlModelValue.setForeground(TEXT_SECONDARY);
+    lblHumanSlModelValue.setForeground(TEXT_SECONDARY());
     JPanel labels = new JPanel(new BorderLayout(0, 2));
     labels.setOpaque(false);
     labels.add(title, BorderLayout.NORTH);
@@ -1487,9 +1583,9 @@ public class KataGoAutoSetupDialog extends JDialog {
     block.add(icon, BorderLayout.WEST);
 
     JFontLabel title = new JFontLabel(text("AutoSetup.quickAnalysisModel"));
-    title.setForeground(TEXT_PRIMARY);
+    title.setForeground(TEXT_PRIMARY());
     title.setFont(title.getFont().deriveFont(Font.BOLD));
-    lblQuickAnalysisModelValue.setForeground(TEXT_SECONDARY);
+    lblQuickAnalysisModelValue.setForeground(TEXT_SECONDARY());
     lblQuickAnalysisModelValue.setEditable(false);
     lblQuickAnalysisModelValue.setFocusable(false);
     lblQuickAnalysisModelValue.setOpaque(false);
@@ -1517,7 +1613,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private JPanel createWeightBlock() {
-    JPanel block = new RoundedSurfacePanel(CARD_BG, new Color(218, 205, 181), 13, false);
+    JPanel block = new RoundedSurfacePanel(CARD_BG(), INFO_BORDER(), 13, false);
     block.setLayout(new BorderLayout(8, 6));
     block.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
     return block;
@@ -1528,30 +1624,43 @@ public class KataGoAutoSetupDialog extends JDialog {
     GridBagConstraints gbc = createRowConstraints();
     addAccelerationStatusRow(rows, gbc, text("AutoSetup.nvidiaRuntime"), lblNvidiaRuntimeValue);
     addAccelerationStatusRow(rows, gbc, text("AutoSetup.nvidiaGpu"), lblNvidiaGpuValue);
-    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtRuntimeStatus"), lblTensorRtRuntimeValue);
-    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtCompanionStatus"), lblTensorRtCompanionValue);
-    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtEngineStatus"), lblTensorRtEngineValue);
-    addAccelerationStatusRow(rows, gbc, text("AutoSetup.tensorRtActivationStatus"), lblTensorRtActivationValue);
+    addAccelerationStatusRow(
+        rows, gbc, text("AutoSetup.tensorRtRuntimeStatus"), lblTensorRtRuntimeValue);
+    addAccelerationStatusRow(
+        rows, gbc, text("AutoSetup.tensorRtCompanionStatus"), lblTensorRtCompanionValue);
+    addAccelerationStatusRow(
+        rows, gbc, text("AutoSetup.tensorRtEngineStatus"), lblTensorRtEngineValue);
+    addAccelerationStatusRow(
+        rows, gbc, text("AutoSetup.tensorRtActivationStatus"), lblTensorRtActivationValue);
     makeTensorRtStatusRowsKeyboardReachable();
-    addAccelerationStatusRow(rows, gbc, text("AutoSetup.experimentalBackendStatus"), lblExperimentalBackendValue);
+    addAccelerationStatusRow(
+        rows, gbc, text("AutoSetup.experimentalBackendStatus"), lblExperimentalBackendValue);
 
     addAccelerationActionBlock(
-        rows, gbc, text("AutoSetup.installTensorRt"),
+        rows,
+        gbc,
+        text("AutoSetup.installTensorRt"),
         text("AutoSetup.accelerationTensorRtHint"),
         KataGoAccelerationLayout.primaryActions(btnInstallTensorRt, btnEnableTensorRt));
     addAccelerationActionBlock(
-        rows, gbc, text("AutoSetup.experimentalBackends"),
+        rows,
+        gbc,
+        text("AutoSetup.experimentalBackends"),
         text("AutoSetup.experimentalBackendHint"),
-        KataGoAccelerationLayout.experimentalActions(cmbExperimentalBackend, btnInstallExperimentalBackend));
+        KataGoAccelerationLayout.experimentalActions(
+            cmbExperimentalBackend, btnInstallExperimentalBackend));
     addAccelerationActionBlock(
-        rows, gbc, text("AutoSetup.maintenanceActions"), null,
+        rows,
+        gbc,
+        text("AutoSetup.maintenanceActions"),
+        null,
         KataGoAccelerationLayout.maintenanceActions(
             btnInstallNvidiaRuntime, btnSwitchBackCuda, btnCleanTensorRtCache));
     directedTensorRtBanner.setOpaque(true);
-    directedTensorRtBanner.setBackground(new Color(255, 249, 235));
+    directedTensorRtBanner.setBackground(APP_BG());
     directedTensorRtBanner.setBorder(
         BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(228, 194, 127)),
+            BorderFactory.createLineBorder(AppleStyleSupport.workspaceBorder()),
             BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     directedTensorRtBanner.add(lblDirectedTensorRtTarget, BorderLayout.CENTER);
     directedTensorRtBanner.setVisible(false);
@@ -1567,13 +1676,14 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private static JTextArea createAccelerationStatusChip() {
-    return KataGoAccelerationLayout.statusChip(new JFontLabel().getFont(), INFO_BG, INFO_BORDER);
+    return KataGoAccelerationLayout.statusChip(
+        new JFontLabel().getFont(), INFO_BG(), INFO_BORDER());
   }
 
   private void addAccelerationStatusRow(
       JPanel panel, GridBagConstraints gbc, String title, JTextArea status) {
     JFontLabel titleLabel = new JFontLabel(title);
-    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setForeground(TEXT_PRIMARY());
     titleLabel.setVerticalAlignment(SwingConstants.TOP);
     int titleWidth = localizedRowLabelWidth(titleLabel);
     titleLabel.setPreferredSize(new Dimension(titleWidth, 32));
@@ -1591,10 +1701,12 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void addAccelerationActionBlock(
       JPanel panel, GridBagConstraints gbc, String title, String hint, JComponent actions) {
     JFontLabel titleLabel = new JFontLabel(title);
-    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setForeground(TEXT_PRIMARY());
     titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
-    JTextArea hintArea = hint == null ? null
-        : KataGoAccelerationLayout.hint(hint, new JFontLabel().getFont(), TEXT_SECONDARY);
+    JTextArea hintArea =
+        hint == null
+            ? null
+            : KataGoAccelerationLayout.hint(hint, new JFontLabel().getFont(), TEXT_SECONDARY());
     JPanel block = KataGoAccelerationLayout.actionBlock(titleLabel, hintArea, actions);
     GridBagConstraints constraints = (GridBagConstraints) gbc.clone();
     constraints.gridx = 0;
@@ -1615,7 +1727,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     JPanel heading = new JPanel(new BorderLayout(0, 7));
     heading.setOpaque(false);
     JFontLabel title = new JFontLabel(text("AutoSetup.benchmarkTitle"));
-    title.setForeground(TEXT_PRIMARY);
+    title.setForeground(TEXT_PRIMARY());
     title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 14f));
     JTextArea subtitle = createHintText(text("AutoSetup.benchmarkSubtitle"));
     subtitle.setFont(subtitle.getFont().deriveFont(subtitle.getFont().getSize2D() + 2f));
@@ -1627,7 +1739,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     content.setOpaque(false);
 
     RoundedSurfacePanel report =
-        new RoundedSurfacePanel(CARD_BG, new Color(218, 203, 177), 14, false);
+        new RoundedSurfacePanel(CARD_BG(), new Color(218, 203, 177), 14, false);
     report.setLayout(new BorderLayout(0, 10));
     report.setBorder(BorderFactory.createEmptyBorder(18, 24, 20, 24));
 
@@ -1662,7 +1774,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     benchmarkPolicyDetails.setOpaque(false);
     benchmarkPolicyDetails.setLineWrap(true);
     benchmarkPolicyDetails.setWrapStyleWord(true);
-    benchmarkPolicyDetails.setForeground(TEXT_SECONDARY);
+    benchmarkPolicyDetails.setForeground(TEXT_SECONDARY());
     report.add(benchmarkPolicyDetails, BorderLayout.SOUTH);
     content.add(report, BorderLayout.NORTH);
 
@@ -1670,10 +1782,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     explanationStack.setOpaque(false);
     JPanel explanation = new JPanel(new BorderLayout(10, 0));
     explanation.setOpaque(false);
-    JLabel explanationIcon = new JLabel(new BenchmarkInfoIcon(ACCENT_GOLD));
+    JLabel explanationIcon = new JLabel(new BenchmarkInfoIcon(ACCENT_GOLD()));
     explanationIcon.setVerticalAlignment(SwingConstants.TOP);
     JTextArea explanationText = createHintText(text("AutoSetup.benchmarkSpeedExplanation"));
-    explanationText.setForeground(TEXT_PRIMARY);
+    explanationText.setForeground(TEXT_PRIMARY());
     explanationText.setFont(
         explanationText.getFont().deriveFont(explanationText.getFont().getSize2D() + 1f));
     explanation.add(explanationIcon, BorderLayout.WEST);
@@ -1697,8 +1809,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     lower.add(explanationStack, BorderLayout.CENTER);
     JPanel performanceActions = new JPanel(new GridLayout(0, 1, 0, 8));
     performanceActions.setOpaque(false);
-    performanceActions.add(createActionBar(FlowLayout.RIGHT, btnExperimentalPerformance, btnOptimizePerformance));
-    performanceActions.add(createActionBar(FlowLayout.RIGHT, btnImportMeasuredTuning, btnRestoreMeasuredTuning));
+    performanceActions.add(
+        createActionBar(FlowLayout.RIGHT, btnExperimentalPerformance, btnOptimizePerformance));
+    performanceActions.add(
+        createActionBar(FlowLayout.RIGHT, btnImportMeasuredTuning, btnRestoreMeasuredTuning));
     lower.add(performanceActions, BorderLayout.SOUTH);
     content.add(lower, BorderLayout.CENTER);
     section.add(content, BorderLayout.CENTER);
@@ -1718,7 +1832,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     gbc.anchor = GridBagConstraints.WEST;
 
     JFontLabel titleLabel = new JFontLabel(title);
-    titleLabel.setForeground(new Color(146, 99, 27));
+    titleLabel.setForeground(WARN_COLOR());
     titleLabel.setFont(
         titleLabel.getFont().deriveFont(Font.BOLD, titleLabel.getFont().getSize2D() + 3f));
     metric.add(titleLabel, gbc);
@@ -1727,7 +1841,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     gbc.gridwidth = 1;
     gbc.weightx = 0;
     gbc.insets = new Insets(12, 0, 0, 0);
-    value.setForeground(TEXT_PRIMARY);
+    value.setForeground(TEXT_PRIMARY());
     value.setFont(value.getFont().deriveFont(Font.BOLD, value.getFont().getSize2D() + 32f));
     metric.add(value, gbc);
 
@@ -1735,7 +1849,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     gbc.weightx = 1;
     gbc.anchor = GridBagConstraints.SOUTHWEST;
     gbc.insets = new Insets(12, 8, 6, 0);
-    unit.setForeground(TEXT_PRIMARY);
+    unit.setForeground(TEXT_PRIMARY());
     unit.setFont(unit.getFont().deriveFont(unit.getFont().getSize2D() + 2f));
     metric.add(unit, gbc);
 
@@ -1745,7 +1859,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     gbc.weightx = 1;
     gbc.insets = new Insets(5, 0, 0, 0);
     gbc.anchor = GridBagConstraints.WEST;
-    technical.setForeground(TEXT_SECONDARY);
+    technical.setForeground(TEXT_SECONDARY());
     technical.setFont(technical.getFont().deriveFont(technical.getFont().getSize2D() + 1f));
     metric.add(technical, gbc);
 
@@ -1787,7 +1901,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     labelConstraints.weightx = 0;
     labelConstraints.insets = new Insets(base.gridy == 0 ? 0 : 10, 0, 0, 14);
     JFontLabel label = new JFontLabel(title);
-    label.setForeground(TEXT_PRIMARY);
+    label.setForeground(TEXT_PRIMARY());
     label.setFont(label.getFont().deriveFont(Font.BOLD, label.getFont().getSize2D() + 2f));
     panel.add(label, labelConstraints);
 
@@ -1795,7 +1909,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     valueConstraints.gridx = 1;
     valueConstraints.weightx = 1;
     valueConstraints.insets = new Insets(base.gridy == 0 ? 0 : 10, 0, 0, 0);
-    value.setForeground(TEXT_PRIMARY);
+    value.setForeground(TEXT_PRIMARY());
     value.setFont(value.getFont().deriveFont(value.getFont().getSize2D() + 2f));
     panel.add(value, valueConstraints);
     base.gridy++;
@@ -1803,21 +1917,21 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   private JPanel createFooterPanel() {
     footerPanel.setOpaque(true);
-    footerPanel.setBackground(APP_BG);
+    footerPanel.setBackground(APP_BG());
     footerPanel.setBorder(BorderFactory.createEmptyBorder(8, 28, 12, 30));
     footerPanel.setVisible(false);
 
     progressPanel.setOpaque(true);
-    progressPanel.setBackground(new Color(255, 249, 235));
+    progressPanel.setBackground(APP_BG());
     progressPanel.setBorder(
         BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(228, 194, 127)),
+            BorderFactory.createLineBorder(AppleStyleSupport.workspaceBorder()),
             BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     progressPanel.setVisible(false);
     progressTitleLabel.setText(text("AutoSetup.progressTitle"));
-    progressTitleLabel.setForeground(TEXT_PRIMARY);
+    progressTitleLabel.setForeground(TEXT_PRIMARY());
     progressTitleLabel.setFont(progressTitleLabel.getFont().deriveFont(Font.BOLD));
-    progressStatusLabel.setForeground(WARN_COLOR);
+    progressStatusLabel.setForeground(WARN_COLOR());
     progressStatusLabel.setText("");
     progressBar.setStringPainted(true);
     progressBar.setPreferredSize(new Dimension(10, 24));
@@ -1833,10 +1947,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     JPanel statusBar = new JPanel(new BorderLayout(12, 0));
     statusBar.setOpaque(false);
     lblStatus.setOpaque(true);
-    lblStatus.setBackground(CARD_BG);
+    lblStatus.setBackground(CARD_BG());
     lblStatus.setBorder(
         BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(INFO_BORDER),
+            BorderFactory.createLineBorder(INFO_BORDER()),
             BorderFactory.createEmptyBorder(7, 10, 7, 10)));
     statusBar.add(lblStatus, BorderLayout.CENTER);
     statusBar.add(createActionBar(FlowLayout.RIGHT, btnStopDownload, btnClose), BorderLayout.EAST);
@@ -1848,20 +1962,20 @@ public class KataGoAutoSetupDialog extends JDialog {
       String title, String subtitle, JComponent content, JComponent actions) {
     JPanel card = new JPanel(new BorderLayout(0, 10));
     card.setOpaque(true);
-    card.setBackground(CARD_BG);
+    card.setBackground(CARD_BG());
     card.setBorder(
         BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(224, 217, 203)),
+            BorderFactory.createLineBorder(INFO_BORDER()),
             BorderFactory.createEmptyBorder(12, 14, 12, 14)));
 
     JPanel heading = new JPanel(new BorderLayout(0, 4));
     heading.setOpaque(false);
     JFontLabel titleLabel = new JFontLabel(title);
-    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setForeground(TEXT_PRIMARY());
     titleLabel.setFont(
         titleLabel.getFont().deriveFont(Font.BOLD, titleLabel.getFont().getSize2D() + 2f));
     JFontLabel subtitleLabel = new JFontLabel(subtitle);
-    subtitleLabel.setForeground(TEXT_SECONDARY);
+    subtitleLabel.setForeground(TEXT_SECONDARY());
     heading.add(titleLabel, BorderLayout.NORTH);
     heading.add(subtitleLabel, BorderLayout.CENTER);
     card.add(heading, BorderLayout.NORTH);
@@ -1963,7 +2077,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     textArea.setOpaque(false);
     textArea.setLineWrap(true);
     textArea.setWrapStyleWord(true);
-    textArea.setForeground(TEXT_SECONDARY);
+    textArea.setForeground(TEXT_SECONDARY());
     textArea.setFont(new JFontLabel().getFont());
     textArea.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
     textArea.putClientProperty(WRAPPING_TEXT_KEY, Boolean.TRUE);
@@ -1987,7 +2101,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     labelConstraints.fill = GridBagConstraints.HORIZONTAL;
     labelConstraints.anchor = wrappingText ? GridBagConstraints.NORTHWEST : GridBagConstraints.WEST;
     JFontLabel titleLabel = new JFontLabel(title);
-    titleLabel.setForeground(TEXT_PRIMARY);
+    titleLabel.setForeground(TEXT_PRIMARY());
     titleLabel.setVerticalAlignment(wrappingText ? SwingConstants.TOP : SwingConstants.CENTER);
     int titleWidth = localizedRowLabelWidth(titleLabel);
     titleLabel.setPreferredSize(new Dimension(titleWidth, rowHeight));
@@ -2104,12 +2218,8 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void styleInfoLabel(JLabel valueLabel) {
-    valueLabel.setOpaque(true);
-    valueLabel.setBackground(INFO_BG);
-    valueLabel.setBorder(
-        BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(INFO_BORDER),
-            BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+    valueLabel.setOpaque(false);
+    valueLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
   }
 
   private void renderSnapshot() {
@@ -2182,7 +2292,7 @@ public class KataGoAutoSetupDialog extends JDialog {
               if (!isCurrentCatalogScan(requestId, catalogRefreshRequestId, source, snapshot))
                 return;
               lblStatus.setText(error.getMessage());
-              lblStatus.setForeground(ERROR_COLOR);
+              lblStatus.setForeground(ERROR_COLOR());
               // Keep unscanned model actions disabled; only retry or close is safe here.
               btnRefresh.setEnabled(true);
               btnClose.setEnabled(true);
@@ -2257,7 +2367,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     } else {
       lblEngineValidationValue.setText(text("AutoSetup.validationChecking"));
       lblEngineValidationValue.setToolTipText(null);
-      lblEngineValidationValue.setForeground(WARN_COLOR);
+      lblEngineValidationValue.setForeground(WARN_COLOR());
     }
   }
 
@@ -2266,9 +2376,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   static boolean isDiscoveredSetupActive(
-      SetupSnapshot discovered,
-      EngineManager manager,
-      Leelaz runningEngine) {
+      SetupSnapshot discovered, EngineManager manager, Leelaz runningEngine) {
     if (discovered == null
         || discovered.activeWeightPath == null
         || manager == null
@@ -2313,51 +2421,49 @@ public class KataGoAutoSetupDialog extends JDialog {
             : snapshot.discovery.packageFlavor;
     if (flavor == PackageFlavor.WITHOUT_ENGINE) {
       lblStatus.setText(text("AutoSetup.withoutEnginePackage"));
-      lblStatus.setForeground(WARN_COLOR);
+      lblStatus.setForeground(WARN_COLOR());
     } else if (flavor == PackageFlavor.CORE_UPDATE_ONLY) {
       lblStatus.setText(text("AutoSetup.coreUpdateStandalone"));
-      lblStatus.setForeground(ERROR_COLOR);
+      lblStatus.setForeground(ERROR_COLOR());
     } else if (flavor == PackageFlavor.INCOMPLETE_BUNDLE) {
       lblStatus.setText(text("AutoSetup.incompletePackage"));
-      lblStatus.setForeground(ERROR_COLOR);
+      lblStatus.setForeground(ERROR_COLOR());
     } else if (snapshot != null
         && snapshot.hasEngine()
         && snapshot.hasConfigs()
         && snapshot.hasWeight()) {
       lblStatus.setText(text("AutoSetup.ready"));
-      lblStatus.setForeground(OK_COLOR);
+      lblStatus.setForeground(OK_COLOR());
     } else if (snapshot == null || !snapshot.hasWeight()) {
       lblStatus.setText(text("AutoSetup.needWeight"));
-      lblStatus.setForeground(WARN_COLOR);
+      lblStatus.setForeground(WARN_COLOR());
     } else {
       lblStatus.setText(text("AutoSetup.needSetup"));
-      lblStatus.setForeground(ERROR_COLOR);
+      lblStatus.setForeground(ERROR_COLOR());
     }
   }
 
   private void renderCurrentWeightBanner() {
     SetupSnapshot bannerSnapshot =
-        weightSwitchDisplayState == null
-            ? snapshot
-            : weightSwitchDisplayState.bannerSnapshot();
+        weightSwitchDisplayState == null ? snapshot : weightSwitchDisplayState.bannerSnapshot();
     if (bannerSnapshot != null && bannerSnapshot.hasWeight()) {
       String displayName = formatWeightModel(bannerSnapshot);
       lblCurrentWeightName.setText(displayName);
       lblCurrentWeightName.setToolTipText(
           bannerSnapshot.activeWeightPath.toAbsolutePath().normalize().toString());
-      lblCurrentWeightName.setForeground(TEXT_PRIMARY);
+      lblCurrentWeightName.setForeground(TEXT_PRIMARY());
       if (weightSwitchDisplayState != null && weightSwitchDisplayState.isPending()) {
         lblCurrentWeightStatus.setText(text("LizzieFrame.prompt.switching"));
-        lblCurrentWeightStatus.setForeground(WARN_COLOR);
+        lblCurrentWeightStatus.setForeground(WARN_COLOR());
       } else if (weightSwitchDisplayState != null && weightSwitchDisplayState.isFailed()) {
         lblCurrentWeightStatus.setText(text("Leelaz.engineFailed"));
-        lblCurrentWeightStatus.setForeground(ERROR_COLOR);
+        lblCurrentWeightStatus.setForeground(ERROR_COLOR());
       } else if (weightSwitchDisplayState != null && !weightSwitchDisplayState.isActive()) {
         lblCurrentWeightStatus.setText(text("AutoSetup.notReady"));
-        lblCurrentWeightStatus.setForeground(WARN_COLOR);
+        lblCurrentWeightStatus.setForeground(WARN_COLOR());
       } else {
         lblCurrentWeightStatus.setText(text("AutoSetup.currentlyUsingShort"));
-        lblCurrentWeightStatus.setForeground(OK_COLOR);
+        lblCurrentWeightStatus.setForeground(OK_COLOR());
       }
       AccessibilitySupport.named(
           lblCurrentWeightName,
@@ -2367,15 +2473,15 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     lblCurrentWeightName.setText(text("AutoSetup.notFound"));
     lblCurrentWeightName.setToolTipText(null);
-    lblCurrentWeightName.setForeground(ERROR_COLOR);
+    lblCurrentWeightName.setForeground(ERROR_COLOR());
     lblCurrentWeightStatus.setText(text("AutoSetup.notReady"));
-    lblCurrentWeightStatus.setForeground(ERROR_COLOR);
+    lblCurrentWeightStatus.setForeground(ERROR_COLOR());
   }
 
   private void setInfoValue(JLabel label, boolean ok, String value) {
     label.setText(compactInfoText(value));
     label.setToolTipText(value);
-    label.setForeground(ok ? OK_COLOR : ERROR_COLOR);
+    label.setForeground(ok ? OK_COLOR() : ERROR_COLOR());
   }
 
   private String formatPath(Path path) {
@@ -2429,14 +2535,14 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (hasHumanSlModel()) {
       String path = status.modelPath.toAbsolutePath().normalize().toString();
       lblHumanSlModelValue.setToolTipText(path);
-      lblHumanSlModelValue.setForeground(TEXT_SECONDARY);
+      lblHumanSlModelValue.setForeground(TEXT_SECONDARY());
       lblHumanSlStatus.setStatus(text("AutoSetup.humanSlModelDownloaded"), StatusTagTone.SUCCESS);
       btnDownloadHumanSlModel.setText(text("AutoSetup.humanSlModelDownloaded"));
       btnDownloadHumanSlModel.setEnabled(false);
       btnDownloadHumanSlModel.setVisible(false);
     } else {
       lblHumanSlModelValue.setToolTipText(text("AutoSetup.humanSlModelMissing"));
-      lblHumanSlModelValue.setForeground(TEXT_SECONDARY);
+      lblHumanSlModelValue.setForeground(TEXT_SECONDARY());
       lblHumanSlStatus.setStatus(text("AutoSetup.notDownloaded"), StatusTagTone.GOLD);
       btnDownloadHumanSlModel.setText(text("AutoSetup.downloadOnDemand"));
       btnDownloadHumanSlModel.setVisible(true);
@@ -2453,7 +2559,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     boolean configured =
         Lizzie.config != null && Lizzie.config.quickAnalysisLightweightModelEnabled;
     lblQuickAnalysisModelValue.setText(text("AutoSetup.quickAnalysisModelDescription"));
-    lblQuickAnalysisModelValue.setForeground(TEXT_SECONDARY);
+    lblQuickAnalysisModelValue.setForeground(TEXT_SECONDARY());
     lblQuickAnalysisModelValue.setToolTipText(
         hasQuickAnalysisModel()
             ? status.modelPath.toAbsolutePath().normalize().toString()
@@ -2644,7 +2750,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                                 text("AutoSetup.analysisConfigRepaired")
                                     + " · "
                                     + repaired.getFileName());
-                            lblStatus.setForeground(OK_COLOR);
+                            lblStatus.setForeground(OK_COLOR());
                           });
                     });
               } catch (IOException e) {
@@ -2691,7 +2797,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void showLocalSetupError(Exception error) {
     String detail = error == null || error.getMessage() == null ? "" : error.getMessage().trim();
     lblStatus.setText(detail.isEmpty() ? text("AutoSetup.failed") : detail);
-    lblStatus.setForeground(ERROR_COLOR);
+    lblStatus.setForeground(ERROR_COLOR());
     JOptionPane.showMessageDialog(
         this,
         detail.isEmpty() ? text("AutoSetup.failed") : detail,
@@ -2713,8 +2819,7 @@ public class KataGoAutoSetupDialog extends JDialog {
             () -> {
               EngineValidationResult result =
                   KataGoAutoSetupHelper.validateDiscoveredEngine(
-                      enginePath,
-                      KataGoRuntimeHelper.isNvidiaBundledPath(enginePath) ? 20L : 8L);
+                      enginePath, KataGoRuntimeHelper.isNvidiaBundledPath(enginePath) ? 20L : 8L);
               SwingUtilities.invokeLater(
                   () -> {
                     if (requestId != engineValidationRequestId
@@ -2764,11 +2869,11 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     lblEngineValidationValue.setText(value);
     lblEngineValidationValue.setToolTipText(Utils.isBlank(result.detail) ? value : result.detail);
-    lblEngineValidationValue.setForeground(result.isValid() ? OK_COLOR : ERROR_COLOR);
+    lblEngineValidationValue.setForeground(result.isValid() ? OK_COLOR() : ERROR_COLOR());
     if (!result.isValid()) {
       lblStatus.setText(value);
       lblStatus.setToolTipText(result.detail);
-      lblStatus.setForeground(ERROR_COLOR);
+      lblStatus.setForeground(ERROR_COLOR());
     }
   }
 
@@ -2776,9 +2881,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     KataGoRuntimeHelper.NvidiaRuntimeStatus status =
         snapshot == null ? null : KataGoRuntimeHelper.inspectNvidiaRuntime(snapshot);
     if (status == null || !status.applicable) {
-      KataGoAccelerationLayout.setStatusText(lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntimeNotApplicable"));
+      KataGoAccelerationLayout.setStatusText(
+          lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntimeNotApplicable"));
       lblNvidiaRuntimeValue.setToolTipText(null);
-      lblNvidiaRuntimeValue.setForeground(Color.DARK_GRAY);
+      lblNvidiaRuntimeValue.setForeground(TEXT_SECONDARY());
       AccessibilitySupport.named(
           lblNvidiaRuntimeValue,
           text("AutoSetup.nvidiaRuntime"),
@@ -2789,7 +2895,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     KataGoAccelerationLayout.setStatusText(lblNvidiaRuntimeValue, status.detailText);
     lblNvidiaRuntimeValue.setToolTipText(status.detailText);
-    lblNvidiaRuntimeValue.setForeground(status.ready ? OK_COLOR : WARN_COLOR);
+    lblNvidiaRuntimeValue.setForeground(status.ready ? OK_COLOR() : WARN_COLOR());
     AccessibilitySupport.named(
         lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntime"), status.detailText);
     btnInstallNvidiaRuntime.setEnabled(activeDownloadSession == null && !status.ready);
@@ -2807,8 +2913,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       return KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
     }
     try {
-      return KataGoRuntimeHelper.inspectTensorRtInstall(
-          snapshot, nvidiaGpuDetection, context);
+      return KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection, context);
     } catch (TensorRtTargetInvalidException e) {
       tensorRtRepairSession.clear();
       updateDirectedTargetBanner();
@@ -2828,11 +2933,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     btnSwitchBackCuda.setToolTipText(
         status == null ? null : text("AutoSetup.switchBackCudaTooltip"));
     btnSwitchBackCuda.setEnabled(
-        idle
-            && status != null
-            && status.applicable
-            && status.active
-            && canSwitchBackToCuda());
+        idle && status != null && status.applicable && status.active && canSwitchBackToCuda());
     updateTensorRtCacheButton();
   }
 
@@ -2840,7 +2941,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       KataGoRuntimeHelper.TensorRtInstallStatus status, TensorRtAccelerationView view) {
     Color gpuColor =
         nvidiaGpuDetectionRunning
-            ? TEXT_SECONDARY
+            ? TEXT_SECONDARY()
             : tensorRtGpuStatusColor(
                 status == null
                     ? NvidiaGpuDetector.TensorRtRecommendation.UNKNOWN
@@ -2880,10 +2981,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     btnEnableTensorRt.setText(text("AutoSetup.enableTensorRt"));
     btnEnableTensorRt.setToolTipText(activationTooltip);
     btnEnableTensorRt.setEnabled(view.enableEnabled);
-    AccessibilitySupport.named(
-        lblNvidiaGpuValue,
-        text(view.gpuAccessibleNameKey),
-        gpuTooltip);
+    AccessibilitySupport.named(lblNvidiaGpuValue, text(view.gpuAccessibleNameKey), gpuTooltip);
     AccessibilitySupport.named(
         lblTensorRtRuntimeValue,
         text(view.runtimeAccessibleNameKey),
@@ -2915,13 +3013,13 @@ public class KataGoAutoSetupDialog extends JDialog {
         || TensorRtAccelerationView.COMPANION_READY_KEY.equals(statusKey)
         || TensorRtAccelerationView.ENGINE_READY_KEY.equals(statusKey)
         || TensorRtAccelerationView.PROFILE_ACTIVE_KEY.equals(statusKey)) {
-      return OK_COLOR;
+      return OK_COLOR();
     }
     if (TensorRtAccelerationView.NOT_APPLICABLE_KEY.equals(statusKey)
         || TensorRtAccelerationView.NOT_FOUND_KEY.equals(statusKey)) {
-      return Color.DARK_GRAY;
+      return TEXT_SECONDARY();
     }
-    return WARN_COLOR;
+    return WARN_COLOR();
   }
 
   private String formatTensorRtEnableTooltip(TensorRtAccelerationView view) {
@@ -2950,8 +3048,7 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   static JTextArea createTensorRtRepairSummaryText(String summary) {
     String message = summary == null ? "" : summary;
-    JTextArea textArea =
-        new JTextArea(message, TENSORRT_SUMMARY_ROWS, TENSORRT_SUMMARY_COLUMNS);
+    JTextArea textArea = new JTextArea(message, TENSORRT_SUMMARY_ROWS, TENSORRT_SUMMARY_COLUMNS);
     textArea.setEditable(false);
     textArea.setLineWrap(true);
     textArea.setWrapStyleWord(true);
@@ -2989,7 +3086,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     Backend backend = (Backend) cmbExperimentalBackend.getSelectedItem();
     if (backend == null || snapshot == null) {
       String missing = text("AutoSetup.notFound");
-      setTensorRtLabel(lblExperimentalBackendValue, missing, ERROR_COLOR, missing);
+      setTensorRtLabel(lblExperimentalBackendValue, missing, ERROR_COLOR(), missing);
       btnInstallExperimentalBackend.setEnabled(false);
       return;
     }
@@ -3003,7 +3100,10 @@ public class KataGoAutoSetupDialog extends JDialog {
                 : text("AutoSetup.experimentalBackendNotInstalled");
     String visible = backend.displayName() + " · " + state;
     setTensorRtLabel(
-        lblExperimentalBackendValue, visible, status.installed() ? OK_COLOR : ERROR_COLOR, visible);
+        lblExperimentalBackendValue,
+        visible,
+        status.installed() ? OK_COLOR() : ERROR_COLOR(),
+        visible);
     btnInstallExperimentalBackend.setText(
         status.installed()
             ? text("AutoSetup.enableExperimentalBackend")
@@ -3088,15 +3188,15 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   private Color tensorRtGpuStatusColor(NvidiaGpuDetector.TensorRtRecommendation recommendation) {
     if (recommendation == NvidiaGpuDetector.TensorRtRecommendation.RECOMMENDED) {
-      return OK_COLOR;
+      return OK_COLOR();
     }
     if (recommendation == NvidiaGpuDetector.TensorRtRecommendation.ALLOWED) {
-      return WARN_COLOR;
+      return WARN_COLOR();
     }
     if (recommendation == NvidiaGpuDetector.TensorRtRecommendation.NOT_RECOMMENDED) {
-      return ERROR_COLOR;
+      return ERROR_COLOR();
     }
-    return Color.DARK_GRAY;
+    return TEXT_SECONDARY();
   }
 
   private void updateBenchmarkInfo() {
@@ -3240,7 +3340,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     btnImportMeasuredTuning.setEnabled(enabled);
     btnRestoreMeasuredTuning.setEnabled(
         enabled && featurecat.lizzie.util.MeasuredKataGoTuning.hasProfile(entryId));
-    String hint = entryId.isBlank() ? text("MeasuredTuning.selectEntry") : text("MeasuredTuning.hint");
+    String hint =
+        entryId.isBlank() ? text("MeasuredTuning.selectEntry") : text("MeasuredTuning.hint");
     btnImportMeasuredTuning.setToolTipText(hint);
     btnRestoreMeasuredTuning.setToolTipText(hint);
   }
@@ -3341,7 +3442,7 @@ public class KataGoAutoSetupDialog extends JDialog {
         available ? formatBenchmarkSpeed(speed, Locale.getDefault()) : benchmarkMissingValue());
     unit.setText(available ? text("AutoSetup.benchmarkPerSecond") : "");
     technical.setText(available ? technicalName : text("AutoSetup.benchmarkMetricUnavailable"));
-    technical.setForeground(available ? TEXT_SECONDARY : WARN_COLOR);
+    technical.setForeground(available ? TEXT_SECONDARY() : WARN_COLOR());
   }
 
   static String formatBenchmarkSpeed(double speed, Locale locale) {
@@ -3382,18 +3483,18 @@ public class KataGoAutoSetupDialog extends JDialog {
   private Color benchmarkStatusColor(BenchmarkDisplayState displayState) {
     switch (displayState) {
       case COMPLETE:
-        return OK_COLOR;
+        return OK_COLOR();
       case FAILED:
       case UNAVAILABLE:
-        return ERROR_COLOR;
+        return ERROR_COLOR();
       case LEGACY:
       case RUNNING:
       case CANCELLED:
-        return WARN_COLOR;
+        return WARN_COLOR();
       case EMPTY:
       case IDLE:
       default:
-        return TEXT_SECONDARY;
+        return TEXT_SECONDARY();
     }
   }
 
@@ -3421,7 +3522,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                         updateSelectedWeightInfo();
                         lblStatus.setText(text("AutoSetup.remoteRefreshFailedCached"));
                         lblStatus.setToolTipText(e.getMessage());
-                        lblStatus.setForeground(WARN_COLOR);
+                        lblStatus.setForeground(WARN_COLOR());
                       }
                       btnReloadRemoteWeights.setEnabled(!hasActiveBackgroundTask());
                       btnStopDownload.setEnabled(false);
@@ -3587,7 +3688,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                 finishWeightSwitchWait(
                     source,
                     text("AutoSetup.weightSwitchEngineChanged"),
-                    ERROR_COLOR,
+                    ERROR_COLOR(),
                     weightSwitchToken);
                 return;
               }
@@ -3595,8 +3696,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                 source.stop();
                 pendingWeightSwitchTimer = null;
                 if (isPendingWeightSwitch(weightSwitchToken)) {
-                  startWeightEngineSetup(
-                      requestedSnapshot, resumeQuickAnalysis, weightSwitchToken);
+                  startWeightEngineSetup(requestedSnapshot, resumeQuickAnalysis, weightSwitchToken);
                 }
                 return;
               }
@@ -3604,7 +3704,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                 finishWeightSwitchWait(
                     source,
                     text("AutoSetup.weightSwitchWaitTimeout"),
-                    ERROR_COLOR,
+                    ERROR_COLOR(),
                     weightSwitchToken);
               }
             });
@@ -3620,8 +3720,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (pendingWeightSwitchTimer == timer) {
       pendingWeightSwitchTimer = null;
     }
-    failWeightSwitchDisplay(
-        weightSwitchToken, KataGoAutoSetupHelper.inspectLocalSetup());
+    failWeightSwitchDisplay(weightSwitchToken, KataGoAutoSetupHelper.inspectLocalSetup());
     setBusy(false, message, 0, 0);
     lblStatus.setText(message);
     lblStatus.setForeground(statusColor);
@@ -3632,7 +3731,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void showWeightSwitchBlocked(String message) {
     lblStatus.setText(message);
     lblStatus.setToolTipText(message);
-    lblStatus.setForeground(WARN_COLOR);
+    lblStatus.setForeground(WARN_COLOR());
     AccessibilitySupport.announce(lblStatus, "", message);
   }
 
@@ -3671,7 +3770,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                       lblStatus.setText(text("AutoSetup.importReadyToUse"));
                       lblStatus.setToolTipText(
                           importedWeight.toAbsolutePath().normalize().toString());
-                      lblStatus.setForeground(OK_COLOR);
+                      lblStatus.setForeground(OK_COLOR());
                     });
               } catch (IOException e) {
                 SwingUtilities.invokeLater(
@@ -3852,7 +3951,7 @@ public class KataGoAutoSetupDialog extends JDialog {
           quickAnalysisModelRequiresKataGo117()
               ? text("AutoSetup.quickAnalysisModelRequires117")
               : text("AutoSetup.quickAnalysisModelEngineUnavailable"));
-      lblStatus.setForeground(WARN_COLOR);
+      lblStatus.setForeground(WARN_COLOR());
       return;
     }
     try {
@@ -3861,7 +3960,7 @@ public class KataGoAutoSetupDialog extends JDialog {
           enabled
               ? text("AutoSetup.quickAnalysisModelEnabledMessage")
               : text("AutoSetup.quickAnalysisModelDisabledMessage"));
-      lblStatus.setForeground(enabled ? OK_COLOR : TEXT_SECONDARY);
+      lblStatus.setForeground(enabled ? OK_COLOR() : TEXT_SECONDARY());
       renderQuickAnalysisModel();
       refreshAutomaticQuickAnalysisModelSelection();
     } catch (IOException e) {
@@ -3918,7 +4017,7 @@ public class KataGoAutoSetupDialog extends JDialog {
                       lblStatus.setText(text("AutoSetup.downloadReadyToUse"));
                       lblStatus.setToolTipText(
                           downloadedWeight.toAbsolutePath().normalize().toString());
-                      lblStatus.setForeground(OK_COLOR);
+                      lblStatus.setForeground(OK_COLOR());
                     });
               } catch (DownloadCancelledException e) {
                 SwingUtilities.invokeLater(() -> onDownloadCancelled());
@@ -3981,7 +4080,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     if (!canRepairTensorRt()) {
       lblStatus.setText(status.detailText);
-      lblStatus.setForeground(status.hardwareEligible ? OK_COLOR : WARN_COLOR);
+      lblStatus.setForeground(status.hardwareEligible ? OK_COLOR() : WARN_COLOR());
       updateTensorRtInfo();
       return;
     }
@@ -4151,7 +4250,7 @@ public class KataGoAutoSetupDialog extends JDialog {
         KataGoRuntimeHelper.inspectTensorRtInstall(snapshot);
     if (!status.active) {
       lblStatus.setText(text("AutoSetup.cudaAlreadyActive"));
-      lblStatus.setForeground(OK_COLOR);
+      lblStatus.setForeground(OK_COLOR());
       updateTensorRtInfo();
       return;
     }
@@ -4172,7 +4271,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     long cacheBytes = KataGoRuntimeHelper.tensorRtDownloadCacheBytes();
     if (cacheBytes <= 0L) {
       lblStatus.setText(text("AutoSetup.cleanTensorRtCacheEmpty"));
-      lblStatus.setForeground(OK_COLOR);
+      lblStatus.setForeground(OK_COLOR());
       updateTensorRtInfo();
       return;
     }
@@ -4191,7 +4290,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       String message =
           String.format(text("AutoSetup.cleanTensorRtCacheDone"), formatSize(freedBytes));
       lblStatus.setText(message);
-      lblStatus.setForeground(OK_COLOR);
+      lblStatus.setForeground(OK_COLOR());
       updateTensorRtInfo();
       Utils.showMsg(message, this);
     } catch (IOException e) {
@@ -4391,7 +4490,8 @@ public class KataGoAutoSetupDialog extends JDialog {
                           weightSwitchToken, KataGoAutoSetupHelper.inspectLocalSetup());
                       onBackgroundError(
                           e instanceof WeightPreflightException
-                              ? new IOException(text(((WeightPreflightException) e).check.messageKey))
+                              ? new IOException(
+                                  text(((WeightPreflightException) e).check.messageKey))
                               : e);
                       resumeQuickAnalysisAfterWeightSwitchIfNeeded();
                     });
@@ -4480,12 +4580,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       boolean includeWeightPathInPopup,
       boolean resumeQuickAnalysis) {
     onSetupApplied(
-        result,
-        message,
-        showSuccessPopup,
-        includeWeightPathInPopup,
-        resumeQuickAnalysis,
-        0L);
+        result, message, showSuccessPopup, includeWeightPathInPopup, resumeQuickAnalysis, 0L);
   }
 
   private void onSetupApplied(
@@ -4496,8 +4591,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       boolean resumeQuickAnalysis,
       long requestedWeightSwitchToken) {
     pendingWeightSwitchShouldResumeQuickAnalysis |= resumeQuickAnalysis;
-    long weightSwitchToken =
-        publishAcceptedWeightSwitch(result, requestedWeightSwitchToken);
+    long weightSwitchToken = publishAcceptedWeightSwitch(result, requestedWeightSwitchToken);
     EngineManager expectedManager = Lizzie.engineManager;
     dispatchRunningEngineReload(
         result,
@@ -4609,12 +4703,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       return;
     }
     finishSetupApplied(
-        result,
-        message,
-        null,
-        showSuccessPopup,
-        includeWeightPathInPopup,
-        weightSwitchToken);
+        result, message, null, showSuccessPopup, includeWeightPathInPopup, weightSwitchToken);
   }
 
   private long publishAcceptedWeightSwitch(SetupResult result, long requestedToken) {
@@ -4740,7 +4829,7 @@ public class KataGoAutoSetupDialog extends JDialog {
           updateSelectedRemoteWeightInfo();
           if (succeeded) {
             lblStatus.setText(message);
-            lblStatus.setForeground(OK_COLOR);
+            lblStatus.setForeground(OK_COLOR());
             if (showSuccessPopup) {
               Utils.showMsg(
                   includeWeightPathInPopup
@@ -4750,7 +4839,7 @@ public class KataGoAutoSetupDialog extends JDialog {
             }
           } else {
             lblStatus.setText(reloadWarning);
-            lblStatus.setForeground(ERROR_COLOR);
+            lblStatus.setForeground(ERROR_COLOR());
             if (showSuccessPopup || includeWeightPathInPopup) {
               Utils.showMsg(
                   message
@@ -4836,8 +4925,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
   }
 
-  private EngineReloadOutcome reloadRunningEngine(
-      int engineIndex, EngineManager expectedManager) {
+  private EngineReloadOutcome reloadRunningEngine(int engineIndex, EngineManager expectedManager) {
     if (!isCurrentEngineManager(expectedManager)) {
       return EngineReloadOutcome.failed(text("AutoSetup.weightSwitchRetry"));
     }
@@ -4848,8 +4936,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       if (!isCurrentEngineManager(expectedManager)) {
         return EngineReloadOutcome.failed(text("AutoSetup.weightSwitchRetry"));
       }
-      if (engineIndex >= 0
-          && !expectedManager.isEngineSwitchActive(engineIndex, true)) {
+      if (engineIndex >= 0 && !expectedManager.isEngineSwitchActive(engineIndex, true)) {
         java.util.Optional<EngineManager.EngineSwitchUiSnapshot> submitted =
             expectedManager.switchEngineTrackedIfAvailable(engineIndex, true);
         if (!isCurrentEngineManager(expectedManager)) {
@@ -4873,8 +4960,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       }
       return EngineReloadOutcome.ready(expectedManager);
     } catch (Exception e) {
-      return EngineReloadOutcome.failed(
-          text("AutoSetup.reloadFailed") + "\n" + e.getMessage());
+      return EngineReloadOutcome.failed(text("AutoSetup.reloadFailed") + "\n" + e.getMessage());
     }
   }
 
@@ -4884,7 +4970,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     String detail = e == null || e.getMessage() == null ? "" : e.getMessage();
     String message = text("AutoSetup.failed") + "\n" + detail;
     lblStatus.setText(detail.trim().isEmpty() ? text("AutoSetup.failed") : detail);
-    lblStatus.setForeground(ERROR_COLOR);
+    lblStatus.setForeground(ERROR_COLOR());
     if (shouldShowBackgroundErrorPopup(detail)) {
       Utils.showMsg(message, this);
     }
@@ -4894,7 +4980,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     setBusy(false, text("AutoSetup.downloadCancelled"), 0, 0);
     renderSnapshot();
     lblStatus.setText(text("AutoSetup.downloadCancelled"));
-    lblStatus.setForeground(WARN_COLOR);
+    lblStatus.setForeground(WARN_COLOR());
     footerPanel.setVisible(true);
     footerPanel.revalidate();
     footerPanel.repaint();
@@ -4906,7 +4992,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     setBusy(false, text("AutoSetup.benchmarkCancelled"), 0, 0);
     renderSnapshot();
     lblStatus.setText(text("AutoSetup.benchmarkCancelled"));
-    lblStatus.setForeground(WARN_COLOR);
+    lblStatus.setForeground(WARN_COLOR());
   }
 
   private void onBenchmarkFailed(IOException error) {
@@ -4959,16 +5045,15 @@ public class KataGoAutoSetupDialog extends JDialog {
     setVisible(false);
   }
 
-
   private void setBusy(boolean busy, String statusText, long downloadedBytes, long totalBytes) {
     String previousStatus = progressStatusLabel.getText();
     if (statusText == null || statusText.trim().isEmpty()) {
       statusText = busy ? text("AutoSetup.benchmarking") : "";
     }
     lblStatus.setText(statusText);
-    lblStatus.setForeground(busy ? WARN_COLOR : Color.DARK_GRAY);
+    lblStatus.setForeground(busy ? WARN_COLOR() : TEXT_SECONDARY());
     progressStatusLabel.setText(statusText);
-    progressStatusLabel.setForeground(busy ? WARN_COLOR : Color.DARK_GRAY);
+    progressStatusLabel.setForeground(busy ? WARN_COLOR() : TEXT_SECONDARY());
     btnRefresh.setEnabled(!busy);
     btnChooseLocalEngine.setEnabled(!busy);
     btnRepairAnalysisConfig.setEnabled(!busy);
@@ -5145,7 +5230,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void showBackgroundTaskAlreadyRunningNotice() {
     String message = text("AutoSetup.taskAlreadyRunning");
     lblStatus.setText(message);
-    lblStatus.setForeground(WARN_COLOR);
+    lblStatus.setForeground(WARN_COLOR());
   }
 
   private boolean shouldShowBackgroundErrorPopup(String detail) {
@@ -5216,8 +5301,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     return validation == null
         || !validation.hasKnownVersion()
-        || validation.isVersionAtLeast(
-            KataGoAutoSetupHelper.TRANSFORMER_MINIMUM_KATAGO_VERSION);
+        || validation.isVersionAtLeast(KataGoAutoSetupHelper.TRANSFORMER_MINIMUM_KATAGO_VERSION);
   }
 
   private boolean requiresKataGo117(Path weightPath) {
@@ -5252,8 +5336,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private boolean isPendingLocalWeight(Path weightPath) {
-    return weightSwitchDisplayState != null
-        && weightSwitchDisplayState.isPendingWeight(weightPath);
+    return weightSwitchDisplayState != null && weightSwitchDisplayState.isPendingWeight(weightPath);
   }
 
   private void updateSelectedLocalWeightInfo() {
@@ -5304,10 +5387,10 @@ public class KataGoAutoSetupDialog extends JDialog {
           pending
               ? text("LizzieFrame.prompt.switching")
               : current
-              ? text("AutoSetup.currentlyUsingShort")
-              : requiresUpgrade
-                  ? text("AutoSetup.transformerRequires117Short")
-                  : text("AutoSetup.useWeight"));
+                  ? text("AutoSetup.currentlyUsingShort")
+                  : requiresUpgrade
+                      ? text("AutoSetup.transformerRequires117Short")
+                      : text("AutoSetup.useWeight"));
       btnUseWeight.setToolTipText(
           requiresUpgrade ? text("AutoSetup.transformerRequires117") : null);
       btnUseWeight.setEnabled(downloaded && !pending && !current && canUseSelectedLocalWeight());
@@ -5328,10 +5411,10 @@ public class KataGoAutoSetupDialog extends JDialog {
           pending
               ? text("LizzieFrame.prompt.switching")
               : current
-              ? text("AutoSetup.currentlyUsingShort")
-              : requiresUpgrade
-                  ? text("AutoSetup.transformerRequires117Short")
-                  : text("AutoSetup.useWeight"));
+                  ? text("AutoSetup.currentlyUsingShort")
+                  : requiresUpgrade
+                      ? text("AutoSetup.transformerRequires117Short")
+                      : text("AutoSetup.useWeight"));
       btnUseWeight.setToolTipText(
           requiresUpgrade ? text("AutoSetup.transformerRequires117") : null);
       btnUseWeight.setEnabled(!pending && !current && canUseSelectedLocalWeight());
@@ -5947,9 +6030,7 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   private boolean matchesCurrentWeight(RemoteWeightInfo info) {
     SetupSnapshot committed =
-        weightSwitchDisplayState == null
-            ? snapshot
-            : weightSwitchDisplayState.committedSnapshot();
+        weightSwitchDisplayState == null ? snapshot : weightSwitchDisplayState.committedSnapshot();
     return matchesModelName(info, catalogModelName(committed));
   }
 
@@ -6181,8 +6262,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       return new WeightSwitchDisplayState(
           token + 1L,
           WeightSwitchDisplayPhase.ACCEPTED,
-          phase == WeightSwitchDisplayPhase.SUCCEEDED
-                  || phase == WeightSwitchDisplayPhase.ACCEPTED
+          phase == WeightSwitchDisplayPhase.SUCCEEDED || phase == WeightSwitchDisplayPhase.ACCEPTED
               ? committedSnapshot
               : null,
           requestedSnapshot,
@@ -6443,7 +6523,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       gbc.fill = GridBagConstraints.HORIZONTAL;
       add(iconRow, gbc);
 
-      title.setForeground(TEXT_PRIMARY);
+      title.setForeground(TEXT_PRIMARY());
       title.setHorizontalAlignment(SwingConstants.CENTER);
       title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 2f));
       gbc.gridy++;
@@ -6455,7 +6535,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       description.setLineWrap(true);
       description.setWrapStyleWord(true);
       description.setOpaque(false);
-      description.setForeground(TEXT_SECONDARY);
+      description.setForeground(TEXT_SECONDARY());
       description.setFont(title.getFont().deriveFont(Font.PLAIN, title.getFont().getSize2D() - 3f));
       description.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 2));
       description.setRows(2);
@@ -6474,9 +6554,9 @@ public class KataGoAutoSetupDialog extends JDialog {
       gbc.insets = new Insets(0, 0, 4, 0);
       add(separator, gbc);
 
-      model.setForeground(TEXT_PRIMARY);
+      model.setForeground(TEXT_PRIMARY());
       model.setFont(model.getFont().deriveFont(Font.BOLD));
-      metadata.setForeground(TEXT_SECONDARY);
+      metadata.setForeground(TEXT_SECONDARY());
       metadata.setFont(metadata.getFont().deriveFont(metadata.getFont().getSize2D() - 1f));
       JPanel labels = new JPanel(new BorderLayout(0, 1));
       labels.setOpaque(false);
@@ -6604,7 +6684,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       try {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         boolean hover = actionButton != null && actionButton.getModel().isRollover();
-        Color fill = hover ? blendColor(CARD_BG, tone.wash, 0.24f) : CARD_BG;
+        Color fill = hover ? blendColor(CARD_BG(), tone.wash, 0.24f) : CARD_BG();
         g2.setColor(new Color(72, 56, 32, hover ? 23 : 16));
         g2.fillRoundRect(2, 3, getWidth() - 4, getHeight() - 4, 16, 16);
         g2.setColor(fill);
@@ -6851,7 +6931,7 @@ public class KataGoAutoSetupDialog extends JDialog {
         boolean cellHasFocus) {
       selected = isSelected;
       focused = cellHasFocus;
-      Color primary = isSelected ? new Color(18, 80, 75) : TEXT_PRIMARY;
+      Color primary = TEXT_PRIMARY();
       RemoteWeightInfo remote = value == null ? null : value.remoteInfo;
       Path local = value == null ? null : value.localPath;
       family.setFamily(
@@ -6890,7 +6970,7 @@ public class KataGoAutoSetupDialog extends JDialog {
         status.setToolTipText(
             remote == null ? text("AutoSetup.importedWeight") : text("AutoSetup.downloaded"));
       }
-      Color secondary = isSelected ? new Color(29, 108, 89) : new Color(88, 91, 86);
+      Color secondary = TEXT_SECONDARY();
       elo.setForeground(secondary);
       date.setForeground(secondary);
       String tooltip =
@@ -6916,13 +6996,13 @@ public class KataGoAutoSetupDialog extends JDialog {
     protected void paintComponent(Graphics graphics) {
       Graphics2D g2 = (Graphics2D) graphics.create();
       try {
-        g2.setColor(selected ? new Color(230, 244, 239) : new Color(255, 254, 250));
+        g2.setColor(selected ? AppleStyleSupport.workspaceSelection() : CARD_BG());
         g2.fillRect(0, 0, getWidth(), getHeight());
         if (selected) {
-          g2.setColor(ACCENT_TEAL);
+          g2.setColor(ACCENT_TEAL());
           g2.fillRoundRect(0, 2, 5, Math.max(1, getHeight() - 4), 5, 5);
         }
-        g2.setColor(new Color(231, 227, 218));
+        g2.setColor(AppleStyleSupport.workspaceBorder());
         g2.drawLine(10, getHeight() - 1, getWidth() - 10, getHeight() - 1);
         if (focused) {
           g2.setColor(new Color(49, 125, 116, 145));
@@ -7151,14 +7231,18 @@ public class KataGoAutoSetupDialog extends JDialog {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         boolean selected = button.isSelected();
         boolean hover = button.isEnabled() && button.getModel().isRollover();
-        Color fill =
-            selected ? ACCENT_TEAL : hover ? new Color(247, 244, 236) : new Color(251, 249, 244);
-        Color border = selected ? ACCENT_TEAL : new Color(218, 211, 198);
+        Color fill = selected || hover ? AppleStyleSupport.workspaceSelection() : CARD_BG();
+        Color border = selected ? ACCENT_TEAL() : INFO_BORDER();
         g2.setColor(fill);
         g2.fillRoundRect(0, 0, component.getWidth(), component.getHeight(), 9, 9);
         g2.setColor(border);
         g2.drawRoundRect(0, 0, component.getWidth() - 1, component.getHeight() - 1, 9, 9);
-        button.setForeground(selected ? Color.WHITE : TEXT_SECONDARY);
+        button.setForeground(selected ? ACCENT_TEAL() : TEXT_SECONDARY());
+        if (button.hasFocus()) {
+          g2.setColor(ACCENT_TEAL());
+          g2.setStroke(new BasicStroke(2f));
+          g2.drawRoundRect(3, 3, component.getWidth() - 7, component.getHeight() - 7, 8, 8);
+        }
       } finally {
         g2.dispose();
       }
@@ -7170,7 +7254,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     @Override
     protected void configureScrollBarColors() {
       thumbColor = new Color(159, 156, 148);
-      trackColor = new Color(245, 242, 235);
+      trackColor = CARD_BG();
     }
 
     @Override
@@ -7296,14 +7380,17 @@ public class KataGoAutoSetupDialog extends JDialog {
           fill = new Color(232, 228, 218);
           border = new Color(218, 212, 200);
         } else if (style == WeightButtonStyle.PRIMARY) {
-          fill = pressed ? new Color(7, 79, 74) : hover ? ACCENT_TEAL_HOVER : ACCENT_TEAL;
+          fill =
+              pressed
+                  ? new Color(7, 79, 74)
+                  : hover ? new Color(12, 98, 92) : HumanSlTrainingStyle.ACCENT;
           border = fill.darker();
         } else if (style == WeightButtonStyle.GOLD) {
-          fill = pressed ? new Color(165, 109, 20) : hover ? new Color(207, 151, 47) : ACCENT_GOLD;
-          border = new Color(164, 108, 22);
+          fill = pressed ? new Color(7, 79, 74) : HumanSlTrainingStyle.ACCENT;
+          border = fill.darker();
         } else {
-          fill = hover ? new Color(255, 249, 237) : new Color(255, 253, 248);
-          border = hover ? ACCENT_GOLD : new Color(213, 179, 119);
+          fill = hover ? AppleStyleSupport.workspaceSelection() : CARD_BG();
+          border = hover ? ACCENT_TEAL() : INFO_BORDER();
         }
         int arc = style == WeightButtonStyle.ICON ? 11 : 13;
         g2.setColor(fill);
@@ -7331,8 +7418,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     private RoundedSurfacePanel(Color surface, Color outline, int arc, boolean shadow) {
       this.surface = surface;
       this.outline = outline;
-      this.arc = arc;
-      this.shadow = shadow;
+      this.arc = Math.min(12, arc);
+      this.shadow = false;
       setOpaque(false);
     }
 
@@ -7363,7 +7450,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private static final class StatusPillLabel extends JFontLabel {
-    private Color tone = OK_COLOR;
+    private Color tone = OK_COLOR();
 
     private StatusPillLabel() {
       setOpaque(false);
@@ -7371,17 +7458,17 @@ public class KataGoAutoSetupDialog extends JDialog {
 
     @Override
     public void setForeground(Color color) {
-      tone = color == null ? OK_COLOR : color;
-      super.setForeground(OK_COLOR.equals(tone) ? Color.WHITE : ERROR_COLOR);
+      tone = color == null ? OK_COLOR() : color;
+      super.setForeground(OK_COLOR().equals(tone) ? Color.WHITE : ERROR_COLOR());
     }
 
     @Override
     protected void paintComponent(Graphics graphics) {
-      boolean ready = OK_COLOR.equals(tone);
+      boolean ready = OK_COLOR().equals(tone);
       Graphics2D g2 = (Graphics2D) graphics.create();
       try {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(ready ? ACCENT_TEAL : new Color(253, 239, 235));
+        g2.setColor(ready ? HumanSlTrainingStyle.ACCENT : CARD_BG());
         g2.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
         if (!ready) {
           g2.setColor(new Color(224, 173, 162));
@@ -7404,21 +7491,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     protected void paintComponent(Graphics graphics) {
       Graphics2D g2 = (Graphics2D) graphics.create();
       try {
-        g2.setPaint(
-            new GradientPaint(
-                0, 0, new Color(250, 247, 240), getWidth(), getHeight(), new Color(246, 242, 233)));
+        g2.setColor(APP_BG());
         g2.fillRect(0, 0, getWidth(), getHeight());
-        g2.setColor(new Color(178, 139, 76, 8));
-        for (int x = 24; x < getWidth(); x += 48) {
-          g2.drawLine(x, 0, x, getHeight());
-        }
-        for (int y = 24; y < getHeight(); y += 48) {
-          g2.drawLine(0, y, getWidth(), y);
-        }
-        g2.setColor(new Color(195, 158, 92, 14));
-        g2.setStroke(new BasicStroke(1.2f));
-        g2.drawArc(getWidth() - 320, -180, 420, 420, 202, 118);
-        g2.drawArc(getWidth() - 250, -130, 310, 310, 195, 125);
       } finally {
         g2.dispose();
       }
@@ -7437,32 +7511,10 @@ public class KataGoAutoSetupDialog extends JDialog {
       Graphics2D g2 = (Graphics2D) graphics.create();
       try {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setPaint(
-            new GradientPaint(0, 0, new Color(6, 67, 63), 0, getHeight(), new Color(2, 45, 45)));
+        g2.setColor(SIDEBAR_BG());
         g2.fillRect(0, 0, getWidth(), getHeight());
-        int startY = Math.max(300, getHeight() - 190);
-        g2.setColor(new Color(203, 170, 101, 24));
-        for (int x = 18; x < getWidth(); x += 27) {
-          g2.drawLine(x, startY, x, getHeight());
-        }
-        for (int y = startY; y < getHeight(); y += 27) {
-          g2.drawLine(0, y, getWidth(), y);
-        }
-        int[][] stones = {
-          {25, 45, 13, 0},
-          {54, 73, 13, 0},
-          {82, 100, 14, 1},
-          {110, 74, 13, 1},
-          {136, 48, 13, 0},
-          {164, 99, 13, 0},
-          {54, 128, 13, 0},
-          {110, 154, 13, 1}
-        };
-        for (int[] stone : stones) {
-          int y = startY + stone[1];
-          g2.setColor(stone[3] == 0 ? new Color(5, 16, 17, 150) : new Color(221, 229, 219, 135));
-          g2.fillOval(stone[0], y, stone[2], stone[2]);
-        }
+        g2.setColor(INFO_BORDER());
+        g2.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight());
       } finally {
         g2.dispose();
       }
@@ -7490,7 +7542,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       setUI(new BasicButtonUI());
       setHorizontalAlignment(SwingConstants.LEFT);
       setIconTextGap(15);
-      setForeground(SIDEBAR_TEXT);
+      setForeground(SIDEBAR_TEXT());
       setOpaque(false);
       setContentAreaFilled(false);
       setBorderPainted(false);
@@ -7557,21 +7609,18 @@ public class KataGoAutoSetupDialog extends JDialog {
       }
     }
     return Math.max(
-        SIDEBAR_MIN_WIDTH,
-        Math.min(SIDEBAR_MAX_WIDTH, widestText + SIDEBAR_TEXT_CHROME_WIDTH));
+        SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, widestText + SIDEBAR_TEXT_CHROME_WIDTH));
   }
 
-  private static final class SidebarNavRenderer extends JPanel implements ListCellRenderer<String> {
-    private final JFontLabel label = new JFontLabel();
+  private static final class SidebarNavRenderer extends JFontLabel
+      implements ListCellRenderer<String> {
     private boolean selected;
     private boolean focused;
 
     private SidebarNavRenderer() {
-      super(new BorderLayout());
       setOpaque(false);
       setBorder(BorderFactory.createEmptyBorder(0, 14, 0, 10));
-      label.setIconTextGap(15);
-      add(label, BorderLayout.CENTER);
+      setIconTextGap(15);
     }
 
     @Override
@@ -7583,10 +7632,10 @@ public class KataGoAutoSetupDialog extends JDialog {
         boolean cellHasFocus) {
       selected = isSelected;
       focused = cellHasFocus;
-      label.setText(value);
-      label.setIcon(new NavIcon(index, isSelected));
-      label.setForeground(isSelected ? Color.WHITE : SIDEBAR_TEXT);
-      label.setFont(deriveSidebarNavFont(list.getFont(), label.getFont(), isSelected));
+      setText(value);
+      setIcon(new NavIcon(index, isSelected));
+      setForeground(isSelected ? ACCENT_TEAL() : SIDEBAR_TEXT());
+      setFont(deriveSidebarNavFont(list.getFont(), getFont(), isSelected));
       return this;
     }
 
@@ -7596,13 +7645,13 @@ public class KataGoAutoSetupDialog extends JDialog {
       try {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         if (selected) {
-          g2.setColor(SIDEBAR_SELECTED_BG);
+          g2.setColor(SIDEBAR_SELECTED_BG());
           g2.fillRoundRect(2, 3, getWidth() - 4, getHeight() - 6, 14, 14);
-          g2.setColor(ACCENT_GOLD);
+          g2.setColor(ACCENT_GOLD());
           g2.fillRoundRect(2, 8, 5, getHeight() - 16, 5, 5);
         }
         if (focused) {
-          g2.setColor(new Color(242, 210, 148, 120));
+          g2.setColor(AppleStyleSupport.workspaceAccent());
           g2.drawRoundRect(3, 4, getWidth() - 7, getHeight() - 9, 12, 12);
         }
       } finally {
@@ -7713,8 +7762,8 @@ public class KataGoAutoSetupDialog extends JDialog {
       setIconTextGap(4);
       setBorder(BorderFactory.createEmptyBorder(1, 9, 1, 9));
       if (hovered) {
-        fill = ACCENT_TEAL;
-        outline = ACCENT_TEAL;
+        fill = ACCENT_TEAL();
+        outline = ACCENT_TEAL();
         setForeground(Color.WHITE);
       } else {
         fill = new Color(255, 250, 239);
@@ -7922,7 +7971,7 @@ public class KataGoAutoSetupDialog extends JDialog {
         double scale = SIZE / 21.0;
         g2.scale(scale, scale);
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(selected ? new Color(245, 218, 166) : new Color(205, 220, 211));
+        g2.setColor(selected ? ACCENT_TEAL() : TEXT_SECONDARY());
         g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         switch (type) {
           case 0:
@@ -8044,9 +8093,9 @@ public class KataGoAutoSetupDialog extends JDialog {
       Graphics2D g2 = (Graphics2D) graphics.create();
       try {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(new Color(229, 244, 235));
+        g2.setColor(AppleStyleSupport.workspaceSelection());
         g2.fillOval(x, y, SIZE, SIZE);
-        g2.setColor(OK_COLOR);
+        g2.setColor(OK_COLOR());
         g2.fillOval(x + 13, y + 7, 12, 12);
         g2.fillRoundRect(x + 8, y + 21, 22, 11, 9, 9);
       } finally {

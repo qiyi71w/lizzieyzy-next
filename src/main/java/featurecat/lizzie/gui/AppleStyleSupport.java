@@ -1,8 +1,11 @@
 package featurecat.lizzie.gui;
 
+import featurecat.lizzie.AppLocale;
 import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.theme.MorandiPalette;
+import featurecat.lizzie.theme.Theme;
+import featurecat.lizzie.util.LocaleFontSupport;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Component;
@@ -16,10 +19,14 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.Icon;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
@@ -37,7 +44,9 @@ import javax.swing.border.AbstractBorder;
 import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
+import javax.swing.plaf.basic.BasicArrowButton;
 import javax.swing.plaf.basic.BasicButtonUI;
+import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.text.JTextComponent;
 
 public final class AppleStyleSupport {
@@ -51,6 +60,7 @@ public final class AppleStyleSupport {
   private static final Insets TEXT_BUTTON_INSETS = new Insets(0, 8, 0, 8);
   private static final Insets ICON_BUTTON_INSETS = new Insets(0, 4, 0, 4);
   private static final Insets FIELD_INSETS = new Insets(2, 5, 2, 5);
+  private static final Map<Locale, String> DEFAULT_UI_FONTS = new ConcurrentHashMap<>();
 
   private AppleStyleSupport() {}
 
@@ -129,8 +139,10 @@ public final class AppleStyleSupport {
     UIManager.put("Button.foreground", controlTextColor());
     UIManager.put("CheckBox.background", dialogSurfaceColor());
     UIManager.put("CheckBox.foreground", controlTextColor());
-    UIManager.put("ComboBox.background", fieldBackgroundColor());
+    UIManager.put("ComboBox.background", workspaceSurface());
     UIManager.put("ComboBox.foreground", controlTextColor());
+    UIManager.put("ComboBox.disabledBackground", workspaceSurface());
+    UIManager.put("ComboBox.disabledForeground", workspaceMuted());
     UIManager.put("TextField.background", fieldBackgroundColor());
     UIManager.put("TextField.foreground", controlTextColor());
     UIManager.put("TextField.caretForeground", controlTextColor());
@@ -160,6 +172,7 @@ public final class AppleStyleSupport {
     if (Lizzie.frame.sidebarPanel != null) {
       applyToContainer(Lizzie.frame.sidebarPanel);
     }
+    Lizzie.frame.refreshSuggestionTableStyle();
     Lizzie.frame.backgroundPaint = null;
     Lizzie.frame.redrawBackgroundAnyway = true;
     Lizzie.frame.revalidate();
@@ -195,7 +208,7 @@ public final class AppleStyleSupport {
     Dimension savedPref = button.isPreferredSizeSet() ? button.getPreferredSize() : null;
     Dimension savedMin = button.isMinimumSizeSet() ? button.getMinimumSize() : null;
 
-    button.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    button.setFont(workspaceFont(Font.PLAIN, Config.frameFontSize));
     button.setForeground(buttonTextColor(button));
 
     button.setFocusPainted(false);
@@ -237,7 +250,7 @@ public final class AppleStyleSupport {
 
     boolean isTopHeaderBtn = isInsideTopHeader(button);
 
-    button.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    button.setFont(workspaceFont(Font.PLAIN, Config.frameFontSize));
     button.setOpaque(false);
     button.setContentAreaFilled(false);
     button.setForeground(
@@ -259,7 +272,7 @@ public final class AppleStyleSupport {
 
     boolean isTopHeaderBtn = isInsideTopHeader(button);
 
-    button.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    button.setFont(workspaceFont(Font.PLAIN, Config.frameFontSize));
     button.setOpaque(false);
     button.setContentAreaFilled(false);
     button.setForeground(
@@ -282,7 +295,7 @@ public final class AppleStyleSupport {
     boolean isTopHeaderBtn = isInsideTopHeader(textComponent);
     boolean darkTopHeader = isTopHeaderBtn && isAppleStyleEnabled();
 
-    textComponent.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    textComponent.setFont(workspaceFont(Font.PLAIN, Config.frameFontSize));
     textComponent.setOpaque(true);
     if (darkTopHeader) {
       textComponent.setBackground(new Color(255, 255, 255, 40));
@@ -309,9 +322,10 @@ public final class AppleStyleSupport {
     if (comboBox == null) {
       return;
     }
-    comboBox.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    installWorkspaceComboUi(comboBox);
+    comboBox.setFont(workspaceFont(Font.PLAIN, Config.frameFontSize));
     comboBox.setOpaque(true);
-    comboBox.setBackground(fieldBackgroundColor());
+    comboBox.setBackground(workspaceSurface());
     comboBox.setForeground(controlTextColor());
     comboBox.setBorder(
         new CompoundBorder(
@@ -342,6 +356,26 @@ public final class AppleStyleSupport {
     }
   }
 
+  static void installWorkspaceComboUi(JComboBox<?> comboBox) {
+    // Windows native combo painting ignores the dark surface and can leave white-on-white text.
+    comboBox.setUI(
+        new BasicComboBoxUI() {
+          @Override
+          protected JButton createArrowButton() {
+            JButton arrow =
+                new BasicArrowButton(
+                    SwingConstants.SOUTH,
+                    workspaceSurface(),
+                    workspaceSurface(),
+                    workspaceMuted(),
+                    workspaceSurface());
+            arrow.setBorder(BorderFactory.createEmptyBorder());
+            arrow.setFocusable(false);
+            return arrow;
+          }
+        });
+  }
+
   public static void installPopupStyle(JPopupMenu popupMenu) {
     if (popupMenu == null) {
       return;
@@ -358,7 +392,7 @@ public final class AppleStyleSupport {
     if (menuItem == null) {
       return;
     }
-    menuItem.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    menuItem.setFont(workspaceFont(Font.PLAIN, Config.frameFontSize));
     menuItem.setOpaque(true);
     menuItem.setBackground(popupSurfaceColor());
     menuItem.setForeground(controlTextColor());
@@ -373,7 +407,7 @@ public final class AppleStyleSupport {
 
     boolean isTopHeaderBtn = isInsideTopHeader(label);
 
-    label.setFont(new Font(Config.sysDefaultFontName, Font.PLAIN, Config.frameFontSize));
+    label.setFont(workspaceFont(Font.PLAIN, Config.frameFontSize));
     label.setForeground(
         isTopHeaderBtn ? (isAppleStyleEnabled() ? Color.WHITE : Color.BLACK) : controlTextColor());
   }
@@ -491,8 +525,8 @@ public final class AppleStyleSupport {
     if (ROLE_PRIMARY.equals(role)) {
       if (classic) {
         return pressed
-            ? new Color(200, 220, 245)
-            : hover ? new Color(215, 230, 250) : new Color(225, 238, 255);
+            ? new Color(192, 220, 210)
+            : hover ? new Color(212, 232, 225) : workspaceSelection();
       }
       return pressed ? accentFillColor(230) : accentFillColor(hover ? 215 : 190);
     }
@@ -509,9 +543,7 @@ public final class AppleStyleSupport {
     }
     if (isClassicEnabled()) {
       // White resting buttons on the light strip, neutral grey interaction states.
-      return pressed
-          ? new Color(228, 231, 235)
-          : hover ? new Color(240, 242, 245) : Color.WHITE;
+      return pressed ? new Color(228, 231, 235) : hover ? new Color(240, 242, 245) : Color.WHITE;
     }
     return pressed
         ? MorandiPalette.TOOLBAR_BUTTON_PRESSED
@@ -551,7 +583,7 @@ public final class AppleStyleSupport {
 
   private static Color popupSelectionColor() {
     if (isAppleStyleEnabled()) return accentFillColor(180);
-    return isClassicEnabled() ? new Color(228, 237, 250) : MorandiPalette.MENU_ITEM_SELECTED;
+    return isClassicEnabled() ? workspaceSelection() : MorandiPalette.MENU_ITEM_SELECTED;
   }
 
   private static Color fieldBackgroundColor() {
@@ -588,9 +620,86 @@ public final class AppleStyleSupport {
     return controlTextColor();
   }
 
+  /** Shared desktop surfaces; resolve on use so changing themes does not retain old colors. */
+  public static Color workspaceBackground() {
+    return dialogSurfaceColor();
+  }
+
+  public static Color workspaceSurface() {
+    return popupSurfaceColor();
+  }
+
+  public static Color workspaceBorder() {
+    return isAppleStyleEnabled() ? new Color(78, 84, 88) : new Color(213, 220, 218);
+  }
+
+  public static Color workspaceMuted() {
+    return isAppleStyleEnabled() ? new Color(185, 195, 191) : new Color(85, 99, 94);
+  }
+
+  public static Color workspaceAccent() {
+    return isAppleStyleEnabled() ? new Color(91, 199, 176) : new Color(18, 107, 98);
+  }
+
+  public static Color workspaceSelection() {
+    return isAppleStyleEnabled() ? new Color(37, 76, 69) : new Color(226, 241, 236);
+  }
+
+  static Color workspaceSuccess() {
+    return isAppleStyleEnabled() ? new Color(125, 215, 173) : new Color(25, 107, 73);
+  }
+
+  static Color workspaceWarning() {
+    return isAppleStyleEnabled() ? new Color(239, 194, 112) : new Color(131, 78, 17);
+  }
+
+  static Color workspaceError() {
+    return isAppleStyleEnabled() ? new Color(246, 160, 151) : new Color(170, 51, 51);
+  }
+
+  static boolean useNeutralWorkspaceBackground() {
+    if (!isClassicEnabled() || isAppleStyleEnabled() || Lizzie.config.usePureBackground)
+      return false;
+    String theme = Lizzie.config.uiConfig.optString("theme", "default");
+    return (theme.isEmpty() || "default".equals(theme))
+        && !Lizzie.config.uiConfig.has("background-image")
+        && Lizzie.config.uiConfig.optString(Theme.CUSTOM_BACKGROUND_IMAGE_KEY, "").isBlank()
+        && (Lizzie.config.theme == null
+            || (!Lizzie.config.theme.config.has("background-image")
+                && Lizzie.config
+                    .theme
+                    .config
+                    .optString(Theme.CUSTOM_BACKGROUND_IMAGE_KEY, "")
+                    .isBlank()));
+  }
+
+  public static Font workspaceFont(int style, float size) {
+    String family =
+        Lizzie.config != null && Lizzie.config.uiFontName != null
+            ? Lizzie.config.uiFontName
+            : Config.sysDefaultFontName;
+    if (Lizzie.config != null
+        && Lizzie.config.uiConfig != null
+        && family.equals(Config.sysDefaultFontName)
+        && System.getProperty("os.name", "").startsWith("Windows")) {
+      String explicit =
+          Lizzie.config.theme == null
+              ? Lizzie.config.uiConfig.optString("ui-font-name", "")
+              : Lizzie.config.theme.config.optString(
+                  "ui-font-name", Lizzie.config.uiConfig.optString("ui-font-name", ""));
+      if (explicit.isBlank() || "Lizzie Default".equals(explicit) || "Lizzie默认".equals(explicit)) {
+        Locale locale = AppLocale.fromConfigValue(Lizzie.config.useLanguage).locale();
+        family =
+            DEFAULT_UI_FONTS.computeIfAbsent(
+                locale, key -> LocaleFontSupport.resolveLanguageFontName("Segoe UI", key));
+      }
+    }
+    return new Font(family, style, Math.max(Config.frameFontSize, Math.round(size)));
+  }
+
   private static Color controlTextColor() {
     if (isAppleStyleEnabled()) return new Color(244, 247, 251);
-    return isClassicEnabled() ? Color.BLACK : MorandiPalette.MENU_ITEM_TEXT;
+    return isClassicEnabled() ? new Color(31, 41, 38) : MorandiPalette.MENU_ITEM_TEXT;
   }
 
   private static Color controlBorderColor() {
@@ -653,6 +762,11 @@ public final class AppleStyleSupport {
         g.setColor(buttonBorderColor(button));
         g.setStroke(new BasicStroke(1f));
         g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, width - 1f, height - 1f, arc, arc));
+      }
+      if (button.hasFocus()) {
+        g.setColor(workspaceAccent());
+        g.setStroke(new BasicStroke(2f));
+        g.drawRoundRect(2, 2, width - 5, height - 5, arc, arc);
       }
       g.dispose();
       super.paint(graphics, component);

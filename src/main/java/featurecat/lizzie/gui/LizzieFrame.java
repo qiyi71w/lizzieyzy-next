@@ -904,6 +904,7 @@ public class LizzieFrame extends JFrame {
         .getViewport()
         .setBackground(
             Lizzie.config.useMorandiColors ? MorandiPalette.CREAM_WHITE : new Color(243, 243, 243));
+    refreshSuggestionTableStyle();
     varTreePane.addMouseMotionListener(
         new MouseAdapter() {
           public void mouseMoved(MouseEvent e) {
@@ -2704,6 +2705,32 @@ public class LizzieFrame extends JFrame {
   //    configDialog.setVisible(true);
   //    if (oriPonder) Lizzie.leelaz.togglePonder();
   //  }
+
+  void refreshSuggestionTableStyle() {
+    if (listTable == null || listScrollpane == null) return;
+    Color surface = AppleStyleSupport.workspaceSurface();
+    listTable.setBackground(surface);
+    listTable.setForeground(AppleStyleSupport.dialogTextColor());
+    listTable.setFont(AppleStyleSupport.workspaceFont(Font.PLAIN, Config.frameFontSize));
+    listTable.setRowHeight(
+        Math.max(
+            Config.menuHeight - 4, listTable.getFontMetrics(listTable.getFont()).getHeight() + 8));
+    listScrollpane.getViewport().setBackground(surface);
+    listScrollpane.setBorder(BorderFactory.createLineBorder(AppleStyleSupport.workspaceBorder()));
+    for (int i = 0; i < listTable.getColumnCount(); i++) {
+      TableCellRenderer renderer = listTable.getColumnModel().getColumn(i).getHeaderRenderer();
+      if (renderer instanceof DefaultTableCellRenderer) {
+        DefaultTableCellRenderer header = (DefaultTableCellRenderer) renderer;
+        header.setBackground(
+            Lizzie.config.useMorandiColors
+                ? (i == 2 || i == 4 ? MorandiPalette.TABLE_ROW_EVEN : MorandiPalette.TABLE_ROW_ODD)
+                : AppleStyleSupport.workspaceBackground());
+        header.setForeground(AppleStyleSupport.dialogTextColor());
+        header.setBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, AppleStyleSupport.workspaceBorder()));
+      }
+    }
+  }
 
   public void openAnalysisTable() {
     //	  if(!isBatchAna||Batchfiles.size()==0)
@@ -7793,6 +7820,15 @@ public class LizzieFrame extends JFrame {
     BufferedImage wallpaper = boardRenderer.getWallpaper();
     int drawWidth = max(wallpaper.getWidth(), mainPanel.getWidth());
     int drawHeight = max(wallpaper.getHeight(), mainPanel.getHeight());
+    if (AppleStyleSupport.useNeutralWorkspaceBackground()) {
+      Color surface = new Color(48, 54, 51);
+      g.setColor(surface);
+      g.fillRect(0, 0, width, height);
+      backgroundPaint = surface;
+      Lizzie.board.setForceRefresh(true);
+      redrawBackgroundAnyway = false;
+      return g;
+    }
     // Support seamless texture
     if (Lizzie.config.usePureBackground) {
       g.setColor(Lizzie.config.pureBackgroundColor);
@@ -14534,8 +14570,11 @@ public class LizzieFrame extends JFrame {
                       : new Color(0, 180, 0, 60));
           }
         } else if (!isSelect && !isChanged) {
-          setForeground(Color.BLACK);
-          setBackground(listTableBackground);
+          setForeground(AppleStyleSupport.dialogTextColor());
+          setBackground(
+              Lizzie.config.useMorandiColors
+                  ? listTableBackground
+                  : AppleStyleSupport.workspaceSurface());
         }
       }
       super.paintComponent(g);

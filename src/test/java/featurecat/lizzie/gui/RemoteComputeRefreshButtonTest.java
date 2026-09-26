@@ -89,8 +89,8 @@ class RemoteComputeRefreshButtonTest {
           BufferedImage disabled = paint(button);
           button.setRefreshing(true);
           BufferedImage loading = paint(button);
-          assertEquals(0, countPixels(disabled, new Color(43, 139, 90)));
-          assertTrue(countPixels(loading, new Color(43, 139, 90)) > 30);
+          assertEquals(0, countPixels(disabled, AppleStyleSupport.workspaceAccent()));
+          assertTrue(countPixels(loading, AppleStyleSupport.workspaceAccent()) > 30);
           button.setRefreshing(false);
         });
   }

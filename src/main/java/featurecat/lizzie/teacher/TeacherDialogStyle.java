@@ -1,5 +1,6 @@
 package featurecat.lizzie.teacher;
 
+import featurecat.lizzie.gui.AppleStyleSupport;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Component;
@@ -13,8 +14,8 @@ import java.net.URL;
 import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonModel;
-import javax.swing.ImageIcon;
 import javax.swing.Icon;
+import javax.swing.ImageIcon;
 import javax.swing.JComponent;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
@@ -44,12 +45,11 @@ final class TeacherDialogStyle {
   }
 
   static Color background() {
-    Color panel = uiColor("Panel.background", LIGHT_BACKGROUND);
-    return isDark(panel) ? panel : blend(panel, LIGHT_SURFACE, 0.30f);
+    return AppleStyleSupport.workspaceBackground();
   }
 
   static Color surface() {
-    return uiColor("TextPane.background", LIGHT_SURFACE);
+    return AppleStyleSupport.workspaceSurface();
   }
 
   static Color railSurface() {
@@ -57,22 +57,19 @@ final class TeacherDialogStyle {
   }
 
   static Color text() {
-    return uiColor("Label.foreground", LIGHT_TEXT);
+    return AppleStyleSupport.dialogTextColor();
   }
 
   static Color muted() {
-    return uiColor("Label.disabledForeground", LIGHT_MUTED);
+    return AppleStyleSupport.workspaceMuted();
   }
 
   static Color border() {
-    Color separator = uiColor("Separator.foreground", LIGHT_BORDER);
-    return isDark(background())
-        ? blend(separator, surface(), 0.16f)
-        : blend(separator, background(), 0.45f);
+    return AppleStyleSupport.workspaceBorder();
   }
 
   static Color accent() {
-    return isDark(background()) ? DARK_ACCENT : LIGHT_ACCENT;
+    return AppleStyleSupport.workspaceAccent();
   }
 
   static Color accentSoft() {
@@ -92,7 +89,7 @@ final class TeacherDialogStyle {
   }
 
   static void stylePrimary(AbstractButton button) {
-    styleButton(button, accent(), Color.WHITE, accent());
+    styleButton(button, LIGHT_ACCENT, Color.WHITE, LIGHT_ACCENT);
   }
 
   static void styleSecondary(AbstractButton button) {
@@ -117,7 +114,11 @@ final class TeacherDialogStyle {
     button.setIconTextGap(7);
     button.setIcon(new ModeIcon(glyph));
     button.setBorder(BorderFactory.createEmptyBorder(12, 10, 12, 10));
-    Dimension size = new Dimension(92, 96);
+    int textWidth = button.getFontMetrics(button.getFont()).stringWidth(button.getText());
+    Dimension size =
+        new Dimension(
+            Math.max(92, textWidth + button.getInsets().left + button.getInsets().right + 8),
+            Math.max(96, button.getFontMetrics(button.getFont()).getHeight() + 64));
     button.setPreferredSize(size);
     button.setMinimumSize(size);
     button.setMaximumSize(size);
@@ -128,6 +129,9 @@ final class TeacherDialogStyle {
   }
 
   static void styleInput(JComponent component) {
+    if (component instanceof javax.swing.JComboBox) {
+      AppleStyleSupport.installComboBoxStyle((javax.swing.JComboBox<?>) component);
+    }
     component.setOpaque(true);
     component.setBackground(surface());
     component.setForeground(text());
@@ -143,6 +147,12 @@ final class TeacherDialogStyle {
     spinner.setBorder(new RoundedBorder(border(), CORNER_RADIUS));
     if (spinner.getEditor() instanceof JSpinner.DefaultEditor) {
       JTextField field = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();
+      field
+          .getAccessibleContext()
+          .setAccessibleName(spinner.getAccessibleContext().getAccessibleName());
+      field
+          .getAccessibleContext()
+          .setAccessibleDescription(spinner.getAccessibleContext().getAccessibleDescription());
       field.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 4));
       field.setBackground(surface());
       field.setForeground(text());

@@ -26,7 +26,6 @@ import org.junit.jupiter.api.Test;
 public final class ConfigDialog2NavigationTest {
   private static final String TARGET = "settings.black-winrate";
   private static final String THEME_TARGET = "config.theme.score-blunders";
-  private static final Color HIGHLIGHT_COLOR = new Color(239, 219, 170);
   private static final String TARGET_ROW_PROPERTY = "lizzie.config.settingTargetId";
 
   @Test
@@ -47,7 +46,8 @@ public final class ConfigDialog2NavigationTest {
     assertTrue(result.contains("rebound.focus=true"), result);
     assertTrue(result.contains("rebound.visible=true"), result);
     assertTrue(result.contains("value-preserved=true"), result);
-    assertTrue(result.contains("catalog.count=" + FunctionCatalog.configSettingTargets().size()), result);
+    assertTrue(
+        result.contains("catalog.count=" + FunctionCatalog.configSettingTargets().size()), result);
     assertTrue(result.contains("catalog.visible=true"), result);
     assertTrue(result.contains("catalog.focus=true"), result);
     assertTrue(result.contains("catalog.title=true"), result);
@@ -101,6 +101,7 @@ public final class ConfigDialog2NavigationTest {
           }
         });
 
+    verifyThemeSidebarStartsAtTop();
     TargetObservation themeObservation = showAndObserveThemeFirstLoad();
     if (!themeObservation.located
         || !themeObservation.visible
@@ -121,6 +122,9 @@ public final class ConfigDialog2NavigationTest {
     runOnEdt(
         () -> {
           ConfigDialog2 dialog = new ConfigDialog2();
+          assertTrue(
+              dialog.getOwner() == Lizzie.frame,
+              "settings must remain owned by the main window during native activation");
           verifySettingBindingsSurviveReordering(dialog);
           firstRef.set(dialog);
           unknown.set(dialog.locateSetting("settings.not-real"));
@@ -236,6 +240,76 @@ public final class ConfigDialog2NavigationTest {
             + hiddenFocus);
   }
 
+  private static void verifyThemeSidebarStartsAtTop() throws Exception {
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    runOnEdt(
+        () -> {
+          ConfigDialog2 dialog = new ConfigDialog2();
+          javax.swing.Timer click =
+              new javax.swing.Timer(
+                  100,
+                  event -> {
+                    try {
+                      java.lang.reflect.Field items =
+                          ConfigDialog2.class.getDeclaredField("modernNavItems");
+                      items.setAccessible(true);
+                      ((javax.swing.AbstractButton) ((List<?>) items.get(dialog)).get(5)).doClick();
+                    } catch (Throwable error) {
+                      failure.set(error);
+                    }
+                  });
+          click.setRepeats(false);
+          javax.swing.Timer updateLabels =
+              new javax.swing.Timer(350, event -> moveReadOnlyLabelCarets(dialog));
+          updateLabels.setRepeats(false);
+          javax.swing.Timer observe =
+              new javax.swing.Timer(
+                  650,
+                  event -> {
+                    try {
+                      java.lang.reflect.Field tabs =
+                          ConfigDialog2.class.getDeclaredField("tabbedPane");
+                      tabs.setAccessible(true);
+                      JScrollPane scroll =
+                          (JScrollPane)
+                              ((javax.swing.JTabbedPane) tabs.get(dialog)).getSelectedComponent();
+                      assertTrue(
+                          scroll.getViewport().getViewPosition().y == 0,
+                          "first sidebar selection must show the top of the theme page");
+                      java.lang.reflect.Field preview =
+                          ConfigDialog2.class.getDeclaredField("pnlBoardPreview");
+                      preview.setAccessible(true);
+                      assertTrue(
+                          ((Component) preview.get(dialog)).getHeight() >= 180,
+                          "painted board preview must retain its drawing height");
+                    } catch (Throwable error) {
+                      failure.set(error);
+                    } finally {
+                      dialog.dispose();
+                    }
+                  });
+          observe.setRepeats(false);
+          click.start();
+          updateLabels.start();
+          observe.start();
+          dialog.setVisible(true);
+        });
+    if (failure.get() != null) {
+      throw new AssertionError("theme sidebar navigation failed", failure.get());
+    }
+  }
+
+  private static void moveReadOnlyLabelCarets(Container parent) {
+    for (Component child : parent.getComponents()) {
+      if (child instanceof javax.swing.JTextArea text && !text.isEditable() && !text.isFocusable()) {
+        text.setCaretPosition(0);
+        text.setCaretPosition(text.getDocument().getLength());
+      } else if (child instanceof Container container) {
+        moveReadOnlyLabelCarets(container);
+      }
+    }
+  }
+
   private static TargetObservation showAndObserveThemeFirstLoad() throws Exception {
     AtomicReference<TargetObservation> observation = new AtomicReference<>();
     AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -252,7 +326,7 @@ public final class ConfigDialog2NavigationTest {
     runOnEdt(
         () -> {
           JComponent row = targetRow(dialogRef.get(), THEME_TARGET);
-          if (rendersColor(row, HIGHLIGHT_COLOR)) {
+          if (rendersColor(row, AppleStyleSupport.workspaceSelection())) {
             throw new AssertionError("hidden dialog consumed its navigation highlight");
           }
         });
@@ -273,7 +347,8 @@ public final class ConfigDialog2NavigationTest {
                       boolean focused =
                           focus == row
                               || (focus != null && SwingUtilities.isDescendingFrom(focus, row));
-                      boolean highlighted = rendersColor(row, HIGHLIGHT_COLOR);
+                      boolean highlighted =
+                          rendersColor(row, AppleStyleSupport.workspaceSelection());
                       if (located && visible && focused && highlighted
                           || System.nanoTime() >= deadline) {
                         observation.set(
@@ -409,10 +484,7 @@ public final class ConfigDialog2NavigationTest {
                       if ((!visible || !focused) && System.nanoTime() < deadline) return;
                       observation.set(
                           new ModalObservation(
-                              control,
-                              visible,
-                              focused,
-                              Lizzie.config.winrateAlwaysBlack));
+                              control, visible, focused, Lizzie.config.winrateAlwaysBlack));
                     } catch (Throwable error) {
                       failure.set(error);
                     }

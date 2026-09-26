@@ -25,11 +25,11 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
-import javax.swing.event.ChangeListener;
 
 public class WindowMenuStrip extends JPanel {
   private static final long SAME_MENU_REOPEN_SUPPRESS_MS = 250L;
@@ -106,6 +106,31 @@ public class WindowMenuStrip extends JPanel {
   public Dimension getPreferredSize() {
     Dimension size = super.getPreferredSize();
     return new Dimension(size.width, Math.max(Config.menuHeight + 6, size.height));
+  }
+
+  @Override
+  public void doLayout() {
+    FlowLayout layout = (FlowLayout) getLayout();
+    int required = getInsets().left + getInsets().right + layout.getHgap();
+    for (java.awt.Component child : getComponents()) {
+      if (!child.isVisible()) continue;
+      Dimension natural =
+          child instanceof MenuButton button
+              ? button.getUI().getPreferredSize(button)
+              : child.getPreferredSize();
+      required += natural.width + layout.getHgap();
+    }
+    int excess = required - getWidth();
+    // Only abbreviate the engine caption; commands retain their labels and hit targets.
+    for (MenuButton button : menuButtons) {
+      if (!Boolean.TRUE.equals(button.menu.getClientProperty("lizzie.engineMenu"))) continue;
+      Dimension natural = button.getUI().getPreferredSize(button);
+      int reduction = Math.min(Math.max(0, excess), Math.max(0, natural.width - 60));
+      Dimension preferred = new Dimension(natural.width - reduction, natural.height);
+      if (!preferred.equals(button.getPreferredSize())) button.setPreferredSize(preferred);
+      excess -= reduction;
+    }
+    super.doLayout();
   }
 
   @Override
@@ -195,9 +220,7 @@ public class WindowMenuStrip extends JPanel {
       return true;
     }
     long elapsed = System.currentTimeMillis() - recentlyHiddenAtMillis;
-    return recentlyHiddenMenu == menu
-        && elapsed >= 0L
-        && elapsed <= SAME_MENU_REOPEN_SUPPRESS_MS;
+    return recentlyHiddenMenu == menu && elapsed >= 0L && elapsed <= SAME_MENU_REOPEN_SUPPRESS_MS;
   }
 
   private void rememberPopupHidden(JMenu menu) {
@@ -322,6 +345,7 @@ public class WindowMenuStrip extends JPanel {
 
     private void syncFromMenu() {
       setText(menu.getText());
+      setToolTipText(menu.getText());
       setEnabled(menu.isEnabled());
       Font menuFont = menu.getFont();
       if (menuFont != null) {

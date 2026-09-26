@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,6 +26,18 @@ import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class WinrateGraphSnapshotBoundaryHitTest {
+  @Test
+  void navigationFixtureIsolatesAndRestoresAnExistingLoadGate() throws Exception {
+    boolean previous = LizzieFrame.canGoAfterload;
+    try {
+      LizzieFrame.canGoAfterload = false;
+      clickJumpsToSnapshotAnchorInsteadOfFakeIntermediateMove();
+      assertFalse(LizzieFrame.canGoAfterload, "The fixture must restore the caller's load gate.");
+    } finally {
+      LizzieFrame.canGoAfterload = previous;
+    }
+  }
+
   private static final int BOARD_SIZE = 3;
   private static final int BOARD_AREA = BOARD_SIZE * BOARD_SIZE;
   private static final int GRAPH_WIDTH = 100;
@@ -994,6 +1007,7 @@ class WinrateGraphSnapshotBoundaryHitTest {
     private final LizzieFrame previousFrame;
     private final WinrateGraph previousWinrateGraph;
     private final Leelaz previousLeelaz;
+    private final boolean previousCanGoAfterload = LizzieFrame.canGoAfterload;
 
     private TestEnvironment(
         int previousBoardWidth,
@@ -1041,6 +1055,8 @@ class WinrateGraphSnapshotBoundaryHitTest {
       Lizzie.board = null;
       Lizzie.frame = null;
       LizzieFrame.winrateGraph = null;
+      // This fixture owns a fully loaded board, regardless of prior parser/coordinator tests.
+      LizzieFrame.canGoAfterload = true;
       return env;
     }
 
@@ -1054,6 +1070,7 @@ class WinrateGraphSnapshotBoundaryHitTest {
       Lizzie.frame = previousFrame;
       LizzieFrame.winrateGraph = previousWinrateGraph;
       Lizzie.leelaz = previousLeelaz;
+      LizzieFrame.canGoAfterload = previousCanGoAfterload;
     }
   }
 

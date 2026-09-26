@@ -14,6 +14,37 @@ import org.junit.jupiter.api.Test;
 
 class TeacherDialogViewTest {
   @Test
+  void localizedModeLabelsFitWithoutEllipsis() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          java.util.ResourceBundle previous = featurecat.lizzie.Lizzie.resourceBundle;
+          try {
+            for (String tag : new String[] {"zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "th-TH"}) {
+              featurecat.lizzie.Lizzie.resourceBundle =
+                  java.util.ResourceBundle.getBundle(
+                      "l10n.DisplayStrings", java.util.Locale.forLanguageTag(tag));
+              TeacherDialogView view = new TeacherDialogView();
+              view.setSize(760, 540);
+              layoutTree(view);
+              for (javax.swing.JToggleButton button :
+                  new javax.swing.JToggleButton[] {
+                    view.explainNext(), view.explainRange(), view.explainWhole()
+                  }) {
+                int available =
+                    button.getWidth() - button.getInsets().left - button.getInsets().right;
+                assertTrue(
+                    available
+                        >= button.getFontMetrics(button.getFont()).stringWidth(button.getText()),
+                    tag);
+              }
+            }
+          } finally {
+            featurecat.lizzie.Lizzie.resourceBundle = previous;
+          }
+        });
+  }
+
+  @Test
   void minimumDialogSizeKeepsModeRailReaderAndComposerUsable() throws Exception {
     SwingUtilities.invokeAndWait(
         () -> {
@@ -30,8 +61,8 @@ class TeacherDialogViewTest {
           assertNotNull(reader);
           assertNotNull(cards);
           assertNotNull(composer);
-          assertEquals(94, rail.getWidth());
-          assertTrue(reader.getWidth() >= 560, "the commentary reader remains the dominant region");
+          assertTrue(rail.getWidth() >= 94);
+          assertTrue(reader.getWidth() >= 500, "the commentary reader remains the dominant region");
           assertTrue(cards.getHeight() >= 220, "commentary keeps meaningful reading height");
           assertFalse(overlaps(boundsIn(view, rail), boundsIn(view, reader)));
           assertFalse(overlaps(boundsIn(view, reader), boundsIn(view, composer)));
@@ -84,6 +115,17 @@ class TeacherDialogViewTest {
           assertAccessible(view.followUp());
           assertAccessibleName(view.rangeStart());
           assertAccessibleName(view.rangeEnd());
+          for (javax.swing.JSpinner spinner :
+              new javax.swing.JSpinner[] {view.rangeStart(), view.rangeEnd()}) {
+            spinner.setModel(new javax.swing.SpinnerNumberModel(1, 1, 100, 1));
+            TeacherDialogStyle.styleSpinner(spinner);
+            assertEquals(
+                spinner.getAccessibleContext().getAccessibleName(),
+                ((javax.swing.JSpinner.DefaultEditor) spinner.getEditor())
+                    .getTextField()
+                    .getAccessibleContext()
+                    .getAccessibleName());
+          }
 
           view.selectMode(TeacherDialogView.Mode.WHOLE);
           assertTrue(view.explainWhole().isSelected());
