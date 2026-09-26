@@ -36,6 +36,8 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -51,6 +53,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
+import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -2758,7 +2761,7 @@ public class RemoteComputeDialog extends JDialog {
     }
   }
 
-  private static final class CatalogRefreshButton extends JButton {
+  static final class CatalogRefreshButton extends JButton {
     private final Timer animationTimer;
     private int rotation;
     private boolean refreshing;
@@ -2771,11 +2774,12 @@ public class RemoteComputeDialog extends JDialog {
       setOpaque(false);
       setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
       setRolloverEnabled(true);
+      setIcon(new CatalogRefreshIcon());
       animationTimer =
           new Timer(
-              75,
+              40,
               event -> {
-                rotation = (rotation + 24) % 360;
+                rotation = (rotation + 12) % 360;
                 repaint();
               });
     }
@@ -2785,7 +2789,7 @@ public class RemoteComputeDialog extends JDialog {
         return;
       }
       this.refreshing = refreshing;
-      if (refreshing) {
+      if (refreshing && isShowing()) {
         animationTimer.start();
       } else {
         animationTimer.stop();
@@ -2796,7 +2800,21 @@ public class RemoteComputeDialog extends JDialog {
 
     @Override
     public Dimension getPreferredSize() {
-      return new Dimension(46, 46);
+      return new Dimension(44, 44);
+    }
+
+    @Override
+    public void addNotify() {
+      super.addNotify();
+      if (refreshing) {
+        animationTimer.start();
+      }
+    }
+
+    @Override
+    public void removeNotify() {
+      animationTimer.stop();
+      super.removeNotify();
     }
 
     @Override
@@ -2805,31 +2823,77 @@ public class RemoteComputeDialog extends JDialog {
       try {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         Color fill =
-            getModel().isRollover() && isEnabled()
-                ? new Color(233, 244, 236)
-                : new Color(255, 253, 248);
+            isEnabled() && getModel().isPressed() && getModel().isArmed()
+                ? new Color(216, 235, 223)
+                : isEnabled() && getModel().isRollover()
+                    ? new Color(233, 244, 236)
+                    : CARD;
+        RoundRectangle2D outline =
+            new RoundRectangle2D.Double(1, 1, getWidth() - 2, getHeight() - 2, 14, 14);
         g2.setColor(fill);
-        g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 15, 15);
+        g2.fill(outline);
         g2.setColor(hasFocus() ? GREEN : BORDER);
         g2.setStroke(new BasicStroke(hasFocus() ? 1.8F : 1.1F));
-        g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 15, 15);
+        g2.draw(outline);
 
-        int centerX = getWidth() / 2;
-        int centerY = getHeight() / 2;
-        g2.translate(centerX, centerY);
         if (refreshing) {
-          g2.rotate(Math.toRadians(rotation));
+          g2.rotate(Math.toRadians(rotation), getWidth() / 2.0, getHeight() / 2.0);
         }
-        g2.setColor(isEnabled() ? GREEN : new Color(156, 162, 151));
-        g2.setStroke(new BasicStroke(2.2F, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g2.drawArc(-10, -10, 20, 20, 35, refreshing ? 245 : 285);
-        int arrowX = 9;
-        int arrowY = -6;
-        g2.drawLine(arrowX, arrowY, arrowX - 6, arrowY - 1);
-        g2.drawLine(arrowX, arrowY, arrowX - 1, arrowY + 5);
+        getIcon()
+            .paintIcon(
+                this,
+                g2,
+                (getWidth() - getIcon().getIconWidth()) / 2,
+                (getHeight() - getIcon().getIconHeight()) / 2);
       } finally {
         g2.dispose();
       }
+    }
+  }
+
+  /** Lucide refresh-cw, adapted to Java2D. See /licenses/lucide.txt. */
+  private static final class CatalogRefreshIcon implements Icon {
+    private static final Path2D HALF = createHalf();
+
+    private static Path2D createHalf() {
+      Path2D path = new Path2D.Double();
+      path.moveTo(3, 12);
+      path.curveTo(3, 7.0294, 7.0294, 3, 12, 3);
+      path.curveTo(14.527, 3, 16.956, 3.987, 18.74, 5.74);
+      path.lineTo(21, 8);
+      path.moveTo(21, 3);
+      path.lineTo(21, 8);
+      path.lineTo(16, 8);
+      return path;
+    }
+
+    @Override
+    public void paintIcon(Component component, Graphics graphics, int x, int y) {
+      Graphics2D g = (Graphics2D) graphics.create();
+      try {
+        g.translate(x, y);
+        g.scale(getIconWidth() / 24.0, getIconHeight() / 24.0);
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        CatalogRefreshButton button = (CatalogRefreshButton) component;
+        g.setColor(button.isEnabled() || button.refreshing ? GREEN : new Color(139, 145, 135));
+        g.setStroke(new BasicStroke(2F, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(HALF);
+        g.rotate(Math.PI, 12, 12);
+        g.draw(HALF);
+      } finally {
+        g.dispose();
+      }
+    }
+
+    @Override
+    public int getIconWidth() {
+      return 20;
+    }
+
+    @Override
+    public int getIconHeight() {
+      return 20;
     }
   }
 
