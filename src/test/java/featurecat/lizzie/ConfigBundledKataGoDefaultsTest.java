@@ -1,5 +1,6 @@
 package featurecat.lizzie;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,6 +18,8 @@ import java.util.zip.GZIPOutputStream;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class ConfigBundledKataGoDefaultsTest {
   private static final String HIDE_BLUNDER_BAR_DEFAULT_MIGRATION_KEY =
@@ -1168,6 +1171,82 @@ public class ConfigBundledKataGoDefaultsTest {
     assertEquals(defaultCommand, engines.getJSONObject(0).getString("command"));
     assertTrue(engines.getJSONObject(0).getBoolean("isDefault"));
     assertTrue(ui.getBoolean("autoload-empty"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "kata1-tf3-b11c768-s11750M-d6216M.bin.gz",
+        "b10c512h8nbt3tflrs-fson-silu-rsnh.bin.gz",
+        "my-study.bin.gz"
+      })
+  void newestB11BundlePreservesExplicitModelSelection(String fileName) throws Exception {
+    Path root = Files.createTempDirectory("lizzie-selected-model-upgrade");
+    Files.writeString(root.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(root, KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_FILE_NAME);
+    byte[] originalWeight = {2, 4, 6};
+    Path selectedWeight = Files.write(root.resolve("weights").resolve(fileName), originalWeight);
+    String command =
+        quote(bundledExecutable(root))
+            + " gtp -model "
+            + quote(selectedWeight)
+            + " -config "
+            + quote(root.resolve("engines/katago/configs/gtp.cfg"));
+    String analysisCommand = command.replace(" gtp ", " analysis ");
+    Config config = ConfigTestHelper.createForTests(root);
+    JSONObject ui =
+        new JSONObject()
+            .put("first-time-load", false)
+            .put("autoload-default", false)
+            .put("autoload-last", true)
+            .put("autoload-empty", false)
+            .put("default-engine", 0)
+            .put("analysis-engine-command", analysisCommand)
+            .put("analysis-engine-command-customized", true);
+    JSONObject engine =
+        new JSONObject()
+            .put("name", "KataGo Auto Setup")
+            .put("command", command)
+            .put("isDefault", true);
+    JSONObject leelaz =
+        new JSONObject().put("engine-settings-list", new JSONArray().put(engine));
+    config.config = new JSONObject().put("ui", ui).put("leelaz", leelaz);
+
+    withUserDir(root, () -> applyBundledKataGoDefaults(config));
+
+    assertEquals(
+        command, leelaz.getJSONArray("engine-settings-list").getJSONObject(0).getString("command"));
+    assertEquals(analysisCommand, ui.getString("analysis-engine-command"));
+    assertEquals(0, ui.getInt("default-engine"));
+    assertTrue(engine.getBoolean("isDefault"));
+    assertTrue(ui.getBoolean("autoload-last"));
+    assertFalse(ui.getBoolean("autoload-default"));
+    assertFalse(ui.getBoolean("autoload-empty"));
+    assertArrayEquals(originalWeight, Files.readAllBytes(selectedWeight));
+  }
+
+  @Test
+  void coreOnlyUpgradeKeepsExistingBundledWeightAndManifest() throws Exception {
+    Path root = Files.createTempDirectory("lizzie-core-only-model-upgrade");
+    Files.writeString(root.resolve("config.txt"), "{}");
+    createBundledKataGoAssets(root, "kata1-tf3-b11c768-s11750M-d6216M.bin.gz");
+    Path weight = root.resolve("weights/default.bin.gz");
+    Path manifest = root.resolve("engines/katago/VERSION.txt");
+    byte[] originalWeight = Files.readAllBytes(weight);
+    byte[] originalManifest = Files.readAllBytes(manifest);
+    Config config = ConfigTestHelper.createForTests(root);
+    config.config =
+        new JSONObject()
+            .put("ui", new JSONObject().put("first-time-load", false).put("autoload-empty", true))
+            .put("leelaz", new JSONObject());
+
+    withUserDir(root, () -> applyBundledKataGoDefaults(config));
+
+    assertArrayEquals(originalWeight, Files.readAllBytes(weight));
+    assertArrayEquals(originalManifest, Files.readAllBytes(manifest));
+    assertFalse(
+        Files.exists(
+            root.resolve("weights").resolve(KataGoAutoSetupHelper.DEFAULT_TRANSFORMER_FILE_NAME)));
   }
 
   @Test

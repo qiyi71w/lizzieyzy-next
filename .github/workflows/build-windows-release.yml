@@ -170,11 +170,11 @@ jobs:
             python3 scripts/audit_katago_source_bundle.py --target "$target" \
               --engine "dist/windows/input-${flavor}/engines/katago/windows-x64"
           done
-          grep -qx 'Model source: kata1-tf3-b11c768-s11750M-d6216M.bin.gz' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
+          grep -qx 'Model source: kata1-tf3-b11c768-s12002M-d6304M.bin.gz' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
           grep -qx 'Model architecture: transformer' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
           grep -qx 'Minimum KataGo version: 1.17.0' "dist/windows/input-with-katago/engines/katago/VERSION.txt"
           test "$(sha256sum "dist/windows/input-with-katago/weights/default.bin.gz" | awk '{print $1}')" = \
-            "5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b"
+            "4a6312e80faadee7b7dd28689a2e87a1efb4640c10132f16290da7a17b4c6d9e"
           test -f "dist/windows/input-opencl/engines/katago/windows-x64/katago.exe"
           test -f "dist/windows/input-opencl/PROJECT_INFO.txt"
           test -f "dist/windows/input-opencl/readboard/readboard.exe"
@@ -256,7 +256,7 @@ jobs:
             test -f "dist/windows/app-image-${flavor}/${app_name}/${app_name}.exe"
             test -f "dist/release/${RELEASE_DATE_TAG}-windows64.${flavor}.portable.zip"
             test "$(sha256sum "dist/windows/app-image-${flavor}/${app_name}/app/weights/default.bin.gz" | awk '{print $1}')" = \
-              "5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b"
+              "4a6312e80faadee7b7dd28689a2e87a1efb4640c10132f16290da7a17b4c6d9e"
           done
           test -d "dist/windows/app-image-experimental.rocm.gfx103x/LizzieYzy Next ROCm gfx103x Experimental/app/engines/katago/windows-x64/rocblas"
           test -d "dist/windows/app-image-experimental.rocm.gfx103x/LizzieYzy Next ROCm gfx103x Experimental/app/engines/katago/windows-x64/hipblaslt"

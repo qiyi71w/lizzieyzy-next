@@ -112,8 +112,8 @@ Current bundled defaults:
 
 - KataGo reports `v1.18.2`: all 15 platform/backend targets are built by this project from merged upstream commit `47aadc08518b3e121f22539796c911002f699584`, not official release binaries. Linux NVIDIA remains on CUDA `12.1` for runtime compatibility
 - Downloads, full packages, and on-demand repair use the same SHA-256-pinned artifacts, never an old-engine fallback. See each archive's `source-release.json` and [source-build documentation](KATAGO_SOURCE_BUILD.md) for provenance, compilers, dependencies, and actual hardware acceptance
-- Default weight: official flagship B11 Transformer `kata1-tf3-b11c768-s11750M-d6216M.bin.gz`, shown as “Transformer B11 · 2026-09-12”
-- Default weight size: `211,575,408` bytes (about 202 MiB), SHA-256: `5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b`
+- Default weight: official flagship B11 Transformer `kata1-tf3-b11c768-s12002M-d6304M.bin.gz`, shown as “Transformer B11 · 2026-09-25”
+- Default weight size: `262,017,809` bytes (about 250 MiB), SHA-256: `4a6312e80faadee7b7dd28689a2e87a1efb4640c10132f16290da7a17b4c6d9e`
 - B11 makes stronger individual evaluations and performs better in complex positions, but search can be slower; B10 remains available as an on-demand speed-first model and is not duplicated in full packages
 - The single Windows NVIDIA package uses CUDA `12.8` + cuDNN `9.8` for RTX 20/30/40/50; separate `nvidia50` assets are no longer published
 - Windows NVIDIA runtimes include matching NVRTC compiler and builtins; release audits verify exact DLLs, official asset hashes, and manifest records

@@ -17,11 +17,11 @@ class KataGoAssetCatalogTest(unittest.TestCase):
         self.assertEqual("project-source-build", catalog["origin"])
         self.assertEqual("47aadc08518b3e121f22539796c911002f699584", catalog["katagoSourceCommit"])
         self.assertEqual(15, len(catalog["assets"]))
-        self.assertEqual("kata1-tf3-b11c768-s11750M-d6216M.bin.gz", default_model["fileName"])
-        self.assertEqual(211575408, default_model["sizeBytes"])
-        self.assertEqual("2026-09-12", default_model["publishedAt"])
+        self.assertEqual("kata1-tf3-b11c768-s12002M-d6304M.bin.gz", default_model["fileName"])
+        self.assertEqual(262017809, default_model["sizeBytes"])
+        self.assertEqual("2026-09-25", default_model["publishedAt"])
         self.assertEqual(
-            "5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b",
+            "4a6312e80faadee7b7dd28689a2e87a1efb4640c10132f16290da7a17b4c6d9e",
             default_model["sha256"],
         )
         self.assertTrue(default_model["bundled"])
@@ -45,7 +45,7 @@ class KataGoAssetCatalogTest(unittest.TestCase):
         catalog = katago_asset_catalog.load_catalog(katago_asset_catalog.DEFAULT_CATALOG)
         self.assertEqual(
             "https://media.katagotraining.org/uploaded/networks/models/kata1/"
-            "kata1-tf3-b11c768-s11750M-d6216M.bin.gz",
+            "kata1-tf3-b11c768-s12002M-d6304M.bin.gz",
             katago_asset_catalog.model_download_url(catalog, "b11-flagship"),
         )
         self.assertIn("/v1.17.1/", katago_asset_catalog.model_download_url(catalog, "b10-balanced"))
