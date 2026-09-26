@@ -132,8 +132,8 @@
 
 - KataGo 版本输出：`v1.18.2`，全部 15 个平台/后端使用官方已合并提交 `47aadc08518b3e121f22539796c911002f699584` 的项目自编译产物，不是官方发布二进制；Linux NVIDIA 为兼容系统运行时继续使用 CUDA `12.1`
 - 引擎下载、完整包和按需修复使用同一批固定 SHA-256 的产物。构建失败不得回退旧引擎；来源、编译器、依赖及真实硬件验收范围见归档内 `source-release.json` 和 [自编译说明](KATAGO_SOURCE_BUILD.md)
-- 默认权重：官方旗舰 B11 Transformer `kata1-tf3-b11c768-s11750M-d6216M.bin.gz`，界面显示为“Transformer B11 · 2026-09-12”
-- 默认权重大小：`211,575,408` 字节（约 202 MiB），SHA-256：`5266903ce3156f208562d6d3495869f2becb4c36fc9bf587faee77e4c642378b`
+- 默认权重：官方旗舰 B11 Transformer `kata1-tf3-b11c768-s12002M-d6304M.bin.gz`，界面显示为“Transformer B11 · 2026-09-25”
+- 默认权重大小：`262,017,809` 字节（约 250 MiB），SHA-256：`4a6312e80faadee7b7dd28689a2e87a1efb4640c10132f16290da7a17b4c6d9e`
 - B11 单次判断更强、复杂局面效果更好，但搜索速度可能较慢；B10 保留为“速度优先”按需下载，不重复内置
 - Windows NVIDIA 统一使用 CUDA `12.8` + cuDNN `9.8`，覆盖 RTX 20/30/40/50；不再发布独立 `nvidia50` 包
 - Windows NVIDIA 运行时同时携带对应版本的 NVRTC 编译器与 builtins，发布审计会检查精确 DLL、官方资产 SHA 和 manifest 记录，避免解压即引擎启动失败
