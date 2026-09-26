@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,10 +11,12 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import unittest
 from unittest import mock
@@ -843,6 +846,59 @@ class ReviewedReleaseNotesTest(unittest.TestCase):
 
 
 class ReleaseWorkflowResilienceTest(unittest.TestCase):
+    def select_ci_archive(self, releases):
+        workflow = (
+            SCRIPT_PATH.parents[1] / ".github/workflows/acceptance-integration.yml"
+        ).read_text(encoding="utf-8")
+        inline = workflow.split("python3 -I - <<'PY'\n", 1)[1].split("          PY", 1)[0]
+        tree = ast.parse(textwrap.dedent(inline))
+        selector = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == "select_archive_tag")
+        namespace = {"re": re}
+        exec(compile(ast.Module(body=[selector], type_ignores=[]), "ci-archive-selector", "exec"), namespace)
+        return namespace["select_archive_tag"](
+            releases, "next-2026-09-26.2", "katago-source-47aadc08518b-linux-cpu.zip", 42, "a" * 64)
+
+    def ci_release(self, tag="next-2026-09-26.1", draft=False, **asset_overrides):
+        asset = {"name": "katago-source-47aadc08518b-linux-cpu.zip", "size": 42,
+                 "digest": "sha256:" + "a" * 64, "state": "uploaded"}
+        asset.update(asset_overrides)
+        return {"tag_name": tag, "draft": draft, "assets": [asset]}
+
+    def test_ci_bootstraps_uncreated_release_only_with_identical_public_archive(self):
+        self.assertEqual("next-2026-09-26.1", self.select_ci_archive([self.ci_release()]))
+
+    def test_ci_prefers_requested_tag_when_exact_archive_is_ready(self):
+        self.assertEqual("next-2026-09-26.2", self.select_ci_archive([
+            self.ci_release(), self.ci_release("next-2026-09-26.2", draft=True)]))
+
+    def test_ci_rejects_mismatched_requested_archive_even_with_valid_other_copy(self):
+        with self.assertRaisesRegex(SystemExit, "mismatched"):
+            self.select_ci_archive([self.ci_release(),
+                                    self.ci_release("next-2026-09-26.2", digest="sha256:" + "b" * 64)])
+
+    def test_ci_rejects_nonidentical_or_incomplete_archives(self):
+        for overrides in ({"size": 43}, {"digest": "sha256:" + "b" * 64},
+                          {"state": "new"}, {"name": "katago-source-000000000000-linux-cpu.zip"}):
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(SystemExit, "exact pinned"):
+                self.select_ci_archive([self.ci_release(**overrides)])
+
+    def test_ci_does_not_bootstrap_from_other_drafts_or_invalid_tags(self):
+        for release in (self.ci_release(draft=True), self.ci_release("--unsafe")):
+            with self.subTest(release=release), self.assertRaisesRegex(SystemExit, "exact pinned"):
+                self.select_ci_archive([release])
+
+    def test_ci_rejects_duplicate_asset_name_in_requested_release(self):
+        release = self.ci_release("next-2026-09-26.2", draft=True)
+        release["assets"] *= 2
+        with self.assertRaisesRegex(SystemExit, "mismatched"):
+            self.select_ci_archive([release])
+
+    def test_ci_rejects_absent_or_invalid_inventory(self):
+        for inventory in ([], {}):
+            with self.subTest(inventory=inventory), self.assertRaises(SystemExit):
+                self.select_ci_archive(inventory)
+
     def test_draft_download_privilege_is_isolated_from_native_test_execution(self) -> None:
         workflow = (
             SCRIPT_PATH.parents[1] / ".github/workflows/acceptance-integration.yml"
