@@ -1330,7 +1330,14 @@ public class EngineManager {
         && (transaction == null || !transaction.targetStartFailureCleanupClaimed)) {
       cleanupFailure =
           runLifecycleCleanupStep(
-              cleanupFailure, () -> showEngineSynchronizationFailure(engine, failure));
+              cleanupFailure,
+              () -> {
+                if (failure == null) {
+                  showEngineSynchronizationFailure(engine, detail);
+                } else {
+                  showEngineSynchronizationFailure(engine, failure);
+                }
+              });
     }
     rethrowLifecycleCleanupFailure(cleanupFailure);
   }
@@ -4556,7 +4563,7 @@ public class EngineManager {
       return;
     } catch (RuntimeException failure) {
       restartTarget.isLoaded = false;
-      showEngineSynchronizationFailure(restartTarget);
+      showEngineSynchronizationFailure(restartTarget, failure);
       return;
     }
     if (preparedSwitch != null) {
@@ -4630,7 +4637,7 @@ public class EngineManager {
       return;
     } catch (RuntimeException failure) {
       targetEngine.isLoaded = false;
-      showEngineSynchronizationFailure(targetEngine);
+      showEngineSynchronizationFailure(targetEngine, failure);
       return;
     }
     if (preparedSwitch != null) {
@@ -4705,7 +4712,7 @@ public class EngineManager {
       return;
     } catch (RuntimeException failure) {
       secondaryTarget.isLoaded = false;
-      showEngineSynchronizationFailure(secondaryTarget);
+      showEngineSynchronizationFailure(secondaryTarget, failure);
       return;
     }
     if (preparedSwitch != null) {
@@ -7339,7 +7346,7 @@ public class EngineManager {
     runFailedSwitchCleanup(() -> correctEngineStartupStatusAfterFailedSwitch(detail));
     runFailedSwitchCleanup(this::correctPdaAfterFailedSwitch);
     publishEngineSwitchUiState(recovery.failedSnapshot);
-    runFailedSwitchCleanup(() -> showEngineSynchronizationFailure(engine));
+    runFailedSwitchCleanup(() -> showEngineSynchronizationFailure(engine, failure));
     dispatchFailedEngineStop(runtimeStop, recovery.failedSnapshot.token);
   }
 
@@ -11472,7 +11479,7 @@ public class EngineManager {
       failure.printStackTrace();
       failEngineSwitchUi(submitted.token, isMain, engineSwitchFailureDetail(failure));
       failureCleanup.get().run();
-      showEngineSynchronizationFailure(transaction.targetEngine);
+      showEngineSynchronizationFailure(transaction.targetEngine, failure);
     }
   }
 
@@ -11969,7 +11976,7 @@ public class EngineManager {
       } catch (RuntimeException | Error cleanupFailure) {
         cleanupFailure.printStackTrace();
       }
-      showEngineSynchronizationFailure(target);
+      showEngineSynchronizationFailure(target, failure);
     }
   }
 
@@ -12002,7 +12009,7 @@ public class EngineManager {
           cleanupFailure.printStackTrace();
         }
       }
-      showEngineSynchronizationFailure(target);
+      showEngineSynchronizationFailure(target, detail);
     } finally {
       releaseLifecycle.run();
     }
@@ -14314,7 +14321,7 @@ public class EngineManager {
 
   protected void showEngineSynchronizationFailure(Leelaz engine, Throwable failure) {
     if (!EngineFollowController.presentSnapshotPreparationFailure(failure)) {
-      showEngineSynchronizationFailure(engine);
+      showEngineSynchronizationFailure(engine, engineSwitchFailureDetail(failure));
     }
   }
 
@@ -14322,16 +14329,24 @@ public class EngineManager {
     return engine.engineStartupSynchronizationTimeoutMillis();
   }
 
-  protected void showEngineSynchronizationFailure(Leelaz engine) {
-    String message = engineFailedText();
-    try {
+  protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
+    if (java.awt.GraphicsEnvironment.isHeadless()) {
+      return;
+    }
+    String message = detail != null && !detail.isBlank() ? detail : engineFailedText();
+    if (engine == null) {
       if (SwingUtilities.isEventDispatchThread()) {
-        if (!engine.showRetainedStartupDiagnostic())
         Utils.showMsg(message);
       } else {
-        SwingUtilities.invokeLater(() -> {
-              if (!engine.showRetainedStartupDiagnostic()) Utils.showMsg(message);
-            });
+        SwingUtilities.invokeLater(() -> Utils.showMsg(message));
+      }
+      return;
+    }
+    try {
+      if (SwingUtilities.isEventDispatchThread()) {
+        engine.showStartupFailureDiagnostic(message);
+      } else {
+        SwingUtilities.invokeLater(() -> engine.showStartupFailureDiagnostic(message));
       }
     } catch (RuntimeException | Error presentationFailure) {
       presentationFailure.printStackTrace();

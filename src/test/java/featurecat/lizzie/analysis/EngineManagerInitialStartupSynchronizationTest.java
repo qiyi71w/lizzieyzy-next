@@ -1019,6 +1019,36 @@ class EngineManagerInitialStartupSynchronizationTest {
   }
 
   @Test
+  void initialFinalFenceFailurePreservesDiagnosticReason() throws Exception {
+    try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
+      StartupSyncLeelaz engine = new StartupSyncLeelaz();
+      engine.delayReadyAfterStart = true;
+      engine.boardSynchronizationFailure = "controlled initial final-fence rejection";
+      Lizzie.board = boardWithHistory(emptyRootHistory(1));
+      AtomicReference<String> presented = new AtomicReference<>();
+      CountDownLatch failed = new CountDownLatch(1);
+      EngineManager manager =
+          new EngineManager(
+              Lizzie.config, 0, false,
+              new ArrayList<>(List.of(engineData(0, "failure-detail", false))),
+              command -> engine) {
+            @Override
+            protected void showEngineSynchronizationFailure(Leelaz target, String detail) {
+              presented.set(detail);
+              failed.countDown();
+            }
+          };
+      Lizzie.engineManager = manager;
+      assertTrue(engine.startCompleted.await(2, TimeUnit.SECONDS));
+      engine.publishReady();
+      assertTrue(failed.await(2, TimeUnit.SECONDS));
+      assertEquals(engine.boardSynchronizationFailure, presented.get());
+      assertLifecycleReservationReleased(engine);
+      assertEquals(0, engine.ponderCount);
+    }
+  }
+
+  @Test
   void realConstructorTracksDefaultStartupByCatalogPositionUntilFinalActive()
       throws Exception {
     try (StartupTestEnvironment env = StartupTestEnvironment.open()) {
@@ -7954,7 +7984,7 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       synchronizationFailureCount++;
       synchronizationFailed.countDown();
     }
@@ -7996,7 +8026,7 @@ class EngineManagerInitialStartupSynchronizationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failurePresented.countDown();
     }
 

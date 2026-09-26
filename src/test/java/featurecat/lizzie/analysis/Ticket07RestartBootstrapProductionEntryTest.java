@@ -357,7 +357,7 @@ class Ticket07RestartBootstrapProductionEntryTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       synchronizationFailed.countDown();
     }
   }

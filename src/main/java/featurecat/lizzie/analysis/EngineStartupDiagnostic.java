@@ -3,7 +3,10 @@ package featurecat.lizzie.analysis;
 import featurecat.lizzie.logging.ExportSanitizer;
 import featurecat.lizzie.logging.ObservationText;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -13,6 +16,62 @@ public final class EngineStartupDiagnostic {
   private final String attemptId;
   private final String engineId;
   private final int sizeBytes;
+  private static final int DEFAULT_MAX_BYTES = 256 * 1024;
+  public static EngineStartupDiagnostic basic(List<String> commands, String command, String detail) {
+    String resolvedCommand = "";
+    if (command != null && !command.isBlank()) {
+      resolvedCommand = command.trim();
+    } else if (commands != null && !commands.isEmpty()) {
+      resolvedCommand = String.join(" ", commands);
+    }
+    String resolvedDetail = detail == null ? "" : detail;
+    boolean windows =
+        System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+
+    JSONObject launch = new JSONObject();
+    launch.put("engineId", "unknown");
+    launch.put("launchPurpose", "unknown");
+    launch.put("startedAt", "unavailable");
+    launch.put("environmentState", "unavailable");
+    launch.put("platform", windows ? "windows" : "non-windows");
+    launch.put("configuredCommand", bounded(resolvedCommand, 16384));
+
+    JSONObject sources = new JSONObject();
+    sources.put(
+        "basic",
+        new JSONObject()
+            .put("collectionState", "unavailable")
+            .put("terminalReason", "")
+            .put("checkedScope", "evidence-unavailable"));
+
+    JSONObject value =
+        new JSONObject()
+            .put("attemptId", "failure-" + UUID.randomUUID())
+            .put("engineId", "unknown")
+            .put("launchPurpose", "unknown")
+            .put("phase", "unknown")
+            .put("originalError", bounded(resolvedDetail, 16384))
+            .put("failedAt", "unavailable")
+            .put("checkedAt", Instant.now().toString())
+            .put("launch", launch)
+            .put("exitCode", JSONObject.NULL)
+            .put("exitHex", JSONObject.NULL)
+            .put("statusName", "unavailable")
+            .put("errorDomain", "unavailable")
+            .put("exitObservation", "unavailable")
+            .put("stdout", "")
+            .put("stdoutOrigin", "unavailable")
+            .put("stderr", "")
+            .put("stdoutTruncated", false)
+            .put("stderrTruncated", false)
+            .put("sources", sources)
+            .put("findings", new JSONArray())
+            .put("collectionState", "unavailable")
+            .put("outcome", "unavailable")
+            .put("truncated", false);
+
+    return new EngineStartupDiagnostic(value, DEFAULT_MAX_BYTES);
+  }
 
   EngineStartupDiagnostic(JSONObject value, int maxBytes) {
     JSONObject bounded = new JSONObject(value.toString());

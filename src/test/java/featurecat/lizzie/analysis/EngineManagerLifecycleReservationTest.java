@@ -8399,7 +8399,7 @@ class EngineManagerLifecycleReservationTest {
     protected void showSameEngineSelection() {}
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
     }
   }
@@ -8439,11 +8439,11 @@ class EngineManagerLifecycleReservationTest {
     @Override
     protected void showEngineSynchronizationFailure(Leelaz engine, Throwable failure) {
       presentedFailure = failure;
-      showEngineSynchronizationFailure(engine);
+      showEngineSynchronizationFailure(engine, (String) null);
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       if (blockFailurePresentation) {
         failurePresentationEntered.countDown();
         awaitLatch(allowFailurePresentation);
@@ -8483,7 +8483,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {}
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {}
   }
 
   private static final class StartThenThrowRollbackEngineManager extends EngineManager {
@@ -8523,7 +8523,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
     }
 
@@ -8550,7 +8550,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {}
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {}
 
     @Override
     protected void showForegroundEngineLeaseInUse() {
@@ -8569,7 +8569,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
     }
   }
@@ -8636,7 +8636,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
     }
 
@@ -8665,7 +8665,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
       fenceFailureSettled.countDown();
     }
@@ -9205,7 +9205,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount.incrementAndGet();
     }
   }
@@ -10034,7 +10034,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {}
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {}
 
     @Override
     protected void showForegroundEngineLeaseInUse() {}
@@ -11456,7 +11456,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
     }
   }
@@ -11494,7 +11494,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
       failurePresented.countDown();
     }
@@ -11540,7 +11540,7 @@ class EngineManagerLifecycleReservationTest {
     }
 
     @Override
-    protected void showEngineSynchronizationFailure(Leelaz engine) {
+    protected void showEngineSynchronizationFailure(Leelaz engine, String detail) {
       failureCount++;
       failurePresented.countDown();
     }

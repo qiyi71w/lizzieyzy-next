@@ -22851,18 +22851,39 @@ public class Leelaz {
   }
 
   /** Called by the manager only after its existing startup-failure presentation fence succeeds. */
-  boolean showRetainedStartupDiagnostic() {
-    EngineStartupDiagnostics.Attempt attempt = startupDiagnosticAttempt;
-    if (attempt == null || attempt.snapshot() == null || GraphicsEnvironment.isHeadless())
+  boolean showStartupFailureDiagnostic(String detail) {
+    if (GraphicsEnvironment.isHeadless()) {
       return false;
-    if (engineFailedMessage != null
-        && engineFailedMessage.isVisible()
-        && presentedStartupDiagnosticAttempt == attempt) return true;
+    }
+    EngineStartupDiagnostics.Attempt attempt = startupDiagnosticAttempt;
+    if (engineFailedMessage != null && engineFailedMessage.isVisible()) {
+      if (presentedStartupDiagnosticAttempt == attempt) {
+        return true;
+      }
+      engineFailedMessage.dispose();
+      engineFailedMessage = null;
+    }
+    boolean hasSnapshot = attempt != null && attempt.snapshot() != null;
+    String fallbackMessage =
+        Lizzie.resourceBundle != null
+            ? Lizzie.resourceBundle.getString("Leelaz.engineFailed")
+            : "";
+    String message;
+    if (hasSnapshot) {
+      String originalError = attempt.snapshot().toJson().optString("originalError");
+      message =
+          originalError != null && !originalError.isBlank()
+              ? originalError
+              : (detail != null && !detail.isBlank() ? detail : fallbackMessage);
+    } else {
+      message = detail != null && !detail.isBlank() ? detail : fallbackMessage;
+    }
+    boolean canUseCmdDiagnostic = OS.isWindows() && !useJavaSSH && !isSSH && !useRemoteCompute;
     EngineFailedMessage.showDialog(
         commands,
-        engineCommand,
-        attempt.snapshot().toJson().optString("originalError"),
-        !useJavaSSH && OS.isWindows(),
+        engineCommand != null ? engineCommand : "",
+        message,
+        canUseCmdDiagnostic,
         true,
         false,
         false,
@@ -22870,7 +22891,9 @@ public class Leelaz {
         dialog -> {
           engineFailedMessage = dialog;
           presentedStartupDiagnosticAttempt = attempt;
-          dialog.bindStartupDiagnostic(attempt);
+          if (hasSnapshot) {
+            dialog.bindStartupDiagnostic(attempt);
+          }
         });
     return true;
   }

@@ -71,8 +71,6 @@ public class EngineFailedMessage extends JDialog {
   private final TensorRtRepairContext repairContext;
   private final JButton tensorRtRepairButton;
   private boolean tensorRtRepairInvoked;
-  private final String originalMessage;
-  private final String originalCommand;
   private final JDialog diagnosticWindow;
   private final JTextArea summaryArea;
   private final JScrollPane detailsPane;
@@ -81,7 +79,7 @@ public class EngineFailedMessage extends JDialog {
   private final JButton btnCopy;
   private final JButton btnExport;
   private final JLabel copyStatusLabel;
-
+  private final EngineStartupDiagnostic basicDiagnostic;
   private EngineStartupDiagnostics.Attempt boundAttempt;
   private EngineStartupDiagnostic displayedDiagnostic;
   private Timer refreshTimer;
@@ -251,8 +249,7 @@ public class EngineFailedMessage extends JDialog {
       TensorRtRepairContext repairContext) {
     // this.setModal(true);
     // setType(Type.POPUP);
-    this.originalMessage = message;
-    this.originalCommand = command;
+    this.basicDiagnostic = EngineStartupDiagnostic.basic(commands, command, message);
     setTitle(Lizzie.resourceBundle.getString("Leelaz.engineFailed")); // "消息提醒");
     setAlwaysOnTop(true);
     try {
@@ -590,18 +587,10 @@ public class EngineFailedMessage extends JDialog {
   }
 
   private void setDisplayedDiagnostic(EngineStartupDiagnostic diagnostic) {
-    this.displayedDiagnostic = diagnostic;
-    if (diagnostic != null) {
-      summaryArea.setText(formatSummaryText(diagnostic));
-      detailsArea.setText(diagnostic.shareText());
-    } else {
-      summaryArea.setText("");
-      detailsArea.setText(
-          redactSensitiveText(
-              (originalMessage == null ? "" : originalMessage)
-                  + "\n\n"
-                  + (originalCommand == null ? "" : originalCommand)));
-    }
+    EngineStartupDiagnostic effective = diagnostic != null ? diagnostic : this.basicDiagnostic;
+    this.displayedDiagnostic = effective;
+    summaryArea.setText(formatSummaryText(effective));
+    detailsArea.setText(effective.shareText());
     detailsArea.setCaretPosition(0);
     summaryArea.setCaretPosition(0);
     revalidate();
@@ -632,17 +621,7 @@ public class EngineFailedMessage extends JDialog {
   }
 
   private void copyErrorAction() {
-    EngineStartupDiagnostic toCopy = this.displayedDiagnostic;
-    String copyText;
-    if (toCopy != null) {
-      copyText = toCopy.shareText();
-    } else {
-      copyText =
-          redactSensitiveText(
-              (originalMessage == null ? "" : originalMessage)
-                  + "\n"
-                  + (originalCommand == null ? "" : originalCommand));
-    }
+    String copyText = this.displayedDiagnostic.shareText();
     try {
       Toolkit.getDefaultToolkit()
           .getSystemClipboard()
