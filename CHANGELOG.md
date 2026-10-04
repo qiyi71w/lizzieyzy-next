@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Resume pending game synchronization after an explicit local engine restart, so changing games after a quick-analysis handback failure no longer leaves Space blocked. Reconfirm rules and position on the new reader, preserve pause and failure gates, and reject stale game or engine callbacks.
 - Explain when automatic quick analysis cannot hand the current engine back: show "engine state not restored" with the failed stop/restore cause and the existing "Restart current engine" menu action instead of "Engine is loading...", and answer Space or the analysis button with one recovery prompt while keeping analysis paused, the engine unchanged and replaced engines unaffected.
 - Let the Beta channel compare signed GitHub stable and test releases, select the highest valid version without downgrading or falling back to an older package, and retain a non-blocking warning when one candidate cannot be checked; preserve Stable source selection (#578).
 - Show complete suggestion rows within the existing panel, tightening safe cell padding only when it fits one more row; align settled scrolling to row boundaries and preserve browsing position through resizing without changing fonts, candidates, or board sizes (#579).

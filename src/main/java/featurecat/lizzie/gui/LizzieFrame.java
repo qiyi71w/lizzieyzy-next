@@ -5410,6 +5410,15 @@ public class LizzieFrame extends JFrame {
               }
 
               @Override
+              public void onLocalPrimaryRestart(
+                  Leelaz restarted, long previousGeneration, EngineManager manager, long token) {
+                if (restarted == primary && previousGeneration == primaryGeneration) {
+                  deferKifuSyncAfterLocalRestart(
+                      root, rulesTarget, primary, mirror, manager, token, delayMillis, action);
+                }
+              }
+
+              @Override
               public void onContextChanged() {
                 if (resumeKifuSyncAfterRemoteReconnect(
                     root, rulesTarget, primary, primaryGeneration, mirror, delayMillis, action)) {
@@ -5558,6 +5567,98 @@ public class LizzieFrame extends JFrame {
                     action);
               }
             });
+  }
+
+  /** Called only by the admitted local restart owner, before publishing its new primary. */
+  public synchronized void continueKifuSyncAfterLocalRestart(
+      Leelaz primary, long previousGeneration, EngineManager manager, long switchToken) {
+    if (kifuEngineSyncCoordinator != null) {
+      kifuEngineSyncCoordinator.onLocalPrimaryRestart(
+          primary, previousGeneration, manager, switchToken);
+    }
+  }
+
+  private void deferKifuSyncAfterLocalRestart(
+      BoardHistoryNode root,
+      BoardHistoryList.SessionRulesTarget rulesTarget,
+      Leelaz primary,
+      Leelaz mirror,
+      EngineManager manager,
+      long switchToken,
+      int delayMillis,
+      Runnable action) {
+    KifuEngineSyncCoordinator.Request wait =
+        new KifuEngineSyncCoordinator.Request() {
+          private long successorGeneration;
+          private Object successorReader;
+          private Object mirrorReader;
+
+          private boolean sameImport() {
+            BoardHistoryList history = Lizzie.board == null ? null : Lizzie.board.getHistory();
+            return primary != null
+                && !primary.useRemoteCompute
+                && Lizzie.leelaz == primary
+                && Lizzie.engineManager == manager
+                && pendingKifuEngineSyncRoot == root
+                && currentHistoryRoot() == root
+                && history != null
+                && history.captureSessionRules() == rulesTarget
+                && primary.activeComparisonEngine() == mirror;
+          }
+
+          @Override
+          public boolean isCurrent() {
+            return sameImport() && manager.engineSwitchUiSnapshot(true).token() == switchToken;
+          }
+
+          @Override
+          public KifuEngineSyncCoordinator.AttemptResult synchronize() {
+            EngineManager.EngineSwitchUiSnapshot state = manager.engineSwitchUiSnapshot(true);
+            if (state.phase() == EngineManager.EngineSwitchUiPhase.SWITCHING) {
+              return KifuEngineSyncCoordinator.AttemptResult.RETRY;
+            }
+            if (state.phase() != EngineManager.EngineSwitchUiPhase.ACTIVE
+                || !manager.isSnapshotActiveEngineAvailable(state)) {
+              return KifuEngineSyncCoordinator.AttemptResult.PERMANENT_FAILURE;
+            }
+            successorGeneration = Lizzie.capturePrimaryEngineGeneration(primary);
+            successorReader = primary.engineIncarnationToken();
+            mirrorReader = mirror == null ? null : mirror.engineIncarnationToken();
+            return KifuEngineSyncCoordinator.AttemptResult.COMPLETE;
+          }
+
+          @Override
+          public void onSynchronized() {
+            if (isCurrent()
+                && isCurrentKifuRulesRequest(
+                    root, rulesTarget, primary, successorGeneration, mirror)
+                && exactEngineIncarnationsRemainCurrent(
+                    primary, successorReader, mirror, mirrorReader)) {
+              // READY is not import confirmation. Re-run rules and position under the new reader;
+              // neither the old rules permit nor a late old restore can release this gate.
+              submitKifuEngineSync(
+                  root, rulesTarget, primary, successorGeneration, mirror, delayMillis, action);
+            }
+          }
+
+          @Override
+          public void onFailed() {
+            if (isCurrent()) failBatchKifuLoad(root);
+          }
+
+          @Override
+          public void onLocalPrimaryRestart(
+              Leelaz restarted, long previousGeneration, EngineManager nextManager, long token) {
+            if (sameImport() && restarted == primary && nextManager == manager) {
+              deferKifuSyncAfterLocalRestart(
+                  root, rulesTarget, primary, mirror, manager, token, delayMillis, action);
+            }
+          }
+        };
+    if (wait.isCurrent()) {
+      pendingKifuRulesConsent = null;
+      kifuEngineSyncCoordinator().submit(wait);
+    }
   }
 
   private boolean resumeKifuSyncAfterRemoteReconnect(
@@ -5956,6 +6057,15 @@ public class LizzieFrame extends JFrame {
                         root, rulesTarget, primary, primaryGeneration, mirror)
                     && exactEngineIncarnationsRemainCurrent(
                         primary, primaryIncarnation, mirror, mirrorIncarnation);
+              }
+
+              @Override
+              public void onLocalPrimaryRestart(
+                  Leelaz restarted, long previousGeneration, EngineManager manager, long token) {
+                if (restarted == primary && previousGeneration == primaryGeneration) {
+                  deferKifuSyncAfterLocalRestart(
+                      root, rulesTarget, primary, mirror, manager, token, delayMillis, action);
+                }
               }
 
               @Override
