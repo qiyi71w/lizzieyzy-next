@@ -344,7 +344,7 @@ public class LizzieFrame extends JFrame {
   private volatile boolean analysisControlCleanupInProgress;
   private volatile long analysisControlCleanupGeneration;
   private boolean kifuOpenWaitingForQuickAnalysisRestore;
-  private HtmlMessage foregroundUnrestoredPrompt;
+  private ForegroundUnrestoredPrompt foregroundUnrestoredPrompt;
   private DeferredKifuOpen pendingKifuOpen;
   private static final long KIFU_RULES_CAPABILITY_WAIT_MILLIS = 30_000L;
   private javax.swing.Timer quickAnalysisWarmupTimer;
@@ -6824,8 +6824,7 @@ public class LizzieFrame extends JFrame {
               drawPonderingState(g, weightText, text2, ponderingX, ponderingY);
               vh = ponderingY;
             } else {
-              String loadingText = getLoadingText();
-              drawPonderingState(g, loadingText, ponderingX, ponderingY);
+              drawLoadingState(g, ponderingX, ponderingY);
               vh = ponderingY;
             }
           }
@@ -7355,8 +7354,7 @@ public class LizzieFrame extends JFrame {
                 String text2 = ponderingText + " " + statusText; // + " " + switchingText;
                 drawPonderingState(g, weightText, text2, ponderingX, ponderingY);
               } else {
-                String loadingText = getLoadingText();
-                drawPonderingState(g, loadingText, ponderingX, ponderingY);
+                drawLoadingState(g, ponderingX, ponderingY);
               }
             }
 
@@ -7592,8 +7590,7 @@ public class LizzieFrame extends JFrame {
             // if (Lizzie.leelaz != null && Lizzie.leelaz.isLoaded()) {
             if (Lizzie.config.showStatus && !Lizzie.config.isMinMode()) {
               if (Lizzie.leelaz == null || !Lizzie.leelaz.isLoaded()) {
-                String loadingText = getLoadingText();
-                drawPonderingState(g, loadingText, ponderingX, ponderingY);
+                drawLoadingState(g, ponderingX, ponderingY);
               }
             }
 
@@ -7662,22 +7659,34 @@ public class LizzieFrame extends JFrame {
     }
   }
 
-  private String getLoadingText() {
-    Leelaz engine = Lizzie.leelaz;
+  private void drawLoadingState(Graphics2D g, int x, int statusAreaTop) {
+    String[] lines = loadingStatusLines(Lizzie.leelaz);
+    if (lines.length == 2) {
+      drawPonderingState(g, lines[0], lines[1], x, statusAreaTop);
+    } else {
+      drawPonderingState(g, lines[0], x, statusAreaTop);
+    }
+  }
+
+  /** The unrestored state keeps its cause and recovery action on separate, fully readable lines. */
+  static String[] loadingStatusLines(Leelaz engine) {
     String key = loadingTextResourceKey(engine);
     if (FOREGROUND_UNRESTORED_STATUS_KEY.equals(key)) {
       Optional<Leelaz.ForegroundAnalysisLeaseFailure> reason =
           engine.unrestoredForegroundLeaseFailure();
-      if (reason.isEmpty()) {
-        // The reader was retired between both reads; its successor is still starting.
-        return Lizzie.resourceBundle.getString("LizzieFrame.display.loading");
+      if (reason.isPresent()) {
+        return new String[] {
+          MessageFormat.format(
+              Lizzie.resourceBundle.getString(key), foregroundUnrestoredReasonText(reason.get())),
+          MessageFormat.format(
+              Lizzie.resourceBundle.getString("LizzieFrame.display.foregroundUnrestoredAction"),
+              Lizzie.resourceBundle.getString("Menu.restartCurrentEngine"))
+        };
       }
-      return MessageFormat.format(
-          Lizzie.resourceBundle.getString(key),
-          foregroundUnrestoredReasonText(reason.get()),
-          Lizzie.resourceBundle.getString("Menu.restartCurrentEngine"));
+      // The reader was retired between both reads; its successor is still starting.
+      key = "LizzieFrame.display.loading";
     }
-    return Lizzie.resourceBundle.getString(key);
+    return new String[] {Lizzie.resourceBundle.getString(key)};
   }
 
   static final String FOREGROUND_UNRESTORED_STATUS_KEY = "LizzieFrame.display.foregroundUnrestored";
@@ -13917,21 +13926,48 @@ public class LizzieFrame extends JFrame {
     Lizzie.leelaz.togglePonder();
   }
 
-  /** Shows at most one recovery prompt at a time; a closed prompt can be shown again. */
+  /**
+   * Shows at most one recovery prompt at a time; a closed prompt can be shown again. The prompt
+   * belongs to the unrestored reader that produced it and closes once that failure is no longer
+   * current, so a restarted or newly selected engine never inherits it.
+   */
   void showForegroundUnrestoredPrompt(String message) {
-    HtmlMessage shown = foregroundUnrestoredPrompt;
-    if (shown != null && shown.isShowing()) {
-      shown.toFront();
+    Leelaz engine = Lizzie.leelaz;
+    Object reader = engine == null ? null : engine.engineIncarnationToken();
+    ForegroundUnrestoredPrompt shown = foregroundUnrestoredPrompt;
+    if (shown != null && shown.dialog.isShowing()) {
+      if (shown.engine == engine && shown.reader == reader && shown.message.equals(message)) {
+        shown.dialog.toFront();
+        return;
+      }
+      shown.dialog.dispose();
+    }
+    if (engine == null || GraphicsEnvironment.isHeadless() || !isDisplayable()) {
       return;
     }
-    if (GraphicsEnvironment.isHeadless() || !isDisplayable()) {
-      return;
-    }
-    HtmlMessage prompt =
+    HtmlMessage dialog =
         new HtmlMessage(Lizzie.resourceBundle.getString("Message.title"), message, this);
+    ForegroundUnrestoredPrompt prompt =
+        new ForegroundUnrestoredPrompt(dialog, engine, reader, message);
     foregroundUnrestoredPrompt = prompt;
-    prompt.setVisible(true);
+    javax.swing.Timer retirement = new javax.swing.Timer(500, null);
+    retirement.addActionListener(
+        event -> {
+          if (!dialog.isDisplayable()) {
+            retirement.stop();
+          } else if (Lizzie.leelaz != engine
+              || engine.engineIncarnationToken() != reader
+              || engine.unrestoredForegroundLeaseFailure().isEmpty()) {
+            retirement.stop();
+            dialog.dispose();
+          }
+        });
+    retirement.start();
+    dialog.setVisible(true);
   }
+
+  private record ForegroundUnrestoredPrompt(
+      HtmlMessage dialog, Leelaz engine, Object reader, String message) {}
 
   public void drawKataEstimate(Leelaz engine, ArrayList<Double> tempcount) {
     if (isInScoreMode || !isShowingHeatmap) return;

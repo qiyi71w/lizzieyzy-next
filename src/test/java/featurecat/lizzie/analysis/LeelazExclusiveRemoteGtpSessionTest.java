@@ -150,6 +150,29 @@ class LeelazExclusiveRemoteGtpSessionTest {
   }
 
   @Test
+  void automaticLeaseInitialStopTimeoutIsNotAHandbackFailure() throws Exception {
+    RecordingRestoreLeelaz engine = recordingRestoreEngine();
+    engine.initialStopTimeoutMillis = 25L;
+    installOutput(engine);
+    AtomicInteger closed = new AtomicInteger();
+    try (ForegroundLeaseGlobalState ignored = ForegroundLeaseGlobalState.install(engine)) {
+      Leelaz.ForegroundAnalysisLeaseAcquisition acquisition =
+          engine.acquireForegroundAnalysisLease(
+              line -> {}, lease -> {}, lease -> closed.incrementAndGet(), false);
+      assertEquals(
+          Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE, acquisition.availability());
+      waitUntil(() -> closed.get() == 1);
+      drainEdt();
+
+      assertFalse(engine.isLoaded(), "the acquisition failure stays fail-closed.");
+      assertEquals(
+          java.util.Optional.empty(),
+          engine.unrestoredForegroundLeaseFailure(),
+          "a lease that never became active did not fail to hand the engine back");
+    }
+  }
+
+  @Test
   void foregroundLeaseRestoreFailureNotificationPolicyDefaultsToInteractive() throws Exception {
     Leelaz engine = reusableKatagoEngine(false, false);
     installOutput(engine);

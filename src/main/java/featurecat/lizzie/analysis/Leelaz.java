@@ -15980,14 +15980,24 @@ public class Leelaz {
         || session.readerBinding != readerStreamBinding) {
       return null;
     }
-    ForegroundAnalysisLeaseFailure reason =
-        lease.failureReason().orElse(ForegroundAnalysisLeaseFailure.RESTORE_FAILED);
-    if (reason == ForegroundAnalysisLeaseFailure.TRANSPORT_CLOSED) {
+    ForegroundAnalysisLeaseFailure reason = lease.failureReason().orElse(null);
+    if (!isForegroundHandbackFailure(reason)) {
       return null;
     }
     UnrestoredForegroundLease record = new UnrestoredForegroundLease(session.readerBinding, reason);
     unrestoredForegroundLease = record;
     return record;
+  }
+
+  /**
+   * Final-stop and restore failures happen while handing a borrowed engine back. Initial-stop
+   * failures never activated the lease, and a closed transport is reported as an engine failure.
+   */
+  private static boolean isForegroundHandbackFailure(ForegroundAnalysisLeaseFailure reason) {
+    return reason == ForegroundAnalysisLeaseFailure.FINAL_STOP_SEND_FAILED
+        || reason == ForegroundAnalysisLeaseFailure.FINAL_STOP_ERROR_RESPONSE
+        || reason == ForegroundAnalysisLeaseFailure.FINAL_STOP_TIMEOUT
+        || reason == ForegroundAnalysisLeaseFailure.RESTORE_FAILED;
   }
 
   /** Binds the record to the primary selection on the EDT, then lets the window present it. */
