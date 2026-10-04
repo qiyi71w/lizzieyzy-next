@@ -344,6 +344,7 @@ public class LizzieFrame extends JFrame {
   private volatile boolean analysisControlCleanupInProgress;
   private volatile long analysisControlCleanupGeneration;
   private boolean kifuOpenWaitingForQuickAnalysisRestore;
+  private HtmlMessage foregroundUnrestoredPrompt;
   private DeferredKifuOpen pendingKifuOpen;
   private static final long KIFU_RULES_CAPABILITY_WAIT_MILLIS = 30_000L;
   private javax.swing.Timer quickAnalysisWarmupTimer;
@@ -7662,8 +7663,24 @@ public class LizzieFrame extends JFrame {
   }
 
   private String getLoadingText() {
-    return Lizzie.resourceBundle.getString(loadingTextResourceKey(Lizzie.leelaz));
+    Leelaz engine = Lizzie.leelaz;
+    String key = loadingTextResourceKey(engine);
+    if (FOREGROUND_UNRESTORED_STATUS_KEY.equals(key)) {
+      Optional<Leelaz.ForegroundAnalysisLeaseFailure> reason =
+          engine.unrestoredForegroundLeaseFailure();
+      if (reason.isEmpty()) {
+        // The reader was retired between both reads; its successor is still starting.
+        return Lizzie.resourceBundle.getString("LizzieFrame.display.loading");
+      }
+      return MessageFormat.format(
+          Lizzie.resourceBundle.getString(key),
+          foregroundUnrestoredReasonText(reason.get()),
+          Lizzie.resourceBundle.getString("Menu.restartCurrentEngine"));
+    }
+    return Lizzie.resourceBundle.getString(key);
   }
+
+  static final String FOREGROUND_UNRESTORED_STATUS_KEY = "LizzieFrame.display.foregroundUnrestored";
 
   static String loadingTextResourceKey(Leelaz engine) {
     if (engine != null && engine.isBenchmark()) {
@@ -7679,10 +7696,55 @@ public class LizzieFrame extends JFrame {
     if (engine == null || engine.isDownWithError) {
       return "LizzieFrame.display.down";
     }
+    if (engine.unrestoredForegroundLeaseFailure().isPresent()) {
+      return FOREGROUND_UNRESTORED_STATUS_KEY;
+    }
     if (engine.isTuning) {
       return "LizzieFrame.display.tuning";
     }
     return "LizzieFrame.display.loading";
+  }
+
+  private static String foregroundUnrestoredReasonText(
+      Leelaz.ForegroundAnalysisLeaseFailure reason) {
+    return Lizzie.resourceBundle.getString(
+        reason == Leelaz.ForegroundAnalysisLeaseFailure.RESTORE_FAILED
+            ? "LizzieFrame.foregroundUnrestored.reason.restore"
+            : "LizzieFrame.foregroundUnrestored.reason.stop");
+  }
+
+  /** Recovery guidance for the current primary reader, or null when it is not unrestored. */
+  String foregroundUnrestoredGuidance() {
+    Leelaz engine = Lizzie.leelaz;
+    if (engine == null) {
+      return null;
+    }
+    return engine
+        .unrestoredForegroundLeaseFailure()
+        .map(
+            reason ->
+                MessageFormat.format(
+                    Lizzie.resourceBundle.getString("LizzieFrame.foregroundUnrestored.guidance"),
+                    foregroundUnrestoredReasonText(reason),
+                    Lizzie.resourceBundle.getString("Menu.restartCurrentEngine")))
+        .orElse(null);
+  }
+
+  /** Presents an owner-published unrestored primary reader without opening a dialog. */
+  public void presentUnrestoredForegroundEngine(Leelaz engine) {
+    if (Lizzie.leelaz != engine || engine.unrestoredForegroundLeaseFailure().isEmpty()) {
+      return;
+    }
+    showAnalysisControlAsStopped();
+  }
+
+  private void showAnalysisControlAsStopped() {
+    if (menu != null) {
+      menu.toggleEngineMenuStatus(false, false);
+    }
+    if (mainPanel != null) {
+      refresh();
+    }
   }
 
   /**
@@ -13827,6 +13889,16 @@ public class LizzieFrame extends JFrame {
   }
 
   private void resumeFromAnalysisControl() {
+    String unrestoredGuidance = foregroundUnrestoredGuidance();
+    if (unrestoredGuidance != null) {
+      // Explain the safe rejection only: pause intent, pending resumes and the engine stay as-is.
+      showAnalysisControlAsStopped();
+      showForegroundUnrestoredPrompt(
+          Lizzie.resourceBundle.getString("AnalysisEngine.foregroundRestoreFailed")
+              + "<br>"
+              + unrestoredGuidance);
+      return;
+    }
     userAnalysisPaused = false;
     if (analysisControlCleanupInProgress) {
       pendingForegroundResumeAfterCleanup = true;
@@ -13843,6 +13915,22 @@ public class LizzieFrame extends JFrame {
       }
     }
     Lizzie.leelaz.togglePonder();
+  }
+
+  /** Shows at most one recovery prompt at a time; a closed prompt can be shown again. */
+  void showForegroundUnrestoredPrompt(String message) {
+    HtmlMessage shown = foregroundUnrestoredPrompt;
+    if (shown != null && shown.isShowing()) {
+      shown.toFront();
+      return;
+    }
+    if (GraphicsEnvironment.isHeadless() || !isDisplayable()) {
+      return;
+    }
+    HtmlMessage prompt =
+        new HtmlMessage(Lizzie.resourceBundle.getString("Message.title"), message, this);
+    foregroundUnrestoredPrompt = prompt;
+    prompt.setVisible(true);
   }
 
   public void drawKataEstimate(Leelaz engine, ArrayList<Double> tempcount) {

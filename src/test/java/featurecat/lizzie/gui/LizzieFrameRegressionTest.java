@@ -2552,6 +2552,69 @@ class LizzieFrameRegressionTest {
   }
 
   @Test
+  void unrestoredForegroundEngineAnswersExplicitContinueWithoutChangingPause() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      UnrestoredLeelaz leelaz = allocate(UnrestoredLeelaz.class);
+      leelaz.loaded = true;
+      TrackingLeelaz tracked = leelaz;
+      board.events = tracked.commands();
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      startAutomaticQuickAnalysis(frame);
+
+      // Pause, then ask to continue while the borrowed engine is still being handed back.
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+      assertTrue((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+      leelaz.loaded = false;
+      leelaz.unrestored = Leelaz.ForegroundAnalysisLeaseFailure.FINAL_STOP_TIMEOUT;
+      SwingUtilities.invokeAndWait(() -> frame.presentUnrestoredForegroundEngine(leelaz));
+      engine.failExit();
+      drainEdt();
+
+      assertTrue(frame.isUserAnalysisPaused());
+      assertFalse((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+      assertTrue(frame.prompts().isEmpty(), "a background failure must not open a dialog");
+
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+
+      assertTrue(frame.isUserAnalysisPaused());
+      assertFalse((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+      assertFalse((boolean) getField(frame, "analysisControlCleanupInProgress"));
+      assertEquals(0, tracked.ponderCount);
+      assertEquals(0, board.syncCount);
+      assertTrue(tracked.commands().isEmpty());
+      assertEquals(2, frame.prompts().size());
+      assertEquals(frame.prompts().get(0), frame.prompts().get(1));
+      String restartMenu = Lizzie.resourceBundle.getString("Menu.restartCurrentEngine");
+      assertTrue(frame.prompts().get(0).contains(restartMenu));
+
+      // A successor reader that completed its own startup and restore is controlled normally.
+      leelaz.unrestored = null;
+      leelaz.loaded = true;
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+
+      assertFalse(frame.isUserAnalysisPaused());
+      assertEquals(1, tracked.ponderCount);
+      assertEquals(2, frame.prompts().size());
+    } finally {
+      env.close();
+    }
+  }
+
+  @Test
   void newKifuLoadStartsFreshContextEvenWhenSharedCleanupFails() throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
@@ -3885,6 +3948,20 @@ class LizzieFrameRegressionTest {
     public boolean stopAiPlayingAndPolicy() {
       return false;
     }
+
+    private List<String> prompts;
+
+    private List<String> prompts() {
+      if (prompts == null) {
+        prompts = new ArrayList<>();
+      }
+      return prompts;
+    }
+
+    @Override
+    void showForegroundUnrestoredPrompt(String message) {
+      prompts().add(message);
+    }
   }
 
   private static final class QuickAnalysisResumeFrame extends PolicyFrame {
@@ -4272,6 +4349,26 @@ class LizzieFrameRegressionTest {
     @Override
     public boolean isLoaded() {
       return loaded;
+    }
+  }
+
+  private static final class UnrestoredLeelaz extends TrackingLeelaz {
+    private boolean loaded;
+    private Leelaz.ForegroundAnalysisLeaseFailure unrestored;
+
+    private UnrestoredLeelaz() throws java.io.IOException {
+      super();
+    }
+
+    @Override
+    public boolean isLoaded() {
+      return loaded;
+    }
+
+    @Override
+    public java.util.Optional<Leelaz.ForegroundAnalysisLeaseFailure>
+        unrestoredForegroundLeaseFailure() {
+      return java.util.Optional.ofNullable(unrestored);
     }
   }
 
