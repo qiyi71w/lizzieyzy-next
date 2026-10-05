@@ -958,10 +958,7 @@ class AnalysisEngineRequestTest {
 
       engine.startRequest(1, -1, false);
       int stopCommandId = getExclusiveStopCommandId(foreground);
-      setField(
-          Leelaz.class,
-          foreground,
-          "outputStream",
+      foreground.installCommandOutputForTest(
           new BufferedOutputStream(
               new OutputStream() {
                 @Override
@@ -973,8 +970,7 @@ class AnalysisEngineRequestTest {
       ResourceBundle previousResourceBundle = Lizzie.resourceBundle;
       Lizzie.resourceBundle = null;
       try {
-        assertFalse(dispatchExclusiveLine(foreground, "=" + stopCommandId));
-        processCommandResponse(foreground, "=" + stopCommandId);
+        dispatchExclusiveLine(foreground, "=" + stopCommandId);
         assertTrue(dispatchExclusiveLine(foreground, ""));
       } finally {
         Lizzie.resourceBundle = previousResourceBundle;
@@ -1004,7 +1000,7 @@ class AnalysisEngineRequestTest {
 
       engine.startRequest(1, -1, false);
       int leaseStopCommandId = getExclusiveStopCommandId(foreground);
-      processCommandResponse(foreground, "=" + leaseStopCommandId);
+      dispatchExclusiveLine(foreground, "=" + leaseStopCommandId);
       assertTrue(dispatchExclusiveLine(foreground, ""));
       assertTrue(output.toString(StandardCharsets.UTF_8).endsWith("830000000 kata-get-rules\n"));
 
@@ -3139,12 +3135,6 @@ class AnalysisEngineRequestTest {
     return (boolean) method.invoke(engine, line);
   }
 
-  private static void processCommandResponse(Leelaz engine, String line) throws Exception {
-    Method method = Leelaz.class.getDeclaredMethod("processCommandResponseLine", String.class);
-    method.setAccessible(true);
-    method.invoke(engine, line);
-  }
-
   private static void setIntField(Class<?> owner, Object target, String name, int value)
       throws Exception {
     Field field = owner.getDeclaredField(name);
@@ -3346,9 +3336,7 @@ class AnalysisEngineRequestTest {
             "play",
             "set_position",
             "kata-analyze"));
-    Field output = Leelaz.class.getDeclaredField("outputStream");
-    output.setAccessible(true);
-    output.set(engine, new BufferedOutputStream(new ByteArrayOutputStream()));
+    engine.installCommandOutputForTest(new ByteArrayOutputStream());
     Field capabilityDiscovery = Leelaz.class.getDeclaredField("endGetCommandList");
     capabilityDiscovery.setAccessible(true);
     capabilityDiscovery.set(engine, true);
@@ -3358,7 +3346,7 @@ class AnalysisEngineRequestTest {
 
   private static ByteArrayOutputStream installLeelazOutput(Leelaz engine) throws Exception {
     ByteArrayOutputStream output = new ByteArrayOutputStream();
-    setField(Leelaz.class, engine, "outputStream", new BufferedOutputStream(output));
+    engine.installCommandOutputForTest(output);
     return output;
   }
 

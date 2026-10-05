@@ -4,6 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Prevent false initial-stop timeouts when quick analysis borrows the foreground engine: keep unrelated numbered replies out of the move-focus probe, and let the lease consume its own stop acknowledgement and terminal boundary on the current reader. Preserve pause, stale-reader isolation, and existing failure handling.
 - Let the Beta channel compare signed GitHub stable and test releases, select the highest valid version without downgrading or falling back to an older package, and retain a non-blocking warning when one candidate cannot be checked; preserve Stable source selection (#578).
 - Show complete suggestion rows within the existing panel, tightening safe cell padding only when it fits one more row; align settled scrolling to row boundaries and preserve browsing position through resizing without changing fonts, candidates, or board sizes (#579).
 - Keep live suggestion values and ordering current while retaining row density and browsing position; clamp the scroll range when candidates shrink or clear, including refreshes during resizing and panel collapse (#579).

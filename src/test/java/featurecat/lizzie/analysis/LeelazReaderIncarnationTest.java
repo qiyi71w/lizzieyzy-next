@@ -59,7 +59,7 @@ class LeelazReaderIncarnationTest {
     try (GlobalState ignored = GlobalState.install()) {
       Leelaz engine = new Leelaz("");
       RecordingProcess oldProcess = new RecordingProcess();
-      BlockingInputStream oldStdout = new BlockingInputStream("\n");
+      BlockingInputStream oldStdout = new BlockingInputStream("=800000000\n\n");
       BlockingInputStream oldStderr = new BlockingInputStream("", true);
       setField(engine, "process", oldProcess);
       initializeStreams(engine, oldStdout, oldStderr);
@@ -96,9 +96,11 @@ class LeelazReaderIncarnationTest {
               "set_position",
               "kata-analyze"));
       setField(engine, "endGetCommandList", true);
+      AtomicInteger leaseReady = new AtomicInteger();
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
-          engine.beginForegroundAnalysisLease(new Object(), line -> {}, () -> {}, () -> {}));
+          engine.beginForegroundAnalysisLease(
+              new Object(), line -> {}, leaseReady::incrementAndGet, () -> {}));
       invokeTerminal(engine, oldBinding);
 
       oldStdout.release();
@@ -117,8 +119,11 @@ class LeelazReaderIncarnationTest {
       assertEquals("new-stdout", currentReader(engine, "inputStream").readLine());
       assertEquals("new-stderr", currentReader(engine, "errorStream").readLine());
       assertFalse(recentLines(engine, "recentStdoutLines").contains(""));
-      processCommandResponse(engine, "=800000000");
+      assertEquals(0, leaseReady.get(), "an old reader's stop frame cannot activate the new lease");
+      dispatchExclusiveLine(engine, "=800000000");
+      assertEquals(0, leaseReady.get(), "the current stop header still needs its boundary");
       assertTrue(dispatchExclusiveLine(engine, ""));
+      assertEquals(1, leaseReady.get());
       engine.endExclusiveGtpSession();
     }
   }
@@ -576,12 +581,6 @@ class LeelazReaderIncarnationTest {
     Field field = binding.getClass().getDeclaredField("linesInProgress");
     field.setAccessible(true);
     return field.getInt(binding);
-  }
-
-  private static void processCommandResponse(Leelaz engine, String line) throws Exception {
-    Method method = Leelaz.class.getDeclaredMethod("processCommandResponseLine", String.class);
-    method.setAccessible(true);
-    method.invoke(engine, line);
   }
 
   private static boolean dispatchExclusiveLine(Leelaz engine, String line) throws Exception {
