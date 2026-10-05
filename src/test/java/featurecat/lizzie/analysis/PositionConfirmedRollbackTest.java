@@ -1384,8 +1384,9 @@ class PositionConfirmedRollbackTest {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void localRestartReconfirmsImportAfterComparisonModeChoice(boolean exitComparison)
+  @ValueSource(
+      strings = {"keep", "exit-before-notification", "exit-after-notification", "exit-after-wait"})
+  void localRestartReconfirmsImportAfterComparisonModeChoice(String modeChoice)
       throws Exception {
     try (Harness harness = Harness.open()) {
       boolean previousCanGo = LizzieFrame.canGoAfterload;
@@ -1410,29 +1411,42 @@ class PositionConfirmedRollbackTest {
         drainKifuWorker(harness.frame);
         EngineManager.EngineSwitchUiTracker tracker = new EngineManager.EngineSwitchUiTracker();
         setField(Lizzie.engineManager, "engineSwitchUiTracker", tracker);
-        long token = beginKifuRestart(harness, tracker);
+        ExactSnapshotRestoreProtocolFixture.Transport output =
+            ExactSnapshotRestoreProtocolFixture.install(
+                harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+        long[] token = new long[1];
+        javax.swing.SwingUtilities.invokeAndWait(
+            () -> {
+              Runnable exitComparison = () -> Lizzie.config.toggleExtraMode(0);
+              if (modeChoice.equals("exit-before-notification")) {
+                javax.swing.SwingUtilities.invokeLater(exitComparison);
+              }
+              token[0] = beginKifuRestart(harness, tracker);
+              if (modeChoice.equals("exit-after-notification")) {
+                javax.swing.SwingUtilities.invokeLater(exitComparison);
+              }
+              harness.engine.installFreshCommandOutputForTest(output);
+              harness.engine.advertiseCommandsForTest(
+                  List.of("name", "play", "undo", "stop", "kata-analyze", "loadsgf"));
+              // Production publishes the successor generation before the queued notification runs.
+              Lizzie.setPrimaryEngine(harness.engine);
+              harness.engine.isLoaded = true;
+            });
         drainKifuWorker(harness.frame);
         assertEquals(
             EngineManager.EngineSwitchUiPhase.SWITCHING,
             Lizzie.engineManager.engineSwitchUiSnapshot(true).phase());
         assertFalse(LizzieFrame.canGoAfterload);
-        if (exitComparison) {
+        assertEquals(0, payloadCount(output, "loadsgf"));
+        if (modeChoice.equals("exit-after-wait")) {
           javax.swing.SwingUtilities.invokeAndWait(() -> Lizzie.config.toggleExtraMode(0));
         }
-        ExactSnapshotRestoreProtocolFixture.Transport output =
-            ExactSnapshotRestoreProtocolFixture.install(
-                harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
-        harness.engine.installFreshCommandOutputForTest(output);
-        harness.engine.advertiseCommandsForTest(
-            List.of("name", "play", "undo", "stop", "kata-analyze", "loadsgf"));
-        Lizzie.setPrimaryEngine(harness.engine);
-        harness.engine.isLoaded = true;
-        tracker.succeed(token, true, 0, "restarted", harness.engine);
+        tracker.succeed(token[0], true, 0, "restarted", harness.engine);
         awaitKifuResume(harness.frame);
         assertTrue(LizzieFrame.canGoAfterload);
         assertEquals(1, harness.frame.scheduledResumeCount);
         assertEquals(1, payloadCount(output, "loadsgf"));
-        assertEquals(exitComparison ? 0 : 1, payloadCount(mirrorOutput, "loadsgf"));
+        assertEquals(modeChoice.equals("keep") ? 1 : 0, payloadCount(mirrorOutput, "loadsgf"));
         assertEquals(0, payloadCount(output, "kata-analyze"));
         javax.swing.SwingUtilities.invokeAndWait(harness.frame.scheduledResume);
         awaitRawCommand(output, "kata-analyze", 0);

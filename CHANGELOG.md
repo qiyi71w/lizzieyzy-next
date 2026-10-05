@@ -4,7 +4,7 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
-- Keep pending game imports recoverable when comparison mode is exited during a local engine restart: retain the admitted restart token, then reconfirm the remaining primary engine before releasing the import gate and resuming analysis.
+- Keep pending game imports recoverable when comparison mode is exited during a local engine restart, including exit before the queued restart notification is delivered: retain the admitted restart token, then reconfirm the remaining primary engine before releasing the import gate and resuming analysis.
 - Show foreground recovery guidance on the first Space or analysis-button operation even while automatic quick analysis is retrying after a failed handback; preserve pause intent and the task, while keeping normal pause/cancel behavior for healthy engines.
 - Resume pending game synchronization after an explicit local engine restart, so changing games after a quick-analysis handback failure no longer leaves Space blocked. Reconfirm rules and position on the new reader, preserve pause and failure gates, and reject stale game or engine callbacks.
 - Explain when automatic quick analysis cannot hand the current engine back: show "engine state not restored" with the failed stop/restore cause and the existing "Restart current engine" menu action instead of "Engine is loading...", and answer Space or the analysis button with one recovery prompt while keeping analysis paused, the engine unchanged and replaced engines unaffected.

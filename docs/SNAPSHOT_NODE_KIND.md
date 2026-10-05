@@ -258,7 +258,7 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 普通分析入队与活动比较集合的发布共享 selection 临界区，锁顺序为 selection → primary → history → endpoint/queue。selection 内仅尝试取得 primary；竞争时先释放 selection，再等待并复验同一 primary generation 和比较集合，不能丢弃仍有效的分析请求或阻塞 primary owner 的物理写出。规则收敛或显式继续后的盘面恢复期间退出比较模式时，既有 coordinator 只在同一 history/规则 revision/primary generation/reader 仍有效时接续剩余主引擎；已知规则失败仍须为新引擎集合重新取得显式继续许可，不自动重试 set。
 - 棋谱 coordinator 的终态及上下文失效回调在 EDT 执行前复验最新请求 generation；worker 已完成但 UI 尚未消费的旧回调，不能越过换谱或比较模式变更的确认边界。
 - 已准入的本地主引擎显式重启在发布新 primary generation 前，将重启前 generation 与本次 switch token 通知当前棋谱 coordinator。仍属于同一 history/rules target/主引擎及比较集合的导入责任等待该 token 成功，再以新 reader/generation 重新执行既有规则→盘面确认；只有该确认可以清除窗口棋谱门禁，不能仅凭 loaded/ACTIVE 清除。重启失败保持门禁；换谱、规则变更、后继 switch、reader/generation 变化或关闭使旧回调失效。旧规则继续许可不迁移，接续不重置用户暂停意图、不主动重启，不改变远程重连、比较退出或初始启动的责任边界。
-- 本地重启等待期间退出比较模式时，等待请求的上下文失效回调将同一导入责任交给仅含剩余主引擎的等待请求，保留原 switch token 与 history/rules target/主引擎身份校验。仍须等待该 token 成功，再用新 reader/generation 重新确认规则与盘面；不能因退出比较模式或 reader 已 loaded 提前释放门禁，也不能向已退出的副引擎恢复棋谱。
+- 本地重启期间退出比较模式时，若退出先于重启通知交付，等待安装入口将捕获的副引擎移出本次恢复集合；若等待已经安装，则由上下文失效回调转交。两种顺序都仅接续同一导入责任的剩余主引擎，保留原 switch token 与 history/rules target/主引擎身份校验。仍须等待该 token 成功，再用新 reader/generation 重新确认规则与盘面；不能因退出比较模式或 reader 已 loaded 提前释放门禁，也不能向已退出的副引擎恢复棋谱。
 
 ## 初始启动导航契约（Issue #223）
 

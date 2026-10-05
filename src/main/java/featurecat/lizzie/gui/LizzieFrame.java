@@ -5582,11 +5582,16 @@ public class LizzieFrame extends JFrame {
       BoardHistoryNode root,
       BoardHistoryList.SessionRulesTarget rulesTarget,
       Leelaz primary,
-      Leelaz mirror,
+      Leelaz capturedMirror,
       EngineManager manager,
       long switchToken,
       int delayMillis,
       Runnable action) {
+    // Comparison exit may precede delivery of the admitted restart notification.
+    Leelaz mirror =
+        capturedMirror != null && Lizzie.config != null && !Lizzie.config.isDoubleEngineMode()
+            ? null
+            : capturedMirror;
     KifuEngineSyncCoordinator.Request wait =
         new KifuEngineSyncCoordinator.Request() {
           private long successorGeneration;
