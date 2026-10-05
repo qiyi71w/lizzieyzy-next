@@ -14728,6 +14728,7 @@ public class Leelaz {
             onClosed,
             exclusiveGtpResponseCommandIds.getAndIncrement());
     session.wasPondering = isPondering();
+    session.readerBinding = readerStreamBinding;
     exclusiveGtpSession = session;
     return session;
   }
@@ -17016,6 +17017,7 @@ public class Leelaz {
     private Thread restoreThread;
     private Timer releaseStopTimeout;
     private Timer restoreTimeout;
+    private ReaderStreamBinding readerBinding;
 
     private ExclusiveGtpSession(
         Object owner,
