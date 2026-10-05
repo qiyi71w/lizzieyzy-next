@@ -1384,6 +1384,69 @@ class PositionConfirmedRollbackTest {
   }
 
   @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void localRestartReconfirmsImportAfterComparisonModeChoice(boolean exitComparison)
+      throws Exception {
+    try (Harness harness = Harness.open()) {
+      boolean previousCanGo = LizzieFrame.canGoAfterload;
+      Leelaz mirror = new Leelaz("");
+      try {
+        Lizzie.config.extraMode = ExtraMode.Double_Engine;
+        Lizzie.config.uiConfig = new org.json.JSONObject();
+        mirror.started = true;
+        mirror.isLoaded = true;
+        mirror.isKatago = true;
+        mirror.advertiseCommandsForTest(
+            List.of("name", "play", "undo", "stop", "kata-analyze", "loadsgf"));
+        Lizzie.leelaz2 = mirror;
+        ExactSnapshotRestoreProtocolFixture.Transport mirrorOutput =
+            ExactSnapshotRestoreProtocolFixture.install(
+                mirror, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+        harness.engine.isLoaded = false;
+        harness.engine.commandLists.add("loadsgf");
+        assertSame(mirror, harness.engine.activeComparisonEngine());
+        javax.swing.SwingUtilities.invokeAndWait(
+            harness.frame::synchronizeImportedSgfAfterParserLoad);
+        drainKifuWorker(harness.frame);
+        EngineManager.EngineSwitchUiTracker tracker = new EngineManager.EngineSwitchUiTracker();
+        setField(Lizzie.engineManager, "engineSwitchUiTracker", tracker);
+        long token = beginKifuRestart(harness, tracker);
+        drainKifuWorker(harness.frame);
+        assertEquals(
+            EngineManager.EngineSwitchUiPhase.SWITCHING,
+            Lizzie.engineManager.engineSwitchUiSnapshot(true).phase());
+        assertFalse(LizzieFrame.canGoAfterload);
+        if (exitComparison) {
+          javax.swing.SwingUtilities.invokeAndWait(() -> Lizzie.config.toggleExtraMode(0));
+        }
+        ExactSnapshotRestoreProtocolFixture.Transport output =
+            ExactSnapshotRestoreProtocolFixture.install(
+                harness.engine, command -> ExactSnapshotRestoreProtocolFixture.Response.success());
+        harness.engine.installFreshCommandOutputForTest(output);
+        harness.engine.advertiseCommandsForTest(
+            List.of("name", "play", "undo", "stop", "kata-analyze", "loadsgf"));
+        Lizzie.setPrimaryEngine(harness.engine);
+        harness.engine.isLoaded = true;
+        tracker.succeed(token, true, 0, "restarted", harness.engine);
+        awaitKifuResume(harness.frame);
+        assertTrue(LizzieFrame.canGoAfterload);
+        assertEquals(1, harness.frame.scheduledResumeCount);
+        assertEquals(1, payloadCount(output, "loadsgf"));
+        assertEquals(exitComparison ? 0 : 1, payloadCount(mirrorOutput, "loadsgf"));
+        assertEquals(0, payloadCount(output, "kata-analyze"));
+        javax.swing.SwingUtilities.invokeAndWait(harness.frame.scheduledResume);
+        awaitRawCommand(output, "kata-analyze", 0);
+        assertEquals(1, payloadCount(output, "kata-analyze"));
+      } finally {
+        harness.frame.shutdownKifuEngineSyncCoordinator();
+        mirror.started = false;
+        mirror.isLoaded = false;
+        LizzieFrame.canGoAfterload = previousCanGo;
+      }
+    }
+  }
+
+  @ParameterizedTest
   @ValueSource(strings = {"kifu", "rules", "engine", "restart", "shutdown"})
   void queuedLocalRestartCannotTakeOverSuccessorContext(String replacement) throws Exception {
     try (Harness harness = Harness.open()) {

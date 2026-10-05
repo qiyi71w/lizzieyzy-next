@@ -5642,6 +5642,15 @@ public class LizzieFrame extends JFrame {
           }
 
           @Override
+          public void onContextChanged() {
+            if (mirror != null && Lizzie.config != null && !Lizzie.config.isDoubleEngineMode()) {
+              // Keep the admitted restart token: its successor reader still needs confirmation.
+              deferKifuSyncAfterLocalRestart(
+                  root, rulesTarget, primary, null, manager, switchToken, delayMillis, action);
+            }
+          }
+
+          @Override
           public void onFailed() {
             if (isCurrent()) failBatchKifuLoad(root);
           }
@@ -13973,6 +13982,16 @@ public class LizzieFrame extends JFrame {
     if (stopAiPlayingAndPolicy()) {
       return;
     }
+    String unrestoredGuidance = foregroundUnrestoredGuidance();
+    if (unrestoredGuidance != null) {
+      // Explain the safe rejection only: pause intent, pending resumes and the engine stay as-is.
+      showAnalysisControlAsStopped();
+      showForegroundUnrestoredPrompt(
+          Lizzie.resourceBundle.getString("AnalysisEngine.foregroundRestoreFailed")
+              + "<br>"
+              + unrestoredGuidance);
+      return;
+    }
     if (shouldPauseFromAnalysisControl()) {
       pauseFromAnalysisControl();
       return;
@@ -14008,16 +14027,6 @@ public class LizzieFrame extends JFrame {
   }
 
   private void resumeFromAnalysisControl() {
-    String unrestoredGuidance = foregroundUnrestoredGuidance();
-    if (unrestoredGuidance != null) {
-      // Explain the safe rejection only: pause intent, pending resumes and the engine stay as-is.
-      showAnalysisControlAsStopped();
-      showForegroundUnrestoredPrompt(
-          Lizzie.resourceBundle.getString("AnalysisEngine.foregroundRestoreFailed")
-              + "<br>"
-              + unrestoredGuidance);
-      return;
-    }
     userAnalysisPaused = false;
     if (analysisControlCleanupInProgress) {
       pendingForegroundResumeAfterCleanup = true;
