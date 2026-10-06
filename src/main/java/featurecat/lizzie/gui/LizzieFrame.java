@@ -344,6 +344,7 @@ public class LizzieFrame extends JFrame {
   private volatile boolean analysisControlCleanupInProgress;
   private volatile long analysisControlCleanupGeneration;
   private boolean kifuOpenWaitingForQuickAnalysisRestore;
+  private ForegroundUnrestoredPrompt foregroundUnrestoredPrompt;
   private DeferredKifuOpen pendingKifuOpen;
   private static final long KIFU_RULES_CAPABILITY_WAIT_MILLIS = 30_000L;
   private javax.swing.Timer quickAnalysisWarmupTimer;
@@ -5409,6 +5410,15 @@ public class LizzieFrame extends JFrame {
               }
 
               @Override
+              public void onLocalPrimaryRestart(
+                  Leelaz restarted, long previousGeneration, EngineManager manager, long token) {
+                if (restarted == primary && previousGeneration == primaryGeneration) {
+                  deferKifuSyncAfterLocalRestart(
+                      root, rulesTarget, primary, mirror, manager, token, delayMillis, action);
+                }
+              }
+
+              @Override
               public void onContextChanged() {
                 if (resumeKifuSyncAfterRemoteReconnect(
                     root, rulesTarget, primary, primaryGeneration, mirror, delayMillis, action)) {
@@ -5557,6 +5567,112 @@ public class LizzieFrame extends JFrame {
                     action);
               }
             });
+  }
+
+  /** Called only by the admitted local restart owner, before publishing its new primary. */
+  public synchronized void continueKifuSyncAfterLocalRestart(
+      Leelaz primary, long previousGeneration, EngineManager manager, long switchToken) {
+    if (kifuEngineSyncCoordinator != null) {
+      kifuEngineSyncCoordinator.onLocalPrimaryRestart(
+          primary, previousGeneration, manager, switchToken);
+    }
+  }
+
+  private void deferKifuSyncAfterLocalRestart(
+      BoardHistoryNode root,
+      BoardHistoryList.SessionRulesTarget rulesTarget,
+      Leelaz primary,
+      Leelaz capturedMirror,
+      EngineManager manager,
+      long switchToken,
+      int delayMillis,
+      Runnable action) {
+    // Comparison exit may precede delivery of the admitted restart notification.
+    Leelaz mirror =
+        capturedMirror != null && Lizzie.config != null && !Lizzie.config.isDoubleEngineMode()
+            ? null
+            : capturedMirror;
+    KifuEngineSyncCoordinator.Request wait =
+        new KifuEngineSyncCoordinator.Request() {
+          private long successorGeneration;
+          private Object successorReader;
+          private Object mirrorReader;
+
+          private boolean sameImport() {
+            BoardHistoryList history = Lizzie.board == null ? null : Lizzie.board.getHistory();
+            return primary != null
+                && !primary.useRemoteCompute
+                && Lizzie.leelaz == primary
+                && Lizzie.engineManager == manager
+                && pendingKifuEngineSyncRoot == root
+                && currentHistoryRoot() == root
+                && history != null
+                && history.captureSessionRules() == rulesTarget
+                && primary.activeComparisonEngine() == mirror;
+          }
+
+          @Override
+          public boolean isCurrent() {
+            return sameImport() && manager.engineSwitchUiSnapshot(true).token() == switchToken;
+          }
+
+          @Override
+          public KifuEngineSyncCoordinator.AttemptResult synchronize() {
+            EngineManager.EngineSwitchUiSnapshot state = manager.engineSwitchUiSnapshot(true);
+            if (state.phase() == EngineManager.EngineSwitchUiPhase.SWITCHING) {
+              return KifuEngineSyncCoordinator.AttemptResult.RETRY;
+            }
+            if (state.phase() != EngineManager.EngineSwitchUiPhase.ACTIVE
+                || !manager.isSnapshotActiveEngineAvailable(state)) {
+              return KifuEngineSyncCoordinator.AttemptResult.PERMANENT_FAILURE;
+            }
+            successorGeneration = Lizzie.capturePrimaryEngineGeneration(primary);
+            successorReader = primary.engineIncarnationToken();
+            mirrorReader = mirror == null ? null : mirror.engineIncarnationToken();
+            return KifuEngineSyncCoordinator.AttemptResult.COMPLETE;
+          }
+
+          @Override
+          public void onSynchronized() {
+            if (isCurrent()
+                && isCurrentKifuRulesRequest(
+                    root, rulesTarget, primary, successorGeneration, mirror)
+                && exactEngineIncarnationsRemainCurrent(
+                    primary, successorReader, mirror, mirrorReader)) {
+              // READY is not import confirmation. Re-run rules and position under the new reader;
+              // neither the old rules permit nor a late old restore can release this gate.
+              submitKifuEngineSync(
+                  root, rulesTarget, primary, successorGeneration, mirror, delayMillis, action);
+            }
+          }
+
+          @Override
+          public void onContextChanged() {
+            if (mirror != null && Lizzie.config != null && !Lizzie.config.isDoubleEngineMode()) {
+              // Keep the admitted restart token: its successor reader still needs confirmation.
+              deferKifuSyncAfterLocalRestart(
+                  root, rulesTarget, primary, null, manager, switchToken, delayMillis, action);
+            }
+          }
+
+          @Override
+          public void onFailed() {
+            if (isCurrent()) failBatchKifuLoad(root);
+          }
+
+          @Override
+          public void onLocalPrimaryRestart(
+              Leelaz restarted, long previousGeneration, EngineManager nextManager, long token) {
+            if (sameImport() && restarted == primary && nextManager == manager) {
+              deferKifuSyncAfterLocalRestart(
+                  root, rulesTarget, primary, mirror, manager, token, delayMillis, action);
+            }
+          }
+        };
+    if (wait.isCurrent()) {
+      pendingKifuRulesConsent = null;
+      kifuEngineSyncCoordinator().submit(wait);
+    }
   }
 
   private boolean resumeKifuSyncAfterRemoteReconnect(
@@ -5955,6 +6071,15 @@ public class LizzieFrame extends JFrame {
                         root, rulesTarget, primary, primaryGeneration, mirror)
                     && exactEngineIncarnationsRemainCurrent(
                         primary, primaryIncarnation, mirror, mirrorIncarnation);
+              }
+
+              @Override
+              public void onLocalPrimaryRestart(
+                  Leelaz restarted, long previousGeneration, EngineManager manager, long token) {
+                if (restarted == primary && previousGeneration == primaryGeneration) {
+                  deferKifuSyncAfterLocalRestart(
+                      root, rulesTarget, primary, mirror, manager, token, delayMillis, action);
+                }
               }
 
               @Override
@@ -6823,8 +6948,7 @@ public class LizzieFrame extends JFrame {
               drawPonderingState(g, weightText, text2, ponderingX, ponderingY);
               vh = ponderingY;
             } else {
-              String loadingText = getLoadingText();
-              drawPonderingState(g, loadingText, ponderingX, ponderingY);
+              drawLoadingState(g, ponderingX, ponderingY);
               vh = ponderingY;
             }
           }
@@ -7354,8 +7478,7 @@ public class LizzieFrame extends JFrame {
                 String text2 = ponderingText + " " + statusText; // + " " + switchingText;
                 drawPonderingState(g, weightText, text2, ponderingX, ponderingY);
               } else {
-                String loadingText = getLoadingText();
-                drawPonderingState(g, loadingText, ponderingX, ponderingY);
+                drawLoadingState(g, ponderingX, ponderingY);
               }
             }
 
@@ -7591,8 +7714,7 @@ public class LizzieFrame extends JFrame {
             // if (Lizzie.leelaz != null && Lizzie.leelaz.isLoaded()) {
             if (Lizzie.config.showStatus && !Lizzie.config.isMinMode()) {
               if (Lizzie.leelaz == null || !Lizzie.leelaz.isLoaded()) {
-                String loadingText = getLoadingText();
-                drawPonderingState(g, loadingText, ponderingX, ponderingY);
+                drawLoadingState(g, ponderingX, ponderingY);
               }
             }
 
@@ -7661,9 +7783,37 @@ public class LizzieFrame extends JFrame {
     }
   }
 
-  private String getLoadingText() {
-    return Lizzie.resourceBundle.getString(loadingTextResourceKey(Lizzie.leelaz));
+  private void drawLoadingState(Graphics2D g, int x, int statusAreaTop) {
+    String[] lines = loadingStatusLines(Lizzie.leelaz);
+    if (lines.length == 2) {
+      drawPonderingState(g, lines[0], lines[1], x, statusAreaTop);
+    } else {
+      drawPonderingState(g, lines[0], x, statusAreaTop);
+    }
   }
+
+  /** The unrestored state keeps its cause and recovery action on separate, fully readable lines. */
+  static String[] loadingStatusLines(Leelaz engine) {
+    String key = loadingTextResourceKey(engine);
+    if (FOREGROUND_UNRESTORED_STATUS_KEY.equals(key)) {
+      Optional<Leelaz.ForegroundAnalysisLeaseFailure> reason =
+          engine.unrestoredForegroundLeaseFailure();
+      if (reason.isPresent()) {
+        return new String[] {
+          MessageFormat.format(
+              Lizzie.resourceBundle.getString(key), foregroundUnrestoredReasonText(reason.get())),
+          MessageFormat.format(
+              Lizzie.resourceBundle.getString("LizzieFrame.display.foregroundUnrestoredAction"),
+              Lizzie.resourceBundle.getString("Menu.restartCurrentEngine"))
+        };
+      }
+      // The reader was retired between both reads; its successor is still starting.
+      key = "LizzieFrame.display.loading";
+    }
+    return new String[] {Lizzie.resourceBundle.getString(key)};
+  }
+
+  static final String FOREGROUND_UNRESTORED_STATUS_KEY = "LizzieFrame.display.foregroundUnrestored";
 
   static String loadingTextResourceKey(Leelaz engine) {
     if (engine != null && engine.isBenchmark()) {
@@ -7679,10 +7829,55 @@ public class LizzieFrame extends JFrame {
     if (engine == null || engine.isDownWithError) {
       return "LizzieFrame.display.down";
     }
+    if (engine.unrestoredForegroundLeaseFailure().isPresent()) {
+      return FOREGROUND_UNRESTORED_STATUS_KEY;
+    }
     if (engine.isTuning) {
       return "LizzieFrame.display.tuning";
     }
     return "LizzieFrame.display.loading";
+  }
+
+  private static String foregroundUnrestoredReasonText(
+      Leelaz.ForegroundAnalysisLeaseFailure reason) {
+    return Lizzie.resourceBundle.getString(
+        reason == Leelaz.ForegroundAnalysisLeaseFailure.RESTORE_FAILED
+            ? "LizzieFrame.foregroundUnrestored.reason.restore"
+            : "LizzieFrame.foregroundUnrestored.reason.stop");
+  }
+
+  /** Recovery guidance for the current primary reader, or null when it is not unrestored. */
+  String foregroundUnrestoredGuidance() {
+    Leelaz engine = Lizzie.leelaz;
+    if (engine == null) {
+      return null;
+    }
+    return engine
+        .unrestoredForegroundLeaseFailure()
+        .map(
+            reason ->
+                MessageFormat.format(
+                    Lizzie.resourceBundle.getString("LizzieFrame.foregroundUnrestored.guidance"),
+                    foregroundUnrestoredReasonText(reason),
+                    Lizzie.resourceBundle.getString("Menu.restartCurrentEngine")))
+        .orElse(null);
+  }
+
+  /** Presents an owner-published unrestored primary reader without opening a dialog. */
+  public void presentUnrestoredForegroundEngine(Leelaz engine) {
+    if (Lizzie.leelaz != engine || engine.unrestoredForegroundLeaseFailure().isEmpty()) {
+      return;
+    }
+    showAnalysisControlAsStopped();
+  }
+
+  private void showAnalysisControlAsStopped() {
+    if (menu != null) {
+      menu.toggleEngineMenuStatus(false, false);
+    }
+    if (mainPanel != null) {
+      refresh();
+    }
   }
 
   /**
@@ -13792,6 +13987,16 @@ public class LizzieFrame extends JFrame {
     if (stopAiPlayingAndPolicy()) {
       return;
     }
+    String unrestoredGuidance = foregroundUnrestoredGuidance();
+    if (unrestoredGuidance != null) {
+      // Explain the safe rejection only: pause intent, pending resumes and the engine stay as-is.
+      showAnalysisControlAsStopped();
+      showForegroundUnrestoredPrompt(
+          Lizzie.resourceBundle.getString("AnalysisEngine.foregroundRestoreFailed")
+              + "<br>"
+              + unrestoredGuidance);
+      return;
+    }
     if (shouldPauseFromAnalysisControl()) {
       pauseFromAnalysisControl();
       return;
@@ -13844,6 +14049,49 @@ public class LizzieFrame extends JFrame {
     }
     Lizzie.leelaz.togglePonder();
   }
+
+  /**
+   * Shows at most one recovery prompt at a time; a closed prompt can be shown again. The prompt
+   * belongs to the unrestored reader that produced it and closes once that failure is no longer
+   * current, so a restarted or newly selected engine never inherits it.
+   */
+  void showForegroundUnrestoredPrompt(String message) {
+    Leelaz engine = Lizzie.leelaz;
+    Object reader = engine == null ? null : engine.engineIncarnationToken();
+    ForegroundUnrestoredPrompt shown = foregroundUnrestoredPrompt;
+    if (shown != null && shown.dialog.isShowing()) {
+      if (shown.engine == engine && shown.reader == reader && shown.message.equals(message)) {
+        shown.dialog.toFront();
+        return;
+      }
+      shown.dialog.dispose();
+    }
+    if (engine == null || GraphicsEnvironment.isHeadless() || !isDisplayable()) {
+      return;
+    }
+    HtmlMessage dialog =
+        new HtmlMessage(Lizzie.resourceBundle.getString("Message.title"), message, this);
+    ForegroundUnrestoredPrompt prompt =
+        new ForegroundUnrestoredPrompt(dialog, engine, reader, message);
+    foregroundUnrestoredPrompt = prompt;
+    javax.swing.Timer retirement = new javax.swing.Timer(500, null);
+    retirement.addActionListener(
+        event -> {
+          if (!dialog.isDisplayable()) {
+            retirement.stop();
+          } else if (Lizzie.leelaz != engine
+              || engine.engineIncarnationToken() != reader
+              || engine.unrestoredForegroundLeaseFailure().isEmpty()) {
+            retirement.stop();
+            dialog.dispose();
+          }
+        });
+    retirement.start();
+    dialog.setVisible(true);
+  }
+
+  private record ForegroundUnrestoredPrompt(
+      HtmlMessage dialog, Leelaz engine, Object reader, String message) {}
 
   public void drawKataEstimate(Leelaz engine, ArrayList<Double> tempcount) {
     if (isInScoreMode || !isShowingHeatmap) return;
@@ -21158,7 +21406,8 @@ public class LizzieFrame extends JFrame {
         dependsOnPrimary
             && Lizzie.leelaz != null
             && Lizzie.leelaz.isDownWithError
-            && !Lizzie.leelaz.isStarted();
+            && !Lizzie.leelaz.isStarted()
+            && !Lizzie.leelaz.isRemoteSessionRecoveryRequested();
     return decideQuickAnalysisWarmup(
         isQuickAnalysisWarmupContextEligible(requiresAutoAnalyze),
         dependsOnPrimary,

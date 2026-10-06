@@ -17,6 +17,7 @@ import javax.imageio.ImageIO;
 import javax.swing.SwingUtilities;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -38,7 +39,7 @@ public class ZhiziQuickAnalysisAcceptanceIT {
     run("reconnect");
   }
 
-  @Test
+  @RepeatedTest(3)
   void remoteReconnectDuringCurveCompletesRemainingMoves() throws Exception {
     run("running-reconnect");
   }
@@ -75,6 +76,7 @@ public class ZhiziQuickAnalysisAcceptanceIT {
       exit = 0;
     } catch (Throwable failure) {
       failure.printStackTrace();
+      printFailureState();
       Files.writeString(result, "result=FAIL\nerror=" + failure + "\n");
       if (Lizzie.frame != null && Lizzie.frame.isShowing())
         ImageIO.write(
@@ -83,6 +85,53 @@ public class ZhiziQuickAnalysisAcceptanceIT {
             result.resolveSibling("failure.png").toFile());
     } finally {
       System.exit(exit);
+    }
+  }
+
+  private static void printFailureState() {
+    try {
+      SwingUtilities.invokeAndWait(
+          () -> {
+            Leelaz engine = Lizzie.leelaz;
+            if (engine == null || Lizzie.frame == null) return;
+            System.err.println(
+                "Remote acceptance state: loaded="
+                    + engine.isLoaded()
+                    + " started="
+                    + engine.isStarted()
+                    + " failed="
+                    + engine.isDownWithError
+                    + " recovery="
+                    + engine.isRemoteSessionRecoveryRequested()
+                    + " pondering="
+                    + engine.isPondering()
+                    + " paused="
+                    + Lizzie.frame.isUserAnalysisPaused()
+                    + " readiness="
+                    + Lizzie.frame.automaticQuickAnalysisReadiness()
+                    + " analyzed="
+                    + allMovesAnalyzed());
+            try {
+              var field = LizzieFrame.class.getDeclaredField("automaticQuickAnalysisTask");
+              field.setAccessible(true);
+              var task =
+                  (featurecat.lizzie.analysis.AutomaticQuickAnalysisTask) field.get(Lizzie.frame);
+              if (task != null) {
+                System.err.println(
+                    "Automatic task: active="
+                        + task.isActive()
+                        + " retrying="
+                        + task.isRetrying()
+                        + " restore="
+                        + task.requiresForegroundRestore());
+                task.whenSettled(result -> System.err.println("Settlement: " + result));
+              }
+            } catch (ReflectiveOperationException error) {
+              error.printStackTrace();
+            }
+          });
+    } catch (Exception error) {
+      error.printStackTrace();
     }
   }
 
