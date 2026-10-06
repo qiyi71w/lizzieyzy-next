@@ -34,6 +34,7 @@ public final class TensorRtCompanionFixture {
           "nvrtc64_120_0.dll",
           "nvrtc-builtins64_128.dll",
           "nvinfer_10.dll",
+          "nvonnxparser_10.dll",
           "nvinfer_plugin_10.dll");
   private static final List<String> ISOLATED_PROPERTIES =
       List.of("os.name", "lizzie.tensorrt.runtimeSearchPath", "lizzie.opencl.nvidiaDriverVersion");
