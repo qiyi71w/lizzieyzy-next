@@ -1614,7 +1614,10 @@ public class Leelaz {
   public boolean isRemoteSessionRecoveryRequested() {
     ReaderStreamBinding binding = readerStreamBinding;
     EngineTransport transport = binding == null ? null : binding.remoteTransport;
-    return useRemoteCompute && transport != null && transport.isRecoveryRequested();
+    return useRemoteCompute
+        && transport != null
+        && transport == remoteTransport
+        && transport.isRecoveryRequested();
   }
 
   public boolean isBenchmark() {
