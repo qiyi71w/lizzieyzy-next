@@ -111,9 +111,8 @@ public class FoxKifuDownload extends JFrame {
     cbxQueryMode.addItem(Lizzie.resourceBundle.getString("FoxKifuDownload.queryMode.nickname"));
     cbxQueryMode.addItem(Lizzie.resourceBundle.getString("FoxKifuDownload.queryMode.uid"));
     cbxQueryMode.setSelectedIndex(Lizzie.config.lastFoxQueryByUid ? 1 : 0);
-    // A focused combo paints its current value in the selection color; keep it plain, as the
-    // recent-search buttons do. Accessibility navigation grants focus on demand.
-    cbxQueryMode.setFocusable(false);
+    // This window uses ordinary Tab traversal, not the main board's dynamic focus zones.
+    cbxQueryMode.setFocusable(true);
     searchPanel.add(cbxQueryMode);
     AccessibilitySupport.named(
         cbxQueryMode,
@@ -163,7 +162,7 @@ public class FoxKifuDownload extends JFrame {
           }
         });
     cbxAfterGet.setSelectedIndex(Lizzie.config.foxAfterGet);
-    cbxAfterGet.setFocusable(false);
+    cbxAfterGet.setFocusable(true);
     searchPanel.add(cbxAfterGet);
     AccessibilitySupport.labelFor(
         lblAfterGet, cbxAfterGet, Lizzie.resourceBundle.getString("FoxKifuDownload.lblAfterGet"));
