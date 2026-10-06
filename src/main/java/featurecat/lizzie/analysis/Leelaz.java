@@ -1094,18 +1094,20 @@ public class Leelaz {
   private boolean dispatchMoveFocusLine(ReaderStreamBinding binding, String line) {
     MoveFocusResponse boundary = moveFocusBoundary;
     if (boundary == null || boundary.binding != binding) return false;
+    if (line.startsWith("=") || line.startsWith("?")) {
+      PendingResponseHandler pending = peekPendingResponseHandler(line);
+      // Capability probing isolates its analysis stream, not other requests' replies.
+      if (pending == null || pending.handler != boundary) return false;
+      if (!boundary.failed && boundary.finalHeader == null) {
+        if (!boundary.analyze || line.startsWith("?")) boundary.finalHeader = line;
+        else processCommandResponseLine(line, binding);
+      }
+      return true;
+    }
     if (boundary.failed) return true;
     if (boundary.finalHeader != null) {
       if (line.isEmpty()) processCommandResponseLine(boundary.finalHeader, binding);
       return true;
-    }
-    if (line.startsWith("=") || line.startsWith("?")) {
-      PendingResponseHandler pending = peekPendingResponseHandler(line);
-      if (pending != null && pending.handler == boundary) {
-        if (!boundary.analyze || line.startsWith("?")) boundary.finalHeader = line;
-        else processCommandResponseLine(line, binding);
-        return true;
-      }
     }
     return boundary.probe;
   }
@@ -14682,7 +14684,6 @@ public class Leelaz {
           }
         }
       }
-      acknowledgeExclusiveGtpInitialStop(line);
     } finally {
       currentCommandResponseLine = "";
       currentCommandResponseError = false;
@@ -16517,7 +16518,11 @@ public class Leelaz {
 
   private boolean dispatchExclusiveGtpLine(ReaderStreamBinding binding, String line) {
     ExclusiveGtpSession session = exclusiveGtpSession;
-    if (session == null) {
+    if (session == null
+        || binding == null
+        || session.readerBinding != binding
+        || readerStreamBinding != binding
+        || binding.terminated) {
       return false;
     }
     String trimmed = line == null ? "" : line.trim();
@@ -16525,12 +16530,24 @@ public class Leelaz {
       if (trimmed.startsWith("info ")) {
         return true;
       }
-      if (trimmed.startsWith("?") && parseResponseCommandId(trimmed) == session.stopCommandId) {
-        abortExclusiveGtpSession(
-            session, true, ForegroundAnalysisLeaseFailure.INITIAL_STOP_ERROR_RESPONSE);
+      if (parseResponseCommandId(trimmed) == session.stopCommandId) {
+        if (trimmed.startsWith("?")) {
+          abortExclusiveGtpSession(
+              session, true, ForegroundAnalysisLeaseFailure.INITIAL_STOP_ERROR_RESPONSE);
+        } else if (trimmed.startsWith("=")) {
+          synchronized (engineArbitrationLock()) {
+            if (exclusiveGtpSession == session
+                && readerStreamBinding == binding
+                && !binding.terminated
+                && !session.active
+                && !session.closing) {
+              session.initialStopAcknowledged = true;
+            }
+          }
+        }
         return true;
       }
-      if (trimmed.isEmpty() && completeExclusiveGtpInitialStopBoundary(session)) {
+      if (trimmed.isEmpty() && completeExclusiveGtpInitialStopBoundary(session, binding)) {
         return true;
       }
       return false;
@@ -16575,27 +16592,16 @@ public class Leelaz {
 
 
 
-  private void acknowledgeExclusiveGtpInitialStop(String line) {
-    synchronized (engineArbitrationLock()) {
-      ExclusiveGtpSession session = exclusiveGtpSession;
-      if (session == null
-          || session.active
-          || session.closing
-          || line == null
-          || !line.trim().startsWith("=")
-          || parseResponseCommandId(line) != session.stopCommandId) {
-        return;
-      }
-      session.initialStopAcknowledged = true;
-    }
-  }
-
-  private boolean completeExclusiveGtpInitialStopBoundary(ExclusiveGtpSession session) {
+  private boolean completeExclusiveGtpInitialStopBoundary(
+      ExclusiveGtpSession session, ReaderStreamBinding binding) {
     Runnable onReady = null;
     boolean restore = false;
     synchronized (engineArbitrationLock()) {
       if (session == null
           || exclusiveGtpSession != session
+          || session.readerBinding != binding
+          || readerStreamBinding != binding
+          || binding.terminated
           || session.active
           || session.closing
           || !session.initialStopAcknowledged) {

@@ -12,8 +12,8 @@ import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.GtpConsolePane;
 import featurecat.lizzie.gui.LizzieFrame;
-import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -60,7 +60,10 @@ class AutomaticQuickAnalysisHandbackTest {
               "set_position",
               "kata-analyze"));
       ByteArrayOutputStream output = new ByteArrayOutputStream();
-      field(foreground, Leelaz.class, "outputStream", new BufferedOutputStream(output));
+      Method installOutput =
+          Leelaz.class.getDeclaredMethod("installCommandOutputForTest", OutputStream.class);
+      installOutput.setAccessible(true);
+      installOutput.invoke(foreground, output);
       field(foreground, Leelaz.class, "endGetCommandList", true);
       Lizzie.setPrimaryEngine(foreground);
       EngineManager.isEmpty = false;

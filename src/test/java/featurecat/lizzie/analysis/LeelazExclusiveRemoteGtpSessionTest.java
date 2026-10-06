@@ -52,6 +52,37 @@ class LeelazExclusiveRemoteGtpSessionTest {
   }
 
   @Test
+  void initialStopCompletesThroughReaderWhileAnotherStrictRequestIsPending() throws Exception {
+    Leelaz engine = reusableKatagoEngine(false, false);
+    installInput(engine, "=800000001\n\n=800000000\n\n");
+    installOutput(engine);
+    engine.isNormalEnd = true;
+    AtomicInteger ready = new AtomicInteger();
+    AtomicReference<Boolean> rulesCompletedAtReady = new AtomicReference<>();
+    AtomicReference<Boolean> exclusiveCommandAccepted = new AtomicReference<>();
+    try (ForegroundLeaseGlobalState ignored = ForegroundLeaseGlobalState.installForReader(engine)) {
+      Leelaz.EngineRulesOperation rules = engine.queryEngineRulesOperation(30_000L);
+      assertTrue(rules.accepted());
+      assertEquals(
+          Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
+          engine.beginExclusiveGtpSession(
+              line -> {},
+              () -> {
+                rulesCompletedAtReady.set(rules.isDone());
+                exclusiveCommandAccepted.set(engine.sendExclusiveGtpCommand("kata-raw-nn 0"));
+                ready.incrementAndGet();
+              },
+              () -> {}));
+
+      invokeRead(engine);
+
+      assertEquals(1, ready.get(), "the matching stop frame must activate its lease exactly once");
+      assertEquals(Boolean.FALSE, rulesCompletedAtReady.get(), "stop must not settle the rules query");
+      assertEquals(Boolean.TRUE, exclusiveCommandAccepted.get(), "the activated lease must be usable");
+    }
+  }
+
+  @Test
   void exclusiveRemoteSessionWaitsForStopThenRoutesOnlyQuickCurveTraffic() throws Exception {
     Leelaz engine = reusableKatagoEngine(false, false);
     ByteArrayOutputStream bytes = installOutput(engine);
@@ -73,8 +104,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
     assertFalse(dispatch(engine, "="));
     processCommandResponse(engine, "=");
     assertEquals(0, ready.get(), "the analyze terminator is not the numbered stop response.");
-    assertFalse(dispatch(engine, "=800000000"));
-    processCommandResponse(engine, "=800000000");
+    dispatch(engine, "=800000000");
 
     assertEquals(0, ready.get(), "the stop response is incomplete until its blank boundary.");
     assertTrue(dispatch(engine, ""), "the trailing stop boundary must be consumed once.");
@@ -210,8 +240,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
         Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
         engine.beginExclusiveGtpSession(
             line -> {}, ready::incrementAndGet, closed::incrementAndGet));
-    assertFalse(dispatch(engine, "=800000000"));
-    processCommandResponse(engine, "=800000000");
+    dispatch(engine, "=800000000");
     waitUntil(() -> closed.get() == 1);
 
     assertEquals(0, ready.get());
@@ -391,8 +420,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
     assertEquals(0, ready.get());
     assertTrue(engine.hasExclusiveGtpLease());
 
-    assertFalse(dispatch(engine, "=800000000"));
-    processCommandResponse(engine, "=800000000");
+    dispatch(engine, "=800000000");
     assertEquals(0, ready.get());
     assertTrue(dispatch(engine, ""));
     assertEquals(1, ready.get());
@@ -681,7 +709,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
       Leelaz.ForegroundAnalysisLeaseAcquisition acquisition =
           engine.acquireForegroundAnalysisLease(line -> {}, lease -> {}, lease -> {});
       Leelaz.ForegroundAnalysisLease lease = acquisition.lease();
-      processCommandResponse(engine, "=800000000");
+      dispatch(engine, "=800000000");
       assertTrue(dispatch(engine, ""));
 
       engine.sendCommand("name");
@@ -957,7 +985,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
           engine.beginForegroundAnalysisLease(owner, line -> {}, () -> {}, () -> {}));
-      processCommandResponse(engine, "=800000000");
+      dispatch(engine, "=800000000");
       assertTrue(dispatch(engine, ""));
 
       Thread outputHolder =
@@ -1010,7 +1038,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
           engine.beginForegroundAnalysisLease(owner, line -> {}, () -> {}, () -> {}));
-      processCommandResponse(engine, "=800000000");
+      dispatch(engine, "=800000000");
       assertTrue(dispatch(engine, ""));
 
       Thread outputHolder =
@@ -1059,7 +1087,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
           engine.beginForegroundAnalysisLease(owner, line -> {}, () -> {}, () -> {}));
-      processCommandResponse(engine, "=800000000");
+      dispatch(engine, "=800000000");
       assertTrue(dispatch(engine, ""));
 
       engine.endForegroundAnalysisLease(new Object());
@@ -1103,7 +1131,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE,
           engine.beginForegroundAnalysisLease(owner, line -> {}, () -> {}, () -> {}));
-      processCommandResponse(engine, "=800000000");
+      dispatch(engine, "=800000000");
       assertTrue(dispatch(engine, ""));
 
       board.currentMarker = 2;
@@ -1934,7 +1962,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
               },
               () -> {},
               () -> {}));
-      processCommandResponse(engine, "=800000000");
+      dispatch(engine, "=800000000");
       assertTrue(dispatch(engine, ""));
       Lizzie.leelaz = null;
       engine.isNormalEnd = true;
@@ -2706,7 +2734,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
                 line -> {}, owner -> {}, owner -> {}, !automatic);
         assertEquals(
             Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE, acquisition.availability());
-        processCommandResponse(engine, "=800000000");
+        dispatch(engine, "=800000000");
         assertTrue(dispatch(engine, ""));
         return new ProductionForegroundRestoreHarness(
             globalState,
@@ -2812,7 +2840,7 @@ class LeelazExclusiveRemoteGtpSessionTest {
       assertEquals(
           Leelaz.ExclusiveGtpLeaseAvailability.AVAILABLE, acquisition.availability());
       Leelaz.ForegroundAnalysisLease owner = acquisition.lease();
-      processCommandResponse(engine, "=800000000");
+      dispatch(engine, "=800000000");
       assertTrue(dispatch(engine, ""));
       if (enterPlayMode) {
         Lizzie.frame.isPlayingAgainstLeelaz = true;

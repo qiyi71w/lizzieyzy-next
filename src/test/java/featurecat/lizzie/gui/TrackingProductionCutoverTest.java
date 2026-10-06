@@ -32,6 +32,28 @@ import org.junit.jupiter.api.Test;
 
 class TrackingProductionCutoverTest {
   @Test
+  void capabilityProbeDoesNotConsumeAnInFlightRulesReply() throws Exception {
+    try (TestEnvironment environment = TestEnvironment.open()) {
+      environment.engine.commandLists.add("kata-get-rules");
+      Leelaz.EngineRulesOperation rules = environment.engine.queryEngineRulesOperation();
+      assertTrue(rules.accepted());
+      String query = environment.commands().trim();
+      String queryId = query.substring(0, query.indexOf(' '));
+      assertTrue(environment.engine.startMoveFocusProbeAfterInitialization());
+
+      environment.dispatch("=" + queryId + " chinese");
+      environment.dispatch("");
+      environment.respondedCommands = 1;
+
+      assertTrue(rules.isDone(), "the rules owner must receive its reply during capability probing");
+      assertTrue(rules.result().isConfirmed());
+      assertEquals(Leelaz.MoveFocusCapability.PROBING, environment.engine.moveFocusCapability());
+      environment.settleCommands();
+      assertEquals(Leelaz.MoveFocusCapability.SUPPORTED, environment.engine.moveFocusCapability());
+    }
+  }
+
+  @Test
   void probeFromUiThreadDoesNotWaitForPhysicalWriteAdmission() throws Exception {
     try (TestEnvironment environment = TestEnvironment.open()) {
       Field lockField = EngineManager.class.getDeclaredField("ENGINE_GAME_ANALYSIS_OUTPUT_MUTATION_LOCK");
