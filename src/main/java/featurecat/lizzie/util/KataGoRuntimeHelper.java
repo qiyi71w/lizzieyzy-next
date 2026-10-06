@@ -6090,9 +6090,14 @@ public final class KataGoRuntimeHelper {
   private static List<List<String>> requiredRuntimeDllGroups(
       Path enginePath, String backend, boolean staticZlib) {
     if (isTensorRtBackend(backend)) {
-      return staticZlib
-          ? REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS_STATIC_ZLIB
-          : REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS;
+      if (staticZlib) {
+        // The pinned Transformer build imports the ONNX parser at process startup.
+        List<List<String>> required =
+            new ArrayList<>(REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS_STATIC_ZLIB);
+        required.add(List.of("nvonnxparser_10.dll"));
+        return required;
+      }
+      return REQUIRED_NVIDIA_TRT10_9_RUNTIME_DLL_GROUPS;
     }
     if (usesCuda12_8Runtime(enginePath, backend)) {
       return staticZlib
