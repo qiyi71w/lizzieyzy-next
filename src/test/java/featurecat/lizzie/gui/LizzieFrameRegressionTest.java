@@ -65,6 +65,8 @@ import javax.swing.text.html.StyleSheet;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class LizzieFrameRegressionTest {
   private static final int BOARD_SIZE = 2;
