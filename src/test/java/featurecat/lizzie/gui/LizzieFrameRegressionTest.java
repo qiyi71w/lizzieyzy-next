@@ -29,6 +29,7 @@ import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.rules.Zobrist;
 import featurecat.lizzie.teacher.CommentDisplayRenderer;
 import featurecat.lizzie.teacher.TeacherCommentCodec;
+import java.awt.Canvas;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -38,6 +39,7 @@ import java.awt.Rectangle;
 import java.awt.Window;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
+import java.awt.event.KeyEvent;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.image.ColorModel;
@@ -65,6 +67,8 @@ import javax.swing.text.html.StyleSheet;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class LizzieFrameRegressionTest {
   private static final int BOARD_SIZE = 2;
@@ -2336,8 +2340,10 @@ class LizzieFrameRegressionTest {
     }
   }
 
-  @Test
-  void analysisControlPauseCancelsRunningAutomaticQuickAnalysisAndDoesNotPonder() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void analysisControlPauseCancelsRunningAutomaticQuickAnalysisAndDoesNotPonder(boolean toolbar)
+      throws Exception {
     TestEnvironment env = TestEnvironment.open();
     try {
       Lizzie.config = configWithAutoQuickAnalyze();
@@ -2358,7 +2364,7 @@ class LizzieFrameRegressionTest {
 
       BoardHistoryNode viewed = Lizzie.board.getHistory().getCurrentHistoryNode();
 
-      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+      activateAnalysisControl(toolbar);
       engine.completeExit();
       drainEdt();
 
@@ -2548,6 +2554,138 @@ class LizzieFrameRegressionTest {
       assertTrue(leelaz.commands().isEmpty());
     } finally {
       env.close();
+    }
+  }
+
+  @Test
+  void unrestoredForegroundEngineAnswersExplicitContinueWithoutChangingPause() throws Exception {
+    TestEnvironment env = TestEnvironment.open();
+    try {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      UnrestoredLeelaz leelaz = allocate(UnrestoredLeelaz.class);
+      leelaz.loaded = true;
+      TrackingLeelaz tracked = leelaz;
+      board.events = tracked.commands();
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      startAutomaticQuickAnalysis(frame);
+
+      // Pause, then ask to continue while the borrowed engine is still being handed back.
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+      assertTrue((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+      leelaz.loaded = false;
+      leelaz.unrestored = Leelaz.ForegroundAnalysisLeaseFailure.FINAL_STOP_TIMEOUT;
+      SwingUtilities.invokeAndWait(() -> frame.presentUnrestoredForegroundEngine(leelaz));
+      engine.failExit();
+      drainEdt();
+
+      assertTrue(frame.isUserAnalysisPaused());
+      assertFalse((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+      assertTrue(frame.prompts().isEmpty(), "a background failure must not open a dialog");
+
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+
+      assertTrue(frame.isUserAnalysisPaused());
+      assertFalse((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+      assertFalse((boolean) getField(frame, "analysisControlCleanupInProgress"));
+      assertEquals(0, tracked.ponderCount);
+      assertEquals(0, board.syncCount);
+      assertTrue(tracked.commands().isEmpty());
+      assertEquals(2, frame.prompts().size());
+      assertEquals(frame.prompts().get(0), frame.prompts().get(1));
+      String restartMenu = Lizzie.resourceBundle.getString("Menu.restartCurrentEngine");
+      assertTrue(frame.prompts().get(0).contains(restartMenu));
+
+      // A successor reader that completed its own startup and restore is controlled normally.
+      leelaz.unrestored = null;
+      leelaz.loaded = true;
+      SwingUtilities.invokeAndWait(frame::togglePonderMannul);
+
+      assertFalse(frame.isUserAnalysisPaused());
+      assertEquals(1, tracked.ponderCount);
+      assertEquals(2, frame.prompts().size());
+    } finally {
+      env.close();
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void unrestoredRetryingTaskAnswersFirstAnalysisControlWithoutCancelling(boolean toolbar)
+      throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      AnalysisSyncBoard board = analysisSyncBoardWith(historyWithUnanalyzedMove());
+      Lizzie.board = board;
+      UnrestoredLeelaz leelaz = allocate(UnrestoredLeelaz.class);
+      leelaz.loaded = true;
+      TrackingLeelaz tracked = leelaz;
+      board.events = tracked.commands();
+      Lizzie.leelaz = leelaz;
+      EngineManager.isEmpty = false;
+      AnalysisResumeTrackingFrame frame = allocate(AnalysisResumeTrackingFrame.class);
+      ResourceTrackingAnalysisEngine engine = allocate(ResourceTrackingAnalysisEngine.class);
+      engine.automatic = true;
+      engine.shared = true;
+      engine.reusable = true;
+      frame.analysisEngine = engine;
+      Lizzie.frame = frame;
+      startAutomaticQuickAnalysis(frame);
+      assertAutomaticRequestRunning(frame);
+      AutomaticQuickAnalysisTask task =
+          (AutomaticQuickAnalysisTask) getField(frame, "automaticQuickAnalysisTask");
+      try {
+        SwingUtilities.invokeAndWait(
+            () -> {
+              leelaz.loaded = false;
+              leelaz.unrestored = Leelaz.ForegroundAnalysisLeaseFailure.FINAL_STOP_TIMEOUT;
+              frame.presentUnrestoredForegroundEngine(leelaz);
+              engine.failureCallback.accept(ForegroundRestoreResult.FAILED);
+            });
+        assertNotNull(engine.exitFailureContinuation);
+        SwingUtilities.invokeAndWait(engine::failExit);
+        drainEdt();
+        assertTrue(task.isActive());
+        assertTrue(task.isRetrying());
+        assertFalse(frame.isUserAnalysisPaused());
+        assertFalse((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+        assertTrue(frame.prompts().isEmpty());
+        int releases = engine.normalQuitCount;
+
+        activateAnalysisControl(toolbar);
+
+        assertEquals(1, frame.prompts().size(), "the first explicit operation must explain recovery");
+        assertFalse(frame.isUserAnalysisPaused());
+        assertFalse((boolean) getField(frame, "pendingForegroundResumeAfterCleanup"));
+        assertNull(getField(frame, "userCancelledQuickAnalysisRoot"));
+        assertTrue(task.isActive());
+        assertTrue(task.isRetrying());
+        assertEquals(releases, engine.normalQuitCount);
+        assertEquals(0, board.syncCount);
+        assertEquals(0, tracked.ponderCount);
+        assertTrue(tracked.commands().isEmpty());
+
+        activateAnalysisControl(toolbar);
+
+        assertEquals(2, frame.prompts().size());
+        assertFalse(frame.isUserAnalysisPaused());
+        assertTrue(task.isActive());
+        assertTrue(tracked.commands().isEmpty());
+      } finally {
+        SwingUtilities.invokeAndWait(
+            () -> task.cancel(AutomaticQuickAnalysisTask.CancelReason.SHUTDOWN));
+      }
     }
   }
 
@@ -3248,6 +3386,19 @@ class LizzieFrameRegressionTest {
     }
   }
 
+  private static void activateAnalysisControl(boolean toolbar) throws Exception {
+    BottomToolbar control = allocate(AnalysisControlToolbar.class);
+    SwingUtilities.invokeAndWait(
+        () -> {
+          if (toolbar) control.toggleAnalysisFromToolbar();
+          else
+            new Input()
+                .keyPressed(
+                    new KeyEvent(
+                        new Canvas(), KeyEvent.KEY_PRESSED, 0, 0, KeyEvent.VK_SPACE, ' '));
+        });
+  }
+
   private static void startAutomaticQuickAnalysis(LizzieFrame frame) throws Exception {
     Lizzie.frame = frame;
     if (frame.analysisEngine instanceof ResourceTrackingAnalysisEngine engine) {
@@ -3860,6 +4011,11 @@ class LizzieFrameRegressionTest {
     }
   }
 
+  private static final class AnalysisControlToolbar extends BottomToolbar {
+    @Override
+    public void setTxtUnfocuse() {}
+  }
+
   private static final class AnalysisResumeTrackingFrame extends PolicyFrame {
     private int refreshCount;
     private boolean interceptFileLoads;
@@ -3884,6 +4040,20 @@ class LizzieFrameRegressionTest {
     @Override
     public boolean stopAiPlayingAndPolicy() {
       return false;
+    }
+
+    private List<String> prompts;
+
+    private List<String> prompts() {
+      if (prompts == null) {
+        prompts = new ArrayList<>();
+      }
+      return prompts;
+    }
+
+    @Override
+    void showForegroundUnrestoredPrompt(String message) {
+      prompts().add(message);
     }
   }
 
@@ -4272,6 +4442,26 @@ class LizzieFrameRegressionTest {
     @Override
     public boolean isLoaded() {
       return loaded;
+    }
+  }
+
+  private static final class UnrestoredLeelaz extends TrackingLeelaz {
+    private boolean loaded;
+    private Leelaz.ForegroundAnalysisLeaseFailure unrestored;
+
+    private UnrestoredLeelaz() throws java.io.IOException {
+      super();
+    }
+
+    @Override
+    public boolean isLoaded() {
+      return loaded;
+    }
+
+    @Override
+    public java.util.Optional<Leelaz.ForegroundAnalysisLeaseFailure>
+        unrestoredForegroundLeaseFailure() {
+      return java.util.Optional.ofNullable(unrestored);
     }
   }
 

@@ -215,6 +215,8 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 结束原因不代替恢复结果。`ForegroundRestoreResult.NOT_REQUIRED` 表示没有所需恢复；`SUCCEEDED`／`FAILED` 仅由实际前台恢复分支产生，不能从请求数、空闲或普通失败推导。任务失败可在归还后提供非终结前台机会，同时继续重试；窗口仍须检查当前上下文和用户暂停。已确认位置证明绑定 Board、节点、revision 和主引擎 identity，导航或引擎改变后不得复用。
 - 用户暂停取消当前任务并保留已完成结果；清理期间明确请求继续，仅在当前载入上下文仍有效且所需恢复成功后恢复前台，失败保持暂停。换谱和引擎切换等待所需恢复结清后继续，失败也可继续；手动自动分析则在恢复失败时拒绝启动。结清不是 OS 进程退出，不为独立后台进程增加所有载入都等待退出的门禁。
 - 当前任务可以关闭自己实际拥有的可复用预加载 worker；手动闪电分析接管则移交使用权，迟到自动回调不得清除手动请求或关闭其 worker。任务完成保留最新浏览节点及真实 MOVE／PASS 分析，SETUP／SNAPSHOT 不进入主线请求；既有前台租约继续负责最新局面的真实恢复与确认。
+- 自动快析借用的前台租约在归还时失败（最终 stop 发送失败、错误或超时，或规则／盘面恢复失败）后，`Leelaz` 把 owner 已记录的失败原因绑定到该租约实际借用的 reader incarnation，并在 EDT 发布时绑定当时的 primary generation；reader、primary 选择或实例变化后该记录不再适用，只有新 reader 的合法启动与恢复确认才使引擎重新可分析。租约未激活前的初始 stop 失败不是归还失败，沿用既有 fail-closed 处理；transport 关闭沿用引擎 down 处理；手动闪电分析保留既有提示。窗口只消费当前记录：状态区域分两行显示“引擎状态未恢复”与失败类别、既有“重启当前引擎”菜单，不再回退为“加载中”；分析按钮呈现为未计算并在 tooltip 给出同一指引。空格、按钮等显式继续被该状态拒绝时只显示同一份非模态恢复说明（最多一份同时显示），说明归属产生它的 reader，失败不再适用时自动关闭；拒绝时不修改用户暂停意图、不登记 pending resume、不同步盘面、不发送分析或重启引擎。`isLoaded=false` 与既有 readiness 门禁不放宽，导航、换谱和关闭提示都不清除该状态。
+- 当前 reader 的归还失败检查优先于分析控件对 active 自动任务的暂停判定：即使主线仍缺结果、自动任务正在退避重试，首次空格／分析按钮操作也只显示同一恢复说明，不取消任务或改变暂停意图。健康自动任务仍按原语义暂停／取消。
 
 ## ReadBoard 单次同步分析恢复（Issue #429 / Ticket 03）
 
@@ -255,6 +257,8 @@ ReadBoard 协议里的 `pass` 行在自动落子/交换顺序链路中表示用�
 - 手动规则 set→get 成功且 actual 与请求语义一致时，实际观测成为当前 history 的新会话目标；失败只保留协议终态，不恢复旧导入请求。
 - 普通分析入队与活动比较集合的发布共享 selection 临界区，锁顺序为 selection → primary → history → endpoint/queue。selection 内仅尝试取得 primary；竞争时先释放 selection，再等待并复验同一 primary generation 和比较集合，不能丢弃仍有效的分析请求或阻塞 primary owner 的物理写出。规则收敛或显式继续后的盘面恢复期间退出比较模式时，既有 coordinator 只在同一 history/规则 revision/primary generation/reader 仍有效时接续剩余主引擎；已知规则失败仍须为新引擎集合重新取得显式继续许可，不自动重试 set。
 - 棋谱 coordinator 的终态及上下文失效回调在 EDT 执行前复验最新请求 generation；worker 已完成但 UI 尚未消费的旧回调，不能越过换谱或比较模式变更的确认边界。
+- 已准入的本地主引擎显式重启在发布新 primary generation 前，将重启前 generation 与本次 switch token 通知当前棋谱 coordinator。仍属于同一 history/rules target/主引擎及比较集合的导入责任等待该 token 成功，再以新 reader/generation 重新执行既有规则→盘面确认；只有该确认可以清除窗口棋谱门禁，不能仅凭 loaded/ACTIVE 清除。重启失败保持门禁；换谱、规则变更、后继 switch、reader/generation 变化或关闭使旧回调失效。旧规则继续许可不迁移，接续不重置用户暂停意图、不主动重启，不改变远程重连、比较退出或初始启动的责任边界。
+- 本地重启期间退出比较模式时，若退出先于重启通知交付，等待安装入口将捕获的副引擎移出本次恢复集合；若等待已经安装，则由上下文失效回调转交。两种顺序都仅接续同一导入责任的剩余主引擎，保留原 switch token 与 history/rules target/主引擎身份校验。仍须等待该 token 成功，再用新 reader/generation 重新确认规则与盘面；不能因退出比较模式或 reader 已 loaded 提前释放门禁，也不能向已退出的副引擎恢复棋谱。
 
 ## 初始启动导航契约（Issue #223）
 

@@ -606,6 +606,8 @@ public class Leelaz {
   private volatile ReadBoardGmaPreparation readBoardGmaPreparation;
   private volatile ReadBoardGmaResponseBinding readBoardGmaResponseBinding;
   private volatile boolean engineStateUnrestored;
+  /** Automatic foreground-lease failure that left one exact primary reader unrestored. */
+  private volatile UnrestoredForegroundLease unrestoredForegroundLease;
   private volatile int currentTotalPlayouts;
   private int currentRootVisits = -1;
   private ParsedAnalysisInfo currentOrdinaryPayload;
@@ -14727,6 +14729,7 @@ public class Leelaz {
             onClosed,
             exclusiveGtpResponseCommandIds.getAndIncrement());
     session.wasPondering = isPondering();
+    session.readerBinding = readerStreamBinding;
     exclusiveGtpSession = session;
     return session;
   }
@@ -15944,12 +15947,101 @@ public class Leelaz {
         || ((ForegroundAnalysisLease) owner).reportRestoreFailureToUser;
   }
 
+  /**
+   * Returns the failure that left this current primary reader unrestored after an automatic
+   * foreground lease. A replaced reader, primary selection or engine instance never inherits it;
+   * only a new legitimately confirmed reader retires it.
+   */
+  public Optional<ForegroundAnalysisLeaseFailure> unrestoredForegroundLeaseFailure() {
+    UnrestoredForegroundLease record = unrestoredForegroundLease;
+    if (record == null
+        || record.primaryGeneration < 0L
+        || !isUnrestoredForegroundLeaseReaderCurrent(record)
+        || Lizzie.capturePrimaryEngineGeneration(this) != record.primaryGeneration) {
+      return Optional.empty();
+    }
+    return Optional.of(record.reason);
+  }
+
+  private boolean isUnrestoredForegroundLeaseReaderCurrent(UnrestoredForegroundLease record) {
+    ReaderStreamBinding current = readerStreamBinding;
+    return current != null
+        && current == record.binding
+        && !current.terminated
+        && !current.readerShutdownRequested;
+  }
+
+  /** Records a settled automatic-lease failure for the reader that the lease actually borrowed. */
+  private UnrestoredForegroundLease recordUnrestoredForegroundLeaseLocked(
+      ExclusiveGtpSession session) {
+    if (!(session.owner instanceof ForegroundAnalysisLease lease)
+        || lease.reportRestoreFailureToUser
+        || session.readerBinding == null
+        || session.readerBinding != readerStreamBinding) {
+      return null;
+    }
+    ForegroundAnalysisLeaseFailure reason = lease.failureReason().orElse(null);
+    if (!isForegroundHandbackFailure(reason)) {
+      return null;
+    }
+    UnrestoredForegroundLease record = new UnrestoredForegroundLease(session.readerBinding, reason);
+    unrestoredForegroundLease = record;
+    return record;
+  }
+
+  /**
+   * Final-stop and restore failures happen while handing a borrowed engine back. Initial-stop
+   * failures never activated the lease, and a closed transport is reported as an engine failure.
+   */
+  private static boolean isForegroundHandbackFailure(ForegroundAnalysisLeaseFailure reason) {
+    return reason == ForegroundAnalysisLeaseFailure.FINAL_STOP_SEND_FAILED
+        || reason == ForegroundAnalysisLeaseFailure.FINAL_STOP_ERROR_RESPONSE
+        || reason == ForegroundAnalysisLeaseFailure.FINAL_STOP_TIMEOUT
+        || reason == ForegroundAnalysisLeaseFailure.RESTORE_FAILED;
+  }
+
+  /** Binds the record to the primary selection on the EDT, then lets the window present it. */
+  private void publishUnrestoredForegroundLease(UnrestoredForegroundLease record) {
+    if (record == null) {
+      return;
+    }
+    SwingUtilities.invokeLater(
+        () -> {
+          if (unrestoredForegroundLease != record
+              || !isUnrestoredForegroundLeaseReaderCurrent(record)) {
+            return;
+          }
+          long primaryGeneration = Lizzie.capturePrimaryEngineGeneration(this);
+          if (primaryGeneration < 0L) {
+            return;
+          }
+          record.primaryGeneration = primaryGeneration;
+          LizzieFrame frame = Lizzie.frame;
+          if (frame != null) {
+            frame.presentUnrestoredForegroundEngine(this);
+          }
+        });
+  }
+
+  private static final class UnrestoredForegroundLease {
+    private final ReaderStreamBinding binding;
+    private final ForegroundAnalysisLeaseFailure reason;
+    private volatile long primaryGeneration = -1L;
+
+    private UnrestoredForegroundLease(
+        ReaderStreamBinding binding, ForegroundAnalysisLeaseFailure reason) {
+      this.binding = binding;
+      this.reason = reason;
+    }
+  }
+
   private void completeForegroundRestore(ExclusiveGtpSession session) {
     Timer restoreTimeout;
     Thread restoreThread;
     boolean restoreFailed;
     boolean releaseStopFailed;
     boolean retryRestore;
+    UnrestoredForegroundLease unrestored = null;
     Board board = Lizzie.board;
     Object boardLock = board == null ? engineArbitrationLock() : board;
     synchronized (boardLock) {
@@ -15978,6 +16070,7 @@ public class Leelaz {
           restoreThread = session.restoreThread;
           if (restoreFailed) {
             isLoaded = false;
+            unrestored = recordUnrestoredForegroundLeaseLocked(session);
           }
           foregroundRestoreInProgress = false;
           foregroundRestoreSession = null;
@@ -16019,6 +16112,7 @@ public class Leelaz {
       } finally {
         finishForegroundRestoreLifecycle();
       }
+      publishUnrestoredForegroundLease(unrestored);
       runForegroundRestoreFailure(session);
       return;
     }
@@ -17010,6 +17104,8 @@ public class Leelaz {
     private Thread restoreThread;
     private Timer releaseStopTimeout;
     private Timer restoreTimeout;
+    /** Reader borrowed by this session; a later reader never inherits its restore failure. */
+    private ReaderStreamBinding readerBinding;
 
     private ExclusiveGtpSession(
         Object owner,
