@@ -21406,7 +21406,8 @@ public class LizzieFrame extends JFrame {
         dependsOnPrimary
             && Lizzie.leelaz != null
             && Lizzie.leelaz.isDownWithError
-            && !Lizzie.leelaz.isStarted();
+            && !Lizzie.leelaz.isStarted()
+            && !Lizzie.leelaz.isRemoteSessionRecoveryRequested();
     return decideQuickAnalysisWarmup(
         isQuickAnalysisWarmupContextEligible(requiresAutoAnalyze),
         dependsOnPrimary,

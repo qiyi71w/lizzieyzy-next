@@ -523,6 +523,52 @@ class LizzieFrameRegressionTest {
     assertTrue(LizzieFrame.isRulesEngineReady(engine));
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void automaticCurveWaitsForRequestedRemoteRecoveryButStopsOnTerminalFailure(boolean recovered)
+      throws Exception {
+    try (TestEnvironment env = TestEnvironment.open()) {
+      Lizzie.config = configWithAutoQuickAnalyze();
+      Lizzie.board = boardWith(historyWithUnanalyzedMove());
+      AtomicBoolean recovery = new AtomicBoolean(true);
+      Leelaz primary =
+          new Leelaz(RemoteComputeConfig.COMMAND_ZHIZI) {
+            @Override
+            public boolean isRemoteSessionRecoveryRequested() {
+              return recovery.get();
+            }
+          };
+      primary.isDownWithError = true;
+      Lizzie.leelaz = primary;
+      EngineManager.isEmpty = false;
+      PolicyFrame frame = allocate(PolicyFrame.class);
+      Lizzie.frame = frame;
+      assertEquals(
+          AutomaticQuickAnalysisTask.Readiness.WAIT,
+          frame.automaticQuickAnalysisReadiness());
+      startAutomaticQuickAnalysis(frame);
+      var task = (AutomaticQuickAnalysisTask) getField(frame, "automaticQuickAnalysisTask");
+      assertTrue(task.isActive(), "A retired connection must not cancel the loaded game's curve");
+      SwingUtilities.invokeAndWait(() -> frame.advanceTime(30_000));
+      assertTrue(task.isActive());
+      assertNull(frame.analysisEngine, "No new lease is acquired until the replacement is ready");
+
+      recovery.set(false);
+      primary.isLoaded = recovered;
+      primary.started = recovered;
+      primary.isDownWithError = !recovered;
+      assertEquals(
+          recovered
+              ? AutomaticQuickAnalysisTask.Readiness.READY
+              : AutomaticQuickAnalysisTask.Readiness.STOP,
+          frame.automaticQuickAnalysisReadiness());
+      SwingUtilities.invokeAndWait(() -> frame.advanceTime(2_000));
+      assertEquals(recovered, task.isActive());
+      if (recovered) assertNotNull(frame.analysisEngine);
+      SwingUtilities.invokeAndWait(() -> frame.runAfterAutomaticQuickAnalysisReleased(() -> {}));
+    }
+  }
+
   @Test
   void openingKifuWaitsForSharedAutomaticQuickAnalysisRestore() throws Exception {
     TestEnvironment env = TestEnvironment.open();

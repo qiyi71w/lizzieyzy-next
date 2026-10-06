@@ -277,6 +277,23 @@ class LeelazReaderIncarnationTest {
   }
 
   @Test
+  void replacedTransportDoesNotInheritRetiredReadersRecoveryRequest() throws Exception {
+    try (GlobalState ignored = GlobalState.install()) {
+      Leelaz engine = new Leelaz("");
+      engine.useRemoteCompute = true;
+      setField(engine, "remoteTransport", new RecoveryTransport());
+      initializeStreams(engine, bytes(""), bytes(""));
+      assertTrue(engine.isRemoteSessionRecoveryRequested());
+
+      // Replacement startup can fail before publishing streams; the old request is then stale.
+      setField(engine, "remoteTransport", new RecoveryTransport());
+      assertFalse(engine.isRemoteSessionRecoveryRequested());
+      initializeStreams(engine, bytes(""), bytes(""));
+      assertTrue(engine.isRemoteSessionRecoveryRequested());
+    }
+  }
+
+  @Test
   void stdoutIOExceptionIsStructuredWithoutPersistingItsMessage() throws Exception {
     LoggingRuntime runtime = startEngineDiagnostics();
     try (GlobalState ignored = GlobalState.install()) {
