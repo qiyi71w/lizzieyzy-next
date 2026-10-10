@@ -692,8 +692,13 @@ public class Config {
     if (bundledEngine.optString("id", "").isBlank()) {
       bundledEngine.put("id", UUID.randomUUID().toString());
     }
-    bundledEngine.put("command", bundledConfig.engineCommand);
-    BundledKataGoProfile.claim(bundledEngine);
+    // Rebind the canonical bundle command, but retain model/config choices made by Auto Setup.
+    if (!BundledKataGoProfile.isManaged(bundledEngine)
+        || BundledKataGoProfile.isDefaultCommand(
+            bundledEngine.optString("command"), bundledConfig.appRoot, true)) {
+      bundledEngine.put("command", bundledConfig.engineCommand);
+      BundledKataGoProfile.claim(bundledEngine);
+    }
       if (!newProfile) {
         boolean analysisCustomized =
             AnalysisEngineCommandHelper.isAnalysisCommandCustomized(
