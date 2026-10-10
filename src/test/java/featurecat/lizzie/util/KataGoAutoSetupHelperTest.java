@@ -1958,6 +1958,71 @@ public class KataGoAutoSetupHelperTest {
         });
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void movedManagedWeightProfileRebindsWithoutChangingManualDefault(boolean removeOldEngine)
+      throws Exception {
+    Path previousRoot = Files.createTempDirectory("katago previous package ");
+    Path currentRoot = Files.createTempDirectory("katago current package ");
+    for (Path root : List.of(previousRoot, currentRoot)) {
+      Files.createDirectories(root.resolve("save"));
+      touch(root.resolve(".lizzie-portable"));
+      touch(root.resolve("engines/katago").resolve(detectTestPlatformDir())
+          .resolve(testKataGoBinaryName()));
+      touch(root.resolve("engines/katago/configs/gtp.cfg"));
+      touch(root.resolve("engines/katago/configs/analysis.cfg"));
+      touch(root.resolve("weights/default.bin.gz"));
+      touch(root.resolve("weights/alternate.bin.gz"));
+    }
+    withUserDirAndConfig(
+        previousRoot,
+        () -> {
+          Lizzie.config = ConfigTestHelper.createBootstrapped(previousRoot);
+          KataGoAutoSetupHelper.applyAutoSetup(
+              KataGoAutoSetupHelper.inspectLocalSetup()
+                  .withActiveWeight(previousRoot.resolve("weights/alternate.bin.gz")), true);
+          ArrayList<EngineData> entries = Utils.getEngineData();
+          EngineData managed = entries.get(0);
+          managed.name = "Auto setup";
+          managed.preload = true;
+          managed.isDefault = false;
+          // A valid independently configured default must not repair the non-default profile.
+          Path manualEngine = touch(currentRoot.resolve("manual/katago"));
+          EngineData manual = engineData("Manual", manualEngine,
+              currentRoot.resolve("engines/katago/configs/gtp.cfg"),
+              currentRoot.resolve("weights/default.bin.gz"), true);
+          manual.preload = true;
+          entries.add(manual);
+          Utils.saveEngineSettings(entries);
+          String customAnalysis = Lizzie.config.analysisEngineCommand + " -override-config numSearchThreads=1";
+          Lizzie.config.uiConfig.put("analysis-engine-command", customAnalysis);
+          Lizzie.config.uiConfig.put("analysis-engine-command-customized", true);
+          Lizzie.config.save();
+          Files.copy(previousRoot.resolve("config.txt"), currentRoot.resolve("config.txt"));
+          if (removeOldEngine) {
+            Files.delete(previousRoot.resolve("engines/katago").resolve(detectTestPlatformDir())
+                .resolve(testKataGoBinaryName()));
+          }
+          String relocated = managed.commands.replace(previousRoot.toString(), currentRoot.toString());
+          System.setProperty("user.dir", currentRoot.toString());
+          for (int restart = 0; restart < 2; restart++) {
+            Lizzie.config = ConfigTestHelper.createBootstrapped(currentRoot);
+            Utils.applyMaintainedDefaultSettings();
+            entries = Utils.getEngineData();
+            assertEquals(List.of(managed.id, manual.id),
+                entries.stream().map(entry -> entry.id).toList());
+            assertEquals(relocated, entries.get(0).commands);
+            assertEquals("Auto setup", entries.get(0).name);
+            assertTrue(entries.get(0).preload);
+            assertEquals(manual.commands, entries.get(1).commands);
+            assertTrue(entries.get(1).isDefault);
+            assertTrue(entries.get(1).preload);
+            assertEquals(1, Lizzie.config.uiConfig.getInt("default-engine"));
+            assertEquals(customAnalysis, Lizzie.config.analysisEngineCommand);
+          }
+        });
+  }
+
   @Test
   void autoSetupReusesRenamedManagedEntryAndProtectsRepurposedCommand() throws Exception {
     Path root = Files.createTempDirectory("katago-renamed-profile");
