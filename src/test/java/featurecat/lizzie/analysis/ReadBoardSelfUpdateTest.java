@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONObject;
@@ -48,6 +47,47 @@ class ReadBoardSelfUpdateTest {
       Path arbitrary = root.resolve("request.json");
       Files.writeString(arbitrary, request.toString());
       assertThrows(IOException.class, () -> new ReadBoardSelfUpdate(fixture.source, ID, arbitrary));
+    }
+  }
+
+  @Test void unicodeInstallationRegistersOpaqueSourceNamespace() throws Exception {
+    try (Fixture fixture = new Fixture()) {
+      fixture.register();
+      JSONObject registration = new JSONObject(Files.readString(fixture.path.resolveSibling("registration.json")));
+      assertTrue(fixture.directory.toString().contains("Straße"));
+      assertEquals(ID, registration.getString("operationId"));
+      assertEquals(fixture.process.pid(), registration.getLong("sourceProcessId"));
+      assertEquals(fixture.directory.toRealPath().toString(), registration.getString("installDirectory"));
+      assertEquals(ReadBoardSelfUpdateRecords.hash(Files.readAllBytes(fixture.path)), registration.getString("requestSha256"));
+    }
+  }
+
+  @Test void namespaceShapeParentOperationAndInstallationRemainBound() throws Exception {
+    try (Fixture fixture = new Fixture()) {
+      String original = Files.readString(fixture.path);
+      for (Path invalid : new Path[] {
+          root.resolve(".readboard-update-" + "A".repeat(64)).resolve(ID).resolve("request.json"),
+          root.resolve(".readboard-update-" + "a".repeat(63)).resolve(ID).resolve("request.json"),
+          root.resolve("other").resolve(fixture.path.getParent().getParent().getFileName()).resolve(ID).resolve("request.json"),
+          fixture.path.getParent().getParent().resolve("f".repeat(32)).resolve("request.json"),
+          fixture.path.resolveSibling("other.json") }) {
+        Files.createDirectories(invalid.getParent());
+        Files.writeString(invalid, original);
+        assertThrows(IOException.class, () -> new ReadBoardSelfUpdate(fixture.source, ID, invalid));
+      }
+      JSONObject changed = new JSONObject(original).put("installDirectory", root.toString());
+      Files.writeString(fixture.path, changed.toString());
+      assertThrows(IOException.class, () -> new ReadBoardSelfUpdate(fixture.source, ID, fixture.path));
+      changed = new JSONObject(original).put("sourceProcessStartTimeUtc", Instant.EPOCH.toString());
+      Files.writeString(fixture.path, changed.toString());
+      assertThrows(IOException.class, () -> new ReadBoardSelfUpdate(fixture.source, ID, fixture.path));
+      Files.writeString(fixture.path, original);
+      ReadBoardSelfUpdate update = new ReadBoardSelfUpdate(fixture.source, ID, fixture.path);
+      Files.writeString(fixture.path, original + " ");
+      update.register();
+      JSONObject registration = new JSONObject(Files.readString(fixture.path.resolveSibling("registration.json")));
+      assertEquals(ReadBoardSelfUpdateRecords.hash(original.getBytes(StandardCharsets.UTF_8)), registration.getString("requestSha256"));
+      assertNotEquals(ReadBoardSelfUpdateRecords.hash(Files.readAllBytes(fixture.path)), registration.getString("requestSha256"));
     }
   }
 
@@ -284,7 +324,7 @@ class ReadBoardSelfUpdateTest {
     final Process process;
     final ReadBoard source;
     Fixture() throws Exception {
-      directory = Files.createTempDirectory(root, "install");
+      directory = Files.createTempDirectory(root, "Straße-install");
       Path executable = directory.resolve("readboard.exe");
       Files.copy(Path.of("/bin/dash"), executable);
       executable.toFile().setExecutable(true);
@@ -292,8 +332,9 @@ class ReadBoardSelfUpdateTest {
       source = allocate(ReadBoard.class);
       set(source, "usePipe", true); set(source, "nativeOwnedProcess", process); set(source, "nativeOwnedDirectory", directory);
       set(source, "outputStream", new BufferedOutputStream(new ByteArrayOutputStream()));
-      String key = ReadBoardSelfUpdateRecords.hash(directory.toString().toUpperCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8));
-      path = root.resolve(".readboard-update-" + key).resolve(ID).resolve("request.json");
+      // Opaque source-produced namespace; the Windows native test supplies the actual C# key.
+      String namespace = java.util.UUID.randomUUID().toString().replace("-", "").repeat(2);
+      path = root.resolve(".readboard-update-" + namespace).resolve(ID).resolve("request.json");
       Files.createDirectories(path.getParent());
       JSONObject request = new JSONObject().put("schemaVersion",1).put("operationId",ID).put("sourceVersion","v3.1.9")
           .put("targetTag","v3.2.0").put("assetName","readboard-webview2-v3.2.0.zip")

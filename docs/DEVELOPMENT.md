@@ -365,6 +365,8 @@ pwsh -NoProfile -File scripts/run_windows_ci_diagnostics.ps1 -OutputDirectory ta
 
 `ReadBoardSelfUpdateRecords`验证源实例、PID和精确创建时间、实际启动目录及安装目录同父事务位置；request内容不可变且以SHA-256绑定。Windows进程创建时间通过GetProcessTimes保留100ns精度。宿主仅单写registration.json与connection.json；request/data/adoption归旧ReadBoard，progress/result归独立更新器，presented归新ReadBoard，所有记录schemaVersion=1、带operationId且原子发布。registration含registrationId、宿主/源PID与UTC创建时间、installDirectory、requestSha256；connection含同一registrationId、state、新进程PID/UTC创建时间及actualVersion。
 
+事务命名空间由C#源实例按既有InstallKey规则唯一生成。Java将`.readboard-update-<64位小写十六进制摘要>/<operationId>/request.json`中的摘要作为不透明值，严格验证它位于实际安装目录的同一父目录；不跨运行时重算Unicode大小写映射。信任边界仍是已持有的存活源进程、精确创建身份、实际可执行文件与安装路径、无链接的本地事务路径和不可变request摘要，命名空间摘要不是额外认证凭据。
+
 `LizzieFrame`复用readBoardRestartLock和createNativeReadBoard。准备验证、文件等待与启动在后台完成，文件准备不占用EDT所需重启锁。登记在旧reader detach后仍保留；重复打开合并到登记。只有progress.restartAdopted及registrationId/hostProcessId/hostProcessStartTimeUtc与本宿主一致、安装结果为installed/rolledBack/failedUnchanged且实际版本匹配、原进程和reader均已退出，才启动一次。EOF、目录存在、更新器退出码都不是安装成功。宿主退出取消重启而不停止已提交安装；旧任务的清理仅能清除自身登记。
 
 新启动保留七个位置参数和日志后缀，追加`--update-transaction <request.json>`，生成新pipe和日志会话。普通ready、本轮ID、实际版本、当前拥有实例共同确认后才写connected。安装结果与连接结果分开；startFailed/handshakeFailed不触发重新安装或已安装目录回滚，宿主不弹更新结果框。新ReadBoard显示结果并写presented后更新器关闭。更新不会清空宿主Board/history，也不继承旧待落子、持续同步或自动落子授权。

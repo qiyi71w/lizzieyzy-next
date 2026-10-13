@@ -8,7 +8,6 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import org.json.JSONObject;
@@ -56,9 +55,15 @@ public final class ReadBoardSelfUpdateRecords {
   public static JSONObject request(Path path, String operation, Process source, Path directory) throws IOException {
     JSONObject request = read(path, "schemaVersion", "operationId", "sourceVersion", "targetTag", "assetName", "packagePath", "expectedSha256", "installDirectory", "sourceProcessId", "sourceProcessStartTimeUtc", "language");
     Path install = directory.toRealPath();
-    String key = hash(install.toString().toUpperCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8));
-    Path expected = install.getParent().resolve(".readboard-update-" + key).resolve(operation).resolve("request.json");
-    if (!request.getString("operationId").equals(operation) || !path.normalize().equals(expected)
+    Path normalized = path.normalize();
+    Path operationDirectory = normalized.getParent();
+    Path namespace = operationDirectory == null ? null : operationDirectory.getParent();
+    if (!request.getString("operationId").equals(operation)
+        || !normalized.getFileName().toString().equals("request.json")
+        || operationDirectory == null || !operationDirectory.getFileName().toString().equals(operation)
+        || namespace == null || namespace.getFileName() == null
+        || !namespace.getFileName().toString().matches("\\.readboard-update-[0-9a-f]{64}")
+        || !install.getParent().equals(namespace.getParent())
         || !Path.of(request.getString("installDirectory")).toRealPath().equals(install)
         || source == null || !source.isAlive() || source.pid() != request.getLong("sourceProcessId")
         || !sameTime(processStart(source.toHandle()), request.getString("sourceProcessStartTimeUtc"))
