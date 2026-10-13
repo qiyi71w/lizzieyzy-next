@@ -618,10 +618,6 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     if (usePipe) commands.add("-1");
     else commands.add(String.valueOf(port));
     commands = completeLaunchArguments(commands);
-    if (updateTransaction != null) {
-      commands.add("--update-transaction");
-      commands.add(updateTransaction.toString());
-    }
     File nativeReadBoardDirectory = legacyNativeReadBoardDirectory();
     ProcessBuilder processBuilder =
         buildLegacyNativeReadBoardProcessBuilder(nativeReadBoardDirectory, usePipe, commands);
@@ -6642,8 +6638,14 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     if (launchAlreadyClosed) {
       nextControl.onDisconnect();
     }
-    return ReadBoardLoggingControl.appendNamedLoggingArguments(
+    List<String> arguments = ReadBoardLoggingControl.appendNamedLoggingArguments(
         positional, logDir, hostSession, diagnostics);
+    if (updateTransaction != null) {
+      arguments = new ArrayList<>(arguments);
+      arguments.add("--update-transaction");
+      arguments.add(updateTransaction.toString());
+    }
+    return arguments;
   }
 
   ReadBoardLoggingControl loggingControl() {

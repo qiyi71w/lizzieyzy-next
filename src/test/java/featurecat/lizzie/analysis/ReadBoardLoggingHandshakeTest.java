@@ -80,6 +80,36 @@ class ReadBoardLoggingHandshakeTest {
   }
 
   @Test
+  void completeLaunchArgumentsPreservesLoggingAndTransactionPath(
+      @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+    featurecat.lizzie.logging.LoggingRuntime.resetForTests();
+    var runtime = featurecat.lizzie.logging.LoggingRuntime.initialize(
+        new featurecat.lizzie.logging.WorkDirectoryResolution(directory, List.of()));
+    try {
+      ReadBoard board = allocateBoard();
+      List<String> positional = Arrays.asList("yzy", " ", " ", " ", "0", "cn", "-1");
+      List<String> ordinary = board.completeLaunchArguments(positional);
+      List<String> expected = ReadBoardLoggingControl.appendNamedLoggingArguments(
+          positional, ReadBoardLoggingControl.readBoardLogDirectory(runtime.logsDirectory()),
+          runtime.applicationLogSessionId(), runtime.settings().diagnosticsEnabled());
+      assertEquals(expected, ordinary);
+      assertThrows(UnsupportedOperationException.class, () -> ordinary.add("extra"));
+      if (java.io.File.separatorChar == '\\') assertEquals(17, ordinary.size());
+
+      java.nio.file.Path transaction = directory.resolve("update with spaces").resolve("request.json");
+      setField(board, "updateTransaction", transaction);
+      List<String> restarting = board.completeLaunchArguments(positional);
+      assertEquals(ordinary, restarting.subList(0, ordinary.size()));
+      assertEquals(List.of("--update-transaction", transaction.toString()),
+          restarting.subList(ordinary.size(), restarting.size()));
+      assertEquals(positional, restarting.subList(0, 7));
+    } finally {
+      runtime.shutdown();
+      featurecat.lizzie.logging.LoggingRuntime.resetForTests();
+    }
+  }
+
+  @Test
   void loggingSnapshotIsDetachedUntilControlExists() throws Exception {
     ReadBoard board = allocateBoard();
 

@@ -369,6 +369,8 @@ pwsh -NoProfile -File scripts/run_windows_ci_diagnostics.ps1 -OutputDirectory ta
 
 新启动保留七个位置参数和日志后缀，追加`--update-transaction <request.json>`，生成新pipe和日志会话。普通ready、本轮ID、实际版本、当前拥有实例共同确认后才写connected。安装结果与连接结果分开；startFailed/handshakeFailed不触发重新安装或已安装目录回滚，宿主不弹更新结果框。新ReadBoard显示结果并写presented后更新器关闭。更新不会清空宿主Board/history，也不继承旧待落子、持续同步或自动落子授权。
 
+`completeLaunchArguments`统一完成日志后缀与事务参数组合：日志参数列表保持不可变契约，仅带更新事务的启动复制为可变列表再追加两个参数；普通启动不增加复制。事务路径作为单个参数保留空格。`ReadBoardLoggingHandshakeTest`覆盖这条生产组合路径，Windows原生配对再验证实际factory启动。
+
 聚焦回归：`ReadBoardSelfUpdateTest,ReadBoardUpdateProtocolTest,ReadBoardShutdownTest,ReadBoardEdtCommandDispatchTest,ReadBoardLaunchPathTest`。需要Swing的生命周期场景使用独立Xvfb；真实Windows候选必须使用shaded JAR。C# FakeHost smoke与Java parser/factory/EOF回归各有证明范围，不能合称真实Java宿主全链通过；完整原生配对需另记录双方SHA、进程创建身份、事务、普通ready/本轮Ready/connected/presented及安装版本证据。
 
 ## 当前打包脚本分工
