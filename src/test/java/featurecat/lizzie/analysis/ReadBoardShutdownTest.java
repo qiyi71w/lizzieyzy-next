@@ -234,6 +234,26 @@ class ReadBoardShutdownTest {
     }
   }
 
+  @Test
+  void oldReaderCompletionCannotDetachOrResetSuccessor() throws Exception {
+    LizzieFrame previousFrame = Lizzie.frame;
+    Leelaz previousEngine = Lizzie.leelaz;
+    try {
+      Lizzie.leelaz = new RecordingGmaRetirementLeelaz();
+      LizzieFrame frame = allocate(LizzieFrame.class);
+      Lizzie.frame = frame;
+      ReadBoard old = initializedReadBoardForRetirement();
+      ReadBoard successor = initializedReadBoardForRetirement();
+      frame.readBoard = successor;
+      old.shutdownAfterProcessEnd();
+      old.shutdownAfterProcessEnd();
+      assertSame(successor, frame.readBoard);
+    } finally {
+      Lizzie.frame = previousFrame;
+      Lizzie.leelaz = previousEngine;
+    }
+  }
+
 
   @Test
   void openBoardSyncDoesNotBlockEventDispatchThreadWhileRestarting() throws Exception {

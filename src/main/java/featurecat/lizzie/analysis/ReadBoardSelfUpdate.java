@@ -75,7 +75,16 @@ public final class ReadBoardSelfUpdate {
     if (cancelled || connected || value != successor || !operation.equals(id) || !value.isLoaded) return false;
     JSONObject progress = ReadBoardSelfUpdateRecords.progress(requestPath);
     JSONObject result = ReadBoardSelfUpdateRecords.result(requestPath);
-    if (!adopted(progress) || !operation.equals(result.getString("operationId")) || !version.equals(result.getString("actualVersion"))) {
+    Process next = value.ownedNativeProcess();
+    String state = result.getString("state");
+    String expected = state.equals("installed") ? request.getString("targetTag") : "v" + request.getString("sourceVersion").replaceFirst("^v", "");
+    if (!adopted(progress) || !operation.equals(result.getString("operationId"))
+        || !Set.of("installed", "rolledBack", "failedUnchanged").contains(state)
+        || !request.getString("installDirectory").equals(result.getString("installDirectory"))
+        || !expected.equals(version) || !version.equals(result.getString("actualVersion"))
+        || next == null || !next.isAlive() || value.ownedNativeDirectory() == null
+        || !value.ownedNativeDirectory().equals(source.ownedNativeDirectory())
+        || !requestHash.equals(ReadBoardSelfUpdateRecords.hash(Files.readAllBytes(requestPath)))) {
       outcome("handshakeFailed", value, version); cancelled = true; return false;
     }
     outcome("connected", value, version);

@@ -25,6 +25,17 @@ public final class ReadBoardSelfUpdateRecords {
       JSONObject value = new JSONObject(tokens);
       if (tokens.nextClean() != 0 || !value.keySet().equals(Set.of(fields)))
         throw new IOException("Unexpected transaction fields");
+      for (String field : fields) {
+        Object item = value.get(field);
+        if (item == JSONObject.NULL && Set.of("restartRegistrationId", "hostProcessId", "hostProcessStartTimeUtc", "actualVersion", "backupDirectory").contains(field)) continue;
+        boolean valid;
+        if (Set.of("schemaVersion", "sourceProcessId", "hostProcessId").contains(field)) {
+          valid = (item instanceof Integer || item instanceof Long)
+              && ((Number) item).longValue() > 0 && ((Number) item).longValue() <= Integer.MAX_VALUE;
+        } else if (field.equals("restartAdopted")) valid = item instanceof Boolean;
+        else valid = item instanceof String;
+        if (!valid) throw new IOException("Invalid transaction field type: " + field);
+      }
       if (value.getInt("schemaVersion") != 1 || !id(value.getString("operationId")))
         throw new IOException("Unsupported transaction identity");
       return value;
