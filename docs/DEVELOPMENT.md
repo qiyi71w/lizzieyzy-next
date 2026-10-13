@@ -357,6 +357,20 @@ pwsh -NoProfile -File scripts/run_windows_ci_diagnostics.ps1 -OutputDirectory ta
 - `docs/TESTED_PLATFORMS.md`
 - GitHub Releases 说明
 
+## ReadBoard 独立更新与后台重连
+
+主线ReadBoard由自己的独立更新器下载、校验、安装和显示结果。宿主只为真正持有原生pipe进程句柄的实例声明后台重启能力；TCP、未持有进程的调试实例不声明。旧`readboardUpdateReady`安装入口仍服务已发布旧客户端和legacy维护线，不是新流程fallback。
+
+版本1 wire严格使用tab分隔、LF结束：宿主发送`readboardSelfUpdateRestartSupported\t1`；源发送`readboardSelfUpdatePrepare\t1\t<operationId>\t<request.json绝对路径>`；宿主回应`readboardSelfUpdatePrepared\t1\t<operationId>`或`readboardSelfUpdateRejected\t1\t<operationId>\t<busy|staleSession|invalidRequest|unavailable>`；源提交前可发送`readboardSelfUpdateCancel\t1\t<operationId>`。新实例普通ready后发送`readboardSelfUpdateReady\t1\t<operationId>\t<实际vX.Y.Z>`，宿主确认后发送`readboardSelfUpdateConnected\t1\t<operationId>`。未知版本、多余字段、非32位小写十六进制ID及路径CR/LF/tab均拒绝。
+
+`ReadBoardSelfUpdateRecords`验证源实例、PID和精确创建时间、实际启动目录及安装目录同父事务位置；request内容不可变且以SHA-256绑定。Windows进程创建时间通过GetProcessTimes保留100ns精度。宿主仅单写registration.json与connection.json；request/data/adoption归旧ReadBoard，progress/result归独立更新器，presented归新ReadBoard，所有记录schemaVersion=1、带operationId且原子发布。registration含registrationId、宿主/源PID与UTC创建时间、installDirectory、requestSha256；connection含同一registrationId、state、新进程PID/UTC创建时间及actualVersion。
+
+`LizzieFrame`复用readBoardRestartLock和createNativeReadBoard。准备验证、文件等待与启动在后台完成，文件准备不占用EDT所需重启锁。登记在旧reader detach后仍保留；重复打开合并到登记。只有progress.restartAdopted及registrationId/hostProcessId/hostProcessStartTimeUtc与本宿主一致、安装结果为installed/rolledBack/failedUnchanged且实际版本匹配、原进程和reader均已退出，才启动一次。EOF、目录存在、更新器退出码都不是安装成功。宿主退出取消重启而不停止已提交安装；旧任务的清理仅能清除自身登记。
+
+新启动保留七个位置参数和日志后缀，追加`--update-transaction <request.json>`，生成新pipe和日志会话。普通ready、本轮ID、实际版本、当前拥有实例共同确认后才写connected。安装结果与连接结果分开；startFailed/handshakeFailed不触发重新安装或已安装目录回滚，宿主不弹更新结果框。新ReadBoard显示结果并写presented后更新器关闭。更新不会清空宿主Board/history，也不继承旧待落子、持续同步或自动落子授权。
+
+聚焦回归：`ReadBoardSelfUpdateTest,ReadBoardUpdateProtocolTest,ReadBoardShutdownTest,ReadBoardEdtCommandDispatchTest,ReadBoardLaunchPathTest`。需要Swing的生命周期场景使用独立Xvfb；真实Windows候选必须使用shaded JAR。C# FakeHost smoke与Java parser/factory/EOF回归各有证明范围，不能合称真实Java宿主全链通过；完整原生配对需另记录双方SHA、进程创建身份、事务、普通ready/本轮Ready/connected/presented及安装版本证据。
+
 ## 当前打包脚本分工
 
 - `scripts/prepare_bundled_runtime.sh`

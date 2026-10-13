@@ -200,6 +200,51 @@ class ReadBoardSelfUpdateTest {
     }
   }
 
+  @Test void realParserRejectsMalformedMessagesAndCoalescesDuplicatePreparation() throws Exception {
+    LizzieFrame previous = featurecat.lizzie.Lizzie.frame;
+    try (Fixture fixture = new Fixture()) {
+      UpdateFrame frame = frame(fixture); featurecat.lizzie.Lizzie.frame = frame;
+      ByteArrayOutputStream wire = new ByteArrayOutputStream();
+      set(fixture.source, "outputStream", new BufferedOutputStream(wire));
+      String valid = "readboardSelfUpdatePrepare\t1\t" + ID + "\t" + fixture.path;
+      for (String malformed : new String[] {
+        valid + "\textra", valid.replace("\t1\t", "\t2\t"), valid.replace(ID, "INVALID"),
+        valid + "\r", valid + "\nembedded", "readboardSelfUpdatePrepare\t1\t" + ID
+      }) fixture.source.parseLine(malformed);
+      assertNull(frameUpdate(frame));
+      assertFalse(Files.exists(fixture.path.resolveSibling("registration.json")));
+      fixture.source.parseLine(valid + "\n");
+      await(() -> frameUpdate(frame) != null);
+      String registration = Files.readString(fixture.path.resolveSibling("registration.json"));
+      Object owner = frameUpdate(frame);
+      fixture.source.parseLine(valid);
+      assertSame(owner, frameUpdate(frame));
+      await(() -> wire.toString(StandardCharsets.UTF_8).split("readboardSelfUpdatePrepared", -1).length == 3);
+      assertEquals(registration, Files.readString(fixture.path.resolveSibling("registration.json")));
+      fixture.source.parseLine("readboardSelfUpdateCancel\t1\t" + ID + "\n");
+      assertNull(frameUpdate(frame));
+      prepare(frame, fixture);
+      assertNull(frameUpdate(frame));
+      assertEquals(0, frame.starts.get());
+    } finally { featurecat.lizzie.Lizzie.frame = previous; }
+  }
+
+  @Test void readyAdvertisesRestartOnlyForActuallyOwnedLivePipeProcess() throws Exception {
+    Leelaz previous = featurecat.lizzie.Lizzie.leelaz;
+    try (Fixture fixture = new Fixture()) {
+      featurecat.lizzie.Lizzie.leelaz = null;
+      ByteArrayOutputStream wire = new ByteArrayOutputStream();
+      set(fixture.source, "outputStream", new BufferedOutputStream(wire));
+      fixture.source.handleReady(); fixture.source.handleReady();
+      assertEquals(1, wire.toString(StandardCharsets.UTF_8).split("readboardSelfUpdateRestartSupported\\t1", -1).length - 1);
+      ReadBoard unowned = allocate(ReadBoard.class);
+      ByteArrayOutputStream other = new ByteArrayOutputStream();
+      set(unowned, "usePipe", true); set(unowned, "outputStream", new BufferedOutputStream(other));
+      unowned.handleReady();
+      assertFalse(other.toString(StandardCharsets.UTF_8).contains("readboardSelfUpdateRestartSupported"));
+    } finally { featurecat.lizzie.Lizzie.leelaz = previous; }
+  }
+
   private static UpdateFrame frame(Fixture fixture) throws Exception {
     UpdateFrame frame = allocate(UpdateFrame.class);
     frame.starts = new AtomicInteger(); frame.readBoard = fixture.source;
