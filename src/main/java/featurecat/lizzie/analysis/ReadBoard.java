@@ -428,7 +428,21 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     return new SyncSnapshotDiffChecker(Board.boardWidth);
   }
 
+  private java.nio.file.Path updateTransaction;
+  private java.nio.file.Path nativeOwnedDirectory;
+  private Process nativeOwnedProcess;
+  private volatile boolean nativeReaderExited;
+
+  public Process ownedNativeProcess() { return usePipe ? nativeOwnedProcess : null; }
+  public java.nio.file.Path ownedNativeDirectory() { return nativeOwnedDirectory; }
+  public boolean updateReaderExited() { return nativeReaderExited; }
+
   public ReadBoard(boolean usePipe, boolean retiredSyncMode) throws Exception {
+    this(usePipe, retiredSyncMode, null);
+  }
+
+  public ReadBoard(boolean usePipe, boolean retiredSyncMode, java.nio.file.Path transaction) throws Exception {
+    this.updateTransaction = transaction;
     if (retiredSyncMode) {
       throw new UnsupportedOperationException(
           "Retired board synchronization mode is no longer supported.");
@@ -604,11 +618,19 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     if (usePipe) commands.add("-1");
     else commands.add(String.valueOf(port));
     commands = completeLaunchArguments(commands);
+    if (updateTransaction != null) {
+      commands.add("--update-transaction");
+      commands.add(updateTransaction.toString());
+    }
     File nativeReadBoardDirectory = legacyNativeReadBoardDirectory();
     ProcessBuilder processBuilder =
         buildLegacyNativeReadBoardProcessBuilder(nativeReadBoardDirectory, usePipe, commands);
     try {
       process = processBuilder.start();
+      if (usePipe) {
+        nativeOwnedProcess = process;
+        nativeOwnedDirectory = nativeReadBoardDirectory.toPath().toRealPath();
+      }
     } catch (IOException e) {
       logNativeReadBoardStartFailure(processBuilder, e);
       if (!usePipe) {
@@ -701,10 +723,10 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
         }
       }
       // this line will be reached when BoardSync shuts down
-      if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
       showInBoard = false;
-      if (Lizzie.frame.floatBoard != null) {
-        Lizzie.frame.floatBoard.setVisible(false);
+      if (Lizzie.frame != null && Lizzie.frame.readBoard == this) {
+        if (Lizzie.leelaz != null && Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();
+        if (Lizzie.frame.floatBoard != null) Lizzie.frame.floatBoard.setVisible(false);
       }
       observe(() -> ReadBoardObservation.recordLifecycle("stopped", "process-ended"));
       logReadBoardExit();
@@ -713,18 +735,24 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
       // System.exit(-1);
     } catch (IOException e) {
       observe(() -> ReadBoardObservation.recordFailure("reader", e));
-      if (Lizzie.frame != null) {
+      if (Lizzie.frame != null && Lizzie.frame.readBoard == this) {
         Lizzie.frame.bothSync = false;
         Lizzie.frame.syncBoard = false;
       }
       shutdownAfterProcessEnd();
       // System.exit(-1);
+    } finally {
+      nativeReaderExited = true;
     }
   }
 
   public void parseLine(String line) {
     ensureTransientSyncStateInitialized();
     recordProtocolLine(line);
+    if (line != null && line.startsWith("readboardSelfUpdate")) {
+      if (Lizzie.frame != null) Lizzie.frame.handleReadBoardSelfUpdate(this, line);
+      return;
+    }
     ReadBoardUpdateRequest updateRequest = ReadBoardUpdateRequest.tryParse(line);
     if (updateRequest != null) {
       handleHostedUpdateRequest(updateRequest);
@@ -6114,7 +6142,7 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     clearResumeState();
     clearPendingRemoteContext();
     tempcount = new ArrayList<Integer>();
-    if (Lizzie.frame != null) {
+    if (Lizzie.frame != null && Lizzie.frame.readBoard == this) {
       Lizzie.frame.syncBoard = false;
       Lizzie.frame.bothSync = false;
     }
@@ -6785,6 +6813,8 @@ public class ReadBoard implements ReadBoardTrackingEligibilityAdapter.Eligibilit
     isLoaded = true;
     checkVersion();
     announceHostedUpdateSupport();
+    if (ownedNativeProcess() != null && ownedNativeProcess().isAlive())
+      sendCommand("readboardSelfUpdateRestartSupported\t1");
     sendAnalysisState();
     ReadBoardLoggingControl control = loggingControl;
     if (control != null) {

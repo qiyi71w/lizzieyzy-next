@@ -385,6 +385,10 @@ public class LizzieFrame extends JFrame {
   private ReadBoard readBoardRestartTarget;
   private ReadBoardFactory pendingReadBoardFactory;
   private boolean hostedReadBoardUpdateInProgress;
+  private volatile featurecat.lizzie.analysis.ReadBoardSelfUpdate selfUpdate;
+  private volatile boolean selfUpdateHostClosing;
+  private java.nio.file.Path selfUpdateLaunchPath;
+  private final java.util.Set<String> cancelledSelfUpdates = java.util.concurrent.ConcurrentHashMap.newKeySet();
   private final ReadBoardUpdateInstaller readBoardUpdateInstaller = new ReadBoardUpdateInstaller();
   public ConfigDialog2 configDialog2;
   public boolean isShowingPolicy = false;
@@ -2737,6 +2741,7 @@ public class LizzieFrame extends JFrame {
   }
 
   private void reopenReadBoard(ReadBoardFactory factory) {
+    if (selfUpdate != null || selfUpdateHostClosing) return;
     if (!SwingUtilities.isEventDispatchThread() || readBoard == null) {
       replaceReadBoard(factory);
       return;
@@ -2819,7 +2824,98 @@ public class LizzieFrame extends JFrame {
   }
 
   protected ReadBoard createNativeReadBoard() throws Exception {
-    return new ReadBoard(true, false);
+    return new ReadBoard(true, false, selfUpdateLaunchPath);
+  }
+
+  public void handleReadBoardSelfUpdate(ReadBoard source, String raw) {
+    String line = raw.endsWith("\n") ? raw.substring(0, raw.length() - 1) : raw;
+    if (line.indexOf('\r') >= 0 || line.indexOf('\n') >= 0) return;
+    String[] fields = line.split("\t", -1);
+    if (fields.length < 3 || !"1".equals(fields[1])
+        || !featurecat.lizzie.analysis.ReadBoardSelfUpdateRecords.id(fields[2])) return;
+    if ("readboardSelfUpdatePrepare".equals(fields[0]) && fields.length == 4) {
+      Thread prepare = new Thread(() -> prepareSelfUpdate(source, fields[2], fields[3]), "readboard-self-update-prepare");
+      prepare.setDaemon(true);
+      prepare.start();
+    } else if ("readboardSelfUpdateCancel".equals(fields[0]) && fields.length == 3) {
+      synchronized (readBoardRestartLock) {
+        if (source == readBoard || (selfUpdate != null && selfUpdate.matches(source, fields[2])))
+          cancelledSelfUpdates.add(fields[2]);
+        if (selfUpdate != null && selfUpdate.matches(source, fields[2])) {
+          selfUpdate.cancel();
+          selfUpdate = null;
+          readBoardRestartTarget = null;
+        }
+      }
+    } else if ("readboardSelfUpdateReady".equals(fields[0]) && fields.length == 4
+        && fields[3].matches("v[0-9]+\\.[0-9]+\\.[0-9]+")) {
+      synchronized (readBoardRestartLock) {
+        try {
+          if (!selfUpdateHostClosing && selfUpdate != null && source == readBoard)
+            selfUpdate.ready(source, fields[2], fields[3]);
+        } catch (IOException failure) { selfUpdate.cancel(); }
+      }
+    }
+  }
+
+  private void prepareSelfUpdate(ReadBoard source, String operation, String path) {
+    synchronized (readBoardRestartLock) {
+      String rejected = null;
+      if (selfUpdateHostClosing || source.ownedNativeProcess() == null) rejected = "unavailable";
+      else if (cancelledSelfUpdates.contains(operation)) rejected = "staleSession";
+      else if (source != readBoard) rejected = "staleSession";
+      else if (selfUpdate != null && selfUpdate.matches(source, operation)) {
+        source.sendCommand("readboardSelfUpdatePrepared\t1\t" + operation);
+        return;
+      } else if (selfUpdate != null || readBoardRestartTarget != null) rejected = "busy";
+      if (rejected != null) { source.sendCommand("readboardSelfUpdateRejected\t1\t" + operation + "\t" + rejected); return; }
+      try {
+        var update = new featurecat.lizzie.analysis.ReadBoardSelfUpdate(source, operation, java.nio.file.Path.of(path));
+        update.register();
+        selfUpdate = update;
+        readBoardRestartTarget = source;
+        source.sendCommand("readboardSelfUpdatePrepared\t1\t" + operation);
+        Thread waiter = new Thread(() -> completeSelfUpdate(update), "readboard-self-update-wait");
+        waiter.setDaemon(true);
+        waiter.start();
+      } catch (Exception failure) { source.sendCommand("readboardSelfUpdateRejected\t1\t" + operation + "\tinvalidRequest"); }
+    }
+  }
+
+  private void completeSelfUpdate(featurecat.lizzie.analysis.ReadBoardSelfUpdate update) {
+    try {
+      String version = update.awaitLaunchable();
+      if (version == null) return;
+      synchronized (readBoardRestartLock) {
+        if (selfUpdateHostClosing || selfUpdate != update || update.cancelled()
+            || (readBoard != null && readBoard != update.source)) return;
+        selfUpdateLaunchPath = update.requestPath;
+        try {
+          ReadBoard next = createNativeReadBoard();
+          if (selfUpdateHostClosing || update.cancelled()) { next.shutdown(); return; }
+          update.successor(next);
+          readBoard = next;
+        } catch (Exception failure) { update.outcome("startFailed", null, null); return; }
+        finally { selfUpdateLaunchPath = null; }
+      }
+      long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+      while (!update.connected() && !update.cancelled() && System.nanoTime() < deadline) Thread.sleep(50);
+      synchronized (readBoardRestartLock) {
+        if (selfUpdate == update && !selfUpdateHostClosing && !update.connected()) update.outcome("handshakeFailed", readBoard, null);
+      }
+    } catch (Exception failure) {
+      try { if (!update.cancelled()) update.outcome("handshakeFailed", null, null); } catch (IOException ignored) { }
+    } finally {
+      synchronized (readBoardRestartLock) {
+        if (selfUpdate == update) { selfUpdate = null; readBoardRestartTarget = null; }
+      }
+    }
+  }
+
+  public void cancelReadBoardSelfUpdateOnHostExit() {
+    selfUpdateHostClosing = true;
+    var update = selfUpdate;
+    if (update != null) update.cancel();
   }
 
   public void handleReadBoardHostedUpdateRequest(
@@ -2938,6 +3034,7 @@ public class LizzieFrame extends JFrame {
 
   private boolean queueReadBoardRestart(ReadBoard existingReadBoard, ReadBoardFactory factory) {
     synchronized (readBoardRestartLock) {
+      if (selfUpdate != null || selfUpdateHostClosing) return true;
       if (hostedReadBoardUpdateInProgress) {
         return true;
       }
@@ -2952,6 +3049,7 @@ public class LizzieFrame extends JFrame {
 
   private boolean queueReadBoardStartIfRestarting(ReadBoardFactory factory) {
     synchronized (readBoardRestartLock) {
+      if (selfUpdate != null || selfUpdateHostClosing) return true;
       if (readBoardRestartTarget == null) {
         return false;
       }
@@ -2978,6 +3076,7 @@ public class LizzieFrame extends JFrame {
 
   private ReadBoardFactory finishReadBoardRestart(ReadBoard existingReadBoard) {
     synchronized (readBoardRestartLock) {
+      if (readBoardRestartTarget != existingReadBoard) return null;
       if (readBoard != null && readBoard != existingReadBoard) {
         readBoardRestartTarget = null;
         pendingReadBoardFactory = null;
@@ -10227,6 +10326,7 @@ public class LizzieFrame extends JFrame {
 
   @Override
   public void dispose() {
+    cancelReadBoardSelfUpdateOnHostExit();
     cancelPendingSuggestionHoverPreview();
     isMouseOver = false;
     mouseOverCoordinate = outOfBoundCoordinate;

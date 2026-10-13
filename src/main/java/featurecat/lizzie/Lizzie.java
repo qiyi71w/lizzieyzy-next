@@ -1473,6 +1473,7 @@ public class Lizzie {
       return;
     }
     logShutdownRequested();
+    frame.cancelReadBoardSelfUpdateOnHostExit();
     try {
       if (config.autoSaveOnExit) frame.saveAutoGame(1);
     } catch (Exception e) {
