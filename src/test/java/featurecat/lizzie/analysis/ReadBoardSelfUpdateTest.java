@@ -337,7 +337,7 @@ class ReadBoardSelfUpdateTest {
           ? new ProcessBuilder(executable.toString(), "/d", "/q", "/c",
               "echo ready&set /p value=&exit /b 0")
           : new ProcessBuilder(executable.toString(), "-c", "echo ready; read value; exit 0");
-      process = builder.redirectErrorStream(true).start();
+      process = builder.start();
       try {
         CompletableFuture<String> ready = CompletableFuture.supplyAsync(() -> {
           try {
@@ -366,7 +366,7 @@ class ReadBoardSelfUpdateTest {
           .put("targetTag","v3.2.0").put("assetName","readboard-webview2-v3.2.0.zip")
           .put("packagePath",root.resolve("readboard-webview2-v3.2.0.zip").toString()).put("expectedSha256","a".repeat(64))
           .put("installDirectory",directory.toString()).put("sourceProcessId",process.pid())
-          .put("sourceProcessStartTimeUtc",process.info().startInstant().orElseThrow().toString()).put("language","en");
+          .put("sourceProcessStartTimeUtc",ReadBoardSelfUpdateRecords.processStart(process.toHandle()).toString()).put("language","en");
       Files.writeString(path,request.toString());
     }
     ReadBoardSelfUpdate register() throws Exception { var update = new ReadBoardSelfUpdate(source, ID, path); update.register(); return update; }
@@ -386,6 +386,8 @@ class ReadBoardSelfUpdateTest {
       process.getOutputStream().close();
       assertTrue(process.waitFor(5, TimeUnit.SECONDS), "Child must exit after stdin EOF");
       assertEquals(0, process.exitValue());
+      // A relocated Windows shell may print a diagnostic when its stdin reaches EOF.
+      process.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
       assertEquals(-1, process.getInputStream().read(), "Child stdout must reach EOF");
     }
     public void close() throws Exception {
