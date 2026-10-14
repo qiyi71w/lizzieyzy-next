@@ -375,6 +375,8 @@ pwsh -NoProfile -File scripts/run_windows_ci_diagnostics.ps1 -OutputDirectory ta
 
 聚焦回归：`ReadBoardSelfUpdateTest,ReadBoardUpdateProtocolTest,ReadBoardShutdownTest,ReadBoardEdtCommandDispatchTest,ReadBoardLaunchPathTest`。需要Swing的生命周期场景使用独立Xvfb；真实Windows候选必须使用shaded JAR。C# FakeHost smoke与Java parser/factory/EOF回归各有证明范围，不能合称真实Java宿主全链通过；完整原生配对需另记录双方SHA、进程创建身份、事务、普通ready/本轮Ready/connected/presented及安装版本证据。
 
+`ReadBoardSelfUpdateTest` 的15项行为回归在Linux和Windows均运行：fixture把系统shell（Linux `/bin/sh`解析后的可执行文件、Windows `%SystemRoot%\System32\cmd.exe`）复制到临时`Straße-install*/readboard.exe`，等待子进程就绪并核对实际可执行路径、PID及创建时间。子进程保持stdin打开等待；测试关闭stdin后断言正常退出和stdout EOF，再独立推进宿主reader退出屏障。清理只处理本fixture拥有的进程。Windows可用headless JVM运行这组parser/Unsafe-frame seam测试；它们不创建产品窗口，也不证明原生UI或完整更新闭环。
+
 ## 当前打包脚本分工
 
 - `scripts/prepare_bundled_runtime.sh`

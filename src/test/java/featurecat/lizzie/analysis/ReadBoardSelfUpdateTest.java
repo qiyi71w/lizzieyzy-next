@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -100,8 +102,7 @@ class ReadBoardSelfUpdateTest {
         try { return update.awaitLaunchable(); } catch (Exception e) { throw new RuntimeException(e); }
       });
       assertThrows(java.util.concurrent.TimeoutException.class, () -> wait.get(100, TimeUnit.MILLISECONDS));
-      fixture.process.destroy();
-      fixture.process.waitFor();
+      fixture.exit();
       assertThrows(java.util.concurrent.TimeoutException.class, () -> wait.get(100, TimeUnit.MILLISECONDS));
       set(fixture.source, "nativeReaderExited", true);
       assertEquals("v3.2.0", wait.get(2, TimeUnit.SECONDS));
@@ -179,7 +180,7 @@ class ReadBoardSelfUpdateTest {
   @Test void missingResultRemainsWaitingUntilCancellation() throws Exception {
     try (Fixture fixture = new Fixture()) {
       ReadBoardSelfUpdate update = fixture.register(); fixture.adopt();
-      fixture.process.destroy(); fixture.process.waitFor(); set(fixture.source, "nativeReaderExited", true);
+      fixture.exit(); set(fixture.source, "nativeReaderExited", true);
       CompletableFuture<String> waiting = CompletableFuture.supplyAsync(() -> {
         try { return update.awaitLaunchable(); } catch (Exception failure) { throw new RuntimeException(failure); }
       });
@@ -197,7 +198,7 @@ class ReadBoardSelfUpdateTest {
       fixture.adopt(); fixture.result("installed", "v3.2.0");
       SwingUtilities.invokeAndWait(() -> { for (int i = 0; i < 10; i++) frame.openBoardSync(); });
       assertEquals(0, frame.starts.get());
-      fixture.process.destroy(); fixture.process.waitFor();
+      fixture.exit();
       assertEquals(0, frame.starts.get());
       set(fixture.source, "nativeReaderExited", true);
       await(() -> Files.exists(fixture.path.resolveSibling("connection.json")));
@@ -217,7 +218,7 @@ class ReadBoardSelfUpdateTest {
         SwingUtilities.invokeLater(() -> { frame.cancelReadBoardSelfUpdateOnHostExit(); exited.complete(null); });
         exited.get(1, TimeUnit.SECONDS);
         if (!installed) fixture.result("installed", "v3.2.0");
-        fixture.process.destroy(); fixture.process.waitFor(); set(fixture.source, "nativeReaderExited", true);
+        fixture.exit(); set(fixture.source, "nativeReaderExited", true);
         await(() -> frameUpdate(frame) == null);
         SwingUtilities.invokeAndWait(frame::openBoardSync);
         assertEquals(0, frame.starts.get());
@@ -326,9 +327,34 @@ class ReadBoardSelfUpdateTest {
     Fixture() throws Exception {
       directory = Files.createTempDirectory(root, "Straße-install");
       Path executable = directory.resolve("readboard.exe");
-      Files.copy(Path.of("/bin/dash"), executable);
-      executable.toFile().setExecutable(true);
-      process = new ProcessBuilder(executable.toString(), "-c", "read value").start();
+      boolean windows = System.getProperty("os.name").startsWith("Windows");
+      Path shell = windows
+          ? Path.of(System.getenv("SystemRoot"), "System32", "cmd.exe")
+          : Path.of("/bin/sh").toRealPath();
+      Files.copy(shell, executable);
+      if (!windows) assertTrue(executable.toFile().setExecutable(true));
+      ProcessBuilder builder = windows
+          ? new ProcessBuilder(executable.toString(), "/d", "/q", "/c",
+              "echo ready&set /p value=&exit /b 0")
+          : new ProcessBuilder(executable.toString(), "-c", "echo ready; read value; exit 0");
+      process = builder.redirectErrorStream(true).start();
+      try {
+        CompletableFuture<String> ready = CompletableFuture.supplyAsync(() -> {
+          try {
+            return new BufferedReader(new InputStreamReader(
+                process.getInputStream(), StandardCharsets.UTF_8)).readLine();
+          } catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
+        });
+        assertEquals("ready", ready.get(5, TimeUnit.SECONDS));
+        assertTrue(process.isAlive());
+        assertTrue(process.pid() > 0);
+        assertTrue(process.info().startInstant().isPresent());
+        assertTrue(Files.isSameFile(executable, Path.of(process.info().command().orElseThrow())));
+      } catch (Exception | AssertionError failure) {
+        process.destroyForcibly();
+        assertTrue(process.waitFor(5, TimeUnit.SECONDS));
+        throw failure;
+      }
       source = allocate(ReadBoard.class);
       set(source, "usePipe", true); set(source, "nativeOwnedProcess", process); set(source, "nativeOwnedDirectory", directory);
       set(source, "outputStream", new BufferedOutputStream(new ByteArrayOutputStream()));
@@ -356,7 +382,22 @@ class ReadBoardSelfUpdateTest {
           .put("state",state).put("actualVersion",version).put("installDirectory",directory.toString())
           .put("diagnostic", "").put("backupDirectory",JSONObject.NULL).toString());
     }
-    public void close() throws Exception { process.destroy(); process.waitFor(); }
+    void exit() throws Exception {
+      process.getOutputStream().close();
+      assertTrue(process.waitFor(5, TimeUnit.SECONDS), "Child must exit after stdin EOF");
+      assertEquals(0, process.exitValue());
+      assertEquals(-1, process.getInputStream().read(), "Child stdout must reach EOF");
+    }
+    public void close() throws Exception {
+      try {
+        if (process.isAlive()) exit();
+      } finally {
+        if (process.isAlive()) {
+          process.destroyForcibly();
+          assertTrue(process.waitFor(5, TimeUnit.SECONDS));
+        }
+      }
+    }
   }
   private static void set(Object target,String name,Object value) throws Exception { Field field=ReadBoard.class.getDeclaredField(name);field.setAccessible(true);field.set(target,value); }
   private static <T> T allocate(Class<T> type) throws Exception {
