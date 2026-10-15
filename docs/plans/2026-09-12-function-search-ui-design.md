@@ -2,19 +2,19 @@
 
 Design version: 00-r2 (approved)
 Status: approved and acceptance resolved on 2026-09-12
-Scope: ticket 00 visual authority; by explicit user decision, final production-candidate native DPI144/DPI192 evidence satisfies the former system-scale gate without asserting a prototype native-scale run.
+Scope: search-navigation visual design and prototype evidence. Final production-candidate native DPI144/DPI192 evidence satisfies the system-scale acceptance requirement; it does not establish a prototype native-scale run.
 
 ## 方向与参照
 
 Operate 场景：复盘中快速找到入口；主棋盘不重排，输入框保持位置，下方展开结果。暖白纸面 `#FFFDF8` / 背景 `#F8F5EE`，墨绿 `#0A655E`，主文字 `#232724`，次文字 `#53615B`，细线 `#CDBF9F`，选中底 `#E8F1EC`。金色只用于定位边框；正文不用低对比浅金。系统 UI 字体起步，通过 `LocaleFontSupport.resolveLanguageFontName` 保留多语言 fallback。
 
-基线 `e3b6d918e203dfb97312013191bc8e3364886680`。本轮已在 Windows 运行该基线 shaded JAR 的真实主窗口及一键设置权重/加速窗口，独立配置目录，不使用日常配置。证据在 `D:\dev\weiqi\acceptance\function-search-design-00\reference-visible\real-setup-{weights,acceleration}.png`。`ReferenceCapture.java` 是实际应用窗口的采集驱动；原型不依赖或构造这些业务窗口。首次被其他窗口遮住的采集无效，未作为参照。
+基线 `e3b6d918e203dfb97312013191bc8e3364886680`。本轮已在 Windows 运行该基线 shaded JAR 的真实主窗口及一键设置权重/加速窗口，独立配置目录，不使用日常配置。截图 `reference-visible/real-setup-{weights,acceleration}.png` 随本地验收材料留存，未随本文发布。`ReferenceCapture.java` 是实际应用窗口的采集驱动；原型不依赖或构造这些业务窗口。首次被其他窗口遮住的采集无效，未作为参照。
 
 观察：权重页为暖白内容＋墨绿分区导航，按钮圆角细线，列表低饱和绿底、独立选中标识；加速页沿用相同导航与字体，不能把其大侧栏/推荐卡片迁入搜索。原规划 `setup-style-samples.png` 仅为离屏绘制探针，和真实窗口、此原型严格区分。
 
 ## 入口与窗口关系
 
-生产布局决定：在 `Menu` 创建顶部 `centerArea` 的 `btnFlashAnalyze` 后加入紧凑搜索按钮；宽窗口为放大镜＋本地化“搜索功能…”，窄窗口收为放大镜，保留 tooltip/无障碍名称。先收搜索文字，不改变其他已有入口顺序，不新增棋盘侧栏。`TopHeaderPanel` 的 WrapLayout 是既有约束；01 验证紧凑宽度不能为新增按钮多挤出一排工具栏。
+生产布局决定：在 `Menu` 创建顶部 `centerArea` 的 `btnFlashAnalyze` 后加入紧凑搜索按钮；宽窗口为放大镜＋本地化“搜索功能…”，窄窗口收为放大镜，保留 tooltip/无障碍名称。先收搜索文字，不改变其他已有入口顺序，不新增棋盘侧栏。`TopHeaderPanel` 的 WrapLayout 是既有约束；生产接入须验证紧凑宽度下新增按钮不会多挤出一排工具栏。
 
 第二入口为“设置”菜单第一项；Ctrl+K / macOS Command+K 共用搜索窗口。原型提供一个独立模拟主窗口，顶部按钮和设置菜单都可操作，棋盘为示意图；它不声称重建真实主工具栏。主窗口关系：菜单 → 原工具区中搜索入口 → 棋盘上方的 owned modal 搜索；任何展开只改变浮窗，不改变棋盘尺寸。
 
@@ -33,7 +33,7 @@ flowchart TD
 
 - 输入框位于所属窗口中央，常见宽 720 logical px；左右至少留 24 px。首行约 52 px，随字体增大；查询前只展示输入与“浏览功能”。
 - 输入后下方展开分类、候选、底部激活动作，“浏览功能”让位给列表；输入的屏幕 Y 不随内容变化。展开下边距 16 px，列表独立滚动，不把浮窗整体重新居中。
-- 原型常见 owner 1100×800，紧凑 760×580；实际可用屏幕小于此值时按工作区缩小。默认字号 14，控件提供 12/14/18/22 以检验放大字体。01 继承现有 `Config.frameFontSize`，不将原型 14 变成全应用默认。
+- 原型常见 owner 1100×800，紧凑 760×580；实际可用屏幕小于此值时按工作区缩小。默认字号 14，控件提供 12/14/18/22 以检验放大字体。生产实现继承现有 `Config.frameFontSize`，不将原型 14 变成全应用默认。
 - 行内容先功能名称（加粗），随后真实路径（次级色）；原生 styled text/文本区按 viewport 宽度换行、计算行高，不靠横向滚动或省略号隐藏名称。所选行就地展开类型、已有快捷键、使用提示或不可用原因，没有独立详情面板；极端大字体使单行高于 viewport 时，纵向滚动阅读整行。
 - 空查询可点“浏览功能”查看分类；查询为演示子串匹配，可用 `weights` / `acceleration` / `sync` 等样本 ID。无结果显示恢复建议；分类切换、移动选中不执行。
 - 不可用结果仍可选中，原因可读，激活按钮禁用；模拟 sync 固定不可用，不是真实机器判断。
@@ -52,7 +52,7 @@ flowchart TD
 | GameInfoDialog.komi | Menu.edit > Menu.setInfo | 定位；I 为父窗口入口，不是字段快捷键 | GameInfoDialog:96–98,149 起; Input:505–512 |
 | Menu.readBoard | Menu.sync | 操作 / Alt+O | Menu:4187–4189; Input:539–545 |
 
-文件前缀 `src/main/java/featurecat/lizzie/gui/`。目录仅八个语料，不是完整覆盖清单。黑方胜率使用当前真实菜单路径，不声称当前综合设置已有可见行；01 的真实综合设置目标保持既有票据要求。样本没有不明路径；后续不能核实的路径必须省略并在生产覆盖清单说明。
+文件前缀 `src/main/java/featurecat/lizzie/gui/`。目录仅八个语料，不是完整覆盖清单。黑方胜率使用当前真实菜单路径，不声称当前综合设置已有可见行；生产实现需核实真实设置目标。样本没有不明路径；后续不能核实的路径必须省略并在生产覆盖清单说明。
 
 ## 激活、取消与定位顺序
 
@@ -62,19 +62,19 @@ flowchart TD
 4. 设置演示窗口滚动到目标行、请求焦点、金色边框高亮 2.4 秒；结束后边框恢复，反馈显示值未改变。每个目标窗口拥有自己的计时器，关闭旧窗口不取消新窗口的高亮结束。
 5. Esc 取消搜索，焦点回到打开入口，动作计数不增加。
 
-目标窗口、行滚动、焦点和计时高亮是真实 Swing 操作；目标内容和可用性是模拟。没有配置保存、引擎、下载、ReadBoard 或棋谱操作。原型不承诺 IME Enter 隔离、完整目录排序、真实危险动作保护、生产焦点恢复和生命周期；这些由 01–04 按规格中的门禁与环境证据边界验收，不能以本票演示通过替代。
+目标窗口、行滚动、焦点和计时高亮是真实 Swing 操作；目标内容和可用性是模拟。没有配置保存、引擎、下载、ReadBoard 或棋谱操作。IME Enter 隔离、完整目录排序、真实危险动作保护、生产焦点恢复和生命周期需要生产实现的独立验收，原型演示不覆盖这些行为。
 
 ## 六语言、DPI 与主题证据边界
 
 八份资源同改，新增 PrototypeSearch 文案由 AppLocale.loadBundle 读取，标题沿用真实资源。六种显式语言为简中、英文、韩文、日文、繁中、泰文。
 
-已运行 Windows JDK 21 gallery：三档 `sun.java2d.uiScale=1/1.5/2` × 常见 14pt/紧凑 22pt × 六语言。输出位于上述运行根目录的 `final-{1,1.5,2}-{normal14,compact22}/`，含 collapsed、locale-1…6、unavailable、no-results、surround-1/2、target-highlight、target-ended。这是 Windows 原生 Swing 在强制 Java 缩放下的可见窗口截图；没有更改 Windows 系统缩放，也不证明跨显示器 DPI 切换。
+已运行 Windows JDK 21 gallery：三档 `sun.java2d.uiScale=1/1.5/2` × 常见 14pt/紧凑 22pt × 六语言。本地验收材料的 `final-{1,1.5,2}-{normal14,compact22}/` 包含 collapsed、locale-1…6、unavailable、no-results、surround-1/2、target-highlight、target-ended。这是 Windows 原生 Swing 在强制 Java 缩放下的可见窗口截图；没有更改 Windows 系统缩放，也不证明跨显示器 DPI 切换。
 
-修复后 NativeSmoke 的紧凑泰文 22pt 行子控件水平溢出由 177 px 降为 0；可见提示文字通过字体字形检查，上下箭头用绘制图标。列表、无结果及目标反馈都使用原生文本换行。原型执行时的 Windows 原生系统环境测得 96 DPI、1.0× device transform；没有切换 150%/200%，Java 强制缩放不证明系统缩放。最终用户批准以生产候选的原生 DPI144/DPI192 证据替代该原型检查，详见“审查与确认”；不追记原型未运行场景。
+修复后 NativeSmoke 的紧凑泰文 22pt 行子控件水平溢出由 177 px 降为 0；可见提示文字通过字体字形检查，上下箭头用绘制图标。列表、无结果及目标反馈都使用原生文本换行。原型执行时的 Windows 原生系统环境测得 96 DPI、1.0× device transform；没有切换 150%/200%，Java 强制缩放不证明系统缩放。最终系统缩放验收采用生产候选的原生 DPI144/DPI192 证据，详见“审查与确认”；原型本身未运行这些场景。
 
 真实主题 API 对照：独立 `Config.createForTests` 内存状态（无生产主窗口/引擎/配置读写），依次调用真实 `AppleStyleSupport.applyUiDefaults`，以默认/Apple/Morandi 三组默认值创建原型；对每个自绘按钮执行真实 `preserveCustomButtonStyle` + `installButtonStyle`，验证绘制器保留并截图。类别和语言等标准控件显式设置本地纸色/墨色，不继承 Apple 的白字到浅底。证据 `actual-theme-final/actual-style-api-{0,1,2}.png`。这验证真实样式 API 与原型的组合，不声称生产搜索已注册全局主题刷新生命周期。真实应用三主题参照另在 `reference-themes/real-main-style-{0,1,2}.png`；原型底部外观选择器仅切换示意衬底。
 
-交互录屏：`D:\dev\weiqi\acceptance\function-search-design-00\smoke-final\interaction.gif`。录制仅采集此原型所属窗口区域；鼠标点击工具栏和设置菜单、方向键/Enter/Esc/Ctrl+K 为 Windows Robot 原生输入，查询字符串按字符写入 Swing Document 以稳定展示输入变化，不是 OS IME 证据。包含分类、无结果、不可用、取消、目标移交、滚动聚焦和高亮结束。原型本身可由用户直接输入。
+交互录屏 `interaction.gif` 随本地验收材料留存，未随本文发布。录制仅采集此原型所属窗口区域；鼠标点击工具栏和设置菜单、方向键/Enter/Esc/Ctrl+K 为 Windows Robot 原生输入，查询字符串按字符写入 Swing Document 以稳定展示输入变化，不是 OS IME 证据。包含分类、无结果、不可用、取消、目标移交、滚动聚焦和高亮结束。原型本身可由用户直接输入。
 
 聚焦检查：`LocalizationResourceParityTest` 通过；`scripts/check_line_endings.py` 通过。NativeSmoke 覆盖两个入口、原生快捷键、静止输入锚点、分类筛选、选中不执行、不可用不执行、Esc 焦点返回、Enter 先关模态后开目标、高亮结束及泰文溢出。TimerSmoke 的 A→B→关闭 A 场景，修复前 B 保持初始反馈，修复后 B 在期限后显示结束反馈。
 
@@ -82,11 +82,10 @@ flowchart TD
 
 可直接调用：`AppLocale.loadBundle`、`LocaleFontSupport.resolveLanguageFontName`；生产还可调用 `AppleStyleSupport.preserveCustomButtonStyle`、已有 JFontTextField/JFontButton/JFontLabel/JFontMenuItem 和 `Utils.changeFontRecursive`。
 
-借鉴规则：`KataGoAutoSetupDialog` 的状态色、按钮 hover/pressed/disabled、列表层级、`ResponsiveActionRow` 的窄宽度重排。`WeightButtonUI`、`RoundedSurfacePanel`、列表 painter 为私有嵌套类，原型自带少量纯绘制；01 若形成第二个生产调用者，只提取必要绘制片段并同步原调用者，不建立全应用主题框架。必须保持原一键设置外观不变。
+借鉴规则：`KataGoAutoSetupDialog` 的状态色、按钮 hover/pressed/disabled、列表层级、`ResponsiveActionRow` 的窄宽度重排。`WeightButtonUI`、`RoundedSurfacePanel`、列表 painter 为私有嵌套类，原型自带少量纯绘制；生产接入若形成第二个调用者，只提取必要绘制片段并同步原调用者，不建立全应用主题框架。必须保持原一键设置外观不变。
 
 ## 运行与版本
 
-原型 checkout：`/home/dev/dev/weiqi/worktrees/lizzieyzy-next/function-search-ui`。
 分支：`prototype/function-search-ui`；起点为上述基线。原型提交：`1cb47df6`（`feat(prototype): add function search demo`）。
 
 从原型工作树根目录：
@@ -105,6 +104,6 @@ pwsh -NoProfile -File prototype/function-search-ui/run.ps1
 
 ## 审查与确认
 
-修复模式审查结论：`SUCCESS`。Standards 与 Spec 分别完成 FULL_REVIEW 和针对修复的 VERIFICATION，父代理核对两轮冻结输入未变。STANDARDS-C1（独立目标计时器）、SPEC-001（紧凑入口及真实工具栏适配）、SPEC-002（长译文与字形）、SPEC-004（交互录屏）均 resolved；SPEC-003 与 STANDARDS-C1 重复，合并记账。视觉 V1/V2/V3 均 resolved，finish disposition 为 `ship`；当前不可用的 Impeccable finish agent 由通用只读 reviewer 按同一视觉修复范围替代。开放 IN_SCOPE 0，DEFERRED 0，follow-up 0。该审查本身只覆盖原型修复；外部验收门禁由后述用户范围决定与生产候选证据关闭。
+原型修复审查于 2026-09-12 完成，覆盖独立目标计时器、紧凑入口与真实工具栏适配、长译文与字形、交互录屏及视觉修整，未留开放修复项。该结论只覆盖原型；生产候选的系统缩放验收范围见下文。
 
-用户于 2026-09-12 本会话批准设计 00-r2 与原型 `1cb47df6`，随后明确同意 01 开工。最终又明确批准以生产候选 `5e1cbedc16212fbb321642b8ee956ba31daf4c2a` 在 Windows 系统 DPI144/DPI192 的原生证据替代原型系统 150%/200% 检查；这是验收范围变更，不声称原型曾在该系统缩放下运行。原型本身保留 DPI96 实景与 Java forced-scale 六语言矩阵，生产候选证据位于 `D:\dev\weiqi\acceptance\function-search-04-5e1cbedc\scale-{150,200}-*\evidence`，恢复 100% 后 DPI96 复核通过。本地 `.scratch` 是票据依据；提交到 `docs/plans/2026-09-12-function-search-ui-design.md` 的同版快照用于跨工作树交接。完整 acceptance 状态在票据 Completion record；原生运行记录在证据目录 `acceptance-record.json`，本地副本来源封存在 `prototype-provenance.json`。
+设计 00-r2 与原型 `1cb47df6` 于 2026-09-12 确认。系统缩放验收采用生产候选 `5e1cbedc16212fbb321642b8ee956ba31daf4c2a` 在 Windows 系统 DPI144/DPI192 下的原生证据；这是验收范围调整，不表示原型曾在该系统缩放下运行。原型证据仍限于 DPI96 实景与 Java forced-scale 六语言矩阵。生产候选恢复 100% 后的 DPI96 复核通过。原生记录 `acceptance-record.json`、来源记录 `prototype-provenance.json` 及截图保存在本地验收材料中，未随本文发布；本节仅汇总原有验收结论，不代表一次新的运行。

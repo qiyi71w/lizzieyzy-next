@@ -21,22 +21,18 @@
 
 ## 2026-08 exact-core rebaseline note
 
-本文件保留 2026-07-31 的事后重建设计证据；其中关于 `LifecycleRestoreHandoff`、lifecycle root route、reservation endpoint inclusion、product-specific `prepare*` wrapper 与 ponder capture 的段落属于历史方案，不是当前实现合同。当前 exact-core 以 `.scratch/exact-snapshot-restore-core/spec.md` 与 issue 06 为准：exact module 只保留 opaque admission + immutable exact capture + one-shot execute/completion；switch/restart/PK/foreground/GMA 的 root replay、reservation、readiness、ponder 与 product choreography 留在 owner-local adapter。`原始已批准决策`、`后续演进记录`、`测试策略`章节只保留历史取舍与证据，不定义当前 surface。
+本文件保留 2026-07-31 的事后重建设计证据；其中关于 `LifecycleRestoreHandoff`、lifecycle root route、reservation endpoint inclusion、product-specific `prepare*` wrapper 与 ponder capture 的段落属于历史方案，不是当前实现合同。当前 exact-core 遵循 [`SNAPSHOT_NODE_KIND.md`](../SNAPSHOT_NODE_KIND.md) 的 exact restore 契约：exact module 只保留 opaque admission + immutable exact capture + one-shot execute/completion；switch/restart/PK/foreground/GMA 的 root replay、reservation、readiness、ponder 与 product choreography 留在 owner-local adapter。`原始已批准决策`、`后续演进记录`、`测试策略`章节只保留历史取舍与证据，不定义当前 surface。
 
 ## 重建证据
 
 本设计由以下证据交叉恢复：
 
-- 原始架构设计会话：用户选择“让 exact snapshot restore 拥有完整 depth”，随后逐项批准
-  本文“原始已批准决策”中的九项决策。
+- 原始架构设计确定由 exact snapshot restore 封装完整恢复流程，具体取舍见本文“原始已批准决策”。
 - `ecba216d`：`refactor(engine): 收敛精确快照恢复架构`，实现初始 deep module。
 - `aa757492`：`fix(engine): capture snapshot restore plan before commands`，补齐所有前置命令前
   capture 的合同。
 - [`docs/SNAPSHOT_NODE_KIND.md`](../SNAPSHOT_NODE_KIND.md) 当前 exact restore 合同。
-- [`CONTEXT.md`](../../CONTEXT.md) 中“精确快照引擎恢复”的领域定义。
 - 当前 `ExactSnapshotEngineRestore`、各恢复入口和相关合同测试。
-- `lizzieyzy-exact-snapshot-restore-review-handoff-2026-07-31.md` 中记录的后续 review
-  结论；其中 worker 自报测试结果仍需独立 fresh 验证。
 
 ## 背景与问题
 

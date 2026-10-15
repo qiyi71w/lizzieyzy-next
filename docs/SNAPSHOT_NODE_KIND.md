@@ -164,7 +164,7 @@ SGF `DD[true]` 恢复独立的 dummy PASS 占位节点，包括保存器输出�
 - 任一贴目确认拒绝、发送失败、超时或实例丢失均 fail-closed 结束当前批次，保留最后确认贴目，不制造结果或 successor。部分写入后失败或取消须退役可能持有未确认贴目的原实例；旧实例确认不得影响替换实例或新对局。
 - `PreparedRestore` 可在首次 `execute()` 前由捕获它的 owner 调用 one-shot `discard()` 释放 captured admission；`discard()` 不写临时 SGF、不发任何命令。首次 `execute()` 或 `discard()` 后，另一操作必须以既有 `Exact snapshot restore has already been executed` 失败；一旦 execute 开始，所有失败仍按 owner 的既有 fail-closed 语义处理。
 - 没有可用静态锚点时，调用方保留既有 root replay；默认空 root 不是 exact 锚点。exact 一旦开始，`loadsgf`、tail 或 arbitration 失败都原样失败，禁止猜测性 root fallback。
-- lifecycle exact/root 抛错时，owner 将 frozen target 标为 unavailable，并在既有 completion boundary 释放 reservation；不因本票据新建 `ENGINE_STATE_UNRESTORED` 或通用 retry。ReadBoard GMA 固定点既有 quarantine/retirement 行为保持独立。
+- lifecycle exact/root 抛错时，owner 将 frozen target 标为 unavailable，并在既有 completion boundary 释放 reservation；该路径不引入 `ENGINE_STATE_UNRESTORED` 或通用 retry。ReadBoard GMA 固定点既有 quarantine/retirement 行为保持独立。
 - ponder 只由 lifecycle owner 在全部目标恢复和自身 board fence 成功后按 capture 时的 disposition 决定；restore module 不擅自停止或启动 ponder。
 - 当前进程线程覆盖的来源恢复复用自动 restart owner。该操作可将 captured ponder 延后到 final fence 与 endpoint release 之后：只向同一 Leelaz 的精确后继 reader 回读线程值、异步交接 PDA/WRN 草稿；交接成功且原 foreground identity 仍有效才执行一次既有 resume。失败或替换不恢复分析，普通 restart caller 的完成时序不变。
 - 回滚恢复的初始化若将 KataGo 能力探测明确延迟到当前 lifecycle completion claim 释放 endpoint 后，允许同一 reader incarnation 先提交恢复；在后续分析命令实际写出前，旧分析输出仍保持隔离。需要继续分析且未延迟的恢复继续要求新的物理分析 owner，不能把 READY 或排队成功当作分析所有权。
@@ -205,7 +205,7 @@ SGF `DD[true]` 恢复独立的 dummy PASS 占位节点，包括保存器输出�
 - 双引擎模式下，若已发出快照加载请求的一侧最终无响应，恢复流程仍执行兜底清理，并释放该侧对应处理器。
 - 双引擎模式下，一侧收到 GTP `?` 错误而另一侧无响应时，恢复流程仍返回失败，并完成临时 SGF 与两侧处理器清理。
 
-## 普通局面分析确认（Issue #429 / Ticket 01）
+## 普通局面分析确认（Issue #429）
 
 - 普通落子与连续真实 MOVE/PASS 前后导航先采用目标 history 节点，再转发引擎命令；分析请求在入队时冻结显示节点、Board context revision、引擎槽位与 reader incarnation，不能在 info 到达时重新选择来源目标。
 - `Leelaz` 在位置命令入队时退休旧分析 generation，物理写出时仍执行原有 payload epoch/generation 失效。普通分析只有在依赖的位置响应成功结算后才能物理启动；无关只读查询的 pending response 不影响已合法启动的分析流。
@@ -218,7 +218,7 @@ SGF `DD[true]` 恢复独立的 dummy PASS 占位节点，包括保存器输出�
 - 用户显式通过准入的同树 focus 可为当前节点对应引擎槽位授予整份普通分析采纳权限，允许首份合法精确 root payload 替换更高旧缓存。首份前取消/暂停/失败/context 变化退休未消费权限；已采纳值在完成、取消和同局面暂停后保留。仅 focus 参数重发延续同树刷新关系；真正清树、binding/位置替换仍退休旧权限。具体关注、进度与渲染行为见 `docs/TRACKING_ANALYSIS_CONTRACT.md`。
 - 跨 SNAPSHOT 的复合恢复及 ReadBoard 单次最终 resume 遵守下列对应 owner 契约。
 
-## 复合局面恢复确认（Issue #429 / Ticket 02）
+## 复合局面恢复确认（Issue #429）
 
 - Board 在首次位置转发前冻结目标节点、context revision、轮次、盘尺寸、主引擎 generation 与 captured mirror；exact plan 或 root 命令序列同时冻结。后续恢复和 completion 不重新选择当前 history 或引擎槽位。
 - 普通 resend、跨静态节点的历史导航与 removed-stone 节点恢复共用 Board owner 的目标确认。恢复中的真实 MOVE/PASS 不单独触发最终目标分析；成功 disposition 必须同时满足冻结目标仍有效、用户未暂停分析和捕获引擎身份仍有效。
@@ -254,7 +254,7 @@ SGF `DD[true]` 恢复独立的 dummy PASS 占位节点，包括保存器输出�
 - 有限搜索归还保留租约最终 stop，并等待原搜索终态与该 stop 的精确完整响应；随后由同一租约在原 reader 恢复所有可能覆盖的参数，全部成功确认后进入既有规则、最新棋盘和稳定恢复屏障。参数错误、缺 ACK、超时或 reader 替换均不能由后续 name 成功覆盖。恢复 ponder 参数不授予分析；预加载手动移交也等待该边界，用户暂停后的继续只恢复前台。
 - 参数恢复错误在引擎仲裁锁内判定归属，完整失败收尾在锁外执行；失败回调与 Board 导航采用的锁顺序兼容，必须结清一次失败并保持引擎不可用，不启动后继分析。
 
-## ReadBoard 单次同步分析恢复（Issue #429 / Ticket 03）
+## ReadBoard 单次同步分析恢复（Issue #429）
 
 - 普通 ReadBoard 快照接受在 Board monitor 内完成本次本地导航、落子、视图恢复及 history adopt；这段收集期间不转发中间位置命令，也不触发中间分析。Board 从入口节点到最终目标冻结一次增量 undo/play 或完整 root/exact 路线，真实 GTP 执行和确认在 monitor 与 EDT 外完成。
 - 已有节点命中保留原节点 identity 和全部已证明历史，不克隆目标、补造 MOVE/PASS/SNAPSHOT 或删除尾部。前次同步尚未确认或已失败时，新目标使用自己的完整恢复路线，不把未确认的本地起点当作引擎盘面。
@@ -730,7 +730,7 @@ save-load movelist 只保存和恢复真实 `MOVE/PASS` 序列。
 - 最终选择先登记 immutable pending，再在 loopback 输出锁取得后的 write-start 边界核对连接、棋局、局面修订、搜索、截止、未消费 pending 及同一 Leelaz owner/reader。该一次性 claim 与身份撤销串行化；已开始的物理写入不能撤回。socket 写成功不表示接受，任何情况下都不重发或用旧候选、随机动作、pass 兜底。
 - PDA 更新的 `cancelUnwrittenForPda` 与 `claimSubmission` 共用同步状态边界；仅在尚未消费物理 write-start 权限时将 pending 记为 CANCELLED，保留原身份、原因和结清时间。旧排队发送及迟到完成不能影响新搜索/提交。已经 claim（含 I/O 失败或结果不明）的 pending 不可取消、替换或重发；期望 PDA 等原提交按既有协议结清后才作用后续搜索。
 - pending 不推进 Board 或引擎；仅匹配的 `FAMOVE` / 新增单个 matching placement 的 `FASTATUS`，或预期回合转换的 `FASKIP` 确认后追加真实动作并立即排队同步引擎。PASS 不增加 placements 编号，后继 `AFPLAY` 取 placements.size + 1。
-- 确认等待五秒仍无匹配证据、拒绝、矛盾、停止、断线或终局撤销提交权。`SubmissionFact` 保留原 connection/game/revision/search、动作、准备/写入/截止/结清单调时间和 CONFIRMED/FAILED 原因；FAILED 不被后续查询、重连或迟到证据改写成可恢复请求。05 必须检查此历史，不能仅以当前 pending == null 推断可靠检查点。
+- 确认等待五秒仍无匹配证据、拒绝、矛盾、停止、断线或终局撤销提交权。`SubmissionFact` 保留原 connection/game/revision/search、动作、准备/写入/截止/结清单调时间和 CONFIRMED/FAILED 原因；FAILED 不被后续查询、重连或迟到证据改写成可恢复请求。重连恢复必须检查此提交历史，不能仅以当前 pending == null 推断可靠检查点。
 - 搜索同步/开始/结束、权威时钟与回合起点、已用时间/截止/有效搜索上限、最终选择、物理写入返回及确认/失败事实通过现有 `lizzie.engine` 持久通道记录，按 connection/game/revision/search 关联，并记录原 engine/reader。确认事件保留实际 write-start 与结清单调时间；socket 写出事件不替代确认。日志不含账号或原始 Fox 帧，不改变准入/预算。启用 `engine-gtp` Full Trace 时，Leelaz 唯一 reader/writer 对独占命令和消费的响应逐次记录，复用既有有界、脱敏及 scope 生命周期，不重复经过普通 parser；生产证据不依赖宿主 stdout 捕获。
 - `FASCORE` 或引擎 resign 停止自动提交并提示用户操作官方客户端；不发送分数、自动认输或替代 PASS。时钟无效、非正预算或截止前没有有效最终选择时同样停止并提示超时风险；一秒余量不是永不超时保证，官方短时限校准仍须完成。
 - Fox 取得所有权前要求 `kata-time_settings` 与 `kata-list_time_settings` 的 `none` 能力。归还时在同一 reader 上确认 `kata-time_settings none`，清除实战外部时钟后才开放普通命令；不重建或恢复另一盘对局的旧时钟。后续引擎自身时间模式不发送时间覆盖，因此不能让它继承 Fox 读秒。reset 拒绝/超时按同一归还失败屏障处理。KataGo v1.18.2 [GTP Extensions](https://github.com/lightvector/KataGo/blob/v1.18.2/docs/GTP_Extensions.md) 定义 `none` 为无外部 time control；此 disposition 不改变已捕获 rules/maxTime/maxVisits 的原值恢复。
@@ -745,7 +745,7 @@ save-load movelist 只保存和恢复真实 `MOVE/PASS` 序列。
 
 ### SGF 初始行棋方修复验收
 
-以下是 2026-10-14 已确认的验收要求。实现基线为 `3bb428bb6fa4cf03495be708fbaa6a9b628ccbec`；01 覆盖导入、初始分支及未编辑往返，聚焦回归见 `SGFParserSemanticRoundTripTest`、`BoardNodeKindHistoryPipelineTest`，原谱实际窗口入口为 `SgfUiAcceptanceIT.originalInitialTurnsSurviveOpenNavigateSaveAndReopen`。运行结果记录在对应本地票据；导入后编辑冻结、显式切换和真实引擎最终验收由 02 负责，未在 01 中声明通过。
+以下验收要求覆盖初始行棋方的导入、初始分支、保存重开、导入后编辑、显式切换及真实引擎恢复。聚焦回归见 `SGFParserSemanticRoundTripTest`、`BoardNodeKindHistoryPipelineTest`；私有原谱的实际窗口验收入口为 `SgfUiAcceptanceIT.originalInitialTurnsSurviveOpenNavigateSaveAndReopen`，启用条件见本节末尾。相关变更见 [PR #612](https://github.com/wimi321/lizzieyzy-next/pull/612)。本节定义验收要求，不代表每个环境都已执行通过。
 
 | 场景 | 必须观察到的结果 |
 | --- | --- |
