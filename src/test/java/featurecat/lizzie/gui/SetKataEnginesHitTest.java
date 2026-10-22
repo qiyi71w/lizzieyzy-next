@@ -200,6 +200,103 @@ class SetKataEnginesHitTest {
     }
   }
 
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+  void threadCallbackAppliesOnlyEditedParameterDrafts(boolean editWrn) throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    Config previousConfig = Lizzie.config;
+    var previousFrame = Lizzie.frame;
+    var previousEngine = Lizzie.leelaz;
+    var previousConsole = Lizzie.gtpConsole;
+    var previousMenu = LizzieFrame.menu;
+    var previousBoard = Lizzie.board;
+    ResourceBundle previousBundle = Lizzie.resourceBundle;
+    Leelaz engine = null;
+    SetKataEngines[] dialog = new SetKataEngines[1];
+    try {
+      Files.createDirectories(root.resolve("save"));
+      Lizzie.config = ConfigTestHelper.createBootstrapped(root);
+      Lizzie.config.chkKataEngineWRN = true;
+      Lizzie.config.txtKataEngineWRN = "0.3";
+      Lizzie.config.chkKataEnginePDA = true;
+      Lizzie.config.txtKataEnginePDA = "0.5";
+      Lizzie.resourceBundle = ResourceBundle.getBundle("l10n.DisplayStrings", Locale.US);
+      Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+      unsafeField.setAccessible(true);
+      sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+      Lizzie.frame = (QuietFrame) unsafe.allocateInstance(QuietFrame.class);
+      Lizzie.gtpConsole = (QuietConsole) unsafe.allocateInstance(QuietConsole.class);
+      LizzieFrame.menu = (QuietMenu) unsafe.allocateInstance(QuietMenu.class);
+      Lizzie.board = new featurecat.lizzie.rules.Board();
+      engine = new Leelaz("katago gtp");
+      ByteArrayOutputStream output = new ByteArrayOutputStream();
+      engineHook(engine, "installFreshCommandOutputForTest", java.io.OutputStream.class, output);
+      engine.started = true;
+      engine.isLoaded = true;
+      engine.isKatago = true;
+      Lizzie.setPrimaryEngine(engine);
+      var set = engine.captureRuntimeSearchThreads().apply(10);
+      engineHook(
+          engine,
+          "processCommandResponseLineForTest",
+          String.class,
+          "=" + commandId(output, "kata-set-param numSearchThreads 10"));
+      assertEquals(10, set.get(2, TimeUnit.SECONDS));
+      SwingUtilities.invokeAndWait(
+          () -> {
+            dialog[0] = new SetKataEngines();
+            dialog[0].setVisible(true);
+            field(dialog[0], "txtThreads", JTextField.class).setText("12");
+            if (editWrn) field(dialog[0], "txtWRN", JTextField.class).setText("0.6");
+          });
+      engineHook(
+          engine,
+          "processCommandResponseLineForTest",
+          String.class,
+          "=" + commandId(output, "kata-get-param numSearchThreads") + " 10");
+      output.reset();
+      SwingUtilities.invokeAndWait(() -> field(dialog[0], "btnApply", JButton.class).doClick());
+      // A value set elsewhere while the thread change is in flight is newer than the dialog's copy.
+      Lizzie.config.txtKataEnginePDA = "0.9";
+      engineHook(
+          engine,
+          "processCommandResponseLineForTest",
+          String.class,
+          "=" + commandId(output, "kata-set-param numSearchThreads 12"));
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while (dialog[0].isVisible() && System.nanoTime() < deadline) Thread.sleep(10);
+      SwingUtilities.invokeAndWait(() -> {});
+      assertFalse(dialog[0].isVisible(), "the thread change completes the save");
+      String sent = output.toString(StandardCharsets.UTF_8);
+      assertFalse(sent.contains("playoutDoublingAdvantage"), sent);
+      assertEquals("0.9", Lizzie.config.txtKataEnginePDA);
+      if (editWrn) {
+        assertTrue(sent.contains("kata-set-param analysisWideRootNoise 0.6"), sent);
+        assertEquals("0.6", Lizzie.config.txtKataEngineWRN);
+      } else {
+        assertFalse(sent.contains("analysisWideRootNoise"), sent);
+      }
+    } finally {
+      SwingUtilities.invokeAndWait(
+          () -> {
+            for (java.awt.Window window : java.awt.Window.getWindows()) {
+              if (window instanceof javax.swing.JDialog d && d.isVisible()) d.dispose();
+            }
+          });
+      if (engine != null) {
+        engine.isNormalEnd = true;
+        engine.forceQuit();
+      }
+      Lizzie.config = previousConfig;
+      Lizzie.frame = previousFrame;
+      Lizzie.setPrimaryEngine(previousEngine);
+      Lizzie.gtpConsole = previousConsole;
+      LizzieFrame.menu = previousMenu;
+      Lizzie.board = previousBoard;
+      Lizzie.resourceBundle = previousBundle;
+    }
+  }
+
   @Test
   void engineGamePreferenceSaveIgnoresUnrelatedThreadsAndSendsNoParameters() throws Exception {
     assumeFalse(GraphicsEnvironment.isHeadless());
@@ -563,5 +660,16 @@ class SetKataEnginesHitTest {
           .getDefaultScreenDevice()
           .getDefaultConfiguration();
     }
+  }
+
+  private static final class QuietMenu extends Menu {
+    @Override
+    public void updateMenuStatusForEngine() {}
+
+    @Override
+    public void setUseWrn(boolean use, String wrn) {}
+
+    @Override
+    public void setUseGfPda(boolean use, String pda) {}
   }
 }

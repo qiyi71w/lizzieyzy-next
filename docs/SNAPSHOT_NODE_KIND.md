@@ -170,7 +170,7 @@ SGF `DD[true]` 恢复独立的 dummy PASS 占位节点，包括保存器输出�
 - 没有可用静态锚点时，调用方保留既有 root replay；默认空 root 不是 exact 锚点。exact 一旦开始，`loadsgf`、tail 或 arbitration 失败都原样失败，禁止猜测性 root fallback。
 - lifecycle exact/root 抛错时，owner 将 frozen target 标为 unavailable，并在既有 completion boundary 释放 reservation；该路径不引入 `ENGINE_STATE_UNRESTORED` 或通用 retry。ReadBoard GMA 固定点既有 quarantine/retirement 行为保持独立。
 - ponder 只由 lifecycle owner 在全部目标恢复和自身 board fence 成功后按 capture 时的 disposition 决定；restore module 不擅自停止或启动 ponder。
-- 当前进程线程覆盖的来源恢复复用自动 restart owner。该操作可将 captured ponder 延后到 final fence 与 endpoint release 之后：只向同一 Leelaz 的精确后继 reader 回读线程值、异步交接 PDA/WRN 草稿；交接成功且原 foreground identity 仍有效才执行一次既有 resume。失败或替换不恢复分析，普通 restart caller 的完成时序不变。
+- 当前进程线程覆盖的来源恢复复用自动 restart owner。该操作可将 captured ponder 延后到 final fence 与 endpoint release 之后：只向同一 Leelaz 的精确后继 reader 回读线程值、异步交接 PDA/WRN 草稿；交接成功且原 foreground identity 仍有效才执行一次既有 resume。失败或替换不恢复分析，普通 restart caller 的完成时序不变。线程设置或来源恢复回调只交接窗口打开后用户实际改过的 PDA/WRN 草稿；未改的副本不覆盖后继初始化或期间产生的较新值。
 - 回滚恢复的初始化若将 KataGo 能力探测明确延迟到当前 lifecycle completion claim 释放 endpoint 后，允许同一 reader incarnation 先提交恢复；在后续分析命令实际写出前，旧分析输出仍保持隔离。需要继续分析且未延迟的恢复继续要求新的物理分析 owner，不能把 READY 或排队成功当作分析所有权。
 - tail replay 的 module 完成边界不等同于每条 GTP response 完成；后续 response/error、超时和 late-response isolation 继续由 `Leelaz` 管理。
 - exact module 在任何 `clear_board`、Remote Compute restore 或其他 engine mutation 之前，为全部本地 target 完成 SGF 落盘、可读性检查与 process-incarnation 复验；任一 target 无安全路径或落盘失败时，清理本轮已创建文件并以 snapshot-preparation failure 终止，不能留下半恢复状态。

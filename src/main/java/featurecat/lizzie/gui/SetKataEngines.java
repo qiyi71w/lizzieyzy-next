@@ -58,6 +58,9 @@ public class SetKataEngines extends JDialog {
   private boolean threadInputEdited;
   private boolean applyingThreads;
   private int threadQueryGeneration;
+  // Breadth/aggressiveness as the dialog loaded them; a draft equal to these is not an edit.
+  private String loadedWrn;
+  private String loadedPda;
 
   public SetKataEngines() {
     // this.setModal(true);
@@ -600,6 +603,8 @@ public class SetKataEngines extends JDialog {
     //      chkEditRPT.setSelected(true);
     //    }
     refreshParameterEditors();
+    loadedWrn = draft(chkEditWRN, txtWRN);
+    loadedPda = draft(chkEditPDA, txtPDA);
 
     if (isPdaEngine) {
       txtPDA.setVisible(false);
@@ -639,7 +644,7 @@ public class SetKataEngines extends JDialog {
         if (staleThreads()) return;
         restoreSource();
       } else {
-        applyExistingSettings(openingEngine, true);
+        applyExistingSettings(openingEngine, true, false);
       }
       return;
     }
@@ -660,7 +665,7 @@ public class SetKataEngines extends JDialog {
         && !threadInputEdited
         && runtimeThreads.lastConfirmedValue() != null
         && threads == runtimeThreads.lastConfirmedValue()) {
-      applyExistingSettings(openingEngine, true);
+      applyExistingSettings(openingEngine, true, false);
       return;
     }
     if (staleThreads()) return;
@@ -681,7 +686,7 @@ public class SetKataEngines extends JDialog {
                                 : "SetKataEngines.threadStale",
                             failure);
                       } else {
-                        applyExistingSettings(openingEngine, true);
+                        applyExistingSettings(openingEngine, true, true);
                       }
                     }));
   }
@@ -792,7 +797,7 @@ public class SetKataEngines extends JDialog {
                           throw new IllegalStateException(
                               Lizzie.resourceBundle.getString("SetKataEngines.threadStale"));
                         }
-                        applyExistingSettings(openingEngine, false);
+                        applyExistingSettings(openingEngine, false, true);
                         runtimeThreads = successor;
                         applied.complete(null);
                       } catch (Throwable failure) {
@@ -843,9 +848,22 @@ public class SetKataEngines extends JDialog {
     txtThreads.setToolTipText(Lizzie.resourceBundle.getString(key));
   }
 
-  private void applyExistingSettings(Leelaz engine, boolean resume) {
+  private static String draft(JCheckBox edit, JFontTextField value) {
+    return edit.isSelected() + " " + value.getText();
+  }
+
+  /**
+   * Saves the dialog. Outside an engine game it also applies breadth and aggressiveness; a thread
+   * callback ({@code editsOnly}) applies only those the user changed, so an unedited copy never
+   * overwrites a value set while the thread operation ran or by the restarted engine's startup.
+   */
+  private void applyExistingSettings(Leelaz engine, boolean resume, boolean editsOnly) {
     // An engine game owns its participants' runtime parameters: keep only the preferences.
     boolean engineGame = EngineGameDesktop.batchActive();
+    String pdaDraft = draft(chkEditPDA, txtPDA);
+    String wrnDraft = draft(chkEditWRN, txtWRN);
+    boolean applyPda = !engineGame && (!editsOnly || !pdaDraft.equals(loadedPda));
+    boolean applyWrn = !engineGame && (!editsOnly || !wrnDraft.equals(loadedWrn));
     Lizzie.config.showWRNInMenu = chkWRNInMenu.isSelected();
     Lizzie.config.uiConfig.put("show-wrn-in-menu", Lizzie.config.showWRNInMenu);
 
@@ -860,7 +878,8 @@ public class SetKataEngines extends JDialog {
         Lizzie.config.autoLoadTxtKataEnginePDA = pda;
         Lizzie.config.uiConfig.put("auto-load-txt-kata-engine-pda", pda);
       }
-      if (!engineGame) {
+      if (applyPda) {
+        loadedPda = pdaDraft;
         Lizzie.config.chkKataEnginePDA = editPda;
         Lizzie.config.txtKataEnginePDA = pda;
         engine.setPda(editPda ? pda : "0");
@@ -875,7 +894,8 @@ public class SetKataEngines extends JDialog {
       Lizzie.config.autoLoadTxtKataEngineWRN = wrn;
       Lizzie.config.uiConfig.put("auto-load-txt-kata-engine-wrn", wrn);
     }
-    if (!engineGame) {
+    if (applyWrn) {
+      loadedWrn = wrnDraft;
       Lizzie.config.chkKataEngineWRN = editWrn;
       Lizzie.config.txtKataEngineWRN = wrn;
       engine.sendCommand("kata-set-param analysisWideRootNoise " + (editWrn ? wrn : "0"));
