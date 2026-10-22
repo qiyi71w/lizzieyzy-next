@@ -4,6 +4,7 @@ import featurecat.lizzie.Config;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.enginegame.EngineGameOpeningParameters;
 import featurecat.lizzie.enginegame.EngineGameParameterRequest;
+import featurecat.lizzie.enginegame.EngineGameParameterRevision;
 import featurecat.lizzie.enginegame.EngineGameParameterState;
 import featurecat.lizzie.enginegame.EngineGameTransaction;
 import featurecat.lizzie.enginegame.EngineGameView;
@@ -142,8 +143,18 @@ public final class EngineGameParametersDialog extends JDialog {
     }
     EngineGameView view = game == null ? null : Lizzie.engineGame.current().view();
     boolean playing = view != null;
-    firstRow.show(view, playing ? state.position(true) : null);
-    secondRow.show(view, playing ? state.position(false) : null);
+    if (closeWhenConfirmed) {
+      if (!playing || state.failure() != null) {
+        closeWhenConfirmed = false;
+      } else if (confirmed(state)) {
+        closeWhenConfirmed = false;
+        setVisible(false);
+        return;
+      }
+    }
+    // After OK the panel closes on confirmation: it keeps the typed values and its size meanwhile.
+    firstRow.show(view, playing ? state.position(true) : null, closeWhenConfirmed);
+    secondRow.show(view, playing ? state.position(false) : null, closeWhenConfirmed);
     applyButton.setEnabled(playing);
     String message = "";
     if (!playing) {
@@ -155,16 +166,7 @@ public final class EngineGameParametersDialog extends JDialog {
     }
     status.setText(message);
     status.setVisible(!message.isEmpty());
-    if (closeWhenConfirmed) {
-      if (!playing || state.failure() != null) {
-        closeWhenConfirmed = false;
-      } else if (confirmed(state)) {
-        closeWhenConfirmed = false;
-        setVisible(false);
-        return;
-      }
-    }
-    if (isVisible()) {
+    if (isVisible() && !closeWhenConfirmed) {
       Dimension current = getSize();
       Dimension size = fittedSize(current, fittedSize, getPreferredSize());
       if (!size.equals(current)) setSize(size);
@@ -223,12 +225,19 @@ public final class EngineGameParametersDialog extends JDialog {
       setVisible(false);
       return;
     }
-    switch (Lizzie.engineGame.reviseParameters(
-        new EngineGameParameterRequest(firstWrn, secondWrn, firstPda, secondPda))) {
+    // Set first: the request publishes the new state, which refreshes this panel right away.
+    closeWhenConfirmed = true;
+    EngineGameParameterRevision revision =
+        Lizzie.engineGame.reviseParameters(
+            new EngineGameParameterRequest(firstWrn, secondWrn, firstPda, secondPda));
+    if (revision != EngineGameParameterRevision.ACCEPTED
+        && revision != EngineGameParameterRevision.UNCHANGED) {
+      closeWhenConfirmed = false;
+    }
+    switch (revision) {
       case ACCEPTED, UNCHANGED -> {
         firstRow.submitted(firstWrn, firstPda);
         secondRow.submitted(secondWrn, secondPda);
-        closeWhenConfirmed = true;
         refresh();
       }
       case NOT_PLAYING -> {
@@ -278,7 +287,7 @@ public final class EngineGameParametersDialog extends JDialog {
     }
 
     /** Shows the position in {@code view}; both null when no game is playing. */
-    void show(EngineGameView view, EngineGameParameterState.Position state) {
+    void show(EngineGameView view, EngineGameParameterState.Position state, boolean closing) {
       boolean black = view != null && firstPosition == view.firstIsBlack();
       engine.setText(view == null ? "" : (black ? view.black() : view.white()).name());
       color.setText(
@@ -286,8 +295,8 @@ public final class EngineGameParametersDialog extends JDialog {
               ? ""
               : Lizzie.resourceBundle.getString(
                   black ? "EngineGameParameters.black" : "EngineGameParameters.white"));
-      wrn.show(state == null ? null : state.wrn());
-      pda.show(state == null ? null : state.pda());
+      wrn.show(state == null ? null : state.wrn(), closing);
+      pda.show(state == null ? null : state.pda(), closing);
     }
 
     /** Clears the edit marks of the values the panel just submitted. */
@@ -338,8 +347,8 @@ public final class EngineGameParametersDialog extends JDialog {
       return dirty ? parser.apply(field.getText()) : null;
     }
 
-    /** Shows one parameter; null when no game is playing. */
-    void show(EngineGameParameterState.Value state) {
+    /** Shows one parameter; null when no game is playing. Closing keeps the submitted text. */
+    void show(EngineGameParameterState.Value state, boolean closing) {
       String name = Lizzie.resourceBundle.getString(nameKey) + ": ";
       if (state == null || !state.supported()) {
         confirmed.setText(
@@ -358,13 +367,13 @@ public final class EngineGameParametersDialog extends JDialog {
                   ? Lizzie.resourceBundle.getString("EngineGameParameters.unknown")
                   : formatValue(state.confirmed())));
       pending.setText(
-          state.target() == null
+          state.target() == null || closing
               ? ""
               : MessageFormat.format(
                   Lizzie.resourceBundle.getString("EngineGameParameters.pending"),
                   formatValue(state.target())));
       field.setEnabled(true);
-      if (!dirty) {
+      if (!dirty && !closing) {
         load(state.confirmed() == null ? "" : formatValue(state.confirmed()));
       }
     }
