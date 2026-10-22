@@ -76,6 +76,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -381,7 +382,7 @@ public class Leelaz {
   // private List<LeelazListener> listeners;
 
   private boolean isPondering;
-  private long startPonderTime;
+  long startPonderTime;
   private boolean showStopTips = true;
 
   // fixed_handicap
@@ -22168,16 +22169,20 @@ public class Leelaz {
   }
 
   /**
-   * Package-private seam for safe engine-game runtime komi confirmation.
+   * Package-private seam for engine-game participant commands: runtime komi, analysis parameters
+   * and their batch capture/restore.
    *
-   * <p>targetKomi null stops analysis with an owner-authorized name fence and confirms preceding
-   * position commands. nonnull applies komi, confirms its successful response ACK, and confirms the
-   * final fence.
+   * <p>With an owner, a null command stops analysis with an owner-authorized name fence and
+   * confirms preceding position commands; a nonnull command must succeed and pass {@code
+   * checkResponse} (payload to failure detail, or null) before the final fence confirms. Without an
+   * owner (batch restore after the game stopped), the command is an ordinary numbered command bound
+   * to the exact reader incarnation and confirms on its own response.
    */
-  void confirmEngineGameKomi(
+  void confirmEngineGameCommand(
       EngineManager.EngineGameOwnerTransaction owner,
       Object expectedIncarnation,
-      Double targetKomi,
+      String command,
+      Function<String, String> checkResponse,
       Runnable onSuccess,
       Consumer<String> onFailure) {
     if (onFailure == null) {
@@ -22187,7 +22192,7 @@ public class Leelaz {
       onFailure.accept("Missing success callback");
       return;
     }
-    if (owner == null) {
+    if (owner == null && command == null) {
       onFailure.accept("Missing engine-game owner transaction");
       return;
     }
@@ -22195,15 +22200,11 @@ public class Leelaz {
       onFailure.accept("Missing or invalid engine incarnation");
       return;
     }
-    if (targetKomi != null && (Double.isNaN(targetKomi) || Double.isInfinite(targetKomi))) {
-      onFailure.accept("Invalid target komi: " + targetKomi);
-      return;
-    }
     if (!hasGtpCapability()) {
       onFailure.accept("Engine has no GTP capability");
       return;
     }
-    if (!EngineManager.isCurrentEngineGameTransaction(owner)) {
+    if (owner != null && !EngineManager.isCurrentEngineGameTransaction(owner)) {
       onFailure.accept("Engine-game transaction is no longer current");
       return;
     }
@@ -22218,41 +22219,43 @@ public class Leelaz {
         dependency = captureCurrentRestoreDependencyLocked();
       }
     }
-    new EngineGameKomiConfirmation(
-            this, owner, binding, dependency, targetKomi, onSuccess, onFailure)
+    new EngineGameCommandConfirmation(
+            this, owner, binding, dependency, command, checkResponse, onSuccess, onFailure)
         .start();
   }
 
-  protected long engineGameKomiResponseTimeoutMillis() {
+  protected long engineGameCommandResponseTimeoutMillis() {
     return readBoardGmaRestoreResponseTimeoutMillis();
   }
 
-  private static final class EngineGameKomiConfirmation {
+  private static final class EngineGameCommandConfirmation {
     private final Leelaz engine;
     private final EngineManager.EngineGameOwnerTransaction owner;
     private final ReaderStreamBinding binding;
     private final RestoreEndpointDependency dependency;
     private final AnalysisStateLineage lineage;
-    private final Double targetKomi;
+    private final String command;
+    private final Function<String, String> checkResponse;
     private final Runnable onSuccess;
     private final Consumer<String> onFailure;
     private final RestartBootstrapReceipt restartReceipt;
     private final AtomicBoolean settled = new AtomicBoolean(false);
-    private final AtomicBoolean komiDispatched = new AtomicBoolean(false);
-    private final AtomicBoolean komiConfirmed = new AtomicBoolean(false);
+    private final AtomicBoolean commandDispatched = new AtomicBoolean(false);
+    private final AtomicBoolean commandConfirmed = new AtomicBoolean(false);
     private final AtomicBoolean fenceDispatched = new AtomicBoolean(false);
     private final AtomicBoolean fenceConfirmed = new AtomicBoolean(false);
-    private final Runnable komiResponseHandler = this::onKomiResponse;
+    private final Runnable commandResponseHandler = this::onCommandResponse;
     private final Runnable fenceResponseHandler = this::onFenceResponse;
     private final Runnable dependencyChanged = this::tryComplete;
     private Timer timeout;
 
-    private EngineGameKomiConfirmation(
+    private EngineGameCommandConfirmation(
         Leelaz engine,
         EngineManager.EngineGameOwnerTransaction owner,
         ReaderStreamBinding binding,
         RestoreEndpointDependency dependency,
-        Double targetKomi,
+        String command,
+        Function<String, String> checkResponse,
         Runnable onSuccess,
         Consumer<String> onFailure) {
       this.engine = engine;
@@ -22260,7 +22263,8 @@ public class Leelaz {
       this.binding = binding;
       this.dependency = dependency;
       this.lineage = dependency.lineage;
-      this.targetKomi = targetKomi;
+      this.command = command;
+      this.checkResponse = checkResponse;
       this.onSuccess = onSuccess;
       this.onFailure = onFailure;
       this.restartReceipt = engine.restartBootstrapReceiptContext.get();
@@ -22271,29 +22275,37 @@ public class Leelaz {
       if (settled.get()) {
         return;
       }
-      Timer confirmationTimeout = new Timer("lizzie-engine-game-komi-timeout", true);
+      Timer confirmationTimeout = new Timer("lizzie-engine-game-command-timeout", true);
       timeout = confirmationTimeout;
       TimerTask timeoutTask =
           new TimerTask() {
             @Override
             public void run() {
-              settleFailure("engine-game komi confirmation timeout");
+              settleFailure("engine-game command confirmation timeout");
             }
           };
       scheduleBoardSynchronizationTimeout(
           confirmationTimeout,
           timeoutTask,
-          Math.max(1L, engine.engineGameKomiResponseTimeoutMillis()),
+          Math.max(1L, engine.engineGameCommandResponseTimeoutMillis()),
           settled);
 
-      if (targetKomi != null) {
-        dispatchKomi();
+      if (command != null) {
+        dispatchCommand();
       } else {
         dispatchFence();
       }
     }
 
-    private void dispatchKomi() {
+    private boolean send(String line, Runnable handler, CommandSendFailureHandler failed) {
+      EngineGameStartupCommandPermit permit =
+          owner == null
+              ? null
+              : new EngineGameStartupCommandPermit(engine, owner, binding, false, false);
+      return engine.sendCommand(line, handler, failed, true, false, permit, false, binding);
+    }
+
+    private void dispatchCommand() {
       if (settled.get()) {
         return;
       }
@@ -22302,44 +22314,41 @@ public class Leelaz {
         settleFailure(failure);
         return;
       }
-      komiDispatched.set(true);
-      String komiCommand = "komi " + (targetKomi == 0.0 ? "0" : targetKomi);
-      EngineGameStartupCommandPermit komiPermit =
-          new EngineGameStartupCommandPermit(engine, owner, binding, false, false);
+      commandDispatched.set(true);
       try {
-        boolean sent =
-            engine.sendCommand(
-                komiCommand,
-                komiResponseHandler,
-                this::onKomiSendFailure,
-                true,
-                false,
-                komiPermit,
-                false,
-                binding);
-        if (!sent) {
-          settleFailure("failed to enqueue engine-game komi command: " + komiCommand);
+        if (!send(command, commandResponseHandler, this::onCommandSendFailure)) {
+          settleFailure("failed to enqueue engine-game command: " + command);
         }
       } catch (RuntimeException ex) {
-        settleFailure(
-            ex.getMessage() == null ? "failed to send engine-game komi command" : ex.getMessage());
+        settleFailure(ex.getMessage() == null ? "failed to send " + command : ex.getMessage());
       }
     }
 
-    private void onKomiResponse() {
+    private void onCommandResponse() {
       if (settled.get()) {
         return;
       }
+      String line = engine.currentCommandResponseLine();
       if (engine.isCurrentCommandResponseError()) {
-        settleFailure("engine-game komi failed: " + engine.currentCommandResponseLine());
+        settleFailure(command + " failed: " + line);
         return;
       }
-      komiConfirmed.set(true);
-      dispatchFence();
+      String rejected =
+          checkResponse == null ? null : checkResponse.apply(gtpResponsePayload(line));
+      if (rejected != null) {
+        settleFailure(command + ": " + rejected);
+        return;
+      }
+      commandConfirmed.set(true);
+      if (owner == null) {
+        tryComplete();
+      } else {
+        dispatchFence();
+      }
     }
 
-    private void onKomiSendFailure(RuntimeException failure) {
-      settleFailure(failure == null ? "engine-game komi send failed" : failure.getMessage());
+    private void onCommandSendFailure(RuntimeException failure) {
+      settleFailure(failure == null ? command + " send failed" : failure.getMessage());
     }
 
     private void dispatchFence() {
@@ -22352,25 +22361,13 @@ public class Leelaz {
         return;
       }
       fenceDispatched.set(true);
-      EngineGameStartupCommandPermit fencePermit =
-          new EngineGameStartupCommandPermit(engine, owner, binding, false, false);
       try {
-        boolean sent =
-            engine.sendCommand(
-                "name",
-                fenceResponseHandler,
-                this::onFenceSendFailure,
-                true,
-                false,
-                fencePermit,
-                false,
-                binding);
-        if (!sent) {
-          settleFailure("failed to enqueue engine-game komi fence");
+        if (!send("name", fenceResponseHandler, this::onFenceSendFailure)) {
+          settleFailure("failed to enqueue engine-game fence");
         }
       } catch (RuntimeException ex) {
         settleFailure(
-            ex.getMessage() == null ? "failed to send engine-game komi fence" : ex.getMessage());
+            ex.getMessage() == null ? "failed to send engine-game fence" : ex.getMessage());
       }
     }
 
@@ -22379,7 +22376,7 @@ public class Leelaz {
         return;
       }
       if (engine.isCurrentCommandResponseError()) {
-        settleFailure("engine-game komi fence failed: " + engine.currentCommandResponseLine());
+        settleFailure("engine-game fence failed: " + engine.currentCommandResponseLine());
         return;
       }
       fenceConfirmed.set(true);
@@ -22387,7 +22384,7 @@ public class Leelaz {
     }
 
     private void onFenceSendFailure(RuntimeException failure) {
-      settleFailure(failure == null ? "engine-game komi fence send failed" : failure.getMessage());
+      settleFailure(failure == null ? "engine-game fence send failed" : failure.getMessage());
     }
 
     private void tryComplete() {
@@ -22399,8 +22396,8 @@ public class Leelaz {
         settleFailure(failure);
         return;
       }
-      if ((targetKomi != null && !komiConfirmed.get())
-          || !fenceConfirmed.get()
+      if ((command != null && !commandConfirmed.get())
+          || (owner != null && !fenceConfirmed.get())
           || !lineage.hasSuccessfulResponses()) {
         return;
       }
@@ -22408,12 +22405,10 @@ public class Leelaz {
         return;
       }
       cancelTimeout();
-      if (onSuccess != null) {
-        try {
-          engine.runWithRestartBootstrapReceipt(restartReceipt, onSuccess);
-        } catch (RuntimeException | Error ex) {
-          ex.printStackTrace();
-        }
+      try {
+        engine.runWithRestartBootstrapReceipt(restartReceipt, onSuccess);
+      } catch (RuntimeException | Error ex) {
+        ex.printStackTrace();
       }
     }
 
@@ -22421,7 +22416,7 @@ public class Leelaz {
       if (!dependency.isCurrent()) {
         return "engine reader binding changed before confirmation";
       }
-      if (!EngineManager.isCurrentEngineGameTransaction(owner)) {
+      if (owner != null && !EngineManager.isCurrentEngineGameTransaction(owner)) {
         return "engine-game transaction is no longer current";
       }
       if (lineage.isFailed()) {
@@ -22438,19 +22433,17 @@ public class Leelaz {
       try {
         retireDispatchedLegs();
       } finally {
-        if (onFailure != null) {
-          try {
-            engine.runWithRestartBootstrapReceipt(restartReceipt, () -> onFailure.accept(detail));
-          } catch (RuntimeException | Error ex) {
-            ex.printStackTrace();
-          }
+        try {
+          engine.runWithRestartBootstrapReceipt(restartReceipt, () -> onFailure.accept(detail));
+        } catch (RuntimeException | Error ex) {
+          ex.printStackTrace();
         }
       }
     }
 
     private void retireDispatchedLegs() {
-      if (komiDispatched.get() && !komiConfirmed.get()) {
-        engine.retireTimedOutNormalCommand(komiResponseHandler);
+      if (commandDispatched.get() && !commandConfirmed.get()) {
+        engine.retireTimedOutNormalCommand(commandResponseHandler);
       }
       if (fenceDispatched.get() && !fenceConfirmed.get()) {
         engine.retireTimedOutNormalCommand(fenceResponseHandler);

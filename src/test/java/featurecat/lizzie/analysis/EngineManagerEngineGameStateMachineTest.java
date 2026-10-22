@@ -408,6 +408,392 @@ class EngineManagerEngineGameStateMachineTest {
   }
 
   @Test
+  void openingCapturesEachProcessBeforeApplyingItsPositionBreadth() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameParameterSession session = breadthSession(0.5, 0.0);
+    try (FakeKataParameters kata = new FakeKataParameters(0.3, 0.7)) {
+      EngineManager.EngineGameOwnerTransaction owner =
+          activeTransaction(manager, breadthPlan(0, 1, 0.5, 0.0), black, 0);
+      session.applyOpening(owner);
+      for (StateMachineLeelaz engine : List.of(black, white)) {
+        String commands = engine.commandText();
+        int capture = commands.indexOf("kata-get-param analysisWideRootNoise");
+        assertTrue(capture >= 0, commands);
+        assertTrue(capture < commands.indexOf("kata-set-param analysisWideRootNoise"), commands);
+        assertFalse(commands.contains("playoutDoublingAdvantage"), commands);
+      }
+      assertEquals(0.5, kata.of(black));
+      assertEquals(0.0, kata.of(white));
+      featurecat.lizzie.enginegame.EngineGameParameterState state =
+          EngineGameParameterSession.state(owner);
+      assertEquals(0.5, state.position(true).wrn());
+      assertEquals(0.0, state.position(false).wrn());
+      assertFalse(state.pending());
+    }
+  }
+
+  @Test
+  void runtimeBreadthWritesOnlyTheEditedPositionAndKeepsTheMoveBudget() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameParameterSession session = breadthSession(0.5, 0.0);
+    try (FakeKataParameters kata = new FakeKataParameters(0.3, 0.7)) {
+      EngineManager.EngineGameOwnerTransaction owner =
+          activeTransaction(manager, breadthPlan(0, 1, 0.5, 0.0), black, 0);
+      session.applyOpening(owner);
+      assertEquals(
+          featurecat.lizzie.enginegame.EngineGameParameterRevision.UNSUPPORTED,
+          EngineGameParameterSession.revise(
+              owner,
+              new featurecat.lizzie.enginegame.EngineGameParameterRequest(null, 1.0, 0.5, null),
+              () -> {}));
+      assertEquals(
+          featurecat.lizzie.enginegame.EngineGameParameterRevision.INVALID,
+          EngineGameParameterSession.revise(
+              owner,
+              featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(2.5, null),
+              () -> {}));
+      assertEquals(
+          featurecat.lizzie.enginegame.EngineGameParameterRevision.UNCHANGED,
+          EngineGameParameterSession.revise(
+              owner,
+              featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(0.5, 0.0),
+              () -> {}));
+      int blackSets = commandLineCount(black.commandText(), "kata-set-param");
+      black.startPonderTime = 1234L;
+      black.pkMoveStartTime = 1234L;
+      var shownAnalysis = Lizzie.board.getHistory().getStart().getData();
+      shownAnalysis.setPlayouts(10);
+      shownAnalysis.isChanged = false;
+
+      assertEquals(
+          featurecat.lizzie.enginegame.EngineGameParameterRevision.ACCEPTED,
+          EngineGameParameterSession.revise(
+              owner,
+              featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(null, 1.2),
+              () -> {}));
+
+      awaitCondition(() -> !EngineGameParameterSession.state(owner).pending());
+      awaitCondition(() -> black.commandText().contains("kata-analyze"));
+      awaitOperationsReleased(owner);
+      assertEquals(1.2, kata.of(white));
+      assertEquals(0.5, kata.of(black));
+      assertEquals(blackSets, commandLineCount(black.commandText(), "kata-set-param"));
+      assertEquals(1.2, EngineGameParameterSession.state(owner).position(false).wrn());
+      assertEquals(1234L, black.startPonderTime, "the update must not grant a new move budget");
+      assertEquals(1234L, black.pkMoveStartTime);
+      assertTrue(shownAnalysis.isChanged, "analysis of the old breadth must be invalidated");
+    }
+  }
+
+  @Test
+  void pendingBreadthUpdateDeniesTheOldSearchItsMove() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameParameterSession session = breadthSession(0.0, 0.0);
+    try (FakeKataParameters kata = new FakeKataParameters(0.0, 0.0)) {
+      EngineManager.EngineGameOwnerTransaction owner =
+          activeTransaction(manager, breadthPlan(0, 1, 0.0, 0.0), black, 0);
+      session.applyOpening(owner);
+      kata.hold();
+      startExactAnalyze(black, owner, "B");
+      EngineGameParameterSession.revise(
+          owner, featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(0.8, null), () -> {});
+
+      black.parseAnalysisLineForTest(kataAnalysisInfo("D4"));
+      black.notifyAutoPkForEngineGameTest(
+          true,
+          EngineManager.captureEngineGamePrimaryContext(black, black.currentEngineIncarnation()));
+      assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
+
+      kata.release();
+      awaitCondition(() -> !EngineGameParameterSession.state(owner).pending());
+      awaitOperationsReleased(owner);
+      black.parseAnalysisLineForTest(kataAnalysisInfo("D4"));
+      black.notifyAutoPkForEngineGameTest(
+          true,
+          EngineManager.captureEngineGamePrimaryContext(black, black.currentEngineIncarnation()));
+      assertEquals(1, Lizzie.board.getHistory().getMoveNumber());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void breadthAndKomiUpdatesRunOneAfterTheOther(boolean breadthFirst) throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    manager.timeoutMillis = 1500L;
+    EngineGameParameterSession session = breadthSession(0.0, 0.0);
+    try (FakeKataParameters kata = new FakeKataParameters(0.0, 0.0)) {
+      EngineManager.EngineGameOwnerTransaction owner =
+          activeTransaction(manager, breadthPlan(0, 1, 0.0, 0.0), black, 0);
+      session.applyOpening(owner);
+      kata.hold();
+      Runnable breadth =
+          () ->
+              EngineGameParameterSession.revise(
+                  owner,
+                  featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(0.8, null),
+                  () -> {});
+      Runnable komi = () -> assertTrue(EngineManager.reviseEngineGameKomi(owner, 8.5, () -> {}));
+      (breadthFirst ? breadth : komi).run();
+      (breadthFirst ? komi : breadth).run();
+      kata.release();
+
+      awaitCondition(
+          () ->
+              !EngineGameParameterSession.state(owner).pending()
+                  && !EngineManager.engineGameKomiState(owner).pending());
+      awaitOperationsReleased(owner);
+      assertNull(EngineManager.engineGameKomiState(owner).failure());
+      assertNull(EngineGameParameterSession.state(owner).failure());
+      assertEquals(0.8, kata.of(black));
+      assertEquals(8.5, Lizzie.board.getHistory().getGameInfo().getKomi());
+      String sent = black.commandText();
+      int set = sent.indexOf("kata-set-param analysisWideRootNoise 0.8");
+      int komiSent = sent.indexOf("komi 8.5");
+      assertTrue(breadthFirst ? set < komiSent : komiSent < set, sent);
+      // Neither update restarts the search before the other one has finished.
+      String between = breadthFirst ? sent.substring(set, komiSent) : sent.substring(komiSent, set);
+      assertFalse(between.contains("kata-analyze"), between);
+    }
+  }
+
+  @Test
+  void failedBreadthUpdatePausesUntilAnApplySucceeds() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameParameterSession session = breadthSession(0.0, 0.0);
+    try (FakeKataParameters kata = new FakeKataParameters(0.0, 0.0)) {
+      EngineManager.EngineGameOwnerTransaction owner =
+          activeTransaction(manager, breadthPlan(0, 1, 0.0, 0.0), black, 0);
+      session.applyOpening(owner);
+      kata.rejectSets(white);
+      EngineGameParameterSession.revise(
+          owner, featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(0.4, 0.6), () -> {});
+      awaitCondition(() -> EngineGameParameterSession.state(owner).unresolved());
+      awaitOperationsReleased(owner);
+      featurecat.lizzie.enginegame.EngineGameParameterState failed =
+          EngineGameParameterSession.state(owner);
+      assertEquals(0.4, failed.position(true).wrn());
+      assertNull(failed.position(false).wrn(), "a rejected participant has no confirmed value");
+      assertEquals(0.6, failed.position(false).targetWrn());
+      assertTrue(owner.paused());
+
+      EngineManager.resumeEngineGame(owner);
+      assertFalse(black.commandText().contains("kata-analyze"), "Continue must not bypass it");
+
+      kata.acceptSets(white);
+      EngineManager.pauseEngineGame(owner);
+      assertEquals(
+          featurecat.lizzie.enginegame.EngineGameParameterRevision.ACCEPTED,
+          EngineGameParameterSession.revise(
+              owner,
+              featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(null, 0.6),
+              () -> {}));
+      awaitCondition(() -> !EngineGameParameterSession.state(owner).unresolved());
+      awaitOperationsReleased(owner);
+      assertEquals(0.6, kata.of(white));
+      assertTrue(owner.paused(), "a paused game stays paused after the retry");
+      assertFalse(black.commandText().contains("kata-analyze"));
+      EngineManager.resumeEngineGame(owner);
+      awaitCondition(() -> black.commandText().contains("kata-analyze"));
+    }
+  }
+
+  @Test
+  void batchRestoreReturnsEachProcessToItsOwnPreBatchBreadth() throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameParameterSession session = breadthSession(0.5, 0.0);
+    try (FakeKataParameters kata = new FakeKataParameters(0.3, 0.7)) {
+      EngineManager.EngineGameOwnerTransaction first =
+          activeTransaction(manager, breadthPlan(0, 1, 0.5, 0.0), black, 0);
+      session.applyOpening(first);
+      EngineManager.pauseEngineGame(first);
+      EngineGameParameterSession.revise(
+          first, featurecat.lizzie.enginegame.EngineGameParameterRequest.wrn(0.0, 1.5), () -> {});
+      awaitCondition(() -> !EngineGameParameterSession.state(first).pending());
+      awaitOperationsReleased(first);
+      assertEquals(0.0, kata.of(black));
+      // The predecessor retired; the next game swaps colors but keeps positions.
+      EngineManager.resetEngineGameTransactionStateForTest();
+      int captures = commandLineCount(black.commandText(), "kata-get-param");
+      EngineManager.EngineGameOwnerTransaction second =
+          activeTransaction(manager, breadthPlan(1, 0, 0.5, 0.0), white, 1);
+      session.applyOpening(second);
+      assertEquals(0.5, kata.of(black), "Engine 1 plays White now and keeps its opening value");
+      assertEquals(0.0, kata.of(white));
+      assertEquals(
+          captures + 1,
+          commandLineCount(black.commandText(), "kata-get-param"),
+          "only the readback, no second capture of the same process");
+
+      session.restoreOnce();
+      assertEquals(0.3, kata.of(black));
+      assertEquals(0.7, kata.of(white));
+      assertTrue(black.isLoaded());
+      assertTrue(white.isLoaded());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"reject", "replacement"})
+  void batchRestoreNeverTouchesAReplacementAndStopsAnUnrestoredProcess(String failure)
+      throws Exception {
+    ImmediateUiEngineManager manager = installManager();
+    EngineGameParameterSession session = breadthSession(0.5, 1.0);
+    try (FakeKataParameters kata = new FakeKataParameters(0.3, 0.7)) {
+      EngineManager.EngineGameOwnerTransaction owner =
+          activeTransaction(manager, breadthPlan(0, 1, 0.5, 1.0), black, 0);
+      session.applyOpening(owner);
+      EngineManager.resetEngineGameTransactionStateForTest();
+      if (failure.equals("reject")) {
+        kata.rejectSets(white);
+      } else {
+        white.bindLiveRuntime();
+      }
+      Lizzie.engineGame.reportParameterRestoreFailure(null);
+      session.restoreOnce();
+      assertEquals(0.3, kata.of(black));
+      assertTrue(black.isLoaded());
+      if (failure.equals("reject")) {
+        assertFalse(white.isLoaded(), "an unconfirmed restore must not stay reusable");
+      } else {
+        assertTrue(white.isLoaded());
+        assertFalse(white.commandText().contains("kata-set-param"), white.commandText());
+      }
+      assertEquals(1.0, kata.of(white));
+      String reported = Lizzie.engineGame.parameterRestoreFailure();
+      assertTrue(reported != null && reported.contains("Engine 2"), String.valueOf(reported));
+      assertFalse(reported.contains("Engine 1"), reported);
+    }
+  }
+
+  private EngineGameParameterSession breadthSession(double first, double second) {
+    black.isKatago = true;
+    white.isKatago = true;
+    return EngineGameParameterSession.forBatch(
+        breadthPlan(0, 1, first, second), Lizzie.board, null);
+  }
+
+  private static EngineGamePlan breadthPlan(
+      int blackIndex, int whiteIndex, double first, double second) {
+    return EngineGamePlans.harness(
+        blackIndex,
+        whiteIndex,
+        0,
+        1,
+        false,
+        new featurecat.lizzie.enginegame.EngineGameOpeningParameters(first, second));
+  }
+
+  private static void awaitCondition(java.util.function.BooleanSupplier condition)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+    while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+      Thread.sleep(5L);
+    }
+    assertTrue(condition.getAsBoolean());
+  }
+
+  /** Answers numbered GTP commands like KataGo, keeping each process's breadth. */
+  private final class FakeKataParameters implements AutoCloseable {
+    private final java.util.Map<StateMachineLeelaz, Double> wrn =
+        new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<StateMachineLeelaz, Integer> answered = new java.util.HashMap<>();
+    private final java.util.Map<StateMachineLeelaz, Integer> seen = new java.util.HashMap<>();
+    private final AtomicReference<Throwable> responderFailure = new AtomicReference<>();
+    private final java.util.Set<StateMachineLeelaz> rejected =
+        java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean held = new AtomicBoolean();
+    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final Thread responder;
+
+    private FakeKataParameters(double blackWrn, double whiteWrn) {
+      wrn.put(black, blackWrn);
+      wrn.put(white, whiteWrn);
+      responder =
+          new Thread(
+              () -> {
+                while (running.get()) {
+                  if (!held.get()) {
+                    try {
+                      answer(black);
+                      answer(white);
+                    } catch (RuntimeException | Error failure) {
+                      responderFailure.compareAndSet(null, failure);
+                    }
+                  }
+                  try {
+                    Thread.sleep(2L);
+                  } catch (InterruptedException interrupted) {
+                    return;
+                  }
+                }
+              },
+              "fake-katago-parameters");
+      responder.setDaemon(true);
+      responder.start();
+    }
+
+    private double of(StateMachineLeelaz engine) {
+      return wrn.get(engine);
+    }
+
+    private void hold() {
+      held.set(true);
+    }
+
+    private void release() {
+      held.set(false);
+    }
+
+    private void rejectSets(StateMachineLeelaz engine) {
+      rejected.add(engine);
+    }
+
+    private void acceptSets(StateMachineLeelaz engine) {
+      rejected.remove(engine);
+    }
+
+    /** Answers lines already seen on the previous scan: a reply cannot precede its request. */
+    private void answer(StateMachineLeelaz engine) {
+      String text = engine.commandText();
+      String[] lines = text.isEmpty() ? new String[0] : text.split("\\R");
+      int from = answered.getOrDefault(engine, 0);
+      int until = Math.min(seen.getOrDefault(engine, 0), lines.length);
+      seen.put(engine, lines.length);
+      if (from > until) from = 0;
+      for (int index = from; index < until; index++) {
+        String line = lines[index].trim();
+        if (line.isEmpty()) continue;
+        String[] parts = line.split("\\s+", 2);
+        if (parts.length < 2 || !parts[0].chars().allMatch(Character::isDigit)) {
+          engine.processCommandResponseLineForTest("=");
+          continue;
+        }
+        String id = parts[0];
+        String command = parts[1];
+        String reply = "=" + id;
+        if (command.startsWith("kata-set-param analysisWideRootNoise ")) {
+          if (rejected.contains(engine)) {
+            reply = "?" + id + " unsupported";
+          } else {
+            wrn.put(engine, Double.parseDouble(command.substring(command.lastIndexOf(' ') + 1)));
+          }
+        } else if (command.equals("kata-get-param analysisWideRootNoise")) {
+          reply = "=" + id + " " + wrn.get(engine);
+        }
+        engine.processCommandResponseLineForTest(reply);
+      }
+      answered.put(engine, Math.max(from, until));
+    }
+
+    @Override
+    public void close() throws InterruptedException {
+      running.set(false);
+      responder.join(1000L);
+      if (responderFailure.get() != null) throw new AssertionError(responderFailure.get());
+    }
+  }
+
+  @Test
   void admissionPublishesInfoAndEpochAtomicallyAndRejectsStalePredecessor() {
     ImmediateUiEngineManager manager = installManager();
     EngineGamePlan first = gameInfo();
@@ -6094,7 +6480,7 @@ class EngineManagerEngineGameStateMachineTest {
     }
 
     @Override
-    protected long engineGameKomiResponseTimeoutMillis() {
+    protected long engineGameCommandResponseTimeoutMillis() {
       return komiTimeoutMillis;
     }
   }

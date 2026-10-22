@@ -603,6 +603,13 @@ public class SetKataEngines extends JDialog {
       txtWRN.setEnabled(false);
       chkEditWRN.setEnabled(false);
     }
+    if (EngineGameDesktop.batchActive()) {
+      // The engine game's participants take breadth and aggressiveness from the game panel.
+      EngineGameParameterControls.lockForEngineGame(chkEditWRN);
+      EngineGameParameterControls.lockForEngineGame(txtWRN);
+      EngineGameParameterControls.lockForEngineGame(chkEditPDA);
+      EngineGameParameterControls.lockForEngineGame(txtPDA);
+    }
 
     if (isPdaEngine) {
       txtPDA.setVisible(false);
@@ -623,10 +630,6 @@ public class SetKataEngines extends JDialog {
 
   private void confirmSettings() {
     if (applyingThreads) return;
-    if (runtimeThreads != null && !runtimeThreads.isCurrent()) {
-      showThreadError("SetKataEngines.threadStale");
-      return;
-    }
     Leelaz.RuntimeThreadOverrideState state =
         runtimeThreads == null
             ? Leelaz.RuntimeThreadOverrideState.OFF
@@ -639,6 +642,7 @@ public class SetKataEngines extends JDialog {
           showThreadError("SetKataEngines.threadRemoteRestoreUnsupported");
           return;
         }
+        if (staleThreads()) return;
         restoreSource();
       } else {
         applyExistingSettings(openingEngine, true);
@@ -665,6 +669,7 @@ public class SetKataEngines extends JDialog {
       applyExistingSettings(openingEngine, true);
       return;
     }
+    if (staleThreads()) return;
     beginThreadOperation();
     int generation = threadQueryGeneration;
     runtimeThreads
@@ -685,6 +690,16 @@ public class SetKataEngines extends JDialog {
                         applyExistingSettings(openingEngine, true);
                       }
                     }));
+  }
+
+  /**
+   * A thread operation needs the engine instance the dialog opened on; saving the other settings
+   * does not, so only the thread branches ask.
+   */
+  private boolean staleThreads() {
+    if (runtimeThreads == null || runtimeThreads.isCurrent()) return false;
+    showThreadError("SetKataEngines.threadStale");
+    return true;
   }
 
   private int previousCloseOperation;
@@ -808,6 +823,8 @@ public class SetKataEngines extends JDialog {
   }
 
   private void applyExistingSettings(Leelaz engine, boolean resume) {
+    // An engine game owns its participants' runtime parameters: keep only the preferences.
+    boolean engineGame = EngineGameDesktop.batchActive();
     Lizzie.config.showWRNInMenu = chkWRNInMenu.isSelected();
     Lizzie.config.uiConfig.put("show-wrn-in-menu", Lizzie.config.showWRNInMenu);
 
@@ -815,36 +832,35 @@ public class SetKataEngines extends JDialog {
     Lizzie.config.uiConfig.put("show-pda-in-menu", Lizzie.config.showPDAInMenu);
 
     if (!isPdaEngine) {
-      Lizzie.config.chkKataEnginePDA = chkEditPDA.isSelected();
+      boolean editPda = chkEditPDA.isSelected();
+      String pda = txtPDA.getText();
       Lizzie.config.autoLoadKataEnginePDA = chkAutoLoadPDA.isSelected();
-      Lizzie.config.txtKataEnginePDA = txtPDA.getText();
-      if (Lizzie.config.chkKataEnginePDA) {
-        engine.setPda(Lizzie.config.txtKataEnginePDA);
-        if (Lizzie.config.autoLoadKataEnginePDA) {
-          Lizzie.config.autoLoadTxtKataEnginePDA = Lizzie.config.txtKataEnginePDA;
-          Lizzie.config.uiConfig.put(
-              "auto-load-txt-kata-engine-pda", Lizzie.config.autoLoadTxtKataEnginePDA);
-        }
-      } else engine.setPda("0");
-      LizzieFrame.menu.setUseGfPda(Lizzie.config.chkKataEnginePDA, Lizzie.config.txtKataEnginePDA);
+      if (editPda && Lizzie.config.autoLoadKataEnginePDA) {
+        Lizzie.config.autoLoadTxtKataEnginePDA = pda;
+        Lizzie.config.uiConfig.put("auto-load-txt-kata-engine-pda", pda);
+      }
+      if (!engineGame) {
+        Lizzie.config.chkKataEnginePDA = editPda;
+        Lizzie.config.txtKataEnginePDA = pda;
+        engine.setPda(editPda ? pda : "0");
+        LizzieFrame.menu.setUseGfPda(editPda, pda);
+      }
     }
 
-    //  if (!Lizzie.config.showWRNInMenu) {
-    Lizzie.config.chkKataEngineWRN = chkEditWRN.isSelected();
+    boolean editWrn = chkEditWRN.isSelected();
+    String wrn = txtWRN.getText();
     Lizzie.config.autoLoadKataEngineWRN = chkAutoLoadWRN.isSelected();
-    Lizzie.config.txtKataEngineWRN = txtWRN.getText();
-    if (Lizzie.config.chkKataEngineWRN) {
-      engine.sendCommand("kata-set-param analysisWideRootNoise " + Lizzie.config.txtKataEngineWRN);
-      Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
-      if (Lizzie.config.autoLoadKataEngineWRN) {
-        Lizzie.config.autoLoadTxtKataEngineWRN = Lizzie.config.txtKataEngineWRN;
-        Lizzie.config.uiConfig.put(
-            "auto-load-txt-kata-engine-wrn", Lizzie.config.autoLoadTxtKataEngineWRN);
-      }
-
-    } else engine.sendCommand("kata-set-param analysisWideRootNoise 0");
-    LizzieFrame.menu.setUseWrn(Lizzie.config.chkKataEngineWRN, Lizzie.config.txtKataEngineWRN);
-    //  }
+    if (editWrn && Lizzie.config.autoLoadKataEngineWRN) {
+      Lizzie.config.autoLoadTxtKataEngineWRN = wrn;
+      Lizzie.config.uiConfig.put("auto-load-txt-kata-engine-wrn", wrn);
+    }
+    if (!engineGame) {
+      Lizzie.config.chkKataEngineWRN = editWrn;
+      Lizzie.config.txtKataEngineWRN = wrn;
+      engine.sendCommand("kata-set-param analysisWideRootNoise " + (editWrn ? wrn : "0"));
+      if (editWrn) Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
+      LizzieFrame.menu.setUseWrn(editWrn, wrn);
+    }
 
     //            Lizzie.config.chkKataEngineRPT = chkEditRPT.isSelected();
     //            Lizzie.config.autoLoadKataEngineRPT = chkAutoRPT.isSelected();
@@ -871,7 +887,7 @@ public class SetKataEngines extends JDialog {
     Lizzie.config.uiConfig.put("txt-kata-engine-wrn", Lizzie.config.txtKataEngineWRN);
     if (resume) setVisible(false);
     LizzieFrame.menu.updateMenuStatusForEngine();
-    if (resume && engine.isPondering()) engine.ponder();
+    if (resume && !engineGame && engine.isPondering()) engine.ponder();
   }
 
   @Override

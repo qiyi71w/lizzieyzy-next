@@ -494,6 +494,7 @@ class EngineGameMatchRulesPrepareRestoreTest {
     private final AtomicInteger applies = new AtomicInteger();
     private final AtomicBoolean failQuery = new AtomicBoolean();
     private final AtomicBoolean rejectSet = new AtomicBoolean();
+    private final AtomicReference<String> breadth = new AtomicReference<>("0.04");
 
     private StatefulMatchRulesLeelaz(KataGoRules initial) throws Exception {
       super("");
@@ -502,7 +503,15 @@ class EngineGameMatchRulesPrepareRestoreTest {
 
     private void bindLiveRuntime(String command) {
       ExactSnapshotRestoreProtocolFixture.install(
-          this, ignored -> ExactSnapshotRestoreProtocolFixture.Response.success());
+          this,
+          gtp -> {
+            // KataGo keeps and reports analysisWideRootNoise; engine games read it back.
+            String set = "kata-set-param analysisWideRootNoise ";
+            if (gtp.startsWith(set)) breadth.set(gtp.substring(set.length()));
+            return gtp.equals("kata-get-param analysisWideRootNoise")
+                ? ExactSnapshotRestoreProtocolFixture.Response.success(breadth.get())
+                : ExactSnapshotRestoreProtocolFixture.Response.success();
+          });
       started = true;
       isLoaded = true;
       isCheckingName = false;
