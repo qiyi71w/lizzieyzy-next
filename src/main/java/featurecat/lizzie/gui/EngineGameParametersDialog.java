@@ -6,7 +6,6 @@ import featurecat.lizzie.enginegame.EngineGameOpeningParameters;
 import featurecat.lizzie.enginegame.EngineGameParameterRequest;
 import featurecat.lizzie.enginegame.EngineGameParameterRevision;
 import featurecat.lizzie.enginegame.EngineGameParameterState;
-import featurecat.lizzie.enginegame.EngineGameTransaction;
 import featurecat.lizzie.enginegame.EngineGameView;
 import featurecat.lizzie.util.Utils;
 import java.awt.BorderLayout;
@@ -30,13 +29,51 @@ import javax.swing.event.DocumentListener;
 
 /**
  * In-game "game parameters" panel: shows the confirmed breadth and aggressiveness of the two
- * engine-game participant positions and sends only the edited fields, and only on Apply. Drafts
- * belong to the game they were typed for and are dropped when that game ends. Displays only what
- * {@code Lizzie.engineGame} reports; EDT only.
+ * engine-game participant positions and sends only the edited fields, and only on OK, then closes
+ * once they are confirmed. Drafts belong to the game they were typed for and are dropped when that
+ * game ends. Displays only what its {@link Game} reports; EDT only.
  */
 public final class EngineGameParametersDialog extends JDialog {
+  /** The engine game the panel shows and edits. */
+  interface Game {
+    /** The playing game's parameters, or null without one. */
+    EngineGameParameterState parameters();
+
+    /** The playing game's participants, or null without one. */
+    EngineGameView view();
+
+    /** Identity of the playing game; drafts typed for one game are never sent to another. */
+    Object identity();
+
+    EngineGameParameterRevision revise(EngineGameParameterRequest request);
+  }
+
+  private static final Game LIVE =
+      new Game() {
+        @Override
+        public EngineGameParameterState parameters() {
+          return Lizzie.engineGame.parameterState();
+        }
+
+        @Override
+        public EngineGameView view() {
+          return Lizzie.engineGame.current().view();
+        }
+
+        @Override
+        public Object identity() {
+          return Lizzie.engineGame.transaction();
+        }
+
+        @Override
+        public EngineGameParameterRevision revise(EngineGameParameterRequest request) {
+          return Lizzie.engineGame.reviseParameters(request);
+        }
+      };
+
   private static EngineGameParametersDialog instance;
 
+  private final Game game;
   private final PositionRow firstRow = new PositionRow(true);
   private final PositionRow secondRow = new PositionRow(false);
   private final JTextArea status = new JTextArea();
@@ -44,7 +81,7 @@ public final class EngineGameParametersDialog extends JDialog {
       new JFontButton(Lizzie.resourceBundle.getString("EngineGameParameters.ok"));
 
   /** The game the drafts were typed for, or null without a playing game. */
-  private EngineGameTransaction draftGame;
+  private Object draftGame;
 
   /** OK was accepted: close once both participants confirmed, stay open on a failure. */
   private boolean closeWhenConfirmed;
@@ -52,8 +89,9 @@ public final class EngineGameParametersDialog extends JDialog {
   /** The size the panel last gave itself; a different size was chosen by the user. */
   private Dimension fittedSize;
 
-  private EngineGameParametersDialog(Window owner) {
+  EngineGameParametersDialog(Window owner, Game game) {
     super(owner);
+    this.game = game;
     setTitle(Lizzie.resourceBundle.getString("EngineGameParameters.title"));
     setModal(false);
     setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
@@ -92,21 +130,24 @@ public final class EngineGameParametersDialog extends JDialog {
   /** Shows the single panel instance, or brings it to front; drafts of a closed panel are gone. */
   public static void open(Window owner) {
     if (instance == null) {
-      instance = new EngineGameParametersDialog(owner);
+      instance = new EngineGameParametersDialog(owner, LIVE);
     }
-    EngineGameParametersDialog dialog = instance;
-    if (dialog.isVisible()) {
-      dialog.refresh();
+    instance.present(owner);
+  }
+
+  void present(Window owner) {
+    if (isVisible()) {
+      refresh();
     } else {
-      dialog.discardDrafts();
-      dialog.closeWhenConfirmed = false;
-      dialog.refresh();
-      dialog.pack();
-      dialog.fittedSize = dialog.getSize();
-      dialog.setLocationRelativeTo(owner);
-      dialog.setVisible(true);
+      discardDrafts();
+      closeWhenConfirmed = false;
+      refresh();
+      pack();
+      fittedSize = getSize();
+      setLocationRelativeTo(owner);
+      setVisible(true);
     }
-    dialog.toFront();
+    toFront();
   }
 
   /** Refreshes the panel after an engine-game transition; no-op while it is closed. */
@@ -126,25 +167,24 @@ public final class EngineGameParametersDialog extends JDialog {
     return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
   }
 
-  /** The playing game, or null; drafts and Apply are bound to it. */
-  private static EngineGameTransaction playingGame(EngineGameParameterState state) {
-    return state == null || Lizzie.engineGame.current().view() == null
-        ? null
-        : Lizzie.engineGame.transaction();
+  /** The playing game, or null; drafts and OK are bound to it. */
+  private Object playingGame(EngineGameParameterState state) {
+    return state == null || game.view() == null ? null : game.identity();
   }
 
-  private void refresh() {
-    EngineGameParameterState state = Lizzie.engineGame.parameterState();
-    EngineGameTransaction game = playingGame(state);
-    if (game != draftGame) {
+  void refresh() {
+    EngineGameParameterState state = game.parameters();
+    Object playingGame = playingGame(state);
+    if (playingGame != draftGame) {
       // Drafts never carry over to another game.
       discardDrafts();
-      draftGame = game;
+      draftGame = playingGame;
     }
-    EngineGameView view = game == null ? null : Lizzie.engineGame.current().view();
+    EngineGameView view = playingGame == null ? null : game.view();
     boolean playing = view != null;
     if (closeWhenConfirmed) {
-      if (!playing || state.failure() != null) {
+      // A retry starts with the previous failure still recorded; only a settled failure counts.
+      if (!playing || (state.failure() != null && !state.pending())) {
         closeWhenConfirmed = false;
       } else if (confirmed(state)) {
         closeWhenConfirmed = false;
@@ -199,8 +239,8 @@ public final class EngineGameParametersDialog extends JDialog {
   }
 
   private void apply() {
-    EngineGameTransaction game = playingGame(Lizzie.engineGame.parameterState());
-    if (game == null || game != draftGame) {
+    Object playingGame = playingGame(game.parameters());
+    if (playingGame == null || playingGame != draftGame) {
       // The drafts were typed for another game; reload instead of replaying them.
       refresh();
       showMessage("EngineGameParameters.notPlaying");
@@ -228,8 +268,7 @@ public final class EngineGameParametersDialog extends JDialog {
     // Set first: the request publishes the new state, which refreshes this panel right away.
     closeWhenConfirmed = true;
     EngineGameParameterRevision revision =
-        Lizzie.engineGame.reviseParameters(
-            new EngineGameParameterRequest(firstWrn, secondWrn, firstPda, secondPda));
+        game.revise(new EngineGameParameterRequest(firstWrn, secondWrn, firstPda, secondPda));
     if (revision != EngineGameParameterRevision.ACCEPTED
         && revision != EngineGameParameterRevision.UNCHANGED) {
       closeWhenConfirmed = false;
