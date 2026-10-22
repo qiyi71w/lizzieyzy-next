@@ -64,7 +64,8 @@ final class EngineGameParticipantCommands {
         break;
       }
       if (owner != null && !EngineManager.isCurrentEngineGameTransaction(owner)) {
-        throw new IllegalStateException("Engine-game participant command lost its transaction");
+        throw new IllegalStateException(
+            EngineGameParameterSession.text("EngineGameParameters.transactionLost"));
       }
     }
     return failures;

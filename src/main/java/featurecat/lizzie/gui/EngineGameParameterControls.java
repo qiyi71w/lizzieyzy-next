@@ -107,9 +107,14 @@ final class EngineGameParameterControls {
     customPda.setToolTipText(lockedTip);
   }
 
-  /** Locks one of the advanced-parameter dialog's editors for the running engine game. */
-  static void lockForEngineGame(JComponent control) {
-    control.setEnabled(false);
-    control.setToolTipText(Lizzie.resourceBundle.getString("EngineGameParameters.useGamePanel"));
+  /**
+   * Points the advanced-parameter dialog's breadth/aggressiveness editors at the game panel while
+   * an engine game locks them, and clears that explanation afterwards. Enabled state is the
+   * caller's.
+   */
+  static void explainAdvancedLock(boolean locked, JComponent... controls) {
+    String tip =
+        locked ? Lizzie.resourceBundle.getString("EngineGameParameters.useGamePanel") : null;
+    for (JComponent control : controls) control.setToolTipText(tip);
   }
 }

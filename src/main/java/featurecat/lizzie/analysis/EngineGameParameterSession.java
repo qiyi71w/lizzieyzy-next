@@ -11,6 +11,7 @@ import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.rules.Board;
 import java.math.BigDecimal;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -237,7 +238,7 @@ public final class EngineGameParameterSession {
     if (start
         && !owner.searchUpdates.submit(
             "engine-game-parameters-" + owner.epoch(), () -> runUpdate(current, onChange))) {
-      fail(current, "Could not schedule the engine-game parameter update", onChange);
+      fail(current, text("EngineGameParameters.scheduleFailed"), onChange);
     }
     return EngineGameParameterRevision.ACCEPTED;
   }
@@ -344,7 +345,7 @@ public final class EngineGameParameterSession {
       while (EngineManager.isCurrentEngineGameTransaction(owner)
           && owner.operationsInFlight.get() > 1) {
         if (System.nanoTime() >= deadline) {
-          throw new IllegalStateException("Timed out waiting for the current engine-game turn");
+          throw new IllegalStateException(text("EngineGameParameters.turnTimeout"));
         }
         Thread.sleep(10L);
       }
@@ -415,7 +416,7 @@ public final class EngineGameParameterSession {
       }
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
-      fail(current, "Engine-game parameter update interrupted", onChange);
+      fail(current, text("EngineGameParameters.updateInterrupted"), onChange);
     } catch (RuntimeException failure) {
       fail(current, failure.getMessage(), onChange);
     }
@@ -488,7 +489,7 @@ public final class EngineGameParameterSession {
     synchronized (this) {
       current.pending = false;
       current.workerRunning = false;
-      current.failure = detail == null ? "Engine-game parameter update failed" : detail;
+      current.failure = detail == null ? text("EngineGameParameters.updateFailedDetail") : detail;
       current.refreshBlocked();
     }
     LOG.warn("Engine-game parameter update failed: {}", current.failure);
@@ -532,8 +533,7 @@ public final class EngineGameParameterSession {
       if (!original.engine().isCurrentLiveEngineIncarnation(original.incarnation())) {
         // The captured process is gone; its replacement keeps its own startup state and is never
         // written with this record. Its batch values could not be restored, so say so.
-        String gone =
-            original.label() + ": the engine process changed before its parameters were restored";
+        String gone = original.label() + ": " + text("EngineGameParameters.processChanged");
         failures.add(gone);
         LOG.warn("Engine-game parameter restore failed: {}", gone);
         continue;
@@ -564,7 +564,7 @@ public final class EngineGameParameterSession {
         }
       } catch (InterruptedException interrupted) {
         Thread.currentThread().interrupt();
-        detail = original.label() + ": restore interrupted";
+        detail = original.label() + ": " + text("EngineGameParameters.restoreInterrupted");
       }
       if (detail == null) {
         continue;
@@ -627,7 +627,7 @@ public final class EngineGameParameterSession {
           Double actual = parse(payload);
           return actual != null && same(actual, expected)
               ? null
-              : "readback '" + payload + "' does not match " + plain(expected);
+              : text("EngineGameParameters.readbackMismatch", payload, plain(expected));
         });
   }
 
@@ -676,8 +676,15 @@ public final class EngineGameParameterSession {
     return (position == 0) == owner.plan.firstIsBlack();
   }
 
+  /** The participant position as the user sees it, also in failure details shown to them. */
   private static String label(int position) {
-    return position == 0 ? "Engine 1" : "Engine 2";
+    return text(
+        position == 0 ? "EngineGameParameters.position1" : "EngineGameParameters.position2");
+  }
+
+  /** User-visible failure text; engine responses are only ever its arguments. */
+  static String text(String key, Object... arguments) {
+    return MessageFormat.format(Lizzie.resourceBundle.getString(key), arguments);
   }
 
   private static boolean unmet(Double[][] target, Double[][] confirmed) {

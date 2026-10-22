@@ -800,6 +800,10 @@ class EngineManagerEngineGameStateMachineTest {
   void batchRestoreNeverTouchesAReplacementAndStopsAnUnrestoredProcess(String failure)
       throws Exception {
     ImmediateUiEngineManager manager = installManager();
+    java.util.ResourceBundle previousBundle = Lizzie.resourceBundle;
+    Lizzie.resourceBundle =
+        java.util.ResourceBundle.getBundle(
+            "l10n.DisplayStrings", java.util.Locale.SIMPLIFIED_CHINESE);
     EngineGameParameterSession session = parameterSession(0.5, 1.0, 0.0, 2.0);
     try (FakeKataParameters kata = new FakeKataParameters(0.3, 0.7, 0.0, 0.5)) {
       EngineManager.EngineGameOwnerTransaction owner =
@@ -829,8 +833,19 @@ class EngineManagerEngineGameStateMachineTest {
       }
       assertEquals(2.0, kata.pda(white), "no restore was confirmed for Engine 2's aggressiveness");
       String reported = Lizzie.engineGame.parameterRestoreFailure();
-      assertTrue(reported != null && reported.contains("Engine 2"), String.valueOf(reported));
-      assertFalse(reported.contains("Engine 1"), reported);
+      // The participant and the application's own reason are in the user's language.
+      String engine2 = Lizzie.resourceBundle.getString("EngineGameParameters.position2");
+      String engine1 = Lizzie.resourceBundle.getString("EngineGameParameters.position1");
+      assertTrue(reported != null && reported.startsWith(engine2 + ": "), String.valueOf(reported));
+      assertFalse(reported.contains(engine1), reported);
+      assertFalse(reported.contains("Engine 2"), reported);
+      if (failure.equals("replacement")) {
+        assertEquals(
+            engine2 + ": " + Lizzie.resourceBundle.getString("EngineGameParameters.processChanged"),
+            reported);
+      }
+    } finally {
+      Lizzie.resourceBundle = previousBundle;
     }
   }
 

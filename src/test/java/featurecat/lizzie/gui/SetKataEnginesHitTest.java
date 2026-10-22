@@ -283,6 +283,170 @@ class SetKataEnginesHitTest {
   }
 
   @Test
+  void savingADialogWhoseEngineChangedSendsNoParametersOutsideAnEngineGame() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    Config previousConfig = Lizzie.config;
+    var previousFrame = Lizzie.frame;
+    var previousEngine = Lizzie.leelaz;
+    var previousConsole = Lizzie.gtpConsole;
+    ResourceBundle previousBundle = Lizzie.resourceBundle;
+    Leelaz engine = null;
+    SetKataEngines[] dialog = new SetKataEngines[1];
+    try {
+      Files.createDirectories(root.resolve("save"));
+      Lizzie.config = ConfigTestHelper.createBootstrapped(root);
+      Lizzie.resourceBundle = ResourceBundle.getBundle("l10n.DisplayStrings", Locale.US);
+      Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+      unsafeField.setAccessible(true);
+      sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+      Lizzie.frame = (QuietFrame) unsafe.allocateInstance(QuietFrame.class);
+      Lizzie.gtpConsole = (QuietConsole) unsafe.allocateInstance(QuietConsole.class);
+      engine = new Leelaz("katago gtp");
+      ByteArrayOutputStream output = new ByteArrayOutputStream();
+      engineHook(engine, "installFreshCommandOutputForTest", java.io.OutputStream.class, output);
+      engine.started = true;
+      engine.isLoaded = true;
+      engine.isKatago = true;
+      Lizzie.setPrimaryEngine(engine);
+      SwingUtilities.invokeAndWait(
+          () -> {
+            dialog[0] = new SetKataEngines();
+            dialog[0].setVisible(true);
+            field(dialog[0], "chkEditWRN", JCheckBox.class).doClick();
+            field(dialog[0], "txtWRN", JTextField.class).setText("0.4");
+          });
+      // The engine process the dialog opened on is replaced before the user confirms.
+      engineHook(engine, "installFreshCommandOutputForTest", java.io.OutputStream.class, output);
+      output.reset();
+
+      SwingUtilities.invokeLater(() -> field(dialog[0], "btnApply", JButton.class).doClick());
+
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      boolean warned = false;
+      while (!warned && System.nanoTime() < deadline) {
+        Thread.sleep(10);
+        for (java.awt.Window window : java.awt.Window.getWindows()) {
+          warned |=
+              window instanceof javax.swing.JDialog d
+                  && d != dialog[0]
+                  && d.isVisible()
+                  && d.getContentPane().getComponentCount() > 0
+                  && d.getContentPane().getComponent(0) instanceof javax.swing.JOptionPane;
+        }
+      }
+      String sent = output.toString(StandardCharsets.UTF_8);
+      assertFalse(sent.contains("analysisWideRootNoise"), sent);
+      assertFalse(sent.contains("playoutDoublingAdvantage"), sent);
+      assertTrue(warned, "the changed engine is reported instead of receiving the old dialog");
+    } finally {
+      SwingUtilities.invokeAndWait(
+          () -> {
+            for (java.awt.Window window : java.awt.Window.getWindows()) {
+              if (window instanceof javax.swing.JDialog d && d.isVisible()) d.dispose();
+            }
+          });
+      if (engine != null) {
+        engine.isNormalEnd = true;
+        engine.forceQuit();
+      }
+      Lizzie.config = previousConfig;
+      Lizzie.frame = previousFrame;
+      Lizzie.setPrimaryEngine(previousEngine);
+      Lizzie.gtpConsole = previousConsole;
+      Lizzie.resourceBundle = previousBundle;
+    }
+  }
+
+  @Test
+  void anOpenDialogLocksAndUnlocksItsParameterEditorsWithTheEngineGame() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    Config previousConfig = Lizzie.config;
+    var previousFrame = Lizzie.frame;
+    var previousEngine = Lizzie.leelaz;
+    var previousConsole = Lizzie.gtpConsole;
+    ResourceBundle previousBundle = Lizzie.resourceBundle;
+    Leelaz engine = null;
+    SetKataEngines[] dialog = new SetKataEngines[1];
+    String[] editors = {"chkEditWRN", "txtWRN", "chkEditPDA", "txtPDA"};
+    try {
+      Files.createDirectories(root.resolve("save"));
+      Lizzie.config = ConfigTestHelper.createBootstrapped(root);
+      Lizzie.config.chkKataEngineWRN = true;
+      Lizzie.config.chkKataEnginePDA = true;
+      Lizzie.resourceBundle = ResourceBundle.getBundle("l10n.DisplayStrings", Locale.US);
+      Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+      unsafeField.setAccessible(true);
+      sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+      Lizzie.frame = (QuietFrame) unsafe.allocateInstance(QuietFrame.class);
+      Lizzie.gtpConsole = (QuietConsole) unsafe.allocateInstance(QuietConsole.class);
+      engine = new Leelaz("katago gtp");
+      engineHook(
+          engine,
+          "installFreshCommandOutputForTest",
+          java.io.OutputStream.class,
+          new ByteArrayOutputStream());
+      engine.started = true;
+      engine.isLoaded = true;
+      engine.isKatago = true;
+      Lizzie.setPrimaryEngine(engine);
+      SwingUtilities.invokeAndWait(
+          () -> {
+            dialog[0] = new SetKataEngines();
+            dialog[0].setVisible(true);
+            for (String editor : editors) {
+              assertTrue(
+                  field(dialog[0], editor, javax.swing.JComponent.class).isEnabled(), editor);
+            }
+          });
+      // An engine game starts while the dialog stays open.
+      Lizzie.engineGame.publishSnapshotForTest(
+          featurecat.lizzie.enginegame.EngineGameSnapshotFixtures.starting());
+      SwingUtilities.invokeAndWait(
+          () -> {
+            featurecat.lizzie.enginegame.SwingEngineGameChrome.INSTANCE.publish(
+                new featurecat.lizzie.enginegame.EngineGameChromeTransition(
+                    featurecat.lizzie.enginegame.EngineGameChromeTransition.Kind.STARTING,
+                    Lizzie.engineGame.current()));
+            for (String editor : editors) {
+              assertFalse(
+                  field(dialog[0], editor, javax.swing.JComponent.class).isEnabled(), editor);
+            }
+          });
+      featurecat.lizzie.enginegame.EngineGameSnapshotFixtures.publishIdle();
+      SwingUtilities.invokeAndWait(
+          () -> {
+            featurecat.lizzie.enginegame.SwingEngineGameChrome.INSTANCE.publish(
+                new featurecat.lizzie.enginegame.EngineGameChromeTransition(
+                    featurecat.lizzie.enginegame.EngineGameChromeTransition.Kind.BATCH_ENDED,
+                    Lizzie.engineGame.current()));
+            for (String editor : editors) {
+              javax.swing.JComponent control =
+                  field(dialog[0], editor, javax.swing.JComponent.class);
+              assertTrue(control.isEnabled(), editor);
+              assertEquals(null, control.getToolTipText(), editor);
+            }
+          });
+    } finally {
+      featurecat.lizzie.enginegame.EngineGameSnapshotFixtures.publishIdle();
+      SwingUtilities.invokeAndWait(
+          () -> {
+            for (java.awt.Window window : java.awt.Window.getWindows()) {
+              if (window instanceof javax.swing.JDialog d && d.isVisible()) d.dispose();
+            }
+          });
+      if (engine != null) {
+        engine.isNormalEnd = true;
+        engine.forceQuit();
+      }
+      Lizzie.config = previousConfig;
+      Lizzie.frame = previousFrame;
+      Lizzie.setPrimaryEngine(previousEngine);
+      Lizzie.gtpConsole = previousConsole;
+      Lizzie.resourceBundle = previousBundle;
+    }
+  }
+
+  @Test
   void engineGamePdaDialogSavesPreferencesWithoutSendingPda() throws Exception {
     assumeFalse(GraphicsEnvironment.isHeadless());
     Config previousConfig = Lizzie.config;

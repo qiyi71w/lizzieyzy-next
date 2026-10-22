@@ -599,17 +599,7 @@ public class SetKataEngines extends JDialog {
     //      chkAutoRPT.setEnabled(true);
     //      chkEditRPT.setSelected(true);
     //    }
-    if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.engineGame.current().playingGenmove()) {
-      txtWRN.setEnabled(false);
-      chkEditWRN.setEnabled(false);
-    }
-    if (EngineGameDesktop.batchActive()) {
-      // The engine game's participants take breadth and aggressiveness from the game panel.
-      EngineGameParameterControls.lockForEngineGame(chkEditWRN);
-      EngineGameParameterControls.lockForEngineGame(txtWRN);
-      EngineGameParameterControls.lockForEngineGame(chkEditPDA);
-      EngineGameParameterControls.lockForEngineGame(txtPDA);
-    }
+    refreshParameterEditors();
 
     if (isPdaEngine) {
       txtPDA.setVisible(false);
@@ -630,6 +620,10 @@ public class SetKataEngines extends JDialog {
 
   private void confirmSettings() {
     if (applyingThreads) return;
+    // Outside an engine game, saving also writes breadth and aggressiveness to the engine the
+    // dialog opened on, so that engine must still be the current one. An engine game takes only
+    // the preferences, which do not depend on it.
+    if (!EngineGameDesktop.batchActive() && staleThreads()) return;
     Leelaz.RuntimeThreadOverrideState state =
         runtimeThreads == null
             ? Leelaz.RuntimeThreadOverrideState.OFF
@@ -693,13 +687,40 @@ public class SetKataEngines extends JDialog {
   }
 
   /**
-   * A thread operation needs the engine instance the dialog opened on; saving the other settings
-   * does not, so only the thread branches ask.
+   * A thread operation, and outside an engine game any save, needs the engine instance the dialog
+   * opened on; an engine game's preference-only save does not.
    */
   private boolean staleThreads() {
     if (runtimeThreads == null || runtimeThreads.isCurrent()) return false;
     showThreadError("SetKataEngines.threadStale");
     return true;
+  }
+
+  /** Refreshes the breadth/aggressiveness editors of every open dialog after a game transition. */
+  public static void refreshOpenDialogs() {
+    for (java.awt.Window window : java.awt.Window.getWindows()) {
+      if (window instanceof SetKataEngines dialog && dialog.isShowing()) {
+        dialog.refreshParameterEditors();
+      }
+    }
+  }
+
+  /**
+   * Breadth and aggressiveness are edited here only outside an engine game, which takes them from
+   * its game panel; a human game also owns breadth. Each value field follows its own checkbox.
+   */
+  private void refreshParameterEditors() {
+    boolean engineGame = EngineGameDesktop.batchActive();
+    boolean wrnOwned =
+        engineGame
+            || Lizzie.frame.isPlayingAgainstLeelaz
+            || Lizzie.engineGame.current().playingGenmove();
+    chkEditWRN.setEnabled(!wrnOwned);
+    txtWRN.setEnabled(!wrnOwned && chkEditWRN.isSelected());
+    chkEditPDA.setEnabled(!engineGame);
+    txtPDA.setEnabled(!engineGame && chkEditPDA.isSelected());
+    EngineGameParameterControls.explainAdvancedLock(
+        engineGame, chkEditWRN, txtWRN, chkEditPDA, txtPDA);
   }
 
   private int previousCloseOperation;

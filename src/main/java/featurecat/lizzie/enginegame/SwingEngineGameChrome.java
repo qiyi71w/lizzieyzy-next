@@ -6,6 +6,7 @@ import featurecat.lizzie.gui.BottomToolbar;
 import featurecat.lizzie.gui.EngineGameParametersDialog;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.Menu;
+import featurecat.lizzie.gui.SetKataEngines;
 import featurecat.lizzie.util.Utils;
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
@@ -66,6 +67,7 @@ public class SwingEngineGameChrome implements EngineGameChrome {
     }
     if (menu != null) menu.refreshEngineGameKomi();
     EngineGameParametersDialog.refreshIfOpen();
+    SetKataEngines.refreshOpenDialogs();
     showParameterFailureOnce();
   }
 
