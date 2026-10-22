@@ -494,7 +494,9 @@ class EngineGameMatchRulesPrepareRestoreTest {
     private final AtomicInteger applies = new AtomicInteger();
     private final AtomicBoolean failQuery = new AtomicBoolean();
     private final AtomicBoolean rejectSet = new AtomicBoolean();
-    private final AtomicReference<String> breadth = new AtomicReference<>("0.04");
+    private final java.util.Map<String, String> parameters =
+        new java.util.concurrent.ConcurrentHashMap<>(
+            java.util.Map.of("analysisWideRootNoise", "0.04", "playoutDoublingAdvantage", "0"));
 
     private StatefulMatchRulesLeelaz(KataGoRules initial) throws Exception {
       super("");
@@ -505,11 +507,17 @@ class EngineGameMatchRulesPrepareRestoreTest {
       ExactSnapshotRestoreProtocolFixture.install(
           this,
           gtp -> {
-            // KataGo keeps and reports analysisWideRootNoise; engine games read it back.
-            String set = "kata-set-param analysisWideRootNoise ";
-            if (gtp.startsWith(set)) breadth.set(gtp.substring(set.length()));
-            return gtp.equals("kata-get-param analysisWideRootNoise")
-                ? ExactSnapshotRestoreProtocolFixture.Response.success(breadth.get())
+            // KataGo keeps and reports breadth and PDA; engine games read them back.
+            String[] parts = gtp.split(" ");
+            if (parts.length == 3
+                && parts[0].equals("kata-set-param")
+                && parameters.containsKey(parts[1])) {
+              parameters.put(parts[1], parts[2]);
+            }
+            return parts.length == 2
+                    && parts[0].equals("kata-get-param")
+                    && parameters.containsKey(parts[1])
+                ? ExactSnapshotRestoreProtocolFixture.Response.success(parameters.get(parts[1]))
                 : ExactSnapshotRestoreProtocolFixture.Response.success();
           });
       started = true;

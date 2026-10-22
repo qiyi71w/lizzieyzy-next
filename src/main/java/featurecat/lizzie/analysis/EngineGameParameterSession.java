@@ -23,18 +23,33 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Breadth ({@code analysisWideRootNoise}) of one analysis-mode engine-game batch.
+ * Breadth ({@code analysisWideRootNoise}) and aggressiveness ({@code playoutDoublingAdvantage}) of
+ * one analysis-mode engine-game batch.
  *
  * <p>Keeps apart the batch's frozen opening settings, the current game's requested targets, the
- * values each participant process confirmed by readback, and the value each participant process had
- * before the batch first changed it. Each game applies the opening settings before analysis starts;
- * in-game changes stay with that game. When the batch ends, only the exact captured processes are
- * restored; a replacement process is never written with another process's record. {@link Leelaz}
- * keeps command queuing, numbered responses, timeouts and output arbitration.
+ * values each participant process confirmed by readback, and the values each participant process
+ * had before the batch first changed them. Each game applies the opening settings before analysis
+ * starts; in-game changes stay with that game and write only the edited parameters. When the batch
+ * ends, only the exact captured processes are restored; a replacement process is never written with
+ * another process's record. {@link Leelaz} keeps command queuing, numbered responses, timeouts and
+ * output arbitration.
  */
 public final class EngineGameParameterSession {
   private static final Logger LOG = LoggerFactory.getLogger(LogCategories.ENGINE);
-  private static final String WRN = "analysisWideRootNoise";
+
+  /** The parameters a game sets, in the order they are written. */
+  private enum Parameter {
+    WRN("analysisWideRootNoise"),
+    PDA("playoutDoublingAdvantage");
+
+    private final String gtpName;
+
+    Parameter(String gtpName) {
+      this.gtpName = gtpName;
+    }
+  }
+
+  private static final Parameter[] PARAMETERS = Parameter.values();
 
   private final EngineGameOpeningParameters opening;
 
@@ -53,14 +68,22 @@ public final class EngineGameParameterSession {
   /** Guarded by this; reads of {@link Game#blocked} are lock-free. */
   private volatile Game game;
 
-  private record Original(String label, Leelaz engine, Object incarnation, double wrn) {}
+  /** A process's values before the batch; null for a parameter the process does not take. */
+  private record Original(String label, Leelaz engine, Object incarnation, Double wrn, Double pda) {
+    private Double value(Parameter parameter) {
+      return parameter == Parameter.WRN ? wrn : pda;
+    }
+  }
 
-  /** One game's parameter state. Arrays are indexed by position: 0 = Engine 1, 1 = Engine 2. */
+  /**
+   * One game's parameter state. Arrays are indexed by [parameter ordinal][position], position 0 =
+   * Engine 1, 1 = Engine 2.
+   */
   private static final class Game {
     private final EngineGameOwnerTransaction owner;
-    private final boolean[] supported = new boolean[2];
-    private final Double[] confirmed = new Double[2];
-    private final Double[] target = new Double[2];
+    private final boolean[][] supported = new boolean[2][2];
+    private final Double[][] confirmed = new Double[2][2];
+    private final Double[][] target = new Double[2][2];
     private boolean pending;
     private boolean workerRunning;
     private String failure;
@@ -154,22 +177,27 @@ public final class EngineGameParameterSession {
   }
 
   private static EngineGameParameterState.Position position(Game current, int p) {
-    Double target = current.target[p];
-    boolean unmet = target != null && !same(target, current.confirmed[p]);
     return new EngineGameParameterState.Position(
-        current.supported[p], current.confirmed[p], unmet ? target : null);
+        value(current, Parameter.WRN, p), value(current, Parameter.PDA, p));
+  }
+
+  private static EngineGameParameterState.Value value(Game current, Parameter parameter, int p) {
+    int k = parameter.ordinal();
+    Double target = current.target[k][p];
+    Double confirmed = current.confirmed[k][p];
+    boolean unmet = target != null && !same(target, confirmed);
+    return new EngineGameParameterState.Value(
+        current.supported[k][p], confirmed, unmet ? target : null);
   }
 
   private EngineGameParameterRevision reviseFor(
       EngineGameOwnerTransaction owner, EngineGameParameterRequest request, Runnable onChange) {
-    // Stage restriction: PDA overrides are not migrated to this panel yet. Reject before any write.
-    if (request.changesPda()) {
-      return EngineGameParameterRevision.UNSUPPORTED;
-    }
-    for (int p = 0; p < 2; p++) {
-      Double value = request.wrn(p == 0);
-      if (value != null && !EngineGameOpeningParameters.validWrn(value)) {
-        return EngineGameParameterRevision.INVALID;
+    for (Parameter parameter : PARAMETERS) {
+      for (int p = 0; p < 2; p++) {
+        Double value = requested(request, parameter, p);
+        if (value != null && !valid(parameter, value)) {
+          return EngineGameParameterRevision.INVALID;
+        }
       }
     }
     Game current;
@@ -183,17 +211,23 @@ public final class EngineGameParameterSession {
           || !EngineManager.isCurrentEngineGameTransaction(owner)) {
         return EngineGameParameterRevision.NOT_PLAYING;
       }
-      Double[] next = current.target.clone();
-      for (int p = 0; p < 2; p++) {
-        Double value = request.wrn(p == 0);
-        if (value == null) continue;
-        if (!current.supported[p]) return EngineGameParameterRevision.UNSUPPORTED;
-        next[p] = value;
+      // Every requested participant and parameter is checked before anything is recorded.
+      Double[][] next = {current.target[0].clone(), current.target[1].clone()};
+      for (Parameter parameter : PARAMETERS) {
+        int k = parameter.ordinal();
+        for (int p = 0; p < 2; p++) {
+          Double value = requested(request, parameter, p);
+          if (value == null) continue;
+          if (!current.supported[k][p]) return EngineGameParameterRevision.UNSUPPORTED;
+          next[k][p] = value;
+        }
       }
       if (!current.pending && current.failure == null && !unmet(next, current.confirmed)) {
         return EngineGameParameterRevision.UNCHANGED;
       }
-      System.arraycopy(next, 0, current.target, 0, 2);
+      for (int k = 0; k < 2; k++) {
+        System.arraycopy(next[k], 0, current.target[k], 0, 2);
+      }
       current.pending = true;
       current.refreshBlocked();
       start = !current.workerRunning;
@@ -212,62 +246,80 @@ public final class EngineGameParameterSession {
 
   /**
    * Applies the batch's opening settings to both participants before the game's first analysis. The
-   * first time a participant process appears in this batch, its actual value (after normal startup
-   * and auto-load) is captured as the value to restore when the batch ends. Throws when a
-   * participant cannot be captured, set or confirmed; the game must not start then.
+   * first time a participant process appears in this batch, its actual values (after normal startup
+   * and auto-load) are captured as the values to restore when the batch ends. A participant that
+   * cannot take a parameter (not KataGo, or a dedicated-PDA engine for aggressiveness) is left
+   * alone only when the opening value is zero. Throws when a participant cannot be captured, set or
+   * confirmed; the game must not start then.
    */
   void applyOpening(EngineGameOwnerTransaction owner) throws InterruptedException {
     finishPredecessor(owner.manager.engineGameStartupTimeoutMillis());
     owner.parameters = this;
     Game next = new Game(owner);
-    List<Leg> captures = new ArrayList<>();
-    double[] captured = new double[2];
     boolean[] capturing = new boolean[2];
     for (int p = 0; p < 2; p++) {
       Leelaz engine = engine(owner, p);
-      next.supported[p] = engine.isKatago;
-      if (!next.supported[p]) {
-        if (opening.wrn(p == 0) != 0) {
-          throw new IllegalStateException(label(p) + " does not support " + WRN);
+      for (Parameter parameter : PARAMETERS) {
+        boolean supported = supports(engine, parameter);
+        next.supported[parameter.ordinal()][p] = supported;
+        if (!supported && openingValue(parameter, p) != 0) {
+          throw new IllegalStateException(label(p) + " does not support " + parameter.gtpName);
         }
-        continue;
+        capturing[p] |= supported;
       }
-      if (original(engine, incarnation(owner, p)) == null) {
+      capturing[p] &= original(engine, incarnation(owner, p)) == null;
+    }
+    // Every participant is checked and captured before the first write.
+    Double[][] captured = new Double[2][2];
+    for (Parameter parameter : PARAMETERS) {
+      int k = parameter.ordinal();
+      List<Leg> captures = new ArrayList<>();
+      for (int p = 0; p < 2; p++) {
+        if (!capturing[p] || !next.supported[k][p]) continue;
         int position = p;
-        capturing[p] = true;
         captures.add(
             new Leg(
                 label(p),
-                engine,
+                engine(owner, p),
                 incarnation(owner, p),
-                "kata-get-param " + WRN,
+                "kata-get-param " + parameter.gtpName,
                 payload -> {
                   Double value = parse(payload);
-                  if (value == null) return "unreadable " + WRN + " '" + payload + "'";
-                  captured[position] = value;
+                  if (value == null) {
+                    return "unreadable " + parameter.gtpName + " '" + payload + "'";
+                  }
+                  captured[k][position] = value;
                   return null;
                 }));
       }
+      EngineGameParticipantCommands.confirmAll(owner, captures);
     }
-    // Every participant is checked and captured before the first write.
-    EngineGameParticipantCommands.confirmAll(owner, captures);
     synchronized (this) {
       for (int p = 0; p < 2; p++) {
         if (capturing[p]) {
           originals.add(
-              new Original(label(p), engine(owner, p), incarnation(owner, p), captured[p]));
+              new Original(
+                  label(p),
+                  engine(owner, p),
+                  incarnation(owner, p),
+                  captured[Parameter.WRN.ordinal()][p],
+                  captured[Parameter.PDA.ordinal()][p]));
         }
       }
     }
-    Double[] values = new Double[2];
-    for (int p = 0; p < 2; p++) {
-      if (next.supported[p]) values[p] = opening.wrn(p == 0);
+    Double[][] values = new Double[2][2];
+    for (Parameter parameter : PARAMETERS) {
+      for (int p = 0; p < 2; p++) {
+        if (next.supported[parameter.ordinal()][p]) {
+          values[parameter.ordinal()][p] = openingValue(parameter, p);
+        }
+      }
     }
     applyValues(owner, values, null);
     synchronized (this) {
-      for (int p = 0; p < 2; p++) {
-        next.confirmed[p] = values[p];
-        next.target[p] = values[p];
+      for (int k = 0; k < 2; k++) {
+        System.arraycopy(values[k], 0, next.confirmed[k], 0, 2);
+        System.arraycopy(values[k], 0, next.target[k], 0, 2);
       }
       next.refreshBlocked();
       game = next;
@@ -307,19 +359,28 @@ public final class EngineGameParameterSession {
       long[] ponderStarts = {owner.blackEngine.startPonderTime, owner.whiteEngine.startPonderTime};
       long[] moveStarts = {owner.blackEngine.pkMoveStartTime, owner.whiteEngine.pkMoveStartTime};
       while (true) {
-        Double[] target;
-        Double[] write = new Double[2];
+        Double[][] write = new Double[2][2];
         synchronized (this) {
-          target = current.target.clone();
-          for (int p = 0; p < 2; p++) {
-            if (target[p] != null && !same(target[p], current.confirmed[p])) {
-              write[p] = target[p];
-              // A timed-out setter may still apply later; the value is unknown until confirmed.
-              current.confirmed[p] = null;
+          for (int k = 0; k < 2; k++) {
+            for (int p = 0; p < 2; p++) {
+              Double target = current.target[k][p];
+              if (target != null && !same(target, current.confirmed[k][p])) {
+                // Only edited parameters are written. A timed-out setter may still apply later,
+                // so the value is unknown until confirmed.
+                write[k][p] = target;
+                current.confirmed[k][p] = null;
+              }
             }
           }
         }
-        applyValues(owner, write, current);
+        try {
+          applyValues(owner, write, current);
+        } finally {
+          // Any write may have changed a value, even when another one failed: analysis from
+          // before it must not be shown or played, also while a failed update keeps the game
+          // paused.
+          invalidateAnalysis();
+        }
         boolean again;
         boolean resume = false;
         owner.mutationLock.lock();
@@ -335,12 +396,6 @@ public final class EngineGameParameterSession {
             }
           }
           if (!again) {
-            Board board = this.board;
-            if (board != null) {
-              synchronized (board) {
-                board.clearBestMovesAfter(board.getHistory().getStart());
-              }
-            }
             resume = !owner.paused && (owner.product == null || !owner.product.paused());
           }
         } finally {
@@ -366,48 +421,59 @@ public final class EngineGameParameterSession {
     }
   }
 
-  /**
-   * Sets and reads back each non-null value. With a game, every confirmed position is published as
-   * it is verified so a partial failure still reports which participant holds which value.
-   */
-  private void applyValues(EngineGameOwnerTransaction owner, Double[] values, Game current)
-      throws InterruptedException {
-    List<Leg> sets = new ArrayList<>();
-    List<Integer> positions = new ArrayList<>();
-    for (int p = 0; p < 2; p++) {
-      if (values[p] == null) continue;
-      positions.add(p);
-      sets.add(
-          new Leg(
-              label(p),
-              engine(owner, p),
-              incarnation(owner, p),
-              "kata-set-param " + WRN + " " + plain(values[p]),
-              null));
-    }
-    if (sets.isEmpty()) return;
-    String[] setFailures = EngineGameParticipantCommands.confirm(owner, sets, false);
-    List<Leg> reads = new ArrayList<>();
-    List<Integer> readPositions = new ArrayList<>();
-    for (int i = 0; i < sets.size(); i++) {
-      if (setFailures[i] != null) continue;
-      int p = positions.get(i);
-      readPositions.add(p);
-      reads.add(verifyLeg(label(p), engine(owner, p), incarnation(owner, p), values[p]));
-    }
-    String[] readFailures = EngineGameParticipantCommands.confirm(owner, reads, false);
-    StringBuilder failure = new StringBuilder();
-    for (String detail : setFailures) append(failure, detail);
-    for (int i = 0; i < reads.size(); i++) {
-      int p = readPositions.get(i);
-      if (readFailures[i] != null) {
-        append(failure, readFailures[i]);
-        continue;
+  private void invalidateAnalysis() {
+    Board board = this.board;
+    if (board != null) {
+      synchronized (board) {
+        board.clearBestMovesAfter(board.getHistory().getStart());
       }
-      engine(owner, p).wrn = values[p];
-      if (current != null) {
-        synchronized (this) {
-          current.confirmed[p] = values[p];
+    }
+  }
+
+  /**
+   * Sets and reads back each non-null value, one parameter at a time. With a game, every confirmed
+   * value is published as it is verified so a partial failure still reports which participant holds
+   * which value; the call fails unless every value was confirmed.
+   */
+  private void applyValues(EngineGameOwnerTransaction owner, Double[][] values, Game current)
+      throws InterruptedException {
+    StringBuilder failure = new StringBuilder();
+    for (Parameter parameter : PARAMETERS) {
+      Double[] parameterValues = values[parameter.ordinal()];
+      List<Leg> sets = new ArrayList<>();
+      List<Integer> positions = new ArrayList<>();
+      for (int p = 0; p < 2; p++) {
+        if (parameterValues[p] == null) continue;
+        positions.add(p);
+        sets.add(
+            setLeg(
+                label(p), engine(owner, p), incarnation(owner, p), parameter, parameterValues[p]));
+      }
+      if (sets.isEmpty()) continue;
+      String[] setFailures = EngineGameParticipantCommands.confirm(owner, sets, false);
+      List<Leg> reads = new ArrayList<>();
+      List<Integer> readPositions = new ArrayList<>();
+      for (int i = 0; i < sets.size(); i++) {
+        if (setFailures[i] != null) continue;
+        int p = positions.get(i);
+        readPositions.add(p);
+        reads.add(
+            verifyLeg(
+                label(p), engine(owner, p), incarnation(owner, p), parameter, parameterValues[p]));
+      }
+      String[] readFailures = EngineGameParticipantCommands.confirm(owner, reads, false);
+      for (String detail : setFailures) append(failure, detail);
+      for (int i = 0; i < reads.size(); i++) {
+        int p = readPositions.get(i);
+        if (readFailures[i] != null) {
+          append(failure, readFailures[i]);
+          continue;
+        }
+        publish(engine(owner, p), parameter, parameterValues[p]);
+        if (current != null) {
+          synchronized (this) {
+            current.confirmed[parameter.ordinal()][p] = parameterValues[p];
+          }
         }
       }
     }
@@ -465,46 +531,42 @@ public final class EngineGameParameterSession {
     for (Original original : records) {
       if (!original.engine().isCurrentLiveEngineIncarnation(original.incarnation())) {
         // The captured process is gone; its replacement keeps its own startup state and is never
-        // written with this record. Its batch value could not be restored, so say so.
+        // written with this record. Its batch values could not be restored, so say so.
         String gone =
-            original.label() + ": the engine process changed before " + WRN + " could be restored";
+            original.label() + ": the engine process changed before its parameters were restored";
         failures.add(gone);
         LOG.warn("Engine-game parameter restore failed: {}", gone);
         continue;
       }
-      String detail;
+      String detail = null;
       try {
-        detail =
-            first(
-                EngineGameParticipantCommands.confirm(
-                    null,
-                    List.of(
-                        new Leg(
-                            original.label(),
-                            original.engine(),
-                            original.incarnation(),
-                            "kata-set-param " + WRN + " " + plain(original.wrn()),
-                            null)),
-                    true));
-        if (detail == null) {
+        for (Parameter parameter : PARAMETERS) {
+          Double value = original.value(parameter);
+          if (value == null) continue;
+          Leelaz engine = original.engine();
+          Object incarnation = original.incarnation();
           detail =
               first(
                   EngineGameParticipantCommands.confirm(
                       null,
-                      List.of(
-                          verifyLeg(
-                              original.label(),
-                              original.engine(),
-                              original.incarnation(),
-                              original.wrn())),
+                      List.of(setLeg(original.label(), engine, incarnation, parameter, value)),
                       true));
+          if (detail == null) {
+            detail =
+                first(
+                    EngineGameParticipantCommands.confirm(
+                        null,
+                        List.of(verifyLeg(original.label(), engine, incarnation, parameter, value)),
+                        true));
+          }
+          if (detail != null) break;
+          publish(engine, parameter, value);
         }
       } catch (InterruptedException interrupted) {
         Thread.currentThread().interrupt();
         detail = original.label() + ": restore interrupted";
       }
       if (detail == null) {
-        original.engine().wrn = original.wrn();
         continue;
       }
       // The process may hold a game value: stop that exact process so it is not reused as if
@@ -544,18 +606,62 @@ public final class EngineGameParameterSession {
     return null;
   }
 
-  private static Leg verifyLeg(String label, Leelaz engine, Object incarnation, double expected) {
+  private static Leg setLeg(
+      String label, Leelaz engine, Object incarnation, Parameter parameter, double value) {
     return new Leg(
         label,
         engine,
         incarnation,
-        "kata-get-param " + WRN,
+        "kata-set-param " + parameter.gtpName + " " + plain(value),
+        null);
+  }
+
+  private static Leg verifyLeg(
+      String label, Leelaz engine, Object incarnation, Parameter parameter, double expected) {
+    return new Leg(
+        label,
+        engine,
+        incarnation,
+        "kata-get-param " + parameter.gtpName,
         payload -> {
           Double actual = parse(payload);
           return actual != null && same(actual, expected)
               ? null
               : "readback '" + payload + "' does not match " + plain(expected);
         });
+  }
+
+  /** Mirrors a confirmed value into the engine's own field, as its parameter read does. */
+  private static void publish(Leelaz engine, Parameter parameter, double value) {
+    if (parameter == Parameter.WRN) {
+      engine.wrn = value;
+    } else {
+      engine.pda = value;
+    }
+  }
+
+  /**
+   * KataGo takes breadth through {@code kata-set-param}; aggressiveness too, except on
+   * dedicated-PDA engines, whose own PDA strategy is never overridden through that interface.
+   */
+  private static boolean supports(Leelaz engine, Parameter parameter) {
+    return engine.isKatago
+        && (parameter == Parameter.WRN || !(engine.isKataGoPda || engine.isDymPda));
+  }
+
+  private double openingValue(Parameter parameter, int position) {
+    return parameter == Parameter.WRN ? opening.wrn(position == 0) : opening.pda(position == 0);
+  }
+
+  private static Double requested(
+      EngineGameParameterRequest request, Parameter parameter, int position) {
+    return parameter == Parameter.WRN ? request.wrn(position == 0) : request.pda(position == 0);
+  }
+
+  private static boolean valid(Parameter parameter, double value) {
+    return parameter == Parameter.WRN
+        ? EngineGameOpeningParameters.validWrn(value)
+        : EngineGameOpeningParameters.validPda(value);
   }
 
   private static Leelaz engine(EngineGameOwnerTransaction owner, int position) {
@@ -574,9 +680,11 @@ public final class EngineGameParameterSession {
     return position == 0 ? "Engine 1" : "Engine 2";
   }
 
-  private static boolean unmet(Double[] target, Double[] confirmed) {
-    for (int p = 0; p < 2; p++) {
-      if (target[p] != null && !same(target[p], confirmed[p])) return true;
+  private static boolean unmet(Double[][] target, Double[][] confirmed) {
+    for (int k = 0; k < 2; k++) {
+      for (int p = 0; p < 2; p++) {
+        if (target[k][p] != null && !same(target[k][p], confirmed[k][p])) return true;
+      }
     }
     return false;
   }

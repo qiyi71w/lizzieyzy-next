@@ -1,6 +1,9 @@
 package featurecat.lizzie.enginegame;
 
-/** One "Apply" from the game-parameter panel. A null value leaves that position unchanged. */
+/**
+ * One "Apply" from the game-parameter panel. A null value leaves that position's parameter
+ * unchanged; only the non-null values are written.
+ */
 public record EngineGameParameterRequest(
     Double firstWrn, Double secondWrn, Double firstPda, Double secondPda) {
 
@@ -12,7 +15,7 @@ public record EngineGameParameterRequest(
     return firstPosition ? firstWrn : secondWrn;
   }
 
-  public boolean changesPda() {
-    return firstPda != null || secondPda != null;
+  public Double pda(boolean firstPosition) {
+    return firstPosition ? firstPda : secondPda;
   }
 }

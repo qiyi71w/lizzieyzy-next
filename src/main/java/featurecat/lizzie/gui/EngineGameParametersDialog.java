@@ -18,6 +18,7 @@ import java.awt.Insets;
 import java.awt.Window;
 import java.math.BigDecimal;
 import java.text.MessageFormat;
+import java.util.function.Function;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JTextArea;
@@ -27,9 +28,10 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
 /**
- * In-game "game parameters" panel: shows the confirmed breadth of the two engine-game participant
- * positions and sends edits only on Apply. Drafts belong to the game they were typed for and are
- * dropped when that game ends. Displays only what {@code Lizzie.engineGame} reports; EDT only.
+ * In-game "game parameters" panel: shows the confirmed breadth and aggressiveness of the two
+ * engine-game participant positions and sends only the edited fields, and only on Apply. Drafts
+ * belong to the game they were typed for and are dropped when that game ends. Displays only what
+ * {@code Lizzie.engineGame} reports; EDT only.
  */
 public final class EngineGameParametersDialog extends JDialog {
   private static EngineGameParametersDialog instance;
@@ -113,8 +115,8 @@ public final class EngineGameParametersDialog extends JDialog {
     return instance != null && instance.isVisible();
   }
 
-  /** Breadth as people type it: {@code 0}, {@code 0.25}, never {@code 0.0}. */
-  static String formatWrn(double value) {
+  /** A parameter as people type it: {@code 0}, {@code 0.25}, {@code -1.5}, never {@code 0.0}. */
+  static String formatValue(double value) {
     return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
   }
 
@@ -174,29 +176,29 @@ public final class EngineGameParametersDialog extends JDialog {
       showMessage("EngineGameParameters.notPlaying");
       return;
     }
-    Double first = null;
-    Double second = null;
-    if (firstRow.dirty) {
-      first = EngineGameOpeningParameters.parseWrn(firstRow.field.getText());
-      if (first == null) {
-        showMessage("EngineGameParameters.invalidWrn");
-        return;
-      }
-    }
-    if (secondRow.dirty) {
-      second = EngineGameOpeningParameters.parseWrn(secondRow.field.getText());
-      if (second == null) {
-        showMessage("EngineGameParameters.invalidWrn");
-        return;
-      }
-    }
-    if (first == null && second == null) {
+    // Only edited fields are sent; each must be a complete, valid number before anything is.
+    Function<String, Double> wrnParser = EngineGameOpeningParameters::parseWrn;
+    Function<String, Double> pdaParser = EngineGameOpeningParameters::parsePda;
+    if (!firstRow.wrn.valid(wrnParser) || !secondRow.wrn.valid(wrnParser)) {
+      showMessage("EngineGameParameters.invalidWrn");
       return;
     }
-    switch (Lizzie.engineGame.reviseParameters(EngineGameParameterRequest.wrn(first, second))) {
+    if (!firstRow.pda.valid(pdaParser) || !secondRow.pda.valid(pdaParser)) {
+      showMessage("EngineGameParameters.invalidPda");
+      return;
+    }
+    Double firstWrn = firstRow.wrn.edited(wrnParser);
+    Double secondWrn = secondRow.wrn.edited(wrnParser);
+    Double firstPda = firstRow.pda.edited(pdaParser);
+    Double secondPda = secondRow.pda.edited(pdaParser);
+    if (firstWrn == null && secondWrn == null && firstPda == null && secondPda == null) {
+      return;
+    }
+    switch (Lizzie.engineGame.reviseParameters(
+        new EngineGameParameterRequest(firstWrn, secondWrn, firstPda, secondPda))) {
       case ACCEPTED, UNCHANGED -> {
-        if (first != null) firstRow.dirty = false;
-        if (second != null) secondRow.dirty = false;
+        firstRow.submitted(firstWrn, firstPda);
+        secondRow.submitted(secondWrn, secondPda);
         refresh();
       }
       case NOT_PLAYING -> {
@@ -204,7 +206,11 @@ public final class EngineGameParametersDialog extends JDialog {
         showMessage("EngineGameParameters.notPlaying");
       }
       case UNSUPPORTED -> showMessage("EngineGameParameters.rejected");
-      case INVALID -> showMessage("EngineGameParameters.invalidWrn");
+      case INVALID ->
+          showMessage(
+              firstWrn != null || secondWrn != null
+                  ? "EngineGameParameters.invalidWrn"
+                  : "EngineGameParameters.invalidPda");
     }
   }
 
@@ -213,19 +219,13 @@ public final class EngineGameParametersDialog extends JDialog {
   }
 
   /** One participant position; bound to the position, its color follows the current game. */
-  private static final class PositionRow implements DocumentListener {
+  private static final class PositionRow {
     private final boolean firstPosition;
     private final JFontLabel position;
     private final JFontLabel engine = new JFontLabel("");
     private final JFontLabel color = new JFontLabel("");
-    private final JFontLabel confirmed = new JFontLabel("");
-    private final JFontLabel pending = new JFontLabel("");
-    private final JFontTextField field = new JFontTextField();
-
-    /** The user edited the field since the panel last loaded it. */
-    private boolean dirty;
-
-    private boolean loading;
+    private final ParameterCell wrn = new ParameterCell("EngineGameParameters.wrn");
+    private final ParameterCell pda = new ParameterCell("EngineGameParameters.pda");
 
     PositionRow(boolean firstPosition) {
       this.firstPosition = firstPosition;
@@ -236,27 +236,15 @@ public final class EngineGameParametersDialog extends JDialog {
                       ? "EngineGameParameters.position1"
                       : "EngineGameParameters.position2"));
       position.setFont(position.getFont().deriveFont(Font.BOLD));
-      field.setColumns(6);
-      field.getDocument().addDocumentListener(this);
     }
 
     void addTo(JPanel panel, int row) {
-      JFontLabel[] labels = {position, engine, color, confirmed, pending};
+      JFontLabel[] labels = {position, engine, color};
       for (int column = 0; column < labels.length; column++) {
         panel.add(labels[column], constraints(column, row, column == 1 ? 1.0 : 0.0));
       }
-      panel.add(field, constraints(labels.length, row, 0.0));
-    }
-
-    private static GridBagConstraints constraints(int x, int y, double weightx) {
-      GridBagConstraints constraints = new GridBagConstraints();
-      constraints.gridx = x;
-      constraints.gridy = y;
-      constraints.weightx = weightx;
-      constraints.anchor = GridBagConstraints.WEST;
-      constraints.fill = GridBagConstraints.HORIZONTAL;
-      constraints.insets = new Insets(y == 0 ? 0 : 8, x == 0 ? 0 : 12, 0, 0);
-      return constraints;
+      wrn.addTo(panel, row, labels.length);
+      pda.addTo(panel, row, labels.length + ParameterCell.COLUMNS);
     }
 
     /** Shows the position in {@code view}; both null when no game is playing. */
@@ -268,12 +256,66 @@ public final class EngineGameParametersDialog extends JDialog {
               ? ""
               : Lizzie.resourceBundle.getString(
                   black ? "EngineGameParameters.black" : "EngineGameParameters.white"));
-      String wrnLabel = Lizzie.resourceBundle.getString("EngineGameParameters.wrn") + ": ";
+      wrn.show(state == null ? null : state.wrn());
+      pda.show(state == null ? null : state.pda());
+    }
+
+    /** Clears the edit marks of the values the panel just submitted. */
+    void submitted(Double sentWrn, Double sentPda) {
+      if (sentWrn != null) wrn.dirty = false;
+      if (sentPda != null) pda.dirty = false;
+    }
+
+    void discardDraft() {
+      wrn.discardDraft();
+      pda.discardDraft();
+    }
+  }
+
+  /** The confirmed value, pending target and edit field of one parameter of one position. */
+  private static final class ParameterCell implements DocumentListener {
+    static final int COLUMNS = 3;
+
+    private final String nameKey;
+    private final JFontLabel confirmed = new JFontLabel("");
+    private final JFontTextField field = new JFontTextField();
+    private final JFontLabel pending = new JFontLabel("");
+
+    /** The user edited the field since the panel last loaded it. */
+    private boolean dirty;
+
+    private boolean loading;
+
+    ParameterCell(String nameKey) {
+      this.nameKey = nameKey;
+      field.setColumns(6);
+      field.getDocument().addDocumentListener(this);
+    }
+
+    void addTo(JPanel panel, int row, int firstColumn) {
+      panel.add(confirmed, constraints(firstColumn, row, 0.0));
+      panel.add(field, constraints(firstColumn + 1, row, 0.0));
+      panel.add(pending, constraints(firstColumn + 2, row, 0.0));
+    }
+
+    /** Whether the field is unedited or holds a complete, valid value. */
+    boolean valid(Function<String, Double> parser) {
+      return !dirty || parser.apply(field.getText()) != null;
+    }
+
+    /** The edited value, or null when the field is unedited. */
+    Double edited(Function<String, Double> parser) {
+      return dirty ? parser.apply(field.getText()) : null;
+    }
+
+    /** Shows one parameter; null when no game is playing. */
+    void show(EngineGameParameterState.Value state) {
+      String name = Lizzie.resourceBundle.getString(nameKey) + ": ";
       if (state == null || !state.supported()) {
         confirmed.setText(
             state == null
                 ? ""
-                : wrnLabel + Lizzie.resourceBundle.getString("EngineGameParameters.unsupported"));
+                : name + Lizzie.resourceBundle.getString("EngineGameParameters.unsupported"));
         pending.setText("");
         field.setEnabled(false);
         dirty = false;
@@ -281,19 +323,19 @@ public final class EngineGameParametersDialog extends JDialog {
         return;
       }
       confirmed.setText(
-          wrnLabel
-              + (state.wrn() == null
+          name
+              + (state.confirmed() == null
                   ? Lizzie.resourceBundle.getString("EngineGameParameters.unknown")
-                  : formatWrn(state.wrn())));
+                  : formatValue(state.confirmed())));
       pending.setText(
-          state.targetWrn() == null
+          state.target() == null
               ? ""
               : MessageFormat.format(
                   Lizzie.resourceBundle.getString("EngineGameParameters.pending"),
-                  formatWrn(state.targetWrn())));
+                  formatValue(state.target())));
       field.setEnabled(true);
       if (!dirty) {
-        load(state.wrn() == null ? "" : formatWrn(state.wrn()));
+        load(state.confirmed() == null ? "" : formatValue(state.confirmed()));
       }
     }
 
@@ -334,5 +376,16 @@ public final class EngineGameParametersDialog extends JDialog {
     public void changedUpdate(DocumentEvent e) {
       edited();
     }
+  }
+
+  private static GridBagConstraints constraints(int x, int y, double weightx) {
+    GridBagConstraints constraints = new GridBagConstraints();
+    constraints.gridx = x;
+    constraints.gridy = y;
+    constraints.weightx = weightx;
+    constraints.anchor = GridBagConstraints.WEST;
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+    constraints.insets = new Insets(y == 0 ? 0 : 8, x == 0 ? 0 : 12, 0, 0);
+    return constraints;
   }
 }
