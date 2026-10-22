@@ -843,6 +843,18 @@ class EngineManagerEngineGameStateMachineTest {
         assertEquals(
             engine2 + ": " + Lizzie.resourceBundle.getString("EngineGameParameters.processChanged"),
             reported);
+      } else {
+        // The engine's own response is quoted unchanged inside the translated reason.
+        String command =
+            failure.equals("reject")
+                ? "kata-set-param " + WRN + " 0.7"
+                : "kata-set-param " + PDA + " 0.5";
+        String[] reason =
+            java.text.MessageFormat.format(
+                    Lizzie.resourceBundle.getString("EngineGameCommand.rejected"), command, "\0")
+                .split("\0");
+        assertTrue(reported.startsWith(engine2 + ": " + reason[0]), reported);
+        assertTrue(reported.endsWith(" unsupported" + (reason.length > 1 ? reason[1] : "")));
       }
     } finally {
       Lizzie.resourceBundle = previousBundle;

@@ -22189,23 +22189,23 @@ public class Leelaz {
       throw new IllegalArgumentException("onFailure");
     }
     if (onSuccess == null) {
-      onFailure.accept("Missing success callback");
+      onFailure.accept(EngineGameCommandFailure.notSent(command));
       return;
     }
     if (owner == null && command == null) {
-      onFailure.accept("Missing engine-game owner transaction");
+      onFailure.accept(EngineGameCommandFailure.notSent(command));
       return;
     }
     if (expectedIncarnation == null || !(expectedIncarnation instanceof ReaderStreamBinding)) {
-      onFailure.accept("Missing or invalid engine incarnation");
+      onFailure.accept(EngineGameCommandFailure.readerChanged());
       return;
     }
     if (!hasGtpCapability()) {
-      onFailure.accept("Engine has no GTP capability");
+      onFailure.accept(EngineGameCommandFailure.notSent(command));
       return;
     }
     if (owner != null && !EngineManager.isCurrentEngineGameTransaction(owner)) {
-      onFailure.accept("Engine-game transaction is no longer current");
+      onFailure.accept(EngineGameCommandFailure.transactionLost());
       return;
     }
     ReaderStreamBinding binding = (ReaderStreamBinding) expectedIncarnation;
@@ -22213,7 +22213,7 @@ public class Leelaz {
     synchronized (engineArbitrationLock()) {
       synchronized (commandQueue()) {
         if (!isCurrentLiveEngineIncarnationLocked(binding)) {
-          onFailure.accept("Engine incarnation is stale or terminated");
+          onFailure.accept(EngineGameCommandFailure.readerChanged());
           return;
         }
         dependency = captureCurrentRestoreDependencyLocked();
@@ -22281,7 +22281,7 @@ public class Leelaz {
           new TimerTask() {
             @Override
             public void run() {
-              settleFailure("engine-game command confirmation timeout");
+              settleFailure(EngineGameCommandFailure.timeout());
             }
           };
       scheduleBoardSynchronizationTimeout(
@@ -22317,10 +22317,10 @@ public class Leelaz {
       commandDispatched.set(true);
       try {
         if (!send(command, commandResponseHandler, this::onCommandSendFailure)) {
-          settleFailure("failed to enqueue engine-game command: " + command);
+          settleFailure(EngineGameCommandFailure.notSent(command));
         }
       } catch (RuntimeException ex) {
-        settleFailure(ex.getMessage() == null ? "failed to send " + command : ex.getMessage());
+        settleFailure(EngineGameCommandFailure.notSent(command, ex));
       }
     }
 
@@ -22330,7 +22330,7 @@ public class Leelaz {
       }
       String line = engine.currentCommandResponseLine();
       if (engine.isCurrentCommandResponseError()) {
-        settleFailure(command + " failed: " + line);
+        settleFailure(EngineGameCommandFailure.rejected(command, line));
         return;
       }
       String rejected =
@@ -22348,7 +22348,7 @@ public class Leelaz {
     }
 
     private void onCommandSendFailure(RuntimeException failure) {
-      settleFailure(failure == null ? command + " send failed" : failure.getMessage());
+      settleFailure(EngineGameCommandFailure.notSent(command, failure));
     }
 
     private void dispatchFence() {
@@ -22362,12 +22362,11 @@ public class Leelaz {
       }
       fenceDispatched.set(true);
       try {
-        if (!send("name", fenceResponseHandler, this::onFenceSendFailure)) {
-          settleFailure("failed to enqueue engine-game fence");
+        if (!send(EngineGameCommandFailure.FENCE, fenceResponseHandler, this::onFenceSendFailure)) {
+          settleFailure(EngineGameCommandFailure.notSent(null));
         }
       } catch (RuntimeException ex) {
-        settleFailure(
-            ex.getMessage() == null ? "failed to send engine-game fence" : ex.getMessage());
+        settleFailure(EngineGameCommandFailure.notSent(null, ex));
       }
     }
 
@@ -22376,7 +22375,8 @@ public class Leelaz {
         return;
       }
       if (engine.isCurrentCommandResponseError()) {
-        settleFailure("engine-game fence failed: " + engine.currentCommandResponseLine());
+        String line = engine.currentCommandResponseLine();
+        settleFailure(EngineGameCommandFailure.rejected(EngineGameCommandFailure.FENCE, line));
         return;
       }
       fenceConfirmed.set(true);
@@ -22384,7 +22384,7 @@ public class Leelaz {
     }
 
     private void onFenceSendFailure(RuntimeException failure) {
-      settleFailure(failure == null ? "engine-game fence send failed" : failure.getMessage());
+      settleFailure(EngineGameCommandFailure.notSent(null, failure));
     }
 
     private void tryComplete() {
@@ -22414,13 +22414,13 @@ public class Leelaz {
 
     private String dependencyFailure() {
       if (!dependency.isCurrent()) {
-        return "engine reader binding changed before confirmation";
+        return EngineGameCommandFailure.readerChanged();
       }
       if (owner != null && !EngineManager.isCurrentEngineGameTransaction(owner)) {
-        return "engine-game transaction is no longer current";
+        return EngineGameCommandFailure.transactionLost();
       }
       if (lineage.isFailed()) {
-        return "engine-game position command failed";
+        return EngineGameCommandFailure.positionFailed();
       }
       return null;
     }
