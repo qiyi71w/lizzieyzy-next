@@ -75,12 +75,8 @@ public final class EngineGameParametersDialog extends JDialog {
     status.setBorder(new EmptyBorder(4, 12, 4, 12));
 
     applyButton.addActionListener(e -> apply());
-    JFontButton closeButton =
-        new JFontButton(Lizzie.resourceBundle.getString("EngineGameParameters.close"));
-    closeButton.addActionListener(e -> setVisible(false));
     JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
     buttons.add(applyButton);
-    buttons.add(closeButton);
 
     JPanel south = new JPanel(new BorderLayout());
     south.add(status, BorderLayout.CENTER);
@@ -89,6 +85,7 @@ public final class EngineGameParametersDialog extends JDialog {
     getContentPane().add(rows, BorderLayout.CENTER);
     getContentPane().add(south, BorderLayout.SOUTH);
     getRootPane().setDefaultButton(applyButton);
+    AccessibilitySupport.installEscapeAction(getRootPane(), this, () -> setVisible(false));
   }
 
   /** Shows the single panel instance, or brings it to front; drafts of a closed panel are gone. */
