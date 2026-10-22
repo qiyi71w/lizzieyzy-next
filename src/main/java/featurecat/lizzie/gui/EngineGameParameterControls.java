@@ -3,14 +3,23 @@ package featurecat.lizzie.gui;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.enginegame.EngineGameSnapshot;
 import featurecat.lizzie.enginegame.EngineGameView;
+import java.awt.Component;
 import java.awt.Insets;
+import java.awt.Window;
+import java.util.function.Supplier;
 import javax.swing.JComponent;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
 
 /**
- * The toolbar's view of the engine-game parameters: the "game parameters" button next to pause, and
- * the explanation on the ordinary breadth/aggressiveness controls, which a running engine game
- * locks because its participants take parameters only through the game panel.
+ * The views of the engine-game parameters outside the panel: the "game parameters" button next to
+ * pause, the same entry in the game menu (the way in when the top toolbar is hidden or combined
+ * into the menu bar), and the explanation on the ordinary breadth/aggressiveness controls, which a
+ * running engine game locks because its participants take parameters only through the game panel.
  */
 final class EngineGameParameterControls {
   private EngineGameParameterControls() {}
@@ -25,6 +34,43 @@ final class EngineGameParameterControls {
     button.addActionListener(
         event -> EngineGameParametersDialog.open(SwingUtilities.getWindowAncestor(button)));
     return button;
+  }
+
+  /**
+   * Adds the "game parameters" entry to {@code menu}. It is refreshed from {@code snapshot} each
+   * time the menu opens, with the toolbar button's visibility and enablement rules.
+   */
+  static JMenuItem addMenuEntry(JMenu menu, Supplier<EngineGameSnapshot> snapshot) {
+    JFontMenuItem item =
+        new JFontMenuItem(Lizzie.resourceBundle.getString("EngineGameParameters.entry"));
+    item.setVisible(false);
+    item.addActionListener(event -> EngineGameParametersDialog.open(ownerWindow(item)));
+    menu.add(item);
+    menu.addMenuListener(
+        new MenuListener() {
+          @Override
+          public void menuSelected(MenuEvent event) {
+            refreshEntry(item, snapshot.get());
+          }
+
+          @Override
+          public void menuDeselected(MenuEvent event) {}
+
+          @Override
+          public void menuCanceled(MenuEvent event) {}
+        });
+    return item;
+  }
+
+  /**
+   * The window a menu item was chosen in: popups are followed back to the menu that opened them.
+   */
+  private static Window ownerWindow(Component component) {
+    for (Component c = component; c != null; ) {
+      if (c instanceof Window window) return window;
+      c = c instanceof JPopupMenu popup ? popup.getInvoker() : c.getParent();
+    }
+    return null;
   }
 
   /**

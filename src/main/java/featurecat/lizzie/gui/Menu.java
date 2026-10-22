@@ -3105,7 +3105,6 @@ public class Menu extends JMenuBar {
 
     final JFontMenuItem breakEngineGame =
         new JFontMenuItem(resourceBundle.getString("Menu.breakEngineGame")); // ("终止引擎对局(ALT+R)");
-
     breakEngineGame.addActionListener(
         new ActionListener() {
           @Override
@@ -3126,6 +3125,7 @@ public class Menu extends JMenuBar {
           }
         });
     gameMenu.add(pauseEngineGame);
+    EngineGameParameterControls.addMenuEntry(gameMenu, EngineGamePresentation::current);
 
     final JFontMenuItem changeEngineGameNumbers =
         new JFontMenuItem(resourceBundle.getString("Menu.changeEngineGameNumbers"));
