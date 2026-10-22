@@ -40,10 +40,16 @@ public final class EngineGameParametersDialog extends JDialog {
   private final PositionRow secondRow = new PositionRow(false);
   private final JTextArea status = new JTextArea();
   private final JFontButton applyButton =
-      new JFontButton(Lizzie.resourceBundle.getString("EngineGameParameters.apply"));
+      new JFontButton(Lizzie.resourceBundle.getString("EngineGameParameters.ok"));
 
   /** The game the drafts were typed for, or null without a playing game. */
   private EngineGameTransaction draftGame;
+
+  /** OK was accepted: close once both participants confirmed, stay open on a failure. */
+  private boolean closeWhenConfirmed;
+
+  /** The size the panel last gave itself; a different size was chosen by the user. */
+  private Dimension fittedSize;
 
   private EngineGameParametersDialog(Window owner) {
     super(owner);
@@ -95,8 +101,10 @@ public final class EngineGameParametersDialog extends JDialog {
       dialog.refresh();
     } else {
       dialog.discardDrafts();
+      dialog.closeWhenConfirmed = false;
       dialog.refresh();
       dialog.pack();
+      dialog.fittedSize = dialog.getSize();
       dialog.setLocationRelativeTo(owner);
       dialog.setVisible(true);
     }
@@ -150,17 +158,40 @@ public final class EngineGameParametersDialog extends JDialog {
     }
     status.setText(message);
     status.setVisible(!message.isEmpty());
+    if (closeWhenConfirmed) {
+      if (!playing || state.failure() != null) {
+        closeWhenConfirmed = false;
+      } else if (confirmed(state)) {
+        closeWhenConfirmed = false;
+        setVisible(false);
+        return;
+      }
+    }
     if (isVisible()) {
-      growToFit();
+      Dimension current = getSize();
+      Dimension size = fittedSize(current, fittedSize, getPreferredSize());
+      if (!size.equals(current)) setSize(size);
+      if (current.equals(fittedSize)) fittedSize = size;
     }
   }
 
-  /** Grows the window when longer names or a message no longer fit; never shrinks a user size. */
-  private void growToFit() {
-    Dimension preferred = getPreferredSize();
-    if (preferred.width > getWidth() || preferred.height > getHeight()) {
-      setSize(Math.max(preferred.width, getWidth()), Math.max(preferred.height, getHeight()));
-    }
+  /** Whether no update is running and every requested value is confirmed. */
+  static boolean confirmed(EngineGameParameterState state) {
+    return !state.pending() && settled(state.first()) && settled(state.second());
+  }
+
+  private static boolean settled(EngineGameParameterState.Position position) {
+    return position.wrn().target() == null && position.pda().target() == null;
+  }
+
+  /**
+   * The panel's next size: it follows its content (also shrinking after a temporary label is gone)
+   * while it has the size it gave itself; a size the user chose only grows so nothing is cut off.
+   */
+  static Dimension fittedSize(Dimension current, Dimension fitted, Dimension preferred) {
+    if (current.equals(fitted)) return new Dimension(preferred);
+    return new Dimension(
+        Math.max(current.width, preferred.width), Math.max(current.height, preferred.height));
   }
 
   private void discardDrafts() {
@@ -192,6 +223,7 @@ public final class EngineGameParametersDialog extends JDialog {
     Double firstPda = firstRow.pda.edited(pdaParser);
     Double secondPda = secondRow.pda.edited(pdaParser);
     if (firstWrn == null && secondWrn == null && firstPda == null && secondPda == null) {
+      setVisible(false);
       return;
     }
     switch (Lizzie.engineGame.reviseParameters(
@@ -199,6 +231,7 @@ public final class EngineGameParametersDialog extends JDialog {
       case ACCEPTED, UNCHANGED -> {
         firstRow.submitted(firstWrn, firstPda);
         secondRow.submitted(secondWrn, secondPda);
+        closeWhenConfirmed = true;
         refresh();
       }
       case NOT_PLAYING -> {
