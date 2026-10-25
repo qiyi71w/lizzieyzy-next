@@ -195,7 +195,7 @@ public final class EngineGameParametersDialog extends JDialog {
     // After OK the panel closes on confirmation: it keeps the typed values and its size meanwhile.
     firstRow.show(view, playing ? state.position(true) : null, closeWhenConfirmed);
     secondRow.show(view, playing ? state.position(false) : null, closeWhenConfirmed);
-    applyButton.setEnabled(playing);
+    applyButton.setEnabled(playing && !closeWhenConfirmed);
     String message = "";
     if (!playing) {
       message = Lizzie.resourceBundle.getString("EngineGameParameters.notPlaying");
@@ -239,6 +239,11 @@ public final class EngineGameParametersDialog extends JDialog {
   }
 
   private void apply() {
+    if (closeWhenConfirmed) {
+      // A queued OK action must not dismiss or replace an unconfirmed request.
+      refresh();
+      return;
+    }
     Object playingGame = playingGame(game.parameters());
     if (playingGame == null || playingGame != draftGame) {
       // The drafts were typed for another game; reload instead of replaying them.
@@ -411,7 +416,7 @@ public final class EngineGameParametersDialog extends JDialog {
               : MessageFormat.format(
                   Lizzie.resourceBundle.getString("EngineGameParameters.pending"),
                   formatValue(state.target())));
-      field.setEnabled(true);
+      field.setEnabled(!closing);
       if (!dirty && !closing) {
         load(state.confirmed() == null ? "" : formatValue(state.confirmed()));
       }

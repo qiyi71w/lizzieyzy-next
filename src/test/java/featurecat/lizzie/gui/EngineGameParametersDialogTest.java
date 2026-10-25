@@ -129,6 +129,42 @@ class EngineGameParametersDialogTest {
   }
 
   @Test
+  void repeatedOkCannotDismissAnUnconfirmedRequestOrHideItsFailure() throws Exception {
+    edt(
+        () -> {
+          dialog.present(null);
+          engine2Breadth().setText("0.45");
+          ok();
+          ok();
+          assertTrue(dialog.isVisible(), "repeated OK must wait for the original request");
+          assertEquals(1, game.requests.size());
+          assertFalse(dialog.getRootPane().getDefaultButton().isEnabled());
+          assertTrue(components(JTextField.class).stream().noneMatch(Component::isEnabled));
+
+          game.publish(state(0.25, 0.45, true, null));
+          ok();
+          assertTrue(dialog.isVisible(), "refresh must not enable early dismissal");
+          // Also cover an action already queued before the button became disabled.
+          for (var listener : dialog.getRootPane().getDefaultButton().getActionListeners()) {
+            listener.actionPerformed(null);
+          }
+          assertTrue(dialog.isVisible());
+          assertEquals(1, game.requests.size());
+
+          game.publish(state(0.25, 0.45, false, "Engine 2: rejected"));
+          assertTrue(dialog.isVisible());
+          assertTrue(statusText().contains("Engine 2: rejected"), statusText());
+          assertTrue(dialog.getRootPane().getDefaultButton().isEnabled());
+          assertTrue(components(JTextField.class).stream().allMatch(Component::isEnabled));
+          engine2Breadth().setText("0.4");
+          ok();
+          assertEquals(2, game.requests.size());
+          game.publish(state(0.4, null, false, null));
+          assertFalse(dialog.isVisible(), "only confirmed success closes the retry");
+        });
+  }
+
+  @Test
   void okWithoutEditsAndEscCloseWithoutSendingAndDropTheDraft() throws Exception {
     edt(
         () -> {
