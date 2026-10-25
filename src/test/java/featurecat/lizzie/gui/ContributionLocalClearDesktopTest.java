@@ -217,7 +217,20 @@ public class ContributionLocalClearDesktopTest {
               case "version" -> "1.16.4";
               case "protocol_version" -> "2";
               case "list_commands" ->
-                  "protocol_version\nname\nversion\nlist_commands\nboardsize\nclear_board\nkomi\nplay\nundo\nstop\nkata-analyze\nkata-get-rules\nkata-set-rules\nset_position";
+                  "protocol_version\n"
+                      + "name\n"
+                      + "version\n"
+                      + "list_commands\n"
+                      + "boardsize\n"
+                      + "clear_board\n"
+                      + "komi\n"
+                      + "play\n"
+                      + "undo\n"
+                      + "stop\n"
+                      + "kata-analyze\n"
+                      + "kata-get-rules\n"
+                      + "kata-set-rules\n"
+                      + "set_position";
               case "kata-get-rules" ->
                   "{\"koRule\":\"POSITIONAL\",\"scoringRule\":\"AREA\",\"taxRule\":\"NONE\",\"suicideLegal\":true,\"hasButton\":false,\"whiteHandicapBonus\":\"N\"}";
               case "kata-get-param" -> "0";
@@ -280,10 +293,13 @@ public class ContributionLocalClearDesktopTest {
     return false;
   }
 
-  private static void await(BooleanSupplier condition) throws Exception {
+  static void await(BooleanSupplier condition) throws Exception {
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
-    while (!condition.getAsBoolean() && System.nanoTime() < deadline) Thread.sleep(20);
-    assertTrue(condition.getAsBoolean(), "Timed out waiting for controlled process state");
+    do {
+      if (condition.getAsBoolean()) return;
+      Thread.sleep(20);
+    } while (System.nanoTime() < deadline);
+    fail("Timed out waiting for controlled process state");
   }
 
   /** Writes the pid in one step so a polling parent never reads an empty file. */

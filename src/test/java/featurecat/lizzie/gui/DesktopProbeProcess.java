@@ -12,9 +12,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
@@ -88,6 +90,7 @@ final class DesktopProbeProcess {
         lifecycle, "entry=" + entry.getName() + "\nwork=" + work + "\ncommand=" + command + "\n");
     Process child = null;
     Map<Long, ProcessHandle> owned = new LinkedHashMap<>();
+    Set<Long> protectedPids = protectedProcessIds(ProcessHandle.current());
     Throwable failure = null;
     try {
       ProcessBuilder builder =
@@ -104,7 +107,7 @@ final class DesktopProbeProcess {
           StandardOpenOption.APPEND);
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
       while (child.isAlive() && System.nanoTime() < deadline) {
-        child.descendants().forEach(handle -> owned.put(handle.pid(), handle));
+        rememberOwnedDescendants(child.toHandle(), owned, protectedPids);
         child.waitFor(100, TimeUnit.MILLISECONDS);
       }
       if (child.isAlive()) {
@@ -128,7 +131,7 @@ final class DesktopProbeProcess {
       // Redirecting both streams directly to files creates no parent output-reader threads.
       // Snapshot descendants while their parent is still alive, then terminate only owned handles.
       if (child != null) {
-        child.descendants().forEach(handle -> owned.put(handle.pid(), handle));
+        rememberOwnedDescendants(child.toHandle(), owned, protectedPids);
       }
       List<ProcessHandle> handles = new ArrayList<>(owned.values());
       for (int index = handles.size() - 1; index >= 0; index--) {
@@ -165,6 +168,33 @@ final class DesktopProbeProcess {
         if (failure != null) failure.addSuppressed(cleanupError);
         else throw cleanupError;
       }
+    }
+  }
+
+  static Set<Long> protectedProcessIds(ProcessHandle current) {
+    Set<Long> protectedPids = new HashSet<>();
+    for (ProcessHandle ancestor = current;
+        ancestor != null && protectedPids.add(ancestor.pid());
+        ancestor = ancestor.parent().orElse(null)) {}
+    return protectedPids;
+  }
+
+  static void rememberOwnedDescendants(
+      ProcessHandle child, Map<Long, ProcessHandle> owned, Set<Long> protectedPids) {
+    // On Windows, an exited parent's PID can still appear in other processes' ancestry.
+    // Never discover ownership from that stale PID, or include this JVM and its ancestors.
+    if (!child.isAlive()) return;
+    Instant childStarted = child.info().startInstant().orElse(null);
+    try (var descendants = child.descendants()) {
+      descendants
+          .filter(handle -> !protectedPids.contains(handle.pid()))
+          .filter(
+              handle -> {
+                Instant started = handle.info().startInstant().orElse(null);
+                return childStarted == null || started == null || !started.isBefore(childStarted);
+              })
+          // Keep the originally observed process identity if the OS recycles a descendant PID.
+          .forEach(handle -> owned.putIfAbsent(handle.pid(), handle));
     }
   }
 

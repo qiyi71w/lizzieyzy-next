@@ -164,15 +164,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     return AppleStyleSupport.workspaceAccent();
   }
 
-  private static Color ACCENT_TEAL_HOVER() {
-    return AppleStyleSupport.workspaceAccent();
-  }
-
   private static Color ACCENT_GOLD() {
     return AppleStyleSupport.workspaceAccent();
   }
 
-  private static final String BENCHMARK_PROGRESS_KEY = "lizzie.benchmark.dialog.progress";
   private static final String WRAPPING_TEXT_KEY = "lizzie.autosetup.wrappingText";
   private static final String INFO_HTML_PREFIX = "<html><div style='width: 360px'>";
   private static final String INFO_HTML_SUFFIX = "</div></html>";
@@ -211,6 +206,16 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   private SetupSnapshot snapshot;
   private List<RemoteWeightInfo> remoteWeightInfos = Collections.emptyList();
+  // Only the latest request's answer is shown; an earlier one that arrives late is dropped.
+  private long remoteWeightRequestId;
+  private boolean remoteWeightsLoading;
+  RemoteWeightSource remoteWeightSource = KataGoAutoSetupHelper::fetchOfficialWeights;
+
+  /** Where the list of official weights comes from; tests answer it themselves. */
+  interface RemoteWeightSource {
+    List<RemoteWeightInfo> fetch() throws IOException;
+  }
+
   private volatile DownloadSession activeDownloadSession;
   private volatile Thread activeWorkerThread;
   private javax.swing.Timer pendingWeightSwitchTimer;
@@ -222,6 +227,10 @@ public class KataGoAutoSetupDialog extends JDialog {
   private long engineValidationRequestId;
   private long stateRefreshRequestId;
   private SwingWorker<SetupSnapshot, Void> stateRefreshWorker;
+  private SetupBackgroundStateCache<KataGoSetupRuntimeState.Target, KataGoSetupRuntimeState>
+      runtimeStateCache;
+  private boolean controlsBusy;
+  private boolean disposed;
   private SwingWorker<SetupSnapshot, Void> catalogRefreshWorker;
   private SetupSnapshot catalogRefreshSource;
   private long catalogRefreshRequestId;
@@ -487,9 +496,25 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   /** Opens the existing performance page without starting a measurement or a board engine. */
   public static void openForSavedEntry(Window owner, String entryId) {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> openForSavedEntry(owner, entryId));
+      return;
+    }
     if (entryId == null || entryId.isBlank()) {
       Utils.showMsg(featurecat.lizzie.util.EngineThreadPolicy.message("selectTarget"), owner);
       return;
+    }
+    for (Window window : Window.getWindows()) {
+      if (window instanceof KataGoAutoSetupDialog existing
+          && existing.isDisplayable()
+          && existing.getOwner() == owner
+          && entryId.equals(existing.selectedBenchmarkEntryId)) {
+        existing.refreshState();
+        existing.setVisible(true);
+        existing.toFront();
+        existing.requestFocus();
+        return;
+      }
     }
     new KataGoAutoSetupDialog(owner, entryId).setVisible(true);
   }
@@ -597,6 +622,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void refreshState(Runnable afterRefresh) {
+    if (disposed) return;
     if (!SwingUtilities.isEventDispatchThread()) {
       SwingUtilities.invokeLater(() -> refreshState(afterRefresh));
       return;
@@ -605,6 +631,15 @@ public class KataGoAutoSetupDialog extends JDialog {
       showBackgroundTaskAlreadyRunningNotice();
       return;
     }
+    // Reopened while a download, install or weight switch runs: keep its progress and Stop button.
+    if (activeDownloadSession != null
+        || activeWorkerThread != null
+        || pendingWeightSwitchTimer != null
+        || (weightSwitchDisplayState != null && weightSwitchDisplayState.isPending())) {
+      return;
+    }
+    // Closing can invalidate a completed download's UI callback before it clears the busy state.
+    controlsBusy = false;
     if (!selectedBenchmarkEntryId.isBlank()) {
       refreshSelectedBenchmark(afterRefresh);
       return;
@@ -740,7 +775,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       progressBar.setValue(0);
       progressBar.setString("");
       progressPanel.setVisible(false);
-      footerPanel.setVisible(false);
+      footerPanel.setVisible(true);
       // A saved-entry performance page must remain scoped to that entry, even if discovery fails.
       sectionNav.setEnabled(selectedBenchmarkEntryId.isBlank() && !hasActiveBackgroundTask());
       // Missing/unsupported entries skip validation, so completion itself must restore retry.
@@ -792,6 +827,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void cancelStateRefresh() {
+    if (runtimeStateCache != null) runtimeStateCache.invalidate();
     catalogRefreshRequestId++;
     if (catalogRefreshWorker != null) catalogRefreshWorker.cancel(true);
     catalogRefreshWorker = null;
@@ -1366,32 +1402,6 @@ public class KataGoAutoSetupDialog extends JDialog {
     return page;
   }
 
-  private JPanel createWeightRecommendations() {
-    JPanel section = new JPanel(new BorderLayout(0, 6));
-    section.setOpaque(false);
-    JFontLabel title = new JFontLabel(text("AutoSetup.recommendationTitle"));
-    title.setForeground(TEXT_PRIMARY());
-    title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 2f));
-    section.add(title, BorderLayout.NORTH);
-
-    JPanel cards = new JPanel(new GridBagLayout());
-    cards.setOpaque(false);
-    GridBagConstraints gbc = new GridBagConstraints();
-    gbc.gridy = 0;
-    gbc.weightx = 1;
-    gbc.fill = GridBagConstraints.BOTH;
-    gbc.insets = new Insets(0, 0, 0, 7);
-    cards.add(strongestRecommendation, gbc);
-    gbc.gridx = 1;
-    gbc.insets = new Insets(0, 7, 0, 7);
-    cards.add(balancedRecommendation, gbc);
-    gbc.gridx = 2;
-    gbc.insets = new Insets(0, 7, 0, 0);
-    cards.add(lightweightRecommendation, gbc);
-    section.add(cards, BorderLayout.CENTER);
-    return section;
-  }
-
   private JPanel createPageHeading(String title, String subtitle) {
     JPanel heading = new JPanel(new BorderLayout(0, 4));
     heading.setOpaque(false);
@@ -1935,7 +1945,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     footerPanel.setOpaque(true);
     footerPanel.setBackground(APP_BG());
     footerPanel.setBorder(BorderFactory.createEmptyBorder(8, 28, 12, 30));
-    footerPanel.setVisible(false);
+    footerPanel.setVisible(true);
 
     progressPanel.setOpaque(true);
     progressPanel.setBackground(APP_BG());
@@ -2259,6 +2269,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void renderSnapshot() {
+    if (disposed) return;
     if (snapshot == null) return;
     if (snapshot.weightCatalog == null) {
       scanSnapshotForDisplay();
@@ -2857,24 +2868,26 @@ public class KataGoAutoSetupDialog extends JDialog {
                   KataGoAutoSetupHelper.validateDiscoveredEngine(
                       enginePath, KataGoRuntimeHelper.isNvidiaBundledPath(enginePath) ? 20L : 8L);
               SwingUtilities.invokeLater(
-                  () -> {
-                    if (requestId != engineValidationRequestId
-                        || snapshot == null
-                        || snapshot.enginePath == null
-                        || !snapshot
-                            .enginePath
-                            .toAbsolutePath()
-                            .normalize()
-                            .equals(enginePath.toAbsolutePath().normalize())) {
-                      return;
-                    }
-                    engineValidationResult = result;
-                    renderEngineValidation(result);
-                    refreshIdleControls();
-                  });
+                  () -> completeEngineValidation(requestId, enginePath, result));
             },
             "katago-version-validation")
         .start();
+  }
+
+  private void completeEngineValidation(
+      long requestId, Path enginePath, EngineValidationResult result) {
+    if (disposed
+        || requestId != engineValidationRequestId
+        || snapshot == null
+        || snapshot.enginePath == null
+        || !snapshot
+            .enginePath
+            .toAbsolutePath()
+            .normalize()
+            .equals(enginePath.toAbsolutePath().normalize())) return;
+    engineValidationResult = result;
+    renderEngineValidation(result);
+    refreshIdleControls();
   }
 
   private void renderEngineValidation(EngineValidationResult result) {
@@ -2914,8 +2927,8 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void updateNvidiaRuntimeInfo() {
-    KataGoRuntimeHelper.NvidiaRuntimeStatus status =
-        snapshot == null ? null : KataGoRuntimeHelper.inspectNvidiaRuntime(snapshot);
+    KataGoSetupRuntimeState runtime = runtimeState();
+    KataGoRuntimeHelper.NvidiaRuntimeStatus status = runtime == null ? null : runtime.nvidia();
     if (status == null || !status.applicable) {
       KataGoAccelerationLayout.setStatusText(
           lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntimeNotApplicable"));
@@ -2934,31 +2947,41 @@ public class KataGoAutoSetupDialog extends JDialog {
     lblNvidiaRuntimeValue.setForeground(status.ready ? OK_COLOR() : WARN_COLOR());
     AccessibilitySupport.named(
         lblNvidiaRuntimeValue, text("AutoSetup.nvidiaRuntime"), status.detailText);
-    btnInstallNvidiaRuntime.setEnabled(activeDownloadSession == null && !status.ready);
+    btnInstallNvidiaRuntime.setEnabled(!hasActiveBackgroundTask() && !status.ready);
     updateTensorRtInfo();
   }
 
   private KataGoRuntimeHelper.TensorRtInstallStatus inspectCurrentTensorRt() {
-    if (snapshot == null) {
-      return null;
-    }
-    TensorRtRepairContext context = tensorRtRepairSession.context();
-    if (context != null && tensorRtRepairSession.clearIfTargetInvalid()) {
-      Utils.showMsg(text("AutoSetup.tensorRtTargetStale"), this);
-      updateDirectedTargetBanner();
-      return KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
-    }
-    try {
-      return KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection, context);
-    } catch (TensorRtTargetInvalidException e) {
-      tensorRtRepairSession.clear();
-      updateDirectedTargetBanner();
-      Utils.showMsg(e.getLocalizedMessage(), this);
-      return KataGoRuntimeHelper.inspectTensorRtInstall(snapshot, nvidiaGpuDetection);
-    }
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return runtime == null ? null : runtime.tensorRt();
+  }
+
+  private KataGoSetupRuntimeState runtimeState() {
+    if (disposed || snapshot == null) return null;
+    if (runtimeStateCache == null) runtimeStateCache = new SetupBackgroundStateCache<>();
+    var target =
+        new KataGoSetupRuntimeState.Target(
+            snapshot, nvidiaGpuDetection, tensorRtRepairSession.context());
+    return runtimeStateCache.get(
+        target,
+        () -> KataGoSetupRuntimeState.inspect(target),
+        () -> {
+          updateNvidiaRuntimeInfo();
+          updateExperimentalBackendInfo();
+          refreshIdleControls();
+        },
+        error -> {
+          if (error instanceof TensorRtTargetInvalidException) {
+            tensorRtRepairSession.clear();
+            updateDirectedTargetBanner();
+          }
+          onBackgroundError(
+              error instanceof Exception ? (Exception) error : new IOException(error));
+        });
   }
 
   private void updateTensorRtInfo() {
+    if (disposed) return;
     maybeStartNvidiaGpuDetection();
     boolean idle = !hasActiveBackgroundTask();
     KataGoRuntimeHelper.TensorRtInstallStatus status =
@@ -3110,7 +3133,8 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void updateTensorRtCacheButton() {
-    long cacheBytes = KataGoRuntimeHelper.tensorRtDownloadCacheBytes();
+    KataGoSetupRuntimeState runtime = runtimeState();
+    long cacheBytes = runtime == null ? 0L : runtime.cacheBytes();
     btnCleanTensorRtCache.setEnabled(!hasActiveBackgroundTask() && cacheBytes > 0L);
     btnCleanTensorRtCache.setToolTipText(
         cacheBytes > 0L
@@ -3120,14 +3144,14 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   private void updateExperimentalBackendInfo() {
     Backend backend = (Backend) cmbExperimentalBackend.getSelectedItem();
-    if (backend == null || snapshot == null) {
+    KataGoSetupRuntimeState runtime = runtimeState();
+    if (backend == null || runtime == null) {
       String missing = text("AutoSetup.notFound");
       setTensorRtLabel(lblExperimentalBackendValue, missing, ERROR_COLOR(), missing);
       btnInstallExperimentalBackend.setEnabled(false);
       return;
     }
-    KataGoExperimentalBackendInstaller.Status status =
-        KataGoExperimentalBackendInstaller.inspect(snapshot, backend);
+    KataGoExperimentalBackendInstaller.Status status = runtime.experimental().get(backend);
     String state =
         status.active()
             ? text("AutoSetup.experimentalBackendActive")
@@ -3152,10 +3176,9 @@ public class KataGoAutoSetupDialog extends JDialog {
       btnInstallExperimentalBackend.getParent().repaint();
     }
     btnInstallExperimentalBackend.setEnabled(
-        !hasActiveBackgroundTask()
-            && snapshot.hasConfigs()
-            && snapshot.hasWeight()
-            && !status.active());
+        !hasActiveBackgroundTask() && runtime.canInstallExperimentalBackend(backend));
+    btnInstallExperimentalBackend.setToolTipText(
+        runtime.windows() ? null : text("AutoSetup.experimentalBackendWindowsOnly"));
   }
 
   private void setTensorRtLabel(JTextArea label, String value, Color color, String tooltip) {
@@ -3577,20 +3600,33 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
   }
 
-  private void loadRemoteWeightInfo() {
+  void loadRemoteWeightInfo() {
+    long requestId = ++remoteWeightRequestId;
+    remoteWeightsLoading = true;
     btnReloadRemoteWeights.setEnabled(false);
     if (remoteWeightInfos.isEmpty()) {
       lblWeightCatalogEmpty.setText(text("AutoSetup.loadingRemote"));
       showWeightCatalogEmptyState(true);
     }
+    RemoteWeightSource source = remoteWeightSource;
     new Thread(
             () -> {
               try {
-                List<RemoteWeightInfo> fetched = KataGoAutoSetupHelper.fetchOfficialWeights();
-                SwingUtilities.invokeLater(() -> showRemoteWeightInfo(fetched));
+                List<RemoteWeightInfo> fetched = source.fetch();
+                SwingUtilities.invokeLater(
+                    () -> {
+                      if (requestId == remoteWeightRequestId) {
+                        remoteWeightsLoading = false;
+                        showRemoteWeightInfo(fetched);
+                      }
+                    });
               } catch (IOException e) {
                 SwingUtilities.invokeLater(
                     () -> {
+                      if (requestId != remoteWeightRequestId) {
+                        return;
+                      }
+                      remoteWeightsLoading = false;
                       if (remoteWeightInfos.isEmpty()) {
                         rebuildWeightCatalog(null);
                         lblWeightCatalogEmpty.setText(text("AutoSetup.remoteUnavailable"));
@@ -3620,7 +3656,7 @@ public class KataGoAutoSetupDialog extends JDialog {
     loadRemoteWeightInfo();
   }
 
-  private void showRemoteWeightInfo(List<RemoteWeightInfo> infos) {
+  void showRemoteWeightInfo(List<RemoteWeightInfo> infos) {
     RemoteWeightInfo previousSelection = getSelectedRemoteWeight();
     String previousModel = previousSelection == null ? "" : previousSelection.modelName;
     remoteWeightInfos = infos == null ? Collections.<RemoteWeightInfo>emptyList() : infos;
@@ -3636,7 +3672,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       renderSetupStatus();
     }
     btnReloadRemoteWeights.setEnabled(!hasActiveBackgroundTask());
-    btnStopDownload.setEnabled(activeDownloadSession != null);
+    btnStopDownload.setEnabled(canStopActiveDownload());
   }
 
   private RemoteWeightInfo findRemoteWeight(String modelName) {
@@ -3815,101 +3851,60 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void importCustomWeight() {
-    if (rejectOverlappingBackgroundTask()) return;
-    JFileChooser chooser = new JFileChooser();
-    chooser.setDialogTitle(text("AutoSetup.importWeightTitle"));
-    chooser.setFileFilter(new FileNameExtensionFilter(text("AutoSetup.importWeightFilter"), "gz"));
-    if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
-      return;
-    }
-    final Path source = chooser.getSelectedFile().toPath();
-    if (!isSupportedWeightFileName(source)) {
-      Utils.showMsg(text("AutoSetup.importWeightInvalid"), this);
-      return;
-    }
-    setBusy(true, text("AutoSetup.importingWeight"), 0, -1);
-    cancelStateRefresh();
-    final long requestId = ++stateRefreshRequestId;
-    Thread worker =
-        new Thread(
-            () -> {
-              try {
-                Path importedWeight = KataGoAutoSetupHelper.importWeight(source);
-                SetupSnapshot refreshed =
-                    KataGoAutoSetupHelper.inspectLocalSetup().scanWeightCatalog();
-                SwingUtilities.invokeLater(
-                    () -> {
-                      activeWorkerThread = null;
-                      if (requestId != stateRefreshRequestId) return;
-                      setBusy(false, text("AutoSetup.importWeightDone"), 0, 0);
-                      snapshot = refreshed;
-                      renderSnapshot();
-                      selectLocalWeight(importedWeight);
-                      updateSelectedLocalWeightInfo();
-                      lblStatus.setText(text("AutoSetup.importReadyToUse"));
-                      lblStatus.setToolTipText(
-                          importedWeight.toAbsolutePath().normalize().toString());
-                      lblStatus.setForeground(OK_COLOR());
-                    });
-              } catch (IOException e) {
-                SwingUtilities.invokeLater(
-                    () -> {
-                      activeWorkerThread = null;
-                      onBackgroundError(e);
-                    });
-              }
-            },
-            "katago-import-weight");
-    activeWorkerThread = worker;
-    worker.start();
+    importWeight(false);
   }
 
   private void importHumanSlModel() {
+    importWeight(true);
+  }
+
+  private void importWeight(boolean humanSl) {
     if (rejectOverlappingBackgroundTask()) return;
+    String kind = humanSl ? "HumanSlModel" : "Weight";
     JFileChooser chooser = new JFileChooser();
-    chooser.setDialogTitle(text("AutoSetup.importHumanSlModelTitle"));
+    chooser.setDialogTitle(text("AutoSetup.import" + kind + "Title"));
     chooser.setFileFilter(
-        new FileNameExtensionFilter(text("AutoSetup.importHumanSlModelFilter"), "gz"));
+        new FileNameExtensionFilter(text("AutoSetup.import" + kind + "Filter"), "gz"));
     if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
       return;
     }
     final Path source = chooser.getSelectedFile().toPath();
     if (!isSupportedWeightFileName(source)) {
-      Utils.showMsg(text("AutoSetup.importHumanSlModelInvalid"), this);
+      Utils.showMsg(text("AutoSetup.import" + kind + "Invalid"), this);
       return;
     }
-    setBusy(true, text("AutoSetup.importingHumanSlModel"), 0, -1);
+    startWeightImport(() -> SetupWeightImport.read(source, humanSl), humanSl);
+  }
+
+  void startWeightImport(Callable<SetupWeightImport> action, boolean humanSl) {
+    String kind = humanSl ? "HumanSlModel" : "Weight";
+    setBusy(true, text("AutoSetup.importing" + kind), 0, -1);
     cancelStateRefresh();
     final long requestId = ++stateRefreshRequestId;
-    Thread worker =
-        new Thread(
-            () -> {
-              try {
-                Path importedModel = KataGoAutoSetupHelper.importHumanSlModel(source);
-                SetupSnapshot refreshed =
-                    KataGoAutoSetupHelper.inspectLocalSetup().scanWeightCatalog();
-                SwingUtilities.invokeLater(
-                    () -> {
-                      activeWorkerThread = null;
-                      if (requestId != stateRefreshRequestId) return;
-                      setBusy(false, text("AutoSetup.importHumanSlModelDone"), 0, 0);
-                      snapshot = refreshed;
-                      renderSnapshot();
-                      Utils.showMsg(
-                          text("AutoSetup.importHumanSlModelDoneMessage") + "\n" + importedModel,
-                          this);
-                    });
-              } catch (IOException e) {
-                SwingUtilities.invokeLater(
-                    () -> {
-                      activeWorkerThread = null;
-                      onBackgroundError(e);
-                    });
+    activeWorkerThread =
+        SetupBackgroundAction.start(
+            humanSl ? "katago-import-humansl-model" : "katago-import-weight",
+            action,
+            imported -> {
+              if (disposed || requestId != stateRefreshRequestId) return;
+              setBusy(false, text("AutoSetup.import" + kind + "Done"), 0, 0);
+              snapshot = imported.snapshot();
+              renderSnapshot();
+              if (humanSl) {
+                Utils.showMsg(
+                    text("AutoSetup.importHumanSlModelDoneMessage") + "\n" + imported.path(), this);
+              } else {
+                selectLocalWeight(imported.path());
+                updateSelectedLocalWeightInfo();
+                lblStatus.setText(text("AutoSetup.importReadyToUse"));
+                lblStatus.setToolTipText(imported.path().toAbsolutePath().normalize().toString());
+                lblStatus.setForeground(OK_COLOR());
               }
             },
-            "katago-import-humansl-model");
-    activeWorkerThread = worker;
-    worker.start();
+            failure -> {
+              if (requestId == stateRefreshRequestId) onBackgroundError(failure);
+            },
+            worker -> clearActiveDownload(null, worker));
   }
 
   private void startHumanSlModelDownload() {
@@ -4117,8 +4112,9 @@ public class KataGoAutoSetupDialog extends JDialog {
       Utils.showMsg(text("AutoSetup.missingEngine"), this);
       return;
     }
-    KataGoRuntimeHelper.NvidiaRuntimeStatus status =
-        KataGoRuntimeHelper.inspectNvidiaRuntime(snapshot);
+    KataGoSetupRuntimeState runtime = runtimeState();
+    if (runtime == null) return;
+    KataGoRuntimeHelper.NvidiaRuntimeStatus status = runtime.nvidia();
     if (!status.applicable) {
       Utils.showMsg(text("AutoSetup.nvidiaRuntimeNotApplicable"), this);
       return;
@@ -4127,15 +4123,22 @@ public class KataGoAutoSetupDialog extends JDialog {
       Utils.showMsg(text("AutoSetup.nvidiaRuntimeAlreadyReady"), this);
       return;
     }
-    try {
-      KataGoRuntimeHelper.ensureBundledRuntimeReady(snapshot.enginePath, this);
-      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
-      renderSnapshot();
-      updateSelectedRemoteWeightInfo();
-      Utils.showMsg(text("AutoSetup.installNvidiaRuntimeDoneMessage"), this);
-    } catch (IOException e) {
-      onBackgroundError(e);
-    }
+    SetupSnapshot source = snapshot;
+    setBusy(true, text("AutoSetup.settingUp"), 0, -1);
+    activeWorkerThread =
+        SetupBackgroundAction.start(
+            "katago-check-nvidia-runtime",
+            () -> {
+              KataGoRuntimeHelper.ensureBundledRuntimeReady(source.enginePath, this);
+              return KataGoAutoSetupHelper.inspectLocalSetup().scanWeightCatalog();
+            },
+            refreshed -> {
+              snapshot = refreshed;
+              renderSnapshot();
+              setBusy(false, text("AutoSetup.installNvidiaRuntimeDoneMessage"), 0, 0);
+            },
+            this::onBackgroundError,
+            worker -> clearActiveDownload(null, worker));
   }
 
   private void startTensorRtInstall() {
@@ -4144,9 +4147,11 @@ public class KataGoAutoSetupDialog extends JDialog {
       return;
     }
     if (snapshot == null) {
-      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
+      refreshState();
+      return;
     }
     final TensorRtRepairContext directedContext = tensorRtRepairSession.context();
+    final SetupSnapshot source = snapshot;
     KataGoRuntimeHelper.TensorRtInstallStatus status = inspectCurrentTensorRt();
     if (!KataGoRuntimeHelper.shouldStartTensorRtComponentRepair(directedContext)) {
       updateTensorRtInfo();
@@ -4182,25 +4187,18 @@ public class KataGoAutoSetupDialog extends JDialog {
         new Thread(
             () -> {
               try {
-                SetupSnapshot currentSnapshot = snapshot;
                 KataGoRuntimeHelper.TensorRtInstallStatus repaired =
                     KataGoRuntimeHelper.repairTensorRtComponents(
-                        currentSnapshot,
+                        source,
                         (statusText, downloadedBytes, totalBytes) ->
                             SwingUtilities.invokeLater(
                                 () -> setBusy(true, statusText, downloadedBytes, totalBytes)),
                         session,
                         directedContext);
+                SetupSnapshot refreshed =
+                    KataGoAutoSetupHelper.inspectLocalSetup().scanWeightCatalog();
                 SwingUtilities.invokeLater(
-                    () -> {
-                      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
-                      tensorRtRepairSession.clearAfterSuccessfulRepair();
-                      updateDirectedTargetBanner();
-                      renderSnapshot();
-                      setBusy(false, text("AutoSetup.tensorRtRepairDone"), 0, 0);
-                      showTensorRtRepairSummary(
-                          TensorRtAccelerationView.from(repaired, false, true));
-                    });
+                    () -> completeTensorRtRepair(session, repaired, refreshed));
               } catch (TensorRtTargetInvalidException e) {
                 SwingUtilities.invokeLater(
                     () -> {
@@ -4222,25 +4220,45 @@ public class KataGoAutoSetupDialog extends JDialog {
     worker.start();
   }
 
-  private void startTensorRtEnable() {
-    if (hasActiveBackgroundTask()) {
-      showBackgroundTaskAlreadyRunningNotice();
+  private void completeTensorRtRepair(
+      DownloadSession session,
+      KataGoRuntimeHelper.TensorRtInstallStatus repaired,
+      SetupSnapshot refreshed) {
+    if (disposed) return;
+    if (session.isCancelled()) {
+      onDownloadCancelled();
       return;
     }
-    if (snapshot == null) {
-      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
-    }
-    applyInstalledTensorRt();
+    snapshot = refreshed;
+    tensorRtRepairSession.clearAfterSuccessfulRepair();
+    updateDirectedTargetBanner();
+    renderSnapshot();
+    setBusy(false, text("AutoSetup.tensorRtRepairDone"), 0, 0);
+    showTensorRtRepairSummary(TensorRtAccelerationView.from(repaired, false, true));
   }
 
-  private void applyInstalledTensorRt() {
-    try {
-      SetupResult setupResult = KataGoRuntimeHelper.applyInstalledTensorRt(snapshot);
-      setBusy(false, text("AutoSetup.tensorRtInstallDone"), 0, 0);
-      onSetupApplied(setupResult, text("AutoSetup.tensorRtInstallDoneMessage"), false);
-    } catch (IOException e) {
-      onBackgroundError(e);
-    }
+  private void startTensorRtEnable() {
+    if (rejectOverlappingBackgroundTask()) return;
+    SetupSnapshot source = snapshot;
+    runSetupProfileAction(
+        () -> KataGoRuntimeHelper.applyInstalledTensorRt(source),
+        "AutoSetup.tensorRtPreparing",
+        "AutoSetup.tensorRtInstallDoneMessage");
+  }
+
+  private void runSetupProfileAction(
+      Callable<SetupResult> action, String preparingKey, String completedKey) {
+    setBusy(true, text(preparingKey), 0, -1);
+    activeWorkerThread =
+        SetupBackgroundAction.start(
+            "katago-apply-runtime-profile",
+            action,
+            result -> {
+              setBusy(false, text("AutoSetup.weightSwitchActivating"), 0, 0);
+              onSetupApplied(result, text(completedKey), false);
+            },
+            this::onBackgroundError,
+            worker -> clearActiveDownload(null, worker));
   }
 
   private void startExperimentalBackendInstall() {
@@ -4249,14 +4267,9 @@ public class KataGoAutoSetupDialog extends JDialog {
       return;
     }
     Backend backend = (Backend) cmbExperimentalBackend.getSelectedItem();
-    if (backend == null) {
-      return;
-    }
-    if (snapshot == null) {
-      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
-    }
-    KataGoExperimentalBackendInstaller.Status current =
-        KataGoExperimentalBackendInstaller.inspect(snapshot, backend);
+    if (backend == null || !canInstallExperimentalBackend()) return;
+    SetupSnapshot source = snapshot;
+    KataGoExperimentalBackendInstaller.Status current = runtimeState().experimental().get(backend);
     if (current.active()) {
       updateExperimentalBackendInfo();
       return;
@@ -4292,7 +4305,7 @@ public class KataGoAutoSetupDialog extends JDialog {
               try {
                 SetupResult setupResult =
                     KataGoExperimentalBackendInstaller.installAndApply(
-                        snapshot,
+                        source,
                         backend,
                         (statusText, downloaded, total) ->
                             SwingUtilities.invokeLater(
@@ -4318,28 +4331,20 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void switchBackToCuda() {
-    if (hasActiveBackgroundTask()) {
-      showBackgroundTaskAlreadyRunningNotice();
-      return;
-    }
-    if (snapshot == null) {
-      snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
-    }
-    KataGoRuntimeHelper.TensorRtInstallStatus status =
-        KataGoRuntimeHelper.inspectTensorRtInstall(snapshot);
+    if (rejectOverlappingBackgroundTask()) return;
+    KataGoRuntimeHelper.TensorRtInstallStatus status = inspectCurrentTensorRt();
+    if (status == null) return;
     if (!status.active) {
       lblStatus.setText(text("AutoSetup.cudaAlreadyActive"));
       lblStatus.setForeground(OK_COLOR());
       updateTensorRtInfo();
       return;
     }
-    try {
-      SetupResult setupResult = KataGoRuntimeHelper.applyBundledCudaProfile(snapshot);
-      setBusy(false, text("AutoSetup.cudaSwitchDone"), 0, 0);
-      onSetupApplied(setupResult, text("AutoSetup.cudaSwitchDoneMessage"), false);
-    } catch (IOException e) {
-      onBackgroundError(e);
-    }
+    SetupSnapshot source = snapshot;
+    runSetupProfileAction(
+        () -> KataGoRuntimeHelper.applyBundledCudaProfile(source),
+        "AutoSetup.settingUp",
+        "AutoSetup.cudaSwitchDoneMessage");
   }
 
   private void cleanTensorRtCache() {
@@ -4347,7 +4352,8 @@ public class KataGoAutoSetupDialog extends JDialog {
       showBackgroundTaskAlreadyRunningNotice();
       return;
     }
-    long cacheBytes = KataGoRuntimeHelper.tensorRtDownloadCacheBytes();
+    KataGoSetupRuntimeState runtime = runtimeState();
+    long cacheBytes = runtime == null ? 0L : runtime.cacheBytes();
     if (cacheBytes <= 0L) {
       lblStatus.setText(text("AutoSetup.cleanTensorRtCacheEmpty"));
       lblStatus.setForeground(OK_COLOR());
@@ -4364,17 +4370,19 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (result != JOptionPane.OK_OPTION) {
       return;
     }
-    try {
-      long freedBytes = KataGoRuntimeHelper.cleanupTensorRtDownloadCache();
-      String message =
-          String.format(text("AutoSetup.cleanTensorRtCacheDone"), formatSize(freedBytes));
-      lblStatus.setText(message);
-      lblStatus.setForeground(OK_COLOR());
-      updateTensorRtInfo();
-      Utils.showMsg(message, this);
-    } catch (IOException e) {
-      onBackgroundError(e);
-    }
+    setBusy(true, text("AutoSetup.cleanTensorRtCache"), 0, -1);
+    activeWorkerThread =
+        SetupBackgroundAction.start(
+            "katago-clean-runtime-cache",
+            KataGoRuntimeHelper::cleanupTensorRtDownloadCache,
+            freedBytes -> {
+              String message =
+                  String.format(text("AutoSetup.cleanTensorRtCacheDone"), formatSize(freedBytes));
+              setBusy(false, message, 0, 0);
+              lblStatus.setForeground(OK_COLOR());
+            },
+            this::onBackgroundError,
+            worker -> clearActiveDownload(null, worker));
   }
 
   private String formatTensorRtConfirmMessage(KataGoRuntimeHelper.TensorRtInstallStatus status) {
@@ -4397,20 +4405,12 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void startPerformanceBenchmark(boolean experimental) {
+    if (disposed) return;
     if (hasActiveBackgroundTask()) {
       showBackgroundTaskAlreadyRunningNotice();
       return;
     }
-    String unavailableReason = KataGoRuntimeHelper.benchmarkUnavailableReason(snapshot);
-    if (!unavailableReason.isEmpty()) {
-      Utils.showMsg(unavailableReason, this);
-      return;
-    }
-    if (snapshot == null
-        || !snapshot.hasEngine()
-        || snapshot.gtpConfigPath == null
-        || !Files.isRegularFile(snapshot.gtpConfigPath)
-        || !snapshot.hasWeight()) {
+    if (snapshot == null) {
       Utils.showMsg(text("AutoSetup.benchmarkUnavailable"), this);
       return;
     }
@@ -4430,25 +4430,8 @@ public class KataGoAutoSetupDialog extends JDialog {
         return;
       }
     }
-    final KataGoRuntimeHelper.BenchmarkTarget target;
-    try {
-      target = KataGoRuntimeHelper.captureBenchmarkTarget(snapshot, false);
-    } catch (IOException failure) {
-      onBenchmarkFailed(failure);
-      return;
-    }
-    benchmarkTarget = target;
-    snapshot = target.snapshot;
+    final SetupSnapshot source = snapshot;
     final long operation = ++benchmarkOperation;
-
-    KataGoRuntimeHelper.BenchmarkPauseResult pauseResult =
-        KataGoRuntimeHelper.pauseCurrentAnalysisForBenchmark();
-    if (!pauseResult.accepted()) {
-      Utils.showMsg(
-          Lizzie.resourceBundle.getString("AnalysisSettings.reuseStatus.existing_lease"), this);
-      return;
-    }
-    final boolean analysisWasPondering = pauseResult.analysisWasPondering();
     final DownloadSession session = new DownloadSession();
     activeDownloadSession = session;
     benchmarkDisplayState = BenchmarkDisplayState.RUNNING;
@@ -4459,7 +4442,28 @@ public class KataGoAutoSetupDialog extends JDialog {
     Thread worker =
         new Thread(
             () -> {
+              boolean analysisPaused = false;
+              boolean analysisWasPondering = false;
               try {
+                session.throwIfCancelled();
+                KataGoRuntimeHelper.BenchmarkTarget target =
+                    KataGoRuntimeHelper.captureBenchmarkTarget(source, false);
+                session.throwIfCancelled();
+                KataGoRuntimeHelper.BenchmarkPauseResult pauseResult =
+                    KataGoRuntimeHelper.pauseCurrentAnalysisForBenchmark();
+                if (!pauseResult.accepted()) {
+                  throw new IOException(text("AnalysisSettings.reuseStatus.existing_lease"));
+                }
+                analysisPaused = true;
+                analysisWasPondering = pauseResult.analysisWasPondering();
+                session.throwIfCancelled();
+                SwingUtilities.invokeLater(
+                    () -> {
+                      if (operation != benchmarkOperation) return;
+                      benchmarkTarget = target;
+                      snapshot = target.snapshot;
+                      updateBenchmarkInfo();
+                    });
                 SetupSnapshot currentSnapshot = target.snapshot;
                 KataGoRuntimeHelper.NvidiaRuntimeStatus runtimeStatus =
                     KataGoRuntimeHelper.inspectNvidiaRuntime(currentSnapshot);
@@ -4509,7 +4513,9 @@ public class KataGoAutoSetupDialog extends JDialog {
                       if (operation == benchmarkOperation) onBenchmarkFailed(e);
                     });
               } finally {
-                KataGoRuntimeHelper.restoreAnalysisAfterBenchmark(analysisWasPondering);
+                if (analysisPaused) {
+                  KataGoRuntimeHelper.restoreAnalysisAfterBenchmark(analysisWasPondering);
+                }
                 clearActiveDownload(session, Thread.currentThread());
                 SwingUtilities.invokeLater(
                     () -> {
@@ -4669,6 +4675,7 @@ public class KataGoAutoSetupDialog extends JDialog {
       boolean includeWeightPathInPopup,
       boolean resumeQuickAnalysis,
       long requestedWeightSwitchToken) {
+    if (disposed) return;
     pendingWeightSwitchShouldResumeQuickAnalysis |= resumeQuickAnalysis;
     long weightSwitchToken = publishAcceptedWeightSwitch(result, requestedWeightSwitchToken);
     EngineManager expectedManager = Lizzie.engineManager;
@@ -4896,13 +4903,13 @@ public class KataGoAutoSetupDialog extends JDialog {
           if (!isPendingWeightSwitch(weightSwitchToken)) {
             return;
           }
-          setBusy(false, succeeded ? message : reloadWarning, 0, 0);
           weightSwitchDisplayState =
               succeeded
                   ? weightSwitchDisplayState.succeed(
                       weightSwitchToken, result == null ? null : result.snapshot)
                   : weightSwitchDisplayState.fail(weightSwitchToken, authoritativeSnapshot);
           snapshot = weightSwitchDisplayState.displayedSnapshot();
+          setBusy(false, succeeded ? message : reloadWarning, 0, 0);
           renderSnapshot();
           selectRemoteWeightByModelName(catalogModelName(snapshot));
           updateSelectedRemoteWeightInfo();
@@ -4920,12 +4927,7 @@ public class KataGoAutoSetupDialog extends JDialog {
             lblStatus.setText(reloadWarning);
             lblStatus.setForeground(ERROR_COLOR());
             if (showSuccessPopup || includeWeightPathInPopup) {
-              Utils.showMsg(
-                  message
-                      + (includeWeightPathInPopup ? "\n" + result.snapshot.activeWeightPath : "")
-                      + "\n\n"
-                      + reloadWarning,
-                  this);
+              Utils.showMsg(text("AutoSetup.failed") + "\n" + reloadWarning, this);
             }
           }
           resumeQuickAnalysisAfterWeightSwitchIfNeeded();
@@ -5044,6 +5046,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void onBackgroundError(Exception e) {
+    if (disposed) return;
     setBusy(false, text("AutoSetup.failed"), 0, 0);
     renderSnapshot();
     String detail = e == null || e.getMessage() == null ? "" : e.getMessage();
@@ -5098,9 +5101,25 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   @Override
   public void dispose() {
-    ++benchmarkNoticeGeneration;
+    cancelOwnedSetupTasks();
     if (measuredTuningDialog != null) measuredTuningDialog.invalidate();
     super.dispose();
+  }
+
+  private void cancelOwnedSetupTasks() {
+    disposed = true;
+    ++benchmarkNoticeGeneration;
+    ++benchmarkOperation;
+    ++stateRefreshRequestId;
+    ++engineValidationRequestId;
+    cancelStateRefresh();
+    if (activeDownloadSession != null) activeDownloadSession.cancel();
+    if (activeWorkerThread != null) activeWorkerThread.interrupt();
+    if (pendingWeightSwitchTimer != null) {
+      pendingWeightSwitchTimer.stop();
+      pendingWeightSwitchTimer = null;
+    }
+    weightSwitchDisplayState = null;
   }
 
   private void closeOrCancelActiveTask() {
@@ -5126,6 +5145,7 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private void setBusy(boolean busy, String statusText, long downloadedBytes, long totalBytes) {
+    if (disposed) return;
     String previousStatus = progressStatusLabel.getText();
     if (statusText == null || statusText.trim().isEmpty()) {
       statusText = busy ? text("AutoSetup.benchmarking") : "";
@@ -5134,99 +5154,32 @@ public class KataGoAutoSetupDialog extends JDialog {
     lblStatus.setForeground(busy ? WARN_COLOR() : TEXT_SECONDARY());
     progressStatusLabel.setText(statusText);
     progressStatusLabel.setForeground(busy ? WARN_COLOR() : TEXT_SECONDARY());
-    btnRefresh.setEnabled(!busy);
-    btnChooseLocalEngine.setEnabled(!busy);
-    btnRepairAnalysisConfig.setEnabled(!busy);
-    btnOpenAppFolder.setEnabled(!busy);
-    btnViewFullDownloads.setEnabled(!busy);
-    btnReloadRemoteWeights.setEnabled(!busy);
-    btnDownloadWeight.setEnabled(!busy && canDownloadSelectedRemoteWeight());
-    btnImportWeight.setEnabled(!busy);
-    btnUseWeight.setEnabled(!busy && canUseSelectedLocalWeight());
-    btnDownloadHumanSlModel.setEnabled(!busy && canDownloadHumanSlModel());
-    btnImportHumanSlModel.setEnabled(!busy);
-    btnDownloadQuickAnalysisModel.setEnabled(
-        !busy && !hasQuickAnalysisModel() && canEnableQuickAnalysisModel());
-    chkUseQuickAnalysisModel.setEnabled(
-        !busy
-            && hasQuickAnalysisModel()
-            && (chkUseQuickAnalysisModel.isSelected() || canEnableQuickAnalysisModel()));
-    weightCatalogList.setEnabled(!busy && !weightCatalogModel.isEmpty());
-    btnOfficialWeightTab.setEnabled(!busy);
-    btnCustomWeightTab.setEnabled(!busy);
-    balancedRecommendation.setEnabled(!busy && balancedRecommendation.getWeight() != null);
-    strongestRecommendation.setEnabled(!busy && strongestRecommendation.getWeight() != null);
-    lightweightRecommendation.setEnabled(!busy && lightweightRecommendation.getWeight() != null);
-    btnInstallNvidiaRuntime.setEnabled(!busy && canInstallNvidiaRuntime());
-    btnInstallTensorRt.setEnabled(!busy && canRepairTensorRt());
-    btnEnableTensorRt.setEnabled(!busy && canActivateTensorRt());
-    btnSwitchBackCuda.setEnabled(!busy && canSwitchBackToCuda());
-    btnCleanTensorRtCache.setEnabled(
-        !busy && KataGoRuntimeHelper.tensorRtDownloadCacheBytes() > 0L);
-    cmbExperimentalBackend.setEnabled(!busy);
-    btnInstallExperimentalBackend.setEnabled(!busy && canInstallExperimentalBackend());
-    btnOptimizePerformance.setEnabled(!busy && canRunBenchmark());
-    btnExperimentalPerformance.setEnabled(
-        !busy && canRunBenchmark() && isExperimentalAppleSiliconTuningAvailable());
-    btnStopDownload.setEnabled(busy && activeDownloadSession != null);
+    boolean busyChanged = controlsBusy != busy;
+    controlsBusy = busy;
+    btnStopDownload.setEnabled(busy && canStopActiveDownload());
     btnClose.setEnabled(true);
-
-    if (busy || hasActiveBackgroundTask()) {
+    if (busy && busyChanged) {
       setRefreshDependentControlsEnabled(false);
-      btnImportMeasuredTuning.setEnabled(false);
-      btnRestoreMeasuredTuning.setEnabled(false);
-      btnStopDownload.setEnabled(activeDownloadSession != null);
-    } else updateMeasuredTuningActions();
+      sectionNav.setEnabled(false);
+      btnRemoteCompute.setEnabled(false);
+      btnStopDownload.setEnabled(canStopActiveDownload());
+    } else if (!busy) refreshIdleControls();
 
     progressPanel.setVisible(busy);
-    footerPanel.setVisible(busy);
+    footerPanel.setVisible(true);
     AccessibilitySupport.announce(progressStatusLabel, previousStatus, statusText);
-    progressBar.setIndeterminate(busy && totalBytes <= 0);
     if (!busy) {
       progressStartedAtMillis = 0L;
-      progressBar.setIndeterminate(false);
-      progressBar.setValue(0);
-      progressBar.putClientProperty(BENCHMARK_PROGRESS_KEY, Integer.valueOf(0));
-      progressBar.setString("");
-    } else if (totalBytes > 0) {
-      if (downloadedBytes > 0L && progressStartedAtMillis <= 0L) {
-        progressStartedAtMillis = System.currentTimeMillis();
-      }
-      progressBar.setMaximum(1000);
-      int progressValue = (int) Math.min(1000, (downloadedBytes * 1000L) / totalBytes);
-      if (isBenchmarkPermilleProgress(statusText, downloadedBytes, totalBytes)) {
-        int previousProgress =
-            progressBar.getClientProperty(BENCHMARK_PROGRESS_KEY) instanceof Integer
-                ? ((Integer) progressBar.getClientProperty(BENCHMARK_PROGRESS_KEY)).intValue()
-                : 0;
-        progressValue = Math.max(previousProgress, progressValue);
-        progressBar.putClientProperty(BENCHMARK_PROGRESS_KEY, Integer.valueOf(progressValue));
-      } else {
-        progressBar.putClientProperty(BENCHMARK_PROGRESS_KEY, Integer.valueOf(0));
-      }
-      progressBar.setValue(progressValue);
-      if (isBenchmarkPermilleProgress(statusText, downloadedBytes, totalBytes)) {
-        long percent = Math.min(100, progressValue / 10L);
-        progressBar.setString(percent + "%");
-      } else {
-        long percent = Math.min(100, (downloadedBytes * 100L) / totalBytes);
-        String etaText = formatEta(downloadedBytes, totalBytes);
-        progressBar.setString(
-            percent
-                + "%  "
-                + formatSize(downloadedBytes)
-                + " / "
-                + formatSize(totalBytes)
-                + etaText);
-      }
-    } else if (downloadedBytes > 0) {
-      progressBar.setValue(0);
-      progressBar.setString(formatSize(downloadedBytes));
-    } else {
-      progressBar.setValue(0);
-      progressBar.putClientProperty(BENCHMARK_PROGRESS_KEY, Integer.valueOf(0));
-      progressBar.setString("");
+    } else if (totalBytes > 0L && downloadedBytes > 0L && progressStartedAtMillis <= 0L) {
+      progressStartedAtMillis = System.currentTimeMillis();
     }
+    SetupProgressDisplay.render(
+        progressBar,
+        busy,
+        downloadedBytes,
+        totalBytes,
+        this::formatSize,
+        formatEta(downloadedBytes, totalBytes));
 
     progressPanel.revalidate();
     progressPanel.repaint();
@@ -5247,49 +5200,29 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private boolean canInstallNvidiaRuntime() {
-    if (snapshot == null || !snapshot.hasEngine()) {
-      return false;
-    }
-    KataGoRuntimeHelper.NvidiaRuntimeStatus status =
-        KataGoRuntimeHelper.inspectNvidiaRuntime(snapshot);
-    return status.applicable && !status.ready;
-  }
-
-  private boolean canInstallTensorRt() {
-    if (snapshot == null) {
-      return false;
-    }
-    return KataGoRuntimeHelper.canInstallTensorRt(snapshot);
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return runtime != null && runtime.canInstallNvidiaRuntime();
   }
 
   private boolean canRepairTensorRt() {
-    if (snapshot == null) {
-      return false;
-    }
-    return KataGoRuntimeHelper.canRepairTensorRt(
-        snapshot, nvidiaGpuDetection, tensorRtRepairSession.context());
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return runtime != null && runtime.canRepairTensorRt();
   }
 
   private boolean canActivateTensorRt() {
-    if (snapshot == null) {
-      return false;
-    }
-    return KataGoRuntimeHelper.canActivateTensorRt(snapshot, nvidiaGpuDetection);
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return runtime != null && runtime.canActivateTensorRt();
   }
 
   private boolean canInstallExperimentalBackend() {
     Backend backend = (Backend) cmbExperimentalBackend.getSelectedItem();
-    if (backend == null || snapshot == null || !snapshot.hasConfigs() || !snapshot.hasWeight()) {
-      return false;
-    }
-    return !KataGoExperimentalBackendInstaller.inspect(snapshot, backend).active();
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return backend != null && runtime != null && runtime.canInstallExperimentalBackend(backend);
   }
 
   private boolean canSwitchBackToCuda() {
-    if (snapshot == null) {
-      return false;
-    }
-    return KataGoRuntimeHelper.canSwitchBackToCuda(snapshot);
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return runtime != null && runtime.canSwitchBackToCuda();
   }
 
   private boolean hasActiveBackgroundTask() {
@@ -5298,7 +5231,8 @@ public class KataGoAutoSetupDialog extends JDialog {
         || measuredTuningBusy
         || activeDownloadSession != null
         || activeWorkerThread != null
-        || pendingWeightSwitchTimer != null;
+        || pendingWeightSwitchTimer != null
+        || (weightSwitchDisplayState != null && weightSwitchDisplayState.isPending());
   }
 
   private boolean rejectOverlappingBackgroundTask() {
@@ -5329,14 +5263,15 @@ public class KataGoAutoSetupDialog extends JDialog {
   }
 
   private boolean canRunBenchmark() {
-    return snapshot != null
-        && KataGoRuntimeHelper.benchmarkUnavailableReason(snapshot).isEmpty()
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return runtime != null
+        && runtime.benchmarkUnavailableReason().isEmpty()
         && isEngineValidationReady();
   }
 
   private boolean isExperimentalAppleSiliconTuningAvailable() {
-    return snapshot != null
-        && KataGoRuntimeHelper.isExperimentalAppleSiliconTuningAvailable(snapshot);
+    KataGoSetupRuntimeState runtime = runtimeState();
+    return runtime != null && runtime.appleTuningAvailable();
   }
 
   private boolean isEngineValidationReady() {
@@ -5345,11 +5280,6 @@ public class KataGoAutoSetupDialog extends JDialog {
 
   private boolean canDownloadHumanSlModel() {
     return !hasHumanSlModel() && !hasActiveBackgroundTask();
-  }
-
-  private boolean isBenchmarkPermilleProgress(
-      String statusText, long downloadedBytes, long totalBytes) {
-    return totalBytes == 1000L && downloadedBytes >= 0L && downloadedBytes <= 1000L;
   }
 
   private Path getSelectedLocalWeight() {
@@ -5426,10 +5356,11 @@ public class KataGoAutoSetupDialog extends JDialog {
   private void updateSelectedWeightInfo() {
     WeightCatalogEntry entry = weightCatalogList.getSelectedValue();
     if (entry == null) {
+      // While the list loads, the list itself says so; nothing has failed yet.
       String emptyText =
-          weightCatalogMode == WeightCatalogMode.OFFICIAL
-              ? text("AutoSetup.remoteUnavailable")
-              : text("AutoSetup.noLocalWeights");
+          weightCatalogMode != WeightCatalogMode.OFFICIAL
+              ? text("AutoSetup.noLocalWeights")
+              : remoteWeightsLoading ? "" : text("AutoSetup.remoteUnavailable");
       lblSelectedWeightName.setText(emptyText);
       lblSelectedWeightName.setToolTipText(null);
       lblSelectedWeightMeta.setText("");
@@ -5616,9 +5547,10 @@ public class KataGoAutoSetupDialog extends JDialog {
     }
     boolean empty = weightCatalogModel.isEmpty();
     lblWeightCatalogEmpty.setText(
-        weightCatalogMode == WeightCatalogMode.OFFICIAL
-            ? text("AutoSetup.remoteUnavailable")
-            : text("AutoSetup.noCustomWeights"));
+        weightCatalogMode != WeightCatalogMode.OFFICIAL
+            ? text("AutoSetup.noCustomWeights")
+            : text(
+                remoteWeightsLoading ? "AutoSetup.loadingRemote" : "AutoSetup.remoteUnavailable"));
     lblWeightCatalogEmpty.setToolTipText(null);
     showWeightCatalogEmptyState(empty);
     updateWeightCatalogViewportHeight(weightCatalogModel.size());
@@ -6127,10 +6059,6 @@ public class KataGoAutoSetupDialog extends JDialog {
     return findDownloadedRemoteWeightPath(info) != null;
   }
 
-  private String normalizeWeightName(String value) {
-    return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-  }
-
   private String formatRemoteModelName(RemoteWeightInfo info) {
     if (info == null) {
       return "";
@@ -6161,35 +6089,47 @@ public class KataGoAutoSetupDialog extends JDialog {
     if (session == null) {
       return;
     }
-    btnStopDownload.setEnabled(false);
-    setBusy(true, text("AutoSetup.cancelling"), 0, -1);
     session.cancel();
+    setBusy(true, text("AutoSetup.cancelling"), 0, -1);
     Thread worker = activeWorkerThread;
     if (worker != null) {
       worker.interrupt();
     }
   }
 
+  private boolean canStopActiveDownload() {
+    DownloadSession session = activeDownloadSession;
+    return session != null && !session.isCancelled();
+  }
+
   private void clearActiveDownload(DownloadSession session, Thread workerThread) {
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> clearActiveDownload(session, workerThread));
+      return;
+    }
     boolean stateChanged = false;
-    if (activeDownloadSession == session) {
+    if (session != null && activeDownloadSession == session) {
       activeDownloadSession = null;
       stateChanged = true;
     }
-    if (activeWorkerThread == workerThread) {
+    if (workerThread != null && activeWorkerThread == workerThread) {
       activeWorkerThread = null;
       stateChanged = true;
     }
-    if (stateChanged) {
-      SwingUtilities.invokeLater(this::refreshIdleControls);
-    }
+    if (!stateChanged || disposed) return;
+    if (runtimeStateCache != null) runtimeStateCache.invalidate();
+    // A close can invalidate publication before a reopened view sees completion. Read fresh state
+    // after the old owner finishes; never publish its old snapshot or unlock a newer operation.
+    if (controlsBusy && !hasActiveBackgroundTask()) refreshState();
+    else refreshIdleControls();
   }
 
   private void refreshIdleControls() {
+    if (disposed) return;
     updateMeasuredTuningActions();
-    if (hasActiveBackgroundTask()) {
+    if (controlsBusy || hasActiveBackgroundTask()) {
       setRefreshDependentControlsEnabled(false);
-      btnStopDownload.setEnabled(activeDownloadSession != null);
+      btnStopDownload.setEnabled(canStopActiveDownload());
       return;
     }
     sectionNav.setEnabled(selectedBenchmarkEntryId.isBlank());
@@ -6224,6 +6164,8 @@ public class KataGoAutoSetupDialog extends JDialog {
     btnEnableTensorRt.setEnabled(canActivateTensorRt());
     btnSwitchBackCuda.setEnabled(canSwitchBackToCuda());
     updateTensorRtCacheButton();
+    cmbExperimentalBackend.setEnabled(true);
+    btnInstallExperimentalBackend.setEnabled(canInstallExperimentalBackend());
     btnOptimizePerformance.setEnabled(canRunBenchmark());
     boolean experimentalAvailable = isExperimentalAppleSiliconTuningAvailable();
     btnExperimentalPerformance.setVisible(experimentalAvailable);
@@ -6670,7 +6612,8 @@ public class KataGoAutoSetupDialog extends JDialog {
           tone == RecommendationTone.GOLD ? StatusTagTone.GOLD : StatusTagTone.TEAL);
       if (remoteWeight == null) {
         action = RecommendationAction.NONE;
-        model.setText(text("AutoSetup.loadingRemote"));
+        model.setText(
+            text(remoteWeightsLoading ? "AutoSetup.loadingRemote" : "AutoSetup.noRemoteWeights"));
         metadata.setText("");
         setToolTipText(null);
         setEnabled(false);

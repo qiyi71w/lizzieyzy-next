@@ -57,6 +57,7 @@ DESKTOP_REQUIRED_TESTS = (
     ("featurecat.lizzie.gui.FunctionSearchInputTest", "chineseInputChain"),
     ("featurecat.lizzie.gui.FunctionSearchInputTest", "englishInputChain"),
     ("featurecat.lizzie.gui.OfflineBoardAcceptanceTest", "editsAndImportsWithNoEngine"),
+    ("featurecat.lizzie.gui.OfflineWinrateNavigationAcceptanceTest", "opensAndNavigatesSgfBeforeAnyEngineHasStarted"),
     (
         "featurecat.lizzie.update.CheckUpdateDialogTest",
         "preferencesAndResultSurviveClosingAndReopeningWithoutAnotherCheck",
@@ -205,6 +206,8 @@ PY_COMPILE_FILES = (
     "scripts/prepare_bundled_jcef.py",
     "scripts/prepare_bundled_nvidia_runtime.py",
     "scripts/publish_release_request.py",
+    "scripts/prefer_ubuntu_apt_mirror.py",
+    "scripts/test_prefer_ubuntu_apt_mirror.py",
     "scripts/r2_release.py",
     "scripts/release_asset_provenance.py",
     "scripts/release_asset_topology.py",
@@ -282,6 +285,7 @@ DIRECT_PYTHON_TESTS = (
 )
 
 UNITTEST_MODULES = (
+    "scripts.test_prefer_ubuntu_apt_mirror",
     "scripts.test_publish_release_request",
     "scripts.test_release_asset_provenance",
     "scripts.test_release_asset_topology",
@@ -416,9 +420,11 @@ def is_windows_wsl_bash_launcher(path: str, *, windows: bool | None = None) -> b
     if not windows:
         return False
     normalized = path.replace("\\", "/").casefold()
-    return normalized.endswith("/windows/system32/bash.exe") or normalized.endswith(
-        "/windows/sysnative/bash.exe"
-    )
+    return normalized.endswith((
+        "/windows/system32/bash.exe",
+        "/windows/sysnative/bash.exe",
+        "/microsoft/windowsapps/bash.exe",
+    ))
 
 
 def resolve_powershell() -> str:
@@ -658,7 +664,7 @@ def build_steps(
                     "-Dsurefire.reuseForks=true",
                     f"-Dlizzie.desktop.evidence.dir={evidence_dir}",
                     f"-Dsurefire.reportsDirectory={reports_dir}",
-                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,EngineProcessSmokeTest,FunctionSearchInputTest,OfflineBoardAcceptanceTest,CheckUpdateDialogTest,UpdatePauseRecoveryTest,SetKataRulesWindowTest,RulesDialogLayoutTest",
+                    "-Dtest=FunctionSearchNavigationTest,ConfigDialog2NavigationTest,EngineProcessSmokeTest,FunctionSearchInputTest,OfflineBoardAcceptanceTest,OfflineWinrateNavigationAcceptanceTest,CheckUpdateDialogTest,UpdatePauseRecoveryTest,SetKataRulesWindowTest,RulesDialogLayoutTest",
                     "test",
                 ),
                 group="desktop",

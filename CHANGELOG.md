@@ -4,6 +4,50 @@ All notable maintenance updates to this fork are documented here.
 
 ## Unreleased
 
+- Built-in Zhizi whole-game overview with the default 500-visit budget reduces sequential network waits between positions and requests more frequent analysis reports. It keeps the same analysis command, model, requested visits and full candidate variations; errors and cancellation still restore the foreground position before reuse.
+
+- Opening a game record before starting any engine now allows clicking and dragging the winrate graph to navigate moves. Offline imports retain their rules without waiting for an engine reader; stale imports still cannot complete after the selected engine or game changes.
+
+- Flash whole-game overview and whole-game deep analysis now use the selected built-in cloud engine with default analysis settings. Explicit dedicated engines and SSH settings are preserved, and incompatible idle analysis workers are closed before replacement. Starting immediately after a game import waits for board synchronization before sharing the connection; failed or superseded imports cannot leave stale analysis queued. Successful handback preserves the pending post-import analysis request while respecting pause and cancellation.
+
+- Stopping automatic analysis discards already-admitted late results before they advance the game or mark branch/difference analysis complete. Valid progress from a shared Zhizi analysis session now renews its connection watchdog, preventing a long search from being mistaken for a stalled connection.
+
+- Diagnostic logs and exported reports redact Zhizi account identifiers included in the service's startup messages.
+
+- Engine startup diagnostics now identify explicit Windows loader error 206 and explain how to retry the complete portable package from a shorter folder, preserving the original error evidence and existing data instead of treating the failure as a generic DLL loading problem.
+
+- AI Coach take-backs and blunder retries no longer send undo commands to the isolated foreground engine in hidden-analysis modes. Live-analysis games keep forwarding their take-backs normally.
+
+- Windows final-package acceptance binds startup cleanup to the original launcher and child process identities instead of blindly trusting PIDs. Detected PID reuse or missing identity data prevents termination and remains visible in cleanup results while configuration and isolation resources are restored. Possible surviving descendants after an early launcher exit remain unverified, never silently counted as complete cleanup or terminated by ancestry alone.
+
+- Windows installation and release guidance now distinguishes the NVIDIA full package's bundled
+  runtime from optional downloads, and explains reinstalling the full package when runtime files are missing.
+
+- AI Coach discards late review notifications after a game is closed, preventing the old session from refreshing a detached or replacement interface.
+
+- On Windows, opening the system window menu with Alt+Space no longer stops a live-analysis AI Coach game. The ordinary Space shortcut keeps its existing behavior.
+
+- AI Coach keeps localized win-chance and points-lost text inside its decision card. Long text wraps, and decision buttons stack when their translated labels do not fit side by side.
+
+- AI Coach scrolls its side panel on short windows so blunder decisions and game actions never overlap.
+
+- KataGo Auto Setup recovers when it is closed and reopened before a download or local model import finishes. Late results no longer leave the reopened window permanently busy, and stale import errors do not open dialogs after closing.
+
+- Top menus keep shortcut hints clear of help buttons, preserve user-defined Quick Links names,
+  and expose custom-layout shortcuts to screen readers after reopening the menu.
+
+- KataGo Auto Setup keeps its existing interface while handling background work more reliably.
+  - Runtime inspection and cache sizing run off the UI thread. Progress and cancellation remain available, and late results from a closed window are discarded.
+  - Saving engine settings preserves concurrent profile changes and the selected default engine.
+  - Automatic background optimization no longer opens progress or error popups; results remain available in the performance page.
+
+- KataGo Auto Setup (一键设置) downloads are safer.
+  - A weight listed on the KataGo networks page without a size or digest is no longer installed from a stopped download. It counts as whole only when the gzip file reads to the end.
+  - Links on that page are followed only over HTTPS to katagotraining.org, and only to plain weight file names. A name with a folder in it can no longer write outside the weights folder.
+  - Reopening the dialog during a download no longer hides its progress and leaves the dialog stuck as busy.
+  - The official weight list shows the latest answer, and says it is loading instead of 暂时无法获取 while it loads.
+  - The CUDA and cuDNN packages that TensorRT acceleration downloads are pinned by version and SHA-256, like NVRTC and TensorRT already were.
+
 - KataGo Auto Setup (一键设置) fixes for NVIDIA and the experimental backends.
   - 切回 CUDA really switches back. After TensorRT was enabled, it used to rewrite KataGo Auto Setup to run TensorRT and keep it as the default.
   - Upgrading the engine of the TensorRT full package keeps the NVIDIA runtime beside it. The upgrade used to delete it, and a 3.66 GB download followed.

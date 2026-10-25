@@ -1060,6 +1060,35 @@ public class KataGoAutoSetupHelperTest {
   }
 
   @Test
+  void networksPageLinksOutsideTheTrainingSiteOrWithFoldersAreDropped() throws Exception {
+    String good = officialModel("b28", 3);
+    String html =
+        new StringBuilder()
+            .append("<table class=\"table mt-3\">")
+            .append(officialRow(good, "2026-06-28", "14180 Elo"))
+            .append(row("kata1-b28-plain-http", "http://media.katagotraining.org/m/a.bin.gz"))
+            .append(row("kata1-b28-elsewhere", "https://example.com/kata1-b28-elsewhere.bin.gz"))
+            .append(row("kata1-b28-folder", "https://media.katagotraining.org/m/..%5Cevil.bin.gz"))
+            .append("</table>")
+            .toString();
+
+    List<KataGoAutoSetupHelper.RemoteWeightInfo> choices =
+        KataGoAutoSetupHelper.parseOfficialWeights(html);
+
+    assertEquals(List.of(good), choices.stream().map(info -> info.modelName).toList());
+  }
+
+  private static String row(String model, String url) {
+    return "<tr><td>"
+        + model
+        + "</td><td>2026-06-20</td><td>14000 Elo</td><td><a href=\""
+        + url
+        + "\">"
+        + model
+        + "</a></td></tr>";
+  }
+
+  @Test
   void officialWeightChoicesNoLongerReserveTheLegacyDefaultZhizi() throws Exception {
     String latestModel = officialModel("b28", 3);
     String olderModel = officialModel("b28", 2);
@@ -1149,6 +1178,48 @@ public class KataGoAutoSetupHelperTest {
             assertEquals("bytes=" + partialSize + "-", resumed.lastRangeHeader());
             assertArrayEquals(modelBytes, Files.readAllBytes(downloaded));
             assertFalse(Files.exists(partial));
+          });
+    }
+  }
+
+  @Test
+  void aWeightListedWithoutSizeOrDigestIsNotInstalledFromACutOffPartial() throws Exception {
+    Path tempRoot = Files.createTempDirectory("katago-scraped-truncated");
+    byte[] raw = new byte[3 * 1024 * 1024];
+    new java.util.Random(11).nextBytes(raw);
+    java.io.ByteArrayOutputStream gzip = new java.io.ByteArrayOutputStream();
+    try (java.util.zip.GZIPOutputStream output = new java.util.zip.GZIPOutputStream(gzip)) {
+      output.write(raw);
+    }
+    byte[] modelBytes = gzip.toByteArray();
+    int partialSize = 2 * 1024 * 1024;
+    try (RangeFixtureServer server = RangeFixtureServer.start(modelBytes)) {
+      withUserDirAndConfig(
+          tempRoot,
+          () -> {
+            Path weightsDir = Files.createDirectories(tempRoot.resolve("weights"));
+            Files.write(
+                weightsDir.resolve("model.bin.gz.part"),
+                java.util.Arrays.copyOf(modelBytes, partialSize));
+            // Rows read from the networks page carry neither a size nor a digest.
+            KataGoAutoSetupHelper.RemoteWeightInfo info =
+                new KataGoAutoSetupHelper.RemoteWeightInfo(
+                    "Transformer",
+                    "fixture-listed",
+                    server.url(),
+                    "2026-07-29",
+                    "",
+                    false,
+                    false,
+                    "",
+                    0L,
+                    "1.17.0",
+                    KataGoAutoSetupHelper.TransformerTier.BALANCED);
+
+            Path downloaded = KataGoAutoSetupHelper.downloadWeight(info, null);
+
+            assertEquals("bytes=" + partialSize + "-", server.lastRangeHeader());
+            assertArrayEquals(modelBytes, Files.readAllBytes(downloaded));
           });
     }
   }
@@ -2741,7 +2812,7 @@ public class KataGoAutoSetupHelperTest {
   }
 
   private static String officialLink(String model) {
-    return "<a href=\"https://example.com/" + model + ".bin.gz\">" + model + "</a>";
+    return "<a href=\"" + officialModelUrl(model) + "\">" + model + "</a>";
   }
 
   private static String officialRow(String model, String releaseDate, String elo) {

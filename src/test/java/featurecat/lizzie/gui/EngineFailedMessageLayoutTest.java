@@ -22,8 +22,11 @@ import java.awt.Font;
 import java.awt.GraphicsEnvironment;
 import java.awt.Insets;
 import java.awt.Rectangle;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.PropertyResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,6 +41,47 @@ import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
 class EngineFailedMessageLayoutTest {
+  @Test
+  void pathErrorActionIsRenderedFromEveryMaintainedBundleWithoutLosingEvidence() throws Exception {
+    String key = "EngineFailedMessage.outcome.path-too-long";
+    String detail = "Could not load library cudnn_engines_precompiled64_9.dll. Error code 206";
+    JSONArray findings =
+        new JSONArray()
+            .put(
+                new JSONObject()
+                    .put("outcome", "path-too-long")
+                    .put("dll", "cudnn_engines_precompiled64_9.dll")
+                    .put("evidence", "engine-stderr")
+                    .put("detail", detail));
+    for (String suffix :
+        List.of("", "_en_US", "_zh_CN", "_zh_TW", "_zh_HK", "_ja_JP", "_ko", "_th_TH")) {
+      String resource = "/l10n/DisplayStrings" + suffix + ".properties";
+      try (var stream = getClass().getResourceAsStream(resource)) {
+        assertNotNull(stream, resource);
+        var bundle =
+            new PropertyResourceBundle(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        assertTrue(bundle.containsKey(key), resource + " defines its own translated action");
+        String action = bundle.getString(key);
+        assertTrue(action.contains("206"), resource);
+        assertTrue(action.contains("LizzieYzy"), resource);
+        assertTrue(action.contains("DLL"), resource);
+        SwingUtilities.invokeAndWait(
+            () -> {
+              var previous = Lizzie.resourceBundle;
+              try {
+                Lizzie.resourceBundle = bundle;
+                String rendered = EngineFailedMessage.formatFindingsText(findings);
+                assertTrue(rendered.contains(action), resource);
+                assertTrue(rendered.contains(detail), resource);
+                assertFalse(rendered.contains("path-too-long"), resource);
+              } finally {
+                Lizzie.resourceBundle = previous;
+              }
+            });
+      }
+    }
+  }
+
   @Test
   void longFailureDetailsStayBoundedOnFourKAtOneHundredFiftyPercent() {
     String longMessage = "Exit code: -1 Recent stderr: " + "failure details ".repeat(2_000);
@@ -488,44 +532,51 @@ class EngineFailedMessageLayoutTest {
   }
 
   @Test
-  void boundAttemptDisplaysSummaryAndDetailsWithIsolation() {
+  void boundAttemptDisplaysSummaryAndDetailsWithIsolation() throws Exception {
     assumeTrue(Lizzie.config != null);
     assumeTrue(!GraphicsEnvironment.isHeadless());
-    try (EngineStartupDiagnostics diagnostics =
-        new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
-      EngineStartupDiagnostics.Attempt attempt1 =
-          diagnostics.begin("engine-test-1", "play", List.of("katago.exe", "gtp"), true);
-      attempt1.fail("startup", "process failed to start");
+    SwingUtilities.invokeAndWait(
+        () -> {
+          try (EngineStartupDiagnostics diagnostics =
+              new EngineStartupDiagnostics(EngineStartupDiagnostics.Policy.production(), null)) {
+            EngineStartupDiagnostics.Attempt attempt1 =
+                diagnostics.begin("engine-test-1", "play", List.of("katago.exe", "gtp"), true);
+            attempt1.fail("startup", "process failed to start");
 
-      EngineFailedMessage dialog =
-          new EngineFailedMessage(
-              List.of("katago.exe"), "katago.exe gtp", "failure", true, true, false);
-      dialog.bindStartupDiagnostic(attempt1);
+            EngineFailedMessage dialog =
+                new EngineFailedMessage(
+                    List.of("katago.exe"), "katago.exe gtp", "failure", true, true, false);
+            try {
+              dialog.bindStartupDiagnostic(attempt1);
 
-      JTextArea summaryArea =
-          findComponentByName(dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
-      JTextArea detailsArea =
-          findComponentByName(dialog, "EngineFailedMessage.detailsArea", JTextArea.class);
+              JTextArea summaryArea =
+                  findComponentByName(
+                      dialog, "EngineFailedMessage.diagnosticSummary", JTextArea.class);
+              JTextArea detailsArea =
+                  findComponentByName(dialog, "EngineFailedMessage.detailsArea", JTextArea.class);
 
-      assertNotNull(summaryArea);
-      assertNotNull(detailsArea);
-      assertTrue(summaryArea.getText().contains("engine-test-1"));
-      assertTrue(summaryArea.getText().contains(attempt1.id()));
-      assertTrue(detailsArea.getText().contains("engine-test-1"));
-      assertTrue(detailsArea.getText().contains(attempt1.id()));
+              assertNotNull(summaryArea);
+              assertNotNull(detailsArea);
+              assertTrue(summaryArea.getText().contains("engine-test-1"));
+              assertTrue(summaryArea.getText().contains(attempt1.id()));
+              assertTrue(detailsArea.getText().contains("engine-test-1"));
+              assertTrue(detailsArea.getText().contains(attempt1.id()));
 
-      // Attempt 2 fails independently
-      EngineStartupDiagnostics.Attempt attempt2 =
-          diagnostics.begin("engine-test-2", "play", List.of("leelaz.exe"), true);
-      attempt2.fail("startup", "different failure");
+              // Attempt 2 fails independently
+              EngineStartupDiagnostics.Attempt attempt2 =
+                  diagnostics.begin("engine-test-2", "play", List.of("leelaz.exe"), true);
+              attempt2.fail("startup", "different failure");
 
-      // Dialog remains isolated to attempt 1
-      assertTrue(summaryArea.getText().contains("engine-test-1"));
-      assertFalse(summaryArea.getText().contains("engine-test-2"));
-      assertTrue(detailsArea.getText().contains("engine-test-1"));
-      assertFalse(detailsArea.getText().contains("engine-test-2"));
-      dialog.dispose();
-    }
+              // Dialog remains isolated to attempt 1
+              assertTrue(summaryArea.getText().contains("engine-test-1"));
+              assertFalse(summaryArea.getText().contains("engine-test-2"));
+              assertTrue(detailsArea.getText().contains("engine-test-1"));
+              assertFalse(detailsArea.getText().contains("engine-test-2"));
+            } finally {
+              dialog.dispose();
+            }
+          }
+        });
   }
 
   @Test

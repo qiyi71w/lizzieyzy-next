@@ -7,6 +7,7 @@ import featurecat.lizzie.analysis.AnalysisResourceCoordinator;
 import featurecat.lizzie.analysis.EngineManager;
 import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.gui.EngineData;
+import featurecat.lizzie.logging.LogCategories;
 import featurecat.lizzie.logging.MaintenanceObservation;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.util.KataGoAutoSetupHelper.DownloadCancelledException;
@@ -24,14 +25,7 @@ import featurecat.lizzie.util.katago.tuning.KataGoTuningCandidate;
 import featurecat.lizzie.util.katago.tuning.KataGoTuningFingerprint;
 import featurecat.lizzie.util.katago.tuning.KataGoTuningProfile;
 import featurecat.lizzie.util.katago.tuning.KataGoTuningStore;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
 import java.awt.Window;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -76,17 +70,15 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JProgressBar;
 import javax.swing.SwingUtilities;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class KataGoRuntimeHelper {
+  private static final Logger LOG = LoggerFactory.getLogger(LogCategories.ENGINE);
+
   public enum LaunchPurpose {
     MAIN_GTP,
     ANALYSIS,
@@ -290,7 +282,6 @@ public final class KataGoRuntimeHelper {
       "katago-apple-auto-optimize-version";
   private static final Object APPLE_AUTO_OPTIMIZE_LOCK = new Object();
   private static final Object BENCHMARK_ANALYSIS_PAUSE_LOCK = new Object();
-  private static final String BENCHMARK_NOTICE_PROGRESS_KEY = "lizzie.benchmark.notice.progress";
   private static Boolean benchmarkPreviousShowPonderTips = null;
   private static Leelaz benchmarkPausedEngine = null;
   private static EngineManager benchmarkPausedEngineManager = null;
@@ -4279,7 +4270,6 @@ public final class KataGoRuntimeHelper {
     Thread worker =
         new Thread(
             () -> {
-              JDialog notice = null;
               boolean pausedAnalysis = false;
               boolean benchmarkPauseAccepted = false;
               SetupSnapshot snapshot = null;
@@ -4307,12 +4297,6 @@ public final class KataGoRuntimeHelper {
                 BenchmarkTarget target = captureBenchmarkTarget(snapshot, true);
 
                 DownloadSession session = new DownloadSession();
-                notice =
-                    showBenchmarkNotice(
-                        resource("AutoSetup.benchmarking", "Benchmark") + " — " + target.name,
-                        automaticBenchmarkDescription(target),
-                        session);
-                final JDialog progressNotice = notice;
                 if (session.isCancelled() || !isAutomaticBenchmarkContextIdle()) return;
                 BenchmarkPauseResult pauseResult = pauseCurrentAnalysisForBenchmark();
                 if (!pauseResult.accepted()) {
@@ -4321,29 +4305,17 @@ public final class KataGoRuntimeHelper {
                 benchmarkPauseAccepted = true;
                 pausedAnalysis = pauseResult.analysisWasPondering();
 
-                System.out.println(
-                    "Running Apple Silicon KataGo benchmark in background for automatic tuning...");
-                BenchmarkResult result =
-                    runBenchmarkAndApply(
-                        target,
-                        (statusText, downloadedBytes, totalBytes) -> {
-                          if (progressNotice != null) {
-                            updateBenchmarkNotice(
-                                progressNotice, statusText, downloadedBytes, totalBytes);
-                          }
-                        },
-                        session);
-                System.out.println(
-                    "Apple Silicon KataGo tuning applied: " + formatBenchmarkResult(result));
+                LOG.info("benchmark mode=automatic source=apple-silicon outcome=started");
+                BenchmarkResult result = runBenchmarkAndApply(target, null, session);
+                LOG.info(
+                    "benchmark mode=automatic source=apple-silicon outcome=success result={}",
+                    formatBenchmarkResult(result));
               } catch (DownloadCancelledException e) {
                 rememberStartupBenchmarkDismissal(snapshot);
-                System.out.println("Apple Silicon KataGo auto benchmark cancelled by user.");
+                LOG.info("benchmark mode=automatic source=apple-silicon outcome=cancelled");
               } catch (Exception e) {
-                reportAutomaticBenchmarkFailure("Apple Silicon KataGo auto benchmark", e);
+                reportAutomaticBenchmarkFailure("apple-silicon", e);
               } finally {
-                if (notice != null) {
-                  disposeBenchmarkNotice(notice);
-                }
                 if (benchmarkPauseAccepted) {
                   restoreAnalysisAfterBenchmark(pausedAnalysis);
                 }
@@ -4357,216 +4329,14 @@ public final class KataGoRuntimeHelper {
     worker.start();
   }
 
-  private static String automaticBenchmarkDescription(BenchmarkTarget target) {
-    String text =
-        EngineThreadPolicy.message("automaticBenchmark")
-            + "\n\n"
-            + String.format(EngineThreadPolicy.message("target"), target.name)
-            + "\n"
-            + target.snapshot.enginePath
-            + "\n"
-            + target.snapshot.activeWeightPath
-            + "\n"
-            + target.snapshot.gtpConfigPath;
-    return "<div style='width:520px'>"
-        + text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br/>")
-        + "</div>";
-  }
-
-  private static void reportAutomaticBenchmarkFailure(String label, Exception error) {
+  static void reportAutomaticBenchmarkFailure(String source, Exception error) {
     // Losing compute ownership is normal when the user resumes analysis, not an engine failure.
     if (isBenchmarkPreempted(error)) {
-      System.out.println(label + " yielded to active analysis; previous tuning is unchanged.");
+      LOG.info(
+          "benchmark mode=automatic source={} outcome=preempted reason=active-analysis", source);
       return;
     }
-    System.err.println(label + " failed: " + error.getLocalizedMessage());
-    error.printStackTrace();
-    if (Lizzie.frame != null)
-      SwingUtilities.invokeLater(
-          () ->
-              Utils.showMsg(
-                  resource("AutoSetup.benchmarkFailed", "Benchmark failed")
-                      + "\n"
-                      + error.getLocalizedMessage(),
-                  Lizzie.frame));
-  }
-
-  private static JDialog showBenchmarkNotice(String title, String message) {
-    return showBenchmarkNotice(title, message, null);
-  }
-
-  private static JDialog showBenchmarkNotice(
-      String title, String message, DownloadSession cancelSession) {
-    if (Lizzie.frame == null) return null;
-    final JDialog[] noticeHolder = new JDialog[1];
-    Runnable task =
-        () -> {
-          JDialog notice = createBenchmarkNotice(title, message, cancelSession);
-          if (notice != null) {
-            noticeHolder[0] = notice;
-            notice.setVisible(true);
-            updateBenchmarkNotice(
-                notice,
-                resource("AutoSetup.benchmarkPreparing", "Preparing benchmark..."),
-                30L,
-                1000L);
-            notice.toFront();
-            notice.repaint();
-          }
-        };
-    if (SwingUtilities.isEventDispatchThread()) {
-      task.run();
-    } else {
-      try {
-        SwingUtilities.invokeAndWait(task);
-      } catch (Exception e) {
-        e.printStackTrace();
-        return null;
-      }
-    }
-    return noticeHolder[0];
-  }
-
-  private static JDialog createBenchmarkNotice(
-      String title, String message, DownloadSession cancelSession) {
-    if (Lizzie.frame == null) return null;
-    JDialog notice = new JDialog(Lizzie.frame, title, false);
-    notice.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-    if (cancelSession != null) {
-      notice.getRootPane().putClientProperty("lizzie.benchmark.notice.session", cancelSession);
-      notice.addWindowListener(
-          new WindowAdapter() {
-            public void windowClosing(WindowEvent e) {
-              cancelBenchmarkNotice(notice, cancelSession);
-            }
-          });
-    }
-    notice.setAlwaysOnTop(true);
-    notice.setType(Window.Type.UTILITY);
-    if (cancelSession == null) {
-      notice.setFocusableWindowState(false);
-    }
-    JPanel panel = new JPanel(new BorderLayout(12, 12));
-    panel.setOpaque(true);
-    panel.setBackground(new Color(255, 248, 232));
-    panel.setBorder(
-        BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(230, 190, 122)),
-            BorderFactory.createEmptyBorder(18, 22, 18, 22)));
-    JLabel msg = new JLabel("<html>" + message + "</html>");
-    msg.putClientProperty("lizzie.benchmark.notice.label", Boolean.TRUE);
-    panel.add(msg, BorderLayout.NORTH);
-    String preparingText = resource("AutoSetup.benchmarkPreparing", "Preparing benchmark...");
-    JLabel status = new JLabel(preparingText);
-    status.putClientProperty("lizzie.benchmark.notice.status", Boolean.TRUE);
-    panel.add(status, BorderLayout.CENTER);
-    JProgressBar pb = new JProgressBar();
-    pb.setIndeterminate(false);
-    pb.setMinimum(0);
-    pb.setMaximum(1000);
-    pb.setValue(30);
-    pb.setStringPainted(true);
-    pb.putClientProperty(BENCHMARK_NOTICE_PROGRESS_KEY, Integer.valueOf(30));
-    pb.setString("3%");
-    pb.setPreferredSize(new Dimension(520, 24));
-    pb.putClientProperty("lizzie.benchmark.notice.bar", Boolean.TRUE);
-    JPanel bottomPanel = new JPanel(new BorderLayout(0, 8));
-    bottomPanel.setOpaque(false);
-    bottomPanel.add(pb, BorderLayout.CENTER);
-    if (cancelSession != null) {
-      JButton cancelButton = new JButton(resource("AutoSetup.stopBenchmark", "Stop benchmark"));
-      cancelButton.addActionListener(e -> cancelBenchmarkNotice(notice, cancelSession));
-      JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-      buttonPanel.setOpaque(false);
-      buttonPanel.add(cancelButton);
-      bottomPanel.add(buttonPanel, BorderLayout.SOUTH);
-    }
-    panel.add(bottomPanel, BorderLayout.SOUTH);
-    notice.setContentPane(panel);
-    notice.setMinimumSize(new Dimension(560, 150));
-    notice.pack();
-    notice.setLocationRelativeTo(Lizzie.frame);
-    return notice;
-  }
-
-  private static void cancelBenchmarkNotice(JDialog notice, DownloadSession cancelSession) {
-    if (cancelSession != null) {
-      cancelSession.cancel();
-    }
-    if (notice != null) {
-      updateBenchmarkNotice(
-          notice, resource("AutoSetup.benchmarkCancelled", "Benchmark stopped."), 0L, 1000L);
-      notice.dispose();
-    }
-  }
-
-  private static void disposeBenchmarkNotice(JDialog notice) {
-    if (notice == null) return;
-    SwingUtilities.invokeLater(notice::dispose);
-  }
-
-  private static void updateBenchmarkNotice(
-      JDialog notice, String statusText, long downloadedBytes, long totalBytes) {
-    if (notice == null) return;
-    Runnable updateTask =
-        () -> {
-          Component root = notice.getContentPane();
-          int progressValue =
-              totalBytes > 0
-                  ? (int) Math.max(0L, Math.min(1000L, (downloadedBytes * 1000L) / totalBytes))
-                  : -1;
-          updateBenchmarkNoticeComponents(root, statusText, progressValue);
-          notice.getContentPane().revalidate();
-          notice.getContentPane().repaint();
-          notice.getRootPane().paintImmediately(notice.getRootPane().getVisibleRect());
-        };
-    if (SwingUtilities.isEventDispatchThread()) {
-      updateTask.run();
-      return;
-    }
-    try {
-      SwingUtilities.invokeAndWait(updateTask);
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-  }
-
-  private static void updateBenchmarkNoticeComponents(
-      Component component, String statusText, int progressValue) {
-    String displayStatus =
-        statusText == null || statusText.trim().isEmpty() ? "优化中..." : statusText;
-    if (component instanceof JLabel
-        && Boolean.TRUE.equals(
-            ((JLabel) component).getClientProperty("lizzie.benchmark.notice.status"))) {
-      ((JLabel) component).setText(displayStatus);
-    }
-    if (component instanceof JProgressBar) {
-      JProgressBar progressBar = (JProgressBar) component;
-      int displayProgress = progressValue >= 0 ? progressValue : progressBar.getValue();
-      int previousProgress =
-          progressBar.getClientProperty(BENCHMARK_NOTICE_PROGRESS_KEY) instanceof Integer
-              ? ((Integer) progressBar.getClientProperty(BENCHMARK_NOTICE_PROGRESS_KEY)).intValue()
-              : 0;
-      if (progressValue >= 0 && !isTerminalBenchmarkStatus(displayStatus)) {
-        displayProgress = Math.max(previousProgress, progressValue);
-      }
-      progressBar.setIndeterminate(false);
-      progressBar.setMaximum(1000);
-      if (progressValue >= 0) {
-        progressBar.setValue(displayProgress);
-        progressBar.putClientProperty(
-            BENCHMARK_NOTICE_PROGRESS_KEY, Integer.valueOf(displayProgress));
-      }
-      progressBar.setString(Math.max(0, Math.min(1000, displayProgress)) / 10 + "%");
-    }
-    if (component instanceof java.awt.Container) {
-      for (Component child : ((java.awt.Container) component).getComponents()) {
-        updateBenchmarkNoticeComponents(child, statusText, progressValue);
-      }
-    }
+    LOG.warn("benchmark mode=automatic source={} outcome=failed", source, error);
   }
 
   static final class BenchmarkProgressTracker {
@@ -4774,9 +4544,9 @@ public final class KataGoRuntimeHelper {
 
   /**
    * Run a one-time KataGo benchmark on the first launch so default thread counts reflect the actual
-   * hardware. Shows a non-modal notification to the user while the benchmark runs. No-op if a
-   * benchmark result is already stored, if no engine is available, or on Apple Silicon (handled by
-   * {@link #startAppleSiliconAutoOptimizationAsync()}).
+   * hardware. Runs silently; the saved result is shown in KataGo Auto Setup. No-op if a benchmark
+   * result is already stored, if no engine is available, or on Apple Silicon (handled by {@link
+   * #startAppleSiliconAutoOptimizationAsync()}).
    */
   public static void startFirstRunBenchmarkAsync() {
     if (Lizzie.config == null || Lizzie.config.uiConfig == null) return;
@@ -4802,6 +4572,7 @@ public final class KataGoRuntimeHelper {
               try {
                 snapshot = KataGoAutoSetupHelper.inspectLocalSetup();
               } catch (Exception e) {
+                reportAutomaticBenchmarkFailure("first-run", e);
                 return;
               }
               if (snapshot == null
@@ -4817,19 +4588,11 @@ public final class KataGoRuntimeHelper {
               try {
                 target = captureBenchmarkTarget(snapshot, true);
               } catch (IOException failure) {
-                System.err.println(failure.getLocalizedMessage());
+                reportAutomaticBenchmarkFailure("first-run", failure);
                 return;
               }
 
               final DownloadSession benchmarkSession = new DownloadSession();
-              final javax.swing.JDialog notice =
-                  Lizzie.frame != null && Lizzie.frame.isShowing()
-                      ? showBenchmarkNotice(
-                          resource("AutoSetup.benchmarking", "Benchmark") + " — " + target.name,
-                          automaticBenchmarkDescription(target),
-                          benchmarkSession)
-                      : null;
-
               boolean pausedAnalysis = false;
               boolean benchmarkPauseAccepted = false;
 
@@ -4843,23 +4606,17 @@ public final class KataGoRuntimeHelper {
                 }
                 benchmarkPauseAccepted = true;
                 pausedAnalysis = pauseResult.analysisWasPondering();
-                BenchmarkResult result =
-                    runBenchmarkAndApply(
-                        target,
-                        (statusText, downloadedBytes, totalBytes) ->
-                            updateBenchmarkNotice(notice, statusText, downloadedBytes, totalBytes),
-                        benchmarkSession);
-                System.out.println(
-                    "First-run KataGo benchmark applied: " + formatBenchmarkResult(result));
+                LOG.info("benchmark mode=automatic source=first-run outcome=started");
+                BenchmarkResult result = runBenchmarkAndApply(target, null, benchmarkSession);
+                LOG.info(
+                    "benchmark mode=automatic source=first-run outcome=success result={}",
+                    formatBenchmarkResult(result));
               } catch (DownloadCancelledException e) {
                 rememberStartupBenchmarkDismissal(snapshot);
-                System.out.println("First-run KataGo benchmark cancelled by user.");
+                LOG.info("benchmark mode=automatic source=first-run outcome=cancelled");
               } catch (Exception e) {
-                reportAutomaticBenchmarkFailure("First-run KataGo benchmark", e);
+                reportAutomaticBenchmarkFailure("first-run", e);
               } finally {
-                if (notice != null) {
-                  disposeBenchmarkNotice(notice);
-                }
                 if (benchmarkPauseAccepted) {
                   restoreAnalysisAfterBenchmark(pausedAnalysis);
                 }
@@ -5748,7 +5505,7 @@ public final class KataGoRuntimeHelper {
     try {
       Lizzie.config.save();
     } catch (IOException e) {
-      e.printStackTrace();
+      LOG.warn("benchmark mode=automatic stage=save-dismissal outcome=failed", e);
     }
   }
 
@@ -7021,21 +6778,15 @@ public final class KataGoRuntimeHelper {
     packages.add(
         readPackageSpec(
             cudaManifest, cudaManifestUrl, "libnvjitlink", "windows-x86_64", "CUDA nvJitLink"));
-    RuntimePackageSpec nvrtcPackage =
+    packages.add(
         readPackageSpec(
-            cudaManifest, cudaManifestUrl, "cuda_nvrtc", "windows-x86_64", "CUDA NVRTC");
-    if (!CUDA_12_8_NVRTC_VERSION.equals(nvrtcPackage.version)
-        || !CUDA_12_8_NVRTC_SHA256.equalsIgnoreCase(nvrtcPackage.sha256)) {
-      throw new IOException(
-          "Unexpected CUDA 12.8 NVRTC metadata; expected version "
-              + CUDA_12_8_NVRTC_VERSION
-              + " and SHA-256 "
-              + CUDA_12_8_NVRTC_SHA256);
-    }
-    packages.add(nvrtcPackage);
+            cudaManifest, cudaManifestUrl, "cuda_nvrtc", "windows-x86_64", "CUDA NVRTC"));
     packages.add(
         readNestedPackageSpec(
             cudnnManifest, cudnnManifestUrl, "cudnn", "windows-x86_64", "cuda12", "NVIDIA cuDNN"));
+    for (RuntimePackageSpec spec : packages) {
+      NvidiaRuntimePins.require(spec.key, spec.version, spec.sha256);
+    }
     packages.add(
         new RuntimePackageSpec(
             "NVIDIA TensorRT",
@@ -7808,18 +7559,6 @@ public final class KataGoRuntimeHelper {
     long hours = minutes / 60L;
     long remainMinutes = minutes % 60L;
     return hours + "h " + remainMinutes + "m";
-  }
-
-  private static boolean isTerminalBenchmarkStatus(String statusText) {
-    String lowered = statusText == null ? "" : statusText.toLowerCase(Locale.ROOT);
-    return lowered.contains("complete")
-        || lowered.contains("done")
-        || lowered.contains("stopped")
-        || lowered.contains("cancelled")
-        || lowered.contains("canceled")
-        || lowered.contains("完成")
-        || lowered.contains("停止")
-        || lowered.contains("取消");
   }
 
   public static String formatBenchmarkResult(BenchmarkResult result) {

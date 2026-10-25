@@ -117,6 +117,7 @@ class EngineManagerEngineGameStateMachineTest {
 
   @AfterEach
   void restoreStateMachineFixture() throws Exception {
+    SwingUtilities.invokeAndWait(() -> {});
     EngineManager.resetEngineGameTransactionStateForTest();
     black.leela0110StopPonder();
     white.leela0110StopPonder();
@@ -1812,6 +1813,19 @@ class EngineManagerEngineGameStateMachineTest {
 
   @Test
   void recentParameterCacheRequiresMatchingIdAndNeverEntersGenericParser() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          try {
+            // This fixture skips Menu's constructor, but exercises its real parameter callback.
+            for (String name : List.of("txtGfPDA", "txtWRN", "chkPDA", "chkWRN")) {
+              Field field = Menu.class.getDeclaredField(name);
+              field.setAccessible(true);
+              field.set(LizzieFrame.menu, field.getType().getConstructor().newInstance());
+            }
+          } catch (ReflectiveOperationException failure) {
+            throw new AssertionError(failure);
+          }
+        });
     black.pda = 0.25;
     black.isInputCommand = true;
 
@@ -1855,6 +1869,14 @@ class EngineManagerEngineGameStateMachineTest {
     assertEquals(0, Lizzie.board.getHistory().getMoveNumber());
     assertTrue(black.isInputCommand);
     black.isInputCommand = false;
+    SwingUtilities.invokeAndWait(
+        () -> {
+          assertEquals(1, frame.parameterRefreshRequests);
+          assertEquals(1.75, frame.presentedPda, 0.0001);
+          assertEquals(0.5, frame.presentedWrn, 0.0001);
+          assertEquals("1.75", LizzieFrame.menu.txtGfPDA.getText());
+          assertEquals("0.5", LizzieFrame.menu.txtWRN.getText());
+        });
   }
 
   @Test
@@ -6726,6 +6748,18 @@ class EngineManagerEngineGameStateMachineTest {
     private volatile BoardHistoryNode displayNodeOverride;
     private AtomicInteger analysisRefreshRequests;
     private AtomicInteger analysisTitleUpdateRequests;
+    private int parameterRefreshRequests;
+    private double presentedPda;
+    private double presentedWrn;
+
+    @Override
+    public void setPdaAndWrn(double pda, double wrn) {
+      assertTrue(SwingUtilities.isEventDispatchThread());
+      super.setPdaAndWrn(pda, wrn);
+      presentedPda = pda;
+      presentedWrn = wrn;
+      parameterRefreshRequests++;
+    }
 
     @Override
     public boolean isInputRoutingInitialized() {
